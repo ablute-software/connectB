@@ -54,6 +54,10 @@ export type EligibilityOrg = {
   // Prompt 563, migration 0311. Non-null = never listed to investors, whatever
   // the profile says. Same absent-means-allowed degrade as the fields above.
   discovery_excluded_reason?: string | null;
+  // Prompt 571, migration 0315. Moderation and discovery were two systems that
+  // never spoke: suspend/delete wrote only moderation_status, and nothing here
+  // read it. Absent-means-active, like every other field above.
+  moderation_status?: string | null;
 };
 
 export type EligibilityStartupProfile = {
@@ -91,6 +95,12 @@ export function filterEligibleOrgs(
       // matchdeal_profile_discovery_excluded() in SQL — the deck RPC and this
       // filter must never disagree about who is listable.
       if (org.discovery_excluded_reason) return false;
+      // Prompt 571 — a suspended or deleted account leaves the pipeline for as
+      // long as that lasts, and returns on undo with nothing to unset. Kept
+      // here rather than dual-written into discovery_excluded_reason: that
+      // column means "never list this", a permanent property, and making one
+      // field answer two questions is what would make undo hard.
+      if ((org.moderation_status ?? 'active') !== 'active') return false;
       const profile = profileByOrg.get(org.id);
       // No startup MatchDeal profile at all = never published. Fail closed:
       // an absent row is not an implicit yes.

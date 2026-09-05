@@ -5174,3 +5174,39 @@ and the quarantine's remaining wait is written out instead of living in a
 **The general point:** "the product cannot do X" and "the product never says it
 can do X" produce the same screenshot and want opposite fixes. Read the routes
 before accepting the first reading.
+
+## Prompt 571 — moderation reaches discovery, by reading rather than dual-writing (05/09/2026)
+
+Suspending or deleting an account closed the login and nothing else. Verified
+before changing anything: `applyModerationAction` writes exactly three columns
+(`moderation_status`, `moderation_quarantine_until`,
+`moderation_suspended_until`) and never `closed_at`, `platform_suspended_at` or
+`discovery_excluded_reason`; and of the four functions deciding what a viewer
+sees, only `catalog_top_matches` mentioned moderation at all. So a suspended
+startup stayed in every investor's deck through the 30-day quarantine and past
+the delete — an investor could like an account whose founder can no longer log
+in.
+
+Two systems built at different times, neither listening to the other. Latent
+only by luck: the single suspended org happened to have `is_visible = false`,
+and nothing had ever been deleted — but 569 §0 had just made the delete path
+visible on screen, so the first real use would have produced the ghost.
+
+**Read, don't dual-write.** Having moderation also set
+`discovery_excluded_reason` would have made `undo` responsible for unsetting
+it, and would have made one column answer two questions: that column means
+"never list this account" (563/568), a permanent property, not "this account is
+suspended right now". Reading `moderation_status` where the decision is made
+leaves nothing to undo — proved with a `zz-test-` fixture through the full
+cycle: active false → suspended true → deleted true → back to active false,
+with no extra step.
+
+Both halves moved together, which is the point: `matchdeal_profile_discovery_
+excluded` (0315, both `kind` branches — including a moderated investor FIRM,
+whose members' profiles would otherwise keep being served because the
+membership still resolves and 0314's orphan rule never fires) and
+`filterEligibleOrgs`. Estojo is now out of the deck **by rule** where it was out
+by coincidence.
+
+**The generalisable part:** a state change that gates one surface is not a
+state change. Ask which other surfaces read the thing it was supposed to mean.

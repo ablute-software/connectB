@@ -93,4 +93,23 @@ describe('filterEligibleOrgs', () => {
     const org: EligibilityOrg = { id: 'org-a' };
     expect(filterEligibleOrgs([org], [{ membership_id: 'org-a', is_visible: true }], false)).toEqual(['org-a']);
   });
+
+  // Prompt 571 — moderation reaches the pipeline.
+  it('excludes a suspended org, and a deleted one', () => {
+    const profiles = [{ membership_id: 'org-a', is_visible: true }];
+    for (const status of ['suspended', 'deleted']) {
+      const org: EligibilityOrg = { id: 'org-a', moderation_status: status };
+      expect(filterEligibleOrgs([org], profiles, false)).toEqual([]);
+    }
+  });
+
+  it('undo needs no second step — back to active is back in the pipeline', () => {
+    const org: EligibilityOrg = { id: 'org-a', moderation_status: 'active' };
+    expect(filterEligibleOrgs([org], [{ membership_id: 'org-a', is_visible: true }], false)).toEqual(['org-a']);
+  });
+
+  it('absent moderation_status reads as active, like every other field here', () => {
+    const org: EligibilityOrg = { id: 'org-a' };
+    expect(filterEligibleOrgs([org], [{ membership_id: 'org-a', is_visible: true }], false)).toEqual(['org-a']);
+  });
 });

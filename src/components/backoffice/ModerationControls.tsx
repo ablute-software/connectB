@@ -82,7 +82,12 @@ export function ModerationControls({ targetType, targetId, status, quarantineUnt
       <div className="flex flex-col gap-0.5">
         <button onClick={() => setMode('suspend')} className="text-left text-xs text-[#B00000] hover:underline">Suspend</button>
         <span className="text-[10px] leading-tight text-gray-400">
-          To delete: suspend first, then delete after the 30-day quarantine.
+          {/* Prompt 571 — the second sentence is the one that was missing: until
+              0315, suspending closed the login and left the account sitting in
+              every investor's deck. */}
+          Suspending removes the account from investor discovery and pipelines
+          while it lasts. To delete: suspend first, then delete after the
+          30-day quarantine.
         </span>
       </div>
     );
