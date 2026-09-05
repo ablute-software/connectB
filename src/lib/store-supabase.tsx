@@ -544,7 +544,15 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (input.direction === 'out') {
         const lockUntil = new Date(Date.now() + LOCK_DAYS * 24 * 3600 * 1000).toISOString();
         const entity = prev.entities.find((e) => e.id === input.entity_id);
-        const newStatus: EntityStatus | undefined = entity && entity.status === 'not_contacted' ? 'contacted' : undefined;
+        // Prompt 578 §D.2 — same reopen store-demo.tsx now applies, kept in
+        // sync: a dormant (Frozen) entity used to stay dormant after a fresh
+        // outbound log. 'contacted' mirrors buildReawakenApproval's own
+        // reopen (reawakening.ts) — the Pipeline queue's "Reopen" button —
+        // rather than a second, independent reopen rule. 'passed'/'invested'
+        // stay untouched: those are an explicit close, not something an
+        // incidental log should undo.
+        const newStatus: EntityStatus | undefined =
+          entity && (entity.status === 'not_contacted' || entity.status === 'dormant') ? 'contacted' : undefined;
         entityPatch = { contact_lock_until: lockUntil, ...(newStatus ? { status: newStatus } : {}) };
         entities = entities.map((e) => e.id === input.entity_id ? { ...e, ...entityPatch } : e);
         // Prompt 65 Bloco 4 — no more blind buildFollowUpTask here; see the

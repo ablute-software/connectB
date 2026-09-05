@@ -149,9 +149,20 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
 
         if (input.direction === 'out') {
           const lockUntil = new Date(Date.now() + LOCK_DAYS * 24 * 3600 * 1000).toISOString();
+          // Prompt 578 §D.2 — confirmed live before this change: logging an
+          // outbound message against a dormant (Frozen) entity saved fine
+          // but left status at 'dormant', so the relationship stayed frozen
+          // even though a fresh approach had just gone out. 'contacted' is
+          // the SAME reopen this codebase already uses for the Pipeline
+          // reawakening queue's own "Reopen" button — buildReawakenApproval
+          // (reawakening.ts) sets exactly this and nothing else, so this
+          // mirrors that precedent rather than inventing a second one.
+          // 'passed'/'invested' are deliberately untouched: those are a
+          // harder, explicit close, not something an incidental outbound
+          // log should silently undo.
           next.entities = next.entities.map((e) =>
             e.id === input.entity_id
-              ? { ...e, contact_lock_until: lockUntil, status: e.status === 'not_contacted' ? 'contacted' : e.status }
+              ? { ...e, contact_lock_until: lockUntil, status: (e.status === 'not_contacted' || e.status === 'dormant') ? 'contacted' : e.status }
               : e);
           // Prompt 65 Bloco 4 — no more blind buildFollowUpTask here. The
           // contact lock above is the real, independent guardrail (nothing

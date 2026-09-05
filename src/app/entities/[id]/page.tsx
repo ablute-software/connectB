@@ -134,6 +134,14 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   // separate from logPrefill since it doesn't drive RailLogForm's §D.1
   // shimmer (see that component's own prop comment).
   const [logDraftPrefill, setLogDraftPrefill] = useState<{ direction?: 'out' | 'in'; date?: string; content?: string; nonce: number }>({ nonce: 0 });
+  // Prompt 578 §A — a temporary highlight on the rail card itself when the
+  // page is landed on via ?rail=log (Pipeline's "Draft this message" and
+  // similar deep links leave the founder unsure where to act). Local,
+  // in-memory state only — unlike CoachMark/PageTour's onboarding-provider-
+  // backed "seen once, ever" state, this must re-fire on every ?rail=log
+  // arrival and never persist across visits (no localStorage).
+  const [railHighlight, setRailHighlight] = useState(false);
+  const railPanelRef = useRef<HTMLDivElement>(null);
   // Block F — a "Request NDA via message" link (from the document-request
   // review page) lands here with a draft body pre-filled but NEVER sent
   // automatically: it switches the panel to Message with the same composer
@@ -230,12 +238,26 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         }));
       }
       setPanelMode('log');
+      setRailHighlight(true);
     } else if (railMode === 'history') {
       setPanelMode('history');
       if (railClassify) setClassifyNonce((n) => n + 1);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [railMode, railPerson, railClassify, railDirection, railDate, railContent]);
+
+  // Prompt 578 §A — scrolls the rail into view once, then auto-dismisses
+  // after ~8s. Dismiss-on-click/focus is wired directly on the rail card
+  // below (onClick/onFocus both just call setRailHighlight(false)) — whichever
+  // fires first wins, since this is a plain boolean.
+  useEffect(() => {
+    if (!railHighlight) return;
+    const scrollId = window.setTimeout(() => {
+      railPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
+    const dismissId = window.setTimeout(() => setRailHighlight(false), 8000);
+    return () => { window.clearTimeout(scrollId); window.clearTimeout(dismissId); };
+  }, [railHighlight]);
 
   // Prompt 275 §3 — scrolls to and briefly highlights the row a founder
   // just promoted from the Team card's key_people fallback via "Add as
@@ -360,6 +382,8 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   // pure computation the journey card/banner also call independently (same
   // pattern as HealthDot/WhoseTurnChip already use throughout this codebase).
   const relSummary = relationshipSummary(db, entity.id, new Date(), dealMessageTouches);
+  // Prompt 578 §A — the arrival caption's only variable part.
+  const railHighlightPersonName = railPerson ? db.people.find((p) => p.id === railPerson)?.full_name : undefined;
   const views = db.views.filter((v) => grants.some((g) => g.id === v.grant_id)
     || people.some((p) => p.email_verified && p.email_verified === v.viewer_email));
   const canMessagePanel = !!(messaging.canMessage && messaging.investorCatalogEntityId);
@@ -510,7 +534,19 @@ export default function EntityPage({ params }: { params: { id: string } }) {
       {/* Prompt 397 §B.1 — below the banner: left = Zone B's 4 tabs
           (unchanged), right = the conversation panel (History/Log/Message).
           Stacks (panel below) under `lg`. */}
-      <div className="grid gap-[18px] lg:grid-cols-[1fr_392px]">
+      {/* Prompt 578 §B.1 — the rail (History/Log/Message) was a fixed 392px
+          regardless of viewport width, squeezing the Log form's own fields
+          (a 20-line draft showed 6 lines with no scroll cue) while the left
+          content column kept growing unbounded. 3fr/2fr (≈3/5·2/5) from
+          1280px, back to 2fr/1fr (2/3·1/3) from 1536px where there's room
+          for both — the 1024–1279px range is unchanged, not part of the
+          reported problem. `minmax(0,_)` on both tracks, not bare fr: a bare
+          `Xfr` track's minimum is `auto` (min-content), and the rail's own
+          unwrapped content (channel select, "Send from x@y.com & log") was
+          measured live to win a bigger share than 2fr at 1280px — confirmed
+          by comparing getBoundingClientRect() on both tracks before/after
+          adding minmax(0,_) in the running page. */}
+      <div className="grid gap-[18px] lg:grid-cols-[1fr_392px] xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] 2xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-4">
           {/* Prompt 396 §5 — Zone B: sub-tabs for everything accessory to
               the main flow. Only the active section mounts (same pattern as
@@ -889,7 +925,25 @@ export default function EntityPage({ params }: { params: { id: string } }) {
             </div>
           </div>
 
-          <div className="rounded-2xl bg-white p-4 shadow-[0_4px_20px_rgba(15,23,42,0.06)]">
+          <div ref={railPanelRef}
+            onClick={() => { if (railHighlight) setRailHighlight(false); }}
+            onFocus={() => { if (railHighlight) setRailHighlight(false); }}
+            className={`relative rounded-2xl bg-white p-4 shadow-[0_4px_20px_rgba(15,23,42,0.06)] ${
+              railHighlight ? 'ring-2 ring-[#0E7490] ring-offset-2' : ''}`}>
+            {/* Prompt 578 §A — same visual language as the app's other tip
+                bubbles (CoachMark.tsx: white card, gray-200 border, shadow-xl,
+                teal accent) but local/ephemeral state rather than the
+                onboarding registry — that one has a lifetime budget and
+                persists "seen", the wrong lifecycle for a highlight that must
+                re-fire on every ?rail=log arrival and never persist. */}
+            {railHighlight && (
+              <div role="tooltip"
+                className="onboarding-coachmark-enter absolute bottom-full left-1/2 z-40 mb-2 w-max max-w-[280px] -translate-x-1/2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-center text-[12.5px] font-medium leading-snug text-gray-700 shadow-xl">
+                {railHighlightPersonName
+                  ? `Log what happened here — Watson has drafted the message for ${railHighlightPersonName}.`
+                  : 'Log what happened here.'}
+              </div>
+            )}
             <div className="flex gap-1 rounded-xl bg-[#F1F5F9] p-1">
               {([
                 { key: 'history' as const, label: 'History', icon: (
@@ -905,7 +959,13 @@ export default function EntityPage({ params }: { params: { id: string } }) {
                 const disabled = m.key === 'message' && !canMessagePanel;
                 return (
                   <button key={m.key} disabled={disabled}
-                    title={disabled ? 'Messaging opens once this investor is connected' : undefined}
+                    title={disabled
+                      // Prompt 578 §D.1 — Nuno's own copy: the tab used to
+                      // say only "opens once connected", with no way for a
+                      // founder to tell whether that's a state to wait out
+                      // or a channel that will never apply to this investor.
+                      ? 'In-app messaging is for MatchDeal investors who marked you Interested. For catalog investors, reach out on your own channel and log it here.'
+                      : undefined}
                     onClick={() => setPanelMode(m.key)}
                     className={`flex flex-1 items-center justify-center gap-1 rounded-lg py-1.5 text-[12px] font-semibold ${
                       panelMode === m.key ? 'bg-white text-[#0E7490] shadow-[0_1px_4px_rgba(15,23,42,0.15)]'
