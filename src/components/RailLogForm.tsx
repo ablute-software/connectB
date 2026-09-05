@@ -357,6 +357,13 @@ export function RailLogForm({
 
   const person = people.find((p) => p.id === personId);
 
+  // Prompt 578 §B.3 — grows with the content instead of a fixed 5 rows (a
+  // 20-line AI/prefilled draft used to show only 6 of its own lines, with no
+  // cue more was hiding below). Caps at ~24 so one huge paste can't push the
+  // Save button off-screen — the textarea's own default overflow scrolling
+  // takes over past that point, same as before this change.
+  const textareaRows = Math.min(24, Math.max(5, content.split('\n').length + 1));
+
   const checks = useMemo(() =>
     person && direction === 'out' ? preflight(db, person, channel) : [],
     [db, person, channel, direction]);
@@ -551,7 +558,7 @@ export function RailLogForm({
 
       <div>
         <label className="text-[10.5px] font-semibold uppercase tracking-wide text-gray-400">What happened</label>
-        <textarea value={content} onChange={(e) => setContent(e.target.value)} rows={5}
+        <textarea value={content} onChange={(e) => setContent(e.target.value)} rows={textareaRows}
           placeholder={direction === 'out' ? 'Paste the message verbatim…' : 'Paste the reply verbatim…'}
           className="mt-1 w-full rounded border border-gray-300 p-2 text-sm" />
       </div>
