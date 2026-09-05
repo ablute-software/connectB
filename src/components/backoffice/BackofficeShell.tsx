@@ -130,10 +130,11 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
     item('insight-metrics', 'Metrics', '/metrics', { icon: '◆', group: 4, groupLabel: 'Insight' }),
     item('insight-usage', 'Usage', '/metrics', { icon: '◆', group: 4, dimmed: true }),
     item('insight-costs', 'AI costs', '/backoffice/costs', { icon: '◆', group: 4 }),
-    // No page exists yet for this (it moves here from the Queue's
-    // key_people-adjacent UI once 572-574 land) — shown as a quiet
-    // placeholder rather than either invented or silently dropped.
-    { key: 'insight-contrib-by-user', label: 'Contributions by user', icon: '◆', active: false, group: 4, dimmed: true },
+    // Prompt 572 §D — the placeholder above this comment used to say "no
+    // page exists yet"; it does now (contribution-ranking route + this
+    // page), read-only, separate from the Review queue's own decide-facts
+    // page it links back to.
+    item('insight-contrib-by-user', 'Contributions by user', '/backoffice/contributions', { icon: '◆', group: 4 }),
 
     // Prompt 576 Fase 2 — the unified 4-signal list (§7's format), one
     // level above the four individual detail pages it links out to.

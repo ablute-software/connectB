@@ -119,7 +119,10 @@ export async function POST(req: NextRequest) {
     personIdByName.set(key, created.id);
     peopleCreated++;
     newPersonContribs.push({
+      // Prompt 572 §C.1 — `user` was already in scope here; the row just
+      // never carried it.
       org_id: orgId, subject_type: 'person', subject_id: created.id, field: '__import_new_person__', value: true,
+      author_user_id: user.id,
       note: `Imported from history batch ${batchId} — check for the same person under other orgs.`,
     });
   }

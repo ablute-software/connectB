@@ -21,34 +21,61 @@
 // expand panel, because five stacked values per cell made every row five lines
 // tall.
 //
-// NOT AVAILABLE, stated rather than faked: the prompt asks for "added by org
-// AND user". `entities` has no created_by/user column (checked against the
-// live schema), so there is no user to show. The column shows the org, and
-// adding the user means a schema change in its own prompt.
+// Prompt 572 §B — "New investors" merges two sources into ONE queue+response
+// rather than two tabs: this route's own `entities` candidates, plus
+// investor_submissions (previously served by /api/backoffice/submissions,
+// which stays for backward-compat but is no longer linked from the sidebar).
+// Sorting/paging happens over the MERGED, already-shaped set — a submission
+// sorted by "Added when" has to interleave with candidates, not trail behind
+// them as a second page.
+//
+// created_by (migration 0318) is now on entities — "Added by (org +
+// utilizador)" resolves it via auth.admin.getUserById the same way
+// audit-log/route.ts already does. investor_submissions has no equivalent
+// column (checked against the live schema) — those rows show the org only,
+// same "don't invent an author" rule §B.2 states for entities' own pre-572 rows.
+//
+// Demand (§B.3) — cross-org name/domain dedup, via catalog-dedupe.ts's own
+// normalizeName/normalizeDomain (not a second algorithm): computed over the
+// WHOLE merged set before pagination, so "3 orgs" counts every org that added
+// something resolving to the same normalized identity, not just the current
+// page. The "replied" and "wave" sub-signals from §B.3's own text are NOT
+// included in this pass — they need a join against `interactions`/`entities.wave`
+// per matched cluster that didn't fit this change's scope; flagged, not silently
+// dropped.
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { manualEntityCompleteness } from '@/lib/completeness';
+import { normalizeName, normalizeDomain } from '@/lib/catalog-dedupe';
 
 const OPEN_STATUSES = ['pending', 'probable_match'] as const;
 const DECIDED_STATUSES = ['linked', 'merged', 'promoted', 'dismissed'] as const;
+const SUBMISSION_OPEN = ['pending_review'];
+const SUBMISSION_DECIDED = ['approved', 'rejected', 'merged'];
 
-// Prompt 570 §D.4 — Grade is the COMPLETENESS grade, not fit_score. It used to
-// be computed in the browser from the fields of whatever rows had been loaded,
-// which was fine while the route returned all 751 at once and silently wrong
-// the moment pagination arrived: you cannot grade, filter or sort by a value
-// you only know for the current page. "Grade A first" would have meant "grade A
-// first among these 25", which looks identical and is not the same thing.
-//
-// So the grade is computed here, over the rows the query selects, and the
-// sort/filter happen where the whole set is. Same function the browser used
-// (completeness.ts) — not a second definition of what an A is.
 const SORT_COLUMNS: Record<string, string> = {
   investor: 'name',
   added: 'created_at',
   match: 'catalog_review_status',
 };
-/** Sorted in memory, because it is derived rather than stored. */
-const DERIVED_SORTS = new Set(['grade']);
+interface UnifiedRow {
+  id: string; kind: 'candidate' | 'submission';
+  orgId: string; orgName: string; orgIsInternal: boolean;
+  addedByEmail: string | null;
+  name: string; website: string | null; grade: string; createdAt: string;
+  status: string;
+  hasContact: boolean;
+  catalogMatch: { id: string; name: string; website: string | null; verificationStatus: string } | null;
+  demand: number;
+  detail: {
+    hqCity: string | null; hqCountry: string | null; geographies: string[];
+    stageMin: string | null; stageMax: string | null; checkMinEur: number | null; checkMaxEur: number | null;
+    sectors: string[]; thesis: string | null; email: string | null; phone: string | null;
+    contacts: { id: string; fullName: string; role: string | null; email: string | null; linkedinUrl: string | null; phone: string | null }[];
+    // Submission-only fields, absent for candidates.
+    submissionPayload?: { name: string; type: string; hq_city?: string; hq_country?: string; sectors: string[]; website?: string; notes?: string };
+  };
+}
 
 export async function GET(req: Request) {
   const auth = await requirePlatformAdmin();
@@ -63,55 +90,58 @@ export async function GET(req: Request) {
   const showResolved = searchParams.get('resolved') === 'show';
   const hideInternal = searchParams.get('internal') !== 'shown';
 
-  // Internal orgs are resolved first: the filter is "who added it", and that
-  // lives on orgs, not on the entity.
   const { data: orgs } = await admin.from('orgs').select('id, name, is_internal');
   const orgById = new Map((orgs ?? []).map((o) => [o.id as string, o]));
   const internalOrgIds = (orgs ?? []).filter((o) => o.is_internal).map((o) => o.id as string);
 
   const statuses = showResolved ? [...OPEN_STATUSES, ...DECIDED_STATUSES] : [...OPEN_STATUSES];
+  const submissionStatuses = showResolved ? [...SUBMISSION_OPEN, ...SUBMISSION_DECIDED] : [...SUBMISSION_OPEN];
 
-  // The matching set is fetched whole, then graded, sorted and sliced here.
-  //
-  // That is a deliberate choice, not laziness: Grade is derived, so a DB-side
-  // range would make "sort by grade" mean "sort the 25 rows the database
-  // happened to return", which is indistinguishable from working. The set is
-  // small and bounded — 59 open rows after §D.3's reconcile, 757 even with
-  // every resolved row shown — so paging in memory costs nothing and cannot
-  // lie. If this ever stops being small, the fix is to store the grade, not
-  // to page around it.
-  let q = admin.from('entities')
-    .select('id, org_id, name, website, hq_city, hq_country, invests_in_geographies, stage_min, stage_max, check_min_eur, check_max_eur, sectors, thesis, email, phone, created_at, catalog_review_status, catalog_id')
+  let entityQ = admin.from('entities')
+    .select('id, org_id, name, website, hq_city, hq_country, invests_in_geographies, stage_min, stage_max, check_min_eur, check_max_eur, sectors, thesis, email, phone, created_at, catalog_review_status, catalog_id, created_by')
     .eq('source', 'manual')
     .in('catalog_review_status', statuses);
-  if (hideInternal && internalOrgIds.length) q = q.not('org_id', 'in', `(${internalOrgIds.join(',')})`);
+  if (hideInternal && internalOrgIds.length) entityQ = entityQ.not('org_id', 'in', `(${internalOrgIds.join(',')})`);
 
-  const [{ data: allRows, error }, hiddenRes] = await Promise.all([
-    q.order(DERIVED_SORTS.has(searchParams.get('sort') ?? '') ? 'created_at' : sortKey, { ascending }),
-    // What the toggle is hiding, so the table can say it instead of just
-    // showing a shorter list.
+  let submissionQ = admin.from('investor_submissions')
+    .select('id, org_id, payload, status, created_at, merged_catalog_id')
+    .in('status', submissionStatuses);
+  if (hideInternal && internalOrgIds.length) submissionQ = submissionQ.not('org_id', 'in', `(${internalOrgIds.join(',')})`);
+
+  const [{ data: entityRows, error: entityErr }, { data: submissionRows, error: subErr }, hiddenRes] = await Promise.all([
+    entityQ,
+    submissionQ,
     hideInternal && internalOrgIds.length
       ? admin.from('entities').select('id', { count: 'exact', head: true })
-          .eq('source', 'manual').in('catalog_review_status', statuses)
-          .in('org_id', internalOrgIds)
+          .eq('source', 'manual').in('catalog_review_status', statuses).in('org_id', internalOrgIds)
       : Promise.resolve({ count: 0 }),
   ]);
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  if (entityErr) return NextResponse.json({ ok: false, error: entityErr.message }, { status: 500 });
+  if (subErr) return NextResponse.json({ ok: false, error: subErr.message }, { status: 500 });
 
-  const ids = (allRows ?? []).map((r) => r.id as string);
-  const catalogIds = [...new Set((allRows ?? []).map((r) => r.catalog_id).filter(Boolean))] as string[];
+  const ids = (entityRows ?? []).map((r) => r.id as string);
+  const catalogIds = [...new Set([
+    ...(entityRows ?? []).map((r) => r.catalog_id).filter(Boolean),
+    ...(submissionRows ?? []).map((r) => r.merged_catalog_id).filter(Boolean),
+  ])] as string[];
+  const createdByIds = [...new Set((entityRows ?? []).map((r) => r.created_by).filter(Boolean))] as string[];
 
-  const [{ data: peopleRows }, { data: catalogRows }] = await Promise.all([
+  const [{ data: peopleRows }, { data: catalogRows }, emailPairs] = await Promise.all([
     ids.length
       ? admin.from('people').select('id, entity_id, full_name, role, linkedin_url, email_verified, email_guess, phone').in('entity_id', ids)
       : Promise.resolve({ data: [] as Record<string, unknown>[] }),
     catalogIds.length
       ? admin.from('catalog_entities').select('id, name, website, verification_status').in('id', catalogIds)
       : Promise.resolve({ data: [] as Record<string, unknown>[] }),
+    Promise.all(createdByIds.map(async (id) => {
+      const { data } = await admin.auth.admin.getUserById(id);
+      return [id, data?.user?.email ?? null] as const;
+    })),
   ]);
+  const emailById = new Map(emailPairs);
 
   const catalogById = new Map((catalogRows ?? []).map((c) => [c.id as string, c]));
-  const contactsByEntity = new Map<string, { id: string; fullName: string; role: string | null; email: string | null; linkedinUrl: string | null; phone: string | null }[]>();
+  const contactsByEntity = new Map<string, UnifiedRow['detail']['contacts']>();
   for (const p of peopleRows ?? []) {
     const entityId = p.entity_id as string;
     contactsByEntity.set(entityId, [...(contactsByEntity.get(entityId) ?? []), {
@@ -121,7 +151,7 @@ export async function GET(req: Request) {
     }]);
   }
 
-  const shaped = (allRows ?? []).map((m) => {
+  const candidateRows: UnifiedRow[] = (entityRows ?? []).map((m) => {
     const org = orgById.get(m.org_id as string);
     const match = m.catalog_id ? catalogById.get(m.catalog_id as string) ?? null : null;
     const contacts = contactsByEntity.get(m.id as string) ?? [];
@@ -133,33 +163,79 @@ export async function GET(req: Request) {
       sectors: (m.sectors ?? []) as string[], contactCount: contacts.length,
     });
     return {
-      id: m.id, orgId: m.org_id, orgName: org?.name ?? '(deleted org)', orgIsInternal: !!org?.is_internal,
-      name: m.name, website: m.website, grade, createdAt: m.created_at,
-      status: m.catalog_review_status,
-      // A contact is anything the founder could actually reach: a person, an
-      // inbox, or a phone. The column is a tick, not a count.
+      id: m.id as string, kind: 'candidate', orgId: m.org_id as string, orgName: org?.name ?? '(deleted org)', orgIsInternal: !!org?.is_internal,
+      addedByEmail: m.created_by ? emailById.get(m.created_by as string) ?? null : null,
+      name: m.name as string, website: m.website as string | null, grade, createdAt: m.created_at as string,
+      status: m.catalog_review_status as string,
       hasContact: contacts.length > 0 || !!m.email || !!m.phone,
-      catalogMatch: match ? { id: match.id, name: match.name, website: match.website, verificationStatus: match.verification_status } : null,
-      // Expand-panel detail. Shipped, not rendered in the row.
+      catalogMatch: match ? { id: match.id as string, name: match.name as string, website: match.website as string | null, verificationStatus: match.verification_status as string } : null,
+      demand: 1,
       detail: {
-        hqCity: m.hq_city, hqCountry: m.hq_country, geographies: m.invests_in_geographies ?? [],
-        stageMin: m.stage_min, stageMax: m.stage_max, checkMinEur: m.check_min_eur, checkMaxEur: m.check_max_eur,
-        sectors: m.sectors ?? [], thesis: m.thesis, email: m.email, phone: m.phone, contacts,
+        hqCity: m.hq_city as string | null, hqCountry: m.hq_country as string | null, geographies: (m.invests_in_geographies ?? []) as string[],
+        stageMin: m.stage_min as string | null, stageMax: m.stage_max as string | null, checkMinEur: m.check_min_eur as number | null, checkMaxEur: m.check_max_eur as number | null,
+        sectors: (m.sectors ?? []) as string[], thesis: m.thesis as string | null, email: m.email as string | null, phone: m.phone as string | null, contacts,
       },
     };
   });
 
-  // Grade filter and grade sort, both over the whole set — see the note above
-  // the query for why this is not a DB range.
-  const minGrade = searchParams.get('grade');
-  const filtered = minGrade && minGrade !== 'all'
-    ? shaped.filter((r) => r.grade.localeCompare(minGrade) <= 0)
-    : shaped;
+  const submissionUnified: UnifiedRow[] = (submissionRows ?? []).map((s) => {
+    const org = orgById.get(s.org_id as string);
+    const payload = s.payload as UnifiedRow['detail']['submissionPayload'];
+    const match = s.merged_catalog_id ? catalogById.get(s.merged_catalog_id as string) ?? null : null;
+    const { grade } = manualEntityCompleteness({
+      website: payload?.website ?? null, hqCity: payload?.hq_city ?? null, hqCountry: payload?.hq_country ?? null,
+      geographies: [], stageMin: null, stageMax: null, checkMinEur: null, checkMaxEur: null,
+      sectors: payload?.sectors ?? [], contactCount: 0,
+    });
+    return {
+      id: s.id as string, kind: 'submission', orgId: s.org_id as string, orgName: org?.name ?? '(deleted org)', orgIsInternal: !!org?.is_internal,
+      addedByEmail: null, // investor_submissions has no submitter column — org only, same rule as pre-572 entities rows
+      name: payload?.name ?? '(untitled)', website: payload?.website ?? null, grade, createdAt: s.created_at as string,
+      status: s.status as string,
+      hasContact: false,
+      catalogMatch: match ? { id: match.id as string, name: match.name as string, website: match.website as string | null, verificationStatus: match.verification_status as string } : null,
+      demand: 1,
+      detail: {
+        hqCity: payload?.hq_city ?? null, hqCountry: payload?.hq_country ?? null, geographies: [],
+        stageMin: null, stageMax: null, checkMinEur: null, checkMaxEur: null,
+        sectors: payload?.sectors ?? [], thesis: payload?.notes ?? null, email: null, phone: null, contacts: [],
+        submissionPayload: payload,
+      },
+    };
+  });
 
-  const sorted = searchParams.get('sort') === 'grade'
-    ? [...filtered].sort((a, b) =>
-        (ascending ? 1 : -1) * (b.grade.localeCompare(a.grade) || a.createdAt.localeCompare(b.createdAt)))
-    : filtered;
+  const merged = [...candidateRows, ...submissionUnified];
+
+  // Demand (§B.3, "N orgs" only — see header comment for the two sub-signals
+  // deliberately not included) — computed over the WHOLE merged set, before
+  // paging, using catalog-dedupe.ts's own normalizers so this can never
+  // disagree with the reconcile job that uses the same functions.
+  const keyOf = (r: UnifiedRow) => normalizeDomain(r.website) ?? (normalizeName(r.name) || null);
+  const orgsByKey = new Map<string, Set<string>>();
+  for (const r of merged) {
+    const key = keyOf(r);
+    if (!key) continue;
+    if (!orgsByKey.has(key)) orgsByKey.set(key, new Set());
+    orgsByKey.get(key)!.add(r.orgId);
+  }
+  for (const r of merged) {
+    const key = keyOf(r);
+    r.demand = key ? (orgsByKey.get(key)?.size ?? 1) : 1;
+  }
+
+  const minGrade = searchParams.get('grade');
+  const filtered = minGrade && minGrade !== 'all' ? merged.filter((r) => r.grade.localeCompare(minGrade) <= 0) : merged;
+
+  const sortField = searchParams.get('sort') ?? '';
+  const sorted = sortField === 'grade'
+    ? [...filtered].sort((a, b) => (ascending ? 1 : -1) * (b.grade.localeCompare(a.grade) || a.createdAt.localeCompare(b.createdAt)))
+    : sortField === 'demand'
+      ? [...filtered].sort((a, b) => (ascending ? 1 : -1) * (a.demand - b.demand))
+      : [...filtered].sort((a, b) => {
+          const av = sortKey === 'name' ? a.name : sortKey === 'catalog_review_status' ? a.status : a.createdAt;
+          const bv = sortKey === 'name' ? b.name : sortKey === 'catalog_review_status' ? b.status : b.createdAt;
+          return (ascending ? 1 : -1) * String(av).localeCompare(String(bv));
+        });
 
   const from = (page - 1) * size;
   return NextResponse.json({

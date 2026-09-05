@@ -14,9 +14,10 @@ import { FraudFlagsTab } from '@/components/backoffice/FraudFlagsTab';
 import { DomainMismatchTab } from '@/components/backoffice/DomainMismatchTab';
 import { CompetitorIntelTab } from '@/components/backoffice/CompetitorIntelTab';
 import { ENTITY_ENRICHMENT_FIELD_LABELS, isKnownEntityField } from '@/lib/entity-enrichment';
-import { manualEntityCompleteness, type CompletenessGrade } from '@/lib/completeness';
+import { manualEntityCompleteness, ENRICHMENT_REQUEST_FIELD, type CompletenessGrade } from '@/lib/completeness';
 import { QueueTable, type QueueColumn } from '@/components/backoffice/QueueTable';
 import { QueueTriageBoard } from '@/components/backoffice/QueueTriageBoard';
+import { ReviewQueueLayout, ReviewFacts, ReviewActionFooter } from '@/components/backoffice/ReviewQueueLayout';
 
 // Prompt 190 — 'candidates' ("Catalog candidates") added next to
 // Contributions per Nuno's explicit decision: "Added by startups" (Prompt
@@ -25,12 +26,16 @@ import { QueueTriageBoard } from '@/components/backoffice/QueueTriageBoard';
 // backoffice/catalog/page.tsx (the CatalogCandidatesTab/AddedByStartupsTab/
 // QualityPanel section below) — no logic changes, per the prompt's own
 // scope.
-type Tab = 'contributions' | 'candidates' | 'submissions' | 'claims' | 'identity' | 'gdpr' | 'suspicious' | 'fraud' | 'key_people' | 'community' | 'domain_mismatch' | 'competitor_intel';
+// Prompt 572 §B.1 — 'candidates' and 'submissions' merge into one
+// 'new_investors' tab; both old keys stay valid Tab values (never routed to
+// directly by TABS below, so they never render as a nav item) purely so
+// BackofficeQueueContent's own redirect (see there) has something to match
+// on an old bookmark/link.
+type Tab = 'contributions' | 'new_investors' | 'candidates' | 'submissions' | 'claims' | 'identity' | 'gdpr' | 'suspicious' | 'fraud' | 'key_people' | 'community' | 'domain_mismatch' | 'competitor_intel';
 
 const TABS: { key: Tab; label: string }[] = [
+  { key: 'new_investors', label: 'New investors' },
   { key: 'contributions', label: 'Contributions' },
-  { key: 'candidates', label: 'Catalog candidates' },
-  { key: 'submissions', label: 'Submissions' },
   { key: 'claims', label: 'Claims' },
   { key: 'identity', label: 'Investor identity' },
   { key: 'gdpr', label: 'GDPR' },
@@ -86,9 +91,10 @@ function ContributionsTab() {
   const [items, setItems] = useState<Contribution[] | null>(null);
   const [err, setErr] = useState('');
   const [notes, setNotes] = useState<Record<string, string>>({});
-  const [classFilter, setClassFilter] = useState<ConflictClass | 'all'>('all');
+  const [classFilter, setClassFilter] = useState<ConflictClass | 'all' | 'requests'>('all');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [peopleOnly, setPeopleOnly] = useState(false);
 
   function refresh() {
     fetch('/api/backoffice/contributions').then((r) => r.json()).then((body) => {
@@ -123,17 +129,36 @@ function ContributionsTab() {
     }
   }
 
-  const classified = useMemo(() => (items ?? []).map((c) => ({
+  // Prompt 572 §C.2 — "__enrichment_request__ não é uma contribuição."
+  // classifyConflict on a boolean demand-flag doesn't mean anything, and
+  // mixing it into the cosmetic/substantive counts above overstated the
+  // real backlog. Split before classifying, not after.
+  const requestRows = useMemo(() => (items ?? []).filter((c) => c.field === ENRICHMENT_REQUEST_FIELD), [items]);
+  const fieldRows = useMemo(() => (items ?? []).filter((c) => c.field !== ENRICHMENT_REQUEST_FIELD), [items]);
+  const classified = useMemo(() => fieldRows.map((c) => ({
     ...c, cls: classifyConflict(c.existing_value, c.value) as ConflictClass,
-  })), [items]);
+  })), [fieldRows]);
 
   if (err) return <p className="text-sm text-[#B00000]">{err}</p>;
   if (!items) return <p className="text-sm text-gray-400">Loading…</p>;
 
-  const pendingAll = classified.filter((c) => c.status === 'submitted');
+  // Prompt 572 §C.2 — shown only under the Requests filter, and only
+  // 'submitted' (still open / failed — EnrichmentBadge.tsx marks a
+  // successful run 'verified' itself) by default; already-closed ones sit
+  // behind their own "Show resolved"-style details, same convention as
+  // held/reviewed below.
+  const requestsOpen = requestRows.filter((c) => c.status === 'submitted');
+  const requestsClosed = requestRows.filter((c) => c.status !== 'submitted');
+
+  const pendingAllUnfiltered = classified.filter((c) => c.status === 'submitted');
+  // Prompt 572 §C.4 — "Pessoas são um filtro, não uma fila": subject_type
+  // ='person' rows stay in this same list, toggled by a checkbox rather
+  // than living in a separate tab.
+  const pendingAll = peopleOnly ? pendingAllUnfiltered.filter((c) => c.subject_type === 'person') : pendingAllUnfiltered;
+  const personCount = pendingAllUnfiltered.filter((c) => c.subject_type === 'person').length;
   const cosmeticCount = pendingAll.filter((c) => c.cls === 'cosmetic').length;
   const substantiveCount = pendingAll.filter((c) => c.cls === 'substantive').length;
-  const pending = classFilter === 'all' ? pendingAll : pendingAll.filter((c) => c.cls === classFilter);
+  const pending = classFilter === 'all' || classFilter === 'requests' ? pendingAll : pendingAll.filter((c) => c.cls === classFilter);
   // 'held' (migration 0034) — flagged by a human for a second look, not a
   // routine backlog row. Kept out of "Decided" (it isn't) and out of the
   // bulk-selectable pending list (no automatic rule should batch through
@@ -174,7 +199,7 @@ function ContributionsTab() {
   }
 
   return (
-    <Card title={`Contributions — cross-org (${pendingAll.length})`}>
+    <Card title={`Contributions — cross-org (${pendingAllUnfiltered.length})`}>
       <p className="mb-3 text-xs text-gray-500">
         Authored edits from every org&apos;s own &quot;Add info,&quot; aggregated by subject, sources side by side.
         Most conflicts are cosmetic (case, accents, quotes, whitespace, code-vs-full-name) — classified automatically below.
@@ -188,20 +213,33 @@ function ContributionsTab() {
               {f === 'all' ? `All (${pendingAll.length})` : f === 'cosmetic' ? `Cosmetic (${cosmeticCount})` : `Substantive (${substantiveCount})`}
             </button>
           ))}
+          {/* Prompt 572 §C.2 — enrichment requests are a demand-flag, not a
+              field diff; they only ever show up here, never mixed into the
+              cards above. Defaults to open/failed only (see requestsOpen). */}
+          <button onClick={() => { setClassFilter('requests'); setSelected(new Set()); }}
+            className={`rounded-full px-2.5 py-1 font-medium ${classFilter === 'requests' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+            Requests {requestsOpen.length > 0 ? `(${requestsOpen.length})` : ''}
+          </button>
         </div>
-        {pending.length > 0 && (
+        {classFilter !== 'requests' && personCount > 0 && (
+          <label className="flex items-center gap-1.5 text-xs text-gray-500">
+            <input type="checkbox" checked={peopleOnly} onChange={(e) => { setPeopleOnly(e.target.checked); setSelected(new Set()); }} />
+            People only ({personCount})
+          </label>
+        )}
+        {classFilter !== 'requests' && pending.length > 0 && (
           <label className="ml-2 flex items-center gap-1.5 text-xs text-gray-500">
             <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} />
             Select all in view ({pending.length})
           </label>
         )}
-        {highConfidenceAi.length > 0 && (
+        {classFilter !== 'requests' && highConfidenceAi.length > 0 && (
           <button disabled={bulkBusy} onClick={bulkApproveHighConfidence}
             className="rounded-lg border border-green-200 bg-green-50 px-2.5 py-1 text-xs font-medium text-green-800 hover:bg-green-100 disabled:opacity-40">
             {bulkBusy ? 'Working…' : `Approve all ≥80% AI confidence (${highConfidenceAi.length})`}
           </button>
         )}
-        {selected.size > 0 && (
+        {classFilter !== 'requests' && selected.size > 0 && (
           <div className="ml-auto flex items-center gap-2">
             <span className="text-xs text-gray-500">{selected.size} selected</span>
             <button disabled={bulkBusy} onClick={() => bulkReview([...selected], 'verified')}
@@ -216,74 +254,136 @@ function ContributionsTab() {
         )}
       </div>
 
-      {groups.size === 0 ? <p className="text-sm text-gray-400">Queue clear.</p> : (
+      {classFilter === 'requests' ? (
         <div className="space-y-3">
-          {[...groups.entries()].map(([key, list]) => (
-            <div key={key} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
-              <div className="mb-1.5 text-sm font-semibold">{list[0].subject_name} <span className="font-normal text-gray-400">({list[0].subject_type})</span></div>
-              <ul className="space-y-1.5">
-                {list.map((c) => (
-                  <li key={c.id} className="flex flex-wrap items-center gap-2 text-sm">
-                    <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggleOne(c.id)} />
-                    <Tooltip text={c.cls === 'cosmetic' ? 'Same value after normalizing case/accents/quotes/whitespace.' : 'A genuinely different value from what is on record.'}>
-                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${CLASS_STYLE[c.cls]}`}>{c.cls}</span>
-                    </Tooltip>
-                    <span className="font-medium">{c.field}:</span> {String(c.value)}
-                    {c.source === 'ai' ? (
-                      <span className="rounded-full bg-cyan-100 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-800">
-                        ✨ AI {c.confidence != null ? `${Math.round(c.confidence * 100)}%` : ''}
+          {requestsOpen.length === 0 ? <p className="text-sm text-gray-400">No open requests — every &quot;Request more info&quot; has either succeeded or failed and been reviewed.</p> : (
+            <ul className="space-y-1.5">
+              {requestsOpen.map((c) => (
+                <li key={c.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-100 bg-amber-50 p-3 text-sm">
+                  <span className="font-semibold">{c.subject_name}</span>
+                  <span className="text-xs text-gray-400">({c.subject_type}) · {c.org_name} · {c.created_at.slice(0, 10)}</span>
+                  {c.note && <span className="text-xs text-gray-500">— {c.note}</span>}
+                  <span className="ml-auto text-xs font-medium text-amber-700">enrichment failed or still pending — retry, or dismiss</span>
+                  <input placeholder="Reviewer notes" value={notes[c.id] ?? ''} onChange={(e) => setNotes({ ...notes, [c.id]: e.target.value })}
+                    className="min-w-[160px] rounded border border-gray-200 px-2 py-1 text-xs" />
+                  <button onClick={() => review(c.id, 'verified')} className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800">Retry / mark done</button>
+                  <button onClick={() => review(c.id, 'rejected')} className="rounded border border-red-200 px-2 py-1 text-xs text-[#B00000] hover:bg-red-50">Dismiss</button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {requestsClosed.length > 0 && (
+            <details className="mt-3">
+              <summary className="cursor-pointer text-xs text-gray-400">Closed ({requestsClosed.length})</summary>
+              <ul className="mt-2 space-y-1 text-xs">
+                {requestsClosed.map((c) => (
+                  <li key={c.id} className="flex flex-wrap items-center gap-2">
+                    <span className={`rounded-full px-1.5 py-0.5 font-semibold ${c.status === 'verified' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{c.status}</span>
+                    <span>{c.subject_name}</span>
+                    <span className="text-gray-400">{c.org_name}</span>
+                    {c.reviewer_notes && <span className="text-gray-500">— {c.reviewer_notes}</span>}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      ) : (
+        <>
+          {groups.size === 0 ? <p className="text-sm text-gray-400">Queue clear.</p> : (
+            <div className="space-y-3">
+              {[...groups.entries()].map(([key, list]) => {
+                const aiCount = list.filter((c) => c.source === 'ai').length;
+                const userCount = list.length - aiCount;
+                return (
+                <div key={key} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <div className="text-sm font-semibold">
+                      {list[0].subject_name} <span className="font-normal text-gray-400">({list[0].subject_type})</span>
+                      <span className="ml-1.5 font-normal text-gray-400">
+                        — {list.length} proposed change{list.length === 1 ? '' : 's'}
+                        {aiCount > 0 && userCount > 0 ? ` (${aiCount} AI · ${userCount} user)` : ''}
                       </span>
-                    ) : (
-                      <span className="text-xs text-gray-400">by {c.org_name} · {c.created_at.slice(0, 10)}</span>
+                    </div>
+                    {list.length > 1 && (
+                      <button onClick={() => bulkReview(list.map((c) => c.id), 'verified')} disabled={bulkBusy}
+                        className="rounded border border-green-200 bg-white px-2 py-0.5 text-[11px] font-medium text-green-800 hover:bg-green-50 disabled:opacity-40">
+                        Verify all {list.length}
+                      </button>
                     )}
+                  </div>
+                  <ul className="space-y-1.5">
+                    {list.map((c) => (
+                      <li key={c.id} className="flex flex-wrap items-center gap-2 text-sm">
+                        <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggleOne(c.id)} />
+                        <Tooltip text={c.cls === 'cosmetic' ? 'Same value after normalizing case/accents/quotes/whitespace.' : 'A genuinely different value from what is on record.'}>
+                          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${CLASS_STYLE[c.cls]}`}>{c.cls}</span>
+                        </Tooltip>
+                        <span className="font-medium">{c.field}:</span>
+                        {c.existing_value != null && c.existing_value !== '' ? (
+                          <span className="text-gray-400">{formatFieldValue(c.existing_value)} →</span>
+                        ) : null}
+                        <span>{formatFieldValue(c.value)}</span>
+                        {c.source === 'ai' ? (
+                          <span className="rounded-full bg-cyan-100 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-800">
+                            ✨ AI {c.confidence != null ? `${Math.round(c.confidence * 100)}%` : ''}
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-gray-200 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">
+                            User
+                          </span>
+                        )}
+                        <span className="text-xs text-gray-400">by {c.org_name} · {c.created_at.slice(0, 10)}</span>
+                        {c.source_url && <a href={c.source_url} target="_blank" rel="noreferrer" className="text-xs text-[#0E7490] hover:underline">source</a>}
+                        {c.note && <span className="text-xs text-gray-500">— {c.note}</span>}
+                        <input placeholder="Reviewer notes" value={notes[c.id] ?? ''} onChange={(e) => setNotes({ ...notes, [c.id]: e.target.value })}
+                          className="ml-auto min-w-[160px] rounded border border-gray-200 px-2 py-1 text-xs" />
+                        <Tooltip text="Marks this fact as confirmed true — verified facts are eligible for the shared catalog.">
+                          <button onClick={() => review(c.id, 'verified')} className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800">Verify</button>
+                        </Tooltip>
+                        <Tooltip text="Discards this submitted fact — it stays out of the catalog.">
+                          <button onClick={() => review(c.id, 'rejected')} className="rounded border border-red-200 px-2 py-1 text-xs text-[#B00000] hover:bg-red-50">Reject</button>
+                        </Tooltip>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );})}
+            </div>
+          )}
+          {held.length > 0 && (
+            <div className="mt-3 rounded-lg border border-purple-200 bg-purple-50 p-2">
+              <p className="mb-1.5 text-xs font-semibold text-purple-800">Held — needs a decision ({held.length})</p>
+              <ul className="space-y-1.5 text-xs">
+                {held.map((c) => (
+                  <li key={c.id} className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-medium">{c.subject_name} — {c.field}:</span> {String(c.value)}
                     {c.source_url && <a href={c.source_url} target="_blank" rel="noreferrer" className="text-xs text-[#0E7490] hover:underline">source</a>}
-                    {c.note && <span className="text-xs text-gray-500">— {c.note}</span>}
+                    {c.reviewer_notes && <span className="text-gray-500">— {c.reviewer_notes}</span>}
                     <input placeholder="Reviewer notes" value={notes[c.id] ?? ''} onChange={(e) => setNotes({ ...notes, [c.id]: e.target.value })}
                       className="ml-auto min-w-[160px] rounded border border-gray-200 px-2 py-1 text-xs" />
-                    <Tooltip text="Marks this fact as confirmed true — verified facts are eligible for the shared catalog.">
-                      <button onClick={() => review(c.id, 'verified')} className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800">Verify</button>
-                    </Tooltip>
-                    <Tooltip text="Discards this submitted fact — it stays out of the catalog.">
-                      <button onClick={() => review(c.id, 'rejected')} className="rounded border border-red-200 px-2 py-1 text-xs text-[#B00000] hover:bg-red-50">Reject</button>
-                    </Tooltip>
+                    <button onClick={() => review(c.id, 'verified')} className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800">Verify</button>
+                    <button onClick={() => review(c.id, 'rejected')} className="rounded border border-red-200 px-2 py-1 text-xs text-[#B00000] hover:bg-red-50">Reject</button>
                   </li>
                 ))}
               </ul>
             </div>
-          ))}
-        </div>
-      )}
-      {held.length > 0 && (
-        <div className="mt-3 rounded-lg border border-purple-200 bg-purple-50 p-2">
-          <p className="mb-1.5 text-xs font-semibold text-purple-800">Held — needs a decision ({held.length})</p>
-          <ul className="space-y-1.5 text-xs">
-            {held.map((c) => (
-              <li key={c.id} className="flex flex-wrap items-center gap-1.5">
-                <span className="font-medium">{c.subject_name} — {c.field}:</span> {String(c.value)}
-                {c.source_url && <a href={c.source_url} target="_blank" rel="noreferrer" className="text-xs text-[#0E7490] hover:underline">source</a>}
-                {c.reviewer_notes && <span className="text-gray-500">— {c.reviewer_notes}</span>}
-                <input placeholder="Reviewer notes" value={notes[c.id] ?? ''} onChange={(e) => setNotes({ ...notes, [c.id]: e.target.value })}
-                  className="ml-auto min-w-[160px] rounded border border-gray-200 px-2 py-1 text-xs" />
-                <button onClick={() => review(c.id, 'verified')} className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800">Verify</button>
-                <button onClick={() => review(c.id, 'rejected')} className="rounded border border-red-200 px-2 py-1 text-xs text-[#B00000] hover:bg-red-50">Reject</button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {reviewed.length > 0 && (
-        <details className="mt-3">
-          <summary className="cursor-pointer text-xs text-gray-400">Decided ({reviewed.length})</summary>
-          <ul className="mt-2 space-y-1 text-xs">
-            {reviewed.map((c) => (
-              <li key={c.id} className="flex items-center gap-2">
-                <span className={`rounded-full px-1.5 py-0.5 font-semibold ${c.status === 'verified' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{c.status}</span>
-                <span>{c.subject_name} — {c.field}: {String(c.value)}</span>
-                <span className="text-gray-400">by {c.org_name}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
+          )}
+          {reviewed.length > 0 && (
+            <details className="mt-3">
+              <summary className="cursor-pointer text-xs text-gray-400">Decided ({reviewed.length})</summary>
+              <ul className="mt-2 space-y-1 text-xs">
+                {reviewed.map((c) => (
+                  <li key={c.id} className="flex items-center gap-2">
+                    <span className={`rounded-full px-1.5 py-0.5 font-semibold ${c.status === 'verified' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{c.status}</span>
+                    <span>{c.subject_name} — {c.field}: {String(c.value)}</span>
+                    <span className="text-gray-400">by {c.org_name}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </>
       )}
     </Card>
   );
@@ -428,90 +528,6 @@ function ContributionsByUsersTab() {
                 <span className={`rounded-full px-1.5 py-0.5 font-semibold ${c.visibility === 'verified' ? 'bg-green-50 text-green-700' : 'bg-cyan-50 text-cyan-800'}`}>{c.visibility}</span>
                 <span>{c.catalogName} — {fieldLabel(c.field)}: {formatFieldValue(c.value)}</span>
                 <span className="text-gray-400">score {c.score}, {c.sourceCount} org{c.sourceCount === 1 ? '' : 's'}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-    </Card>
-  );
-}
-
-type Submission = {
-  id: string; org_id: string; org_name: string; status: 'pending_review' | 'approved' | 'rejected' | 'merged';
-  payload: { name: string; type: string; hq_city?: string; hq_country?: string; sectors: string[]; website?: string; notes?: string };
-  reviewer_notes: string | null; created_at: string; reviewed_at: string | null;
-};
-
-function SubmissionsTab() {
-  const [items, setItems] = useState<Submission[] | null>(null);
-  const [err, setErr] = useState('');
-  const [notes, setNotes] = useState<Record<string, string>>({});
-
-  function refresh() {
-    fetch('/api/backoffice/submissions').then((r) => r.json()).then((body) => {
-      if (body.ok === false) { setErr(body.error); return; }
-      setItems(body.submissions);
-    });
-  }
-  useEffect(refresh, []);
-
-  async function review(id: string, decision: 'approved' | 'rejected') {
-    await fetch(`/api/backoffice/submissions/${id}/review`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision, notes: notes[id] }),
-    });
-    refresh();
-  }
-
-  if (err) return <p className="text-sm text-[#B00000]">{err}</p>;
-  if (!items) return <p className="text-sm text-gray-400">Loading…</p>;
-  const pending = items.filter((s) => s.status === 'pending_review');
-  const decided = items.filter((s) => s.status !== 'pending_review');
-
-  return (
-    <Card title={`Submissions — cross-org (${pending.length})`}>
-      <p className="mb-3 text-xs text-gray-500">Founder-submitted investors. Approve merges into the global catalog (verified); only verified entries distribute via packs.</p>
-      {pending.length === 0 ? <p className="text-sm text-gray-400">Queue clear.</p> : (
-        <ul className="space-y-3">
-          {pending.map((s) => (
-            <li key={s.id} className="rounded-xl border border-gray-100 bg-gray-50 p-4">
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="font-semibold">{s.payload.name}</span>
-                <span className="rounded-full bg-white border border-gray-200 px-2 py-0.5 text-[11px] text-gray-500">{s.payload.type.replace('_', ' ')}</span>
-                <span className="text-xs text-gray-400">{s.payload.hq_city}{s.payload.hq_country ? `, ${s.payload.hq_country}` : ''}</span>
-                {s.payload.website && <a href={s.payload.website} target="_blank" rel="noreferrer" className="text-xs text-[#0E7490] hover:underline">{s.payload.website.replace('https://', '')}</a>}
-                <span className="ml-auto text-[11px] text-gray-400">by <b>{s.org_name}</b> · {s.created_at.slice(0, 10)}</span>
-              </div>
-              {s.payload.sectors?.length > 0 && (
-                <div className="mt-1.5 flex gap-1">
-                  {s.payload.sectors.map((x) => <span key={x} className="rounded-full bg-white border border-gray-200 px-2 py-0.5 text-[10px] text-gray-500">{x}</span>)}
-                </div>
-              )}
-              {s.payload.notes && <p className="mt-2 text-xs text-gray-500">Submitter notes: {s.payload.notes}</p>}
-              <div className="mt-3 flex flex-wrap gap-2">
-                <input placeholder="Reviewer notes" value={notes[s.id] ?? ''} onChange={(e) => setNotes({ ...notes, [s.id]: e.target.value })}
-                  className="min-w-[240px] flex-1 rounded-xl border border-gray-200 px-3 py-1.5 text-sm" />
-                <Tooltip text="Confirms this investor is real and adds it to the shared catalog every org can discover.">
-                  <button onClick={() => review(s.id, 'approved')} className="rounded-xl bg-green-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-green-800">Verify & merge to catalog</button>
-                </Tooltip>
-                <Tooltip text="Declines this submission — it stays private to the submitting org only.">
-                  <button onClick={() => review(s.id, 'rejected')} className="rounded-xl border border-red-200 px-3 py-1.5 text-sm text-[#B00000] hover:bg-red-50">Reject</button>
-                </Tooltip>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-      {decided.length > 0 && (
-        <details className="mt-3">
-          <summary className="cursor-pointer text-xs text-gray-400">Decided ({decided.length})</summary>
-          <ul className="mt-2 space-y-1.5 text-sm">
-            {decided.map((s) => (
-              <li key={s.id} className="flex items-center gap-2">
-                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${s.status === 'approved' || s.status === 'merged' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{s.status}</span>
-                <span className="font-medium">{s.payload.name}</span>
-                <span className="text-xs text-gray-400">by {s.org_name} · {s.reviewed_at?.slice(0, 10)}</span>
-                {s.reviewer_notes && <span className="text-xs text-gray-500">— {s.reviewer_notes}</span>}
               </li>
             ))}
           </ul>
@@ -945,28 +961,12 @@ type ManualEntity = {
   likelyDuplicate: { catalogId: string; reason: 'domain' | 'name' | 'alias'; catalogEntity: { id: string; name: string; website: string | null; verificationStatus: string } } | null;
 };
 
-// Prompt 570 §D.4 — what the candidates endpoint returns now. The heavy
-// per-row detail still ships, but lives under `detail` because the table shows
-// it in the expand panel rather than in five stacked cells.
-type CandidateRow = {
-  id: string; orgId: string; orgName: string; orgIsInternal: boolean;
-  name: string; website: string | null;
-  grade: CompletenessGrade; createdAt: string;
-  status: 'pending' | 'probable_match' | 'linked' | 'merged' | 'promoted' | 'dismissed';
-  hasContact: boolean;
-  catalogMatch: { id: string; name: string; website: string | null; verificationStatus: string } | null;
-  detail: {
-    hqCity: string | null; hqCountry: string | null; geographies: string[] | null;
-    stageMin: string | null; stageMax: string | null; checkMinEur: number | null; checkMaxEur: number | null;
-    sectors: string[]; thesis: string | null; email: string | null; phone: string | null;
-    contacts: ManualEntityContact[];
-  };
-};
-
-// ManualEntityEditForm and CompareTable predate this shape and are unchanged
-// on purpose: rewriting three more components to move four fields would be
-// churn, and the edit form still PATCHes the same route with the same body.
-function toLegacyManualEntity(r: CandidateRow): ManualEntity {
+// ManualEntityEditForm and CompareTable predate the queue's UnifiedInvestorRow
+// shape (Prompt 572 §B) and are unchanged on purpose: rewriting them to move
+// four fields would be churn, and the edit form still PATCHes the same route
+// with the same body. Only a `submission` row is never passed here — it has
+// no entities row to legacy-shape or PATCH.
+function toLegacyManualEntity(r: UnifiedInvestorRow): ManualEntity {
   return {
     id: r.id, orgId: r.orgId, orgName: r.orgName, name: r.name, website: r.website,
     hqCity: r.detail.hqCity, hqCountry: r.detail.hqCountry, geographies: r.detail.geographies,
@@ -1170,15 +1170,50 @@ function ManualEntityEditForm({ row, onSaved, onCancel }: { row: ManualEntity; o
 // does (see catalog-candidate-reconcile.ts). This component asserts that
 // rather than assuming it — a pending row with a match, or the reverse, is a
 // bug upstream and is reported instead of acted on.
-function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[]; onPromoted: () => void }) {
+// Prompt 572 §B — merges what used to be two tabs (AddedByStartupsTab /
+// "Catalog candidates" below, and the standalone SubmissionsTab further up)
+// into ONE queue, per §B.1's own instruction: "Fundir entities manuais... e
+// investor_submissions... numa fila só." The API route
+// (manual-entities/route.ts) does the actual merging server-side; this
+// component is unchanged in spirit from the old AddedByStartupsTab (same
+// QueueTable-based list, same bulk actions for candidate rows) with a
+// ReviewQueueLayout panel replacing the old inline renderExpanded, and a
+// second action set for submission rows.
+//
+// The old inline edit-form (ManualEntityEditForm) and side-by-side CompareTable
+// still work for candidate rows — toLegacyManualEntity widens to accept
+// UnifiedInvestorRow instead of the retired CandidateRow, everything else
+// about them is untouched. Submission rows never had either (no entities row
+// to PATCH or compare), so they keep the plain HQ/sectors/stage/check `<dl>`.
+type UnifiedInvestorRow = {
+  id: string; kind: 'candidate' | 'submission';
+  orgId: string; orgName: string; orgIsInternal: boolean;
+  addedByEmail: string | null;
+  name: string; website: string | null; grade: CompletenessGrade; createdAt: string;
+  status: string;
+  hasContact: boolean;
+  catalogMatch: { id: string; name: string; website: string | null; verificationStatus: string } | null;
+  demand: number;
+  detail: {
+    hqCity: string | null; hqCountry: string | null; geographies: string[] | null;
+    stageMin: string | null; stageMax: string | null; checkMinEur: number | null; checkMaxEur: number | null;
+    sectors: string[]; thesis: string | null; email: string | null; phone: string | null;
+    contacts: ManualEntityContact[];
+    submissionPayload?: { name: string; type: string; hq_city?: string; hq_country?: string; sectors: string[]; website?: string; notes?: string };
+  };
+};
+
+function NewInvestorsTab() {
   const params = useSearchParams();
-  const [rows, setRows] = useState<CandidateRow[] | null>(null);
+  const [rows, setRows] = useState<UnifiedInvestorRow[] | null>(null);
+  const [catalog, setCatalog] = useState<CatalogEntity[] | null>(null);
   const [total, setTotal] = useState(0);
   const [hiddenInternal, setHiddenInternal] = useState(0);
   const [err, setErr] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [result, setResult] = useState<Record<string, string>>({});
-  const [editId, setEditId] = useState<string | null>(null);
+  const [actionErr, setActionErr] = useState<Record<string, string>>({});
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkResult, setBulkResult] = useState('');
 
@@ -1193,16 +1228,52 @@ function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[];
   }, [qs]);
   useEffect(refresh, [refresh]);
 
-  async function dismiss(row: CandidateRow) {
-    const reason = window.prompt(`Why is ${row.name} not going into the catalog?`)?.trim();
-    if (!reason) return; // cancelled, or empty — the API refuses it either way
+  // Prompt 190's own catalog copy, unchanged: this queue's panel needs the
+  // matched catalog row's own fields (website, verification) beside the
+  // candidate's, and QualityPanel (rendered below, unchanged) never needed
+  // this fetch in the first place.
+  useEffect(() => {
+    fetch('/api/backoffice/catalog').then((r) => r.json()).then((body) => { if (body.ok !== false) setCatalog(body.catalog); }).catch(() => {});
+  }, []);
+
+  async function dismiss(row: UnifiedInvestorRow, reason: string) {
     setBusyId(row.id);
     const res = await fetch(`/api/backoffice/catalog/manual-entities/${row.id}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dismiss: true, reason }),
     });
     const body = await res.json();
     setBusyId(null);
-    if (body.ok === false) { setResult((prev) => ({ ...prev, [row.id]: body.error })); return; }
+    if (body.ok === false) { setActionErr((prev) => ({ ...prev, [row.id]: body.error })); return; }
+    setSelectedId(null);
+    refresh();
+  }
+
+  async function reviewSubmission(row: UnifiedInvestorRow, decision: 'approved' | 'rejected', reason?: string) {
+    setBusyId(row.id);
+    const res = await fetch(`/api/backoffice/submissions/${row.id}/review`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision, notes: reason }),
+    });
+    const body = await res.json();
+    setBusyId(null);
+    if (body.ok === false) { setActionErr((prev) => ({ ...prev, [row.id]: body.error })); return; }
+    setSelectedId(null);
+    refresh();
+  }
+
+  async function addToCatalog(row: UnifiedInvestorRow) {
+    if (row.status === 'probable_match' && !row.catalogMatch) {
+      setActionErr((prev) => ({ ...prev, [row.id]: 'No catalog match stored for a probable_match row — re-run reconcile.' }));
+      return;
+    }
+    setBusyId(row.id);
+    const [url, payload] = row.catalogMatch
+      ? ['/api/backoffice/catalog/merge', { keepId: row.catalogMatch.id, manualEntityId: row.id }]
+      : ['/api/backoffice/catalog/promote', { manualEntityId: row.id }];
+    const res = await fetch(url as string, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const body = await res.json();
+    setBusyId(null);
+    if (body.ok === false) { setActionErr((prev) => ({ ...prev, [row.id]: body.error })); return; }
+    setSelectedId(null);
     refresh();
   }
 
@@ -1210,11 +1281,16 @@ function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[];
   // route the whole-catalog run uses, scoped by ids: exact domain matches
   // become `linked` and leave the queue without anyone deciding anything,
   // which is the point — that decision was never a judgement call.
+  // Prompt 572 §B — submission rows have no reconcile/dismiss/merge
+  // endpoint of their own (they go through reviewSubmission instead), so
+  // every bulk action here filters to kind==='candidate' first rather than
+  // erroring on the rest of a mixed selection.
   async function relinkSelected(ids: string[], clear: () => void) {
-    if (ids.length === 0) return;
+    const candidateIds = ids.filter((id) => rows?.find((r) => r.id === id)?.kind === 'candidate');
+    if (candidateIds.length === 0) { clear(); return; }
     setBulkBusy(true); setBulkResult('');
     const res = await fetch('/api/backoffice/catalog/candidates/reconcile', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: candidateIds }),
     });
     const body = await res.json();
     setBulkBusy(false);
@@ -1227,11 +1303,12 @@ function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[];
   // One reason for the batch, asked once. The API requires it per row anyway,
   // so a cancelled prompt cannot half-dismiss anything.
   async function dismissSelected(ids: string[], clear: () => void) {
-    if (ids.length === 0) return;
-    const reason = window.prompt(`Why are these ${ids.length} candidates not going into the catalog?`)?.trim();
+    const candidateIds = ids.filter((id) => rows?.find((r) => r.id === id)?.kind === 'candidate');
+    if (candidateIds.length === 0) { clear(); return; }
+    const reason = window.prompt(`Why are these ${candidateIds.length} candidates not going into the catalog?`)?.trim();
     if (!reason) return;
     setBulkBusy(true); setBulkResult('');
-    const outcomes = await Promise.all(ids.map(async (id) => {
+    const outcomes = await Promise.all(candidateIds.map(async (id) => {
       const res = await fetch(`/api/backoffice/catalog/manual-entities/${id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ dismiss: true, reason }),
@@ -1244,7 +1321,7 @@ function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[];
     setBulkResult(failed.length === 0
       ? `Dismissed ${outcomes.length}.`
       : `Dismissed ${outcomes.length - failed.length} of ${outcomes.length}; ${failed.length} failed.`);
-    setResult((prev) => {
+    setActionErr((prev) => {
       const next = { ...prev };
       for (const o of failed) if (o.error) next[o.id] = o.error;
       return next;
@@ -1256,20 +1333,18 @@ function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[];
   // the two old per-row buttons did — only now the decision is a fact in the
   // database rather than something recomputed on every render.
   async function addSelectedToCatalog(ids: string[], clear: () => void) {
-    if (ids.length === 0 || !rows) return;
+    const candidateRows = ids.map((id) => rows?.find((r) => r.id === id)).filter((r): r is UnifiedInvestorRow => !!r && r.kind === 'candidate');
+    if (candidateRows.length === 0) { clear(); return; }
     setBulkBusy(true); setBulkResult('');
-    const outcomes = await Promise.all(ids.map(async (id) => {
-      const row = rows.find((r) => r.id === id);
-      if (!row) return { id, ok: true }; // already gone — nothing to do
-
+    const outcomes = await Promise.all(candidateRows.map(async (row) => {
       // The invariant, checked rather than trusted. If it ever breaks, merging
       // on a match the rules declined to make would quietly write the wrong
       // firm into the catalog; refusing is the cheaper failure.
       if (row.status === 'probable_match' && !row.catalogMatch) {
-        return { id, ok: false, error: 'No catalog match stored for a probable_match row — re-run reconcile.' };
+        return { id: row.id, ok: false, error: 'No catalog match stored for a probable_match row — re-run reconcile.' };
       }
       if (row.status === 'pending' && row.catalogMatch) {
-        return { id, ok: false, error: 'A pending row carries a match — re-run reconcile before adding it.' };
+        return { id: row.id, ok: false, error: 'A pending row carries a match — re-run reconcile before adding it.' };
       }
 
       const [url, payload] = row.catalogMatch
@@ -1279,25 +1354,25 @@ function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[];
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       });
       const body = await res.json();
-      return { id, ok: body.ok !== false, error: body.ok === false ? body.error : undefined };
+      return { id: row.id, ok: body.ok !== false, error: body.ok === false ? body.error : undefined };
     }));
     setBulkBusy(false);
     const failed = outcomes.filter((o) => !o.ok);
     setBulkResult(failed.length === 0
       ? `Added ${outcomes.length} entit${outcomes.length === 1 ? 'y' : 'ies'} to the catalog.`
       : `Added ${outcomes.length - failed.length} of ${outcomes.length}; ${failed.length} failed — see the row(s) below.`);
-    setResult((prev) => {
+    setActionErr((prev) => {
       const next = { ...prev };
       for (const o of failed) if (o.error) next[o.id] = o.error;
       return next;
     });
     clear();
-    refresh(); onPromoted();
+    refresh();
   }
 
-  if (err) return <Card title="Added by startups"><p className="text-sm text-[#B00000]">{err}</p></Card>;
+  if (err) return <Card title="New investors"><p className="text-sm text-[#B00000]">{err}</p></Card>;
 
-  const columns: QueueColumn<CandidateRow>[] = [
+  const columns: QueueColumn<UnifiedInvestorRow>[] = [
     { key: 'grade', label: 'Grade', sortable: true, render: (r) => <GradeBadge grade={r.grade} percent={0} /> },
     {
       key: 'investor', label: 'Investor', sortable: true,
@@ -1308,7 +1383,7 @@ function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[];
         </div>
       ),
     },
-    { key: 'org', label: 'Added by', render: (r) => <span className="text-gray-500">{r.orgName}</span> },
+    { key: 'org', label: 'Added by', render: (r) => <span className="text-gray-500">{r.orgName}{r.addedByEmail ? ` · ${r.addedByEmail}` : ''}</span> },
     {
       key: 'added', label: 'Added when', sortable: true,
       render: (r) => <span className="text-gray-500">{new Date(r.createdAt).toLocaleDateString()}</span>,
@@ -1328,121 +1403,150 @@ function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[];
         : <span className="text-gray-300">—</span>),
     },
     {
-      key: 'actions', label: '', align: 'right',
+      // Prompt 572 §B.2 — cross-org dedup count via catalog-dedupe.ts,
+      // computed server-side over the whole merged set (see
+      // manual-entities/route.ts). Reply signal / wave are a scope-cut,
+      // flagged in that route's own header comment.
+      key: 'demand', label: 'Demand', sortable: true,
       render: (r) => (
-        <span className="whitespace-nowrap">
-          <button onClick={() => setEditId(editId === r.id ? null : r.id)} className="mr-2 text-xs text-cyan-700 hover:underline">
-            {editId === r.id ? 'Close' : 'Edit'}
-          </button>
-          <button disabled={busyId === r.id} onClick={() => dismiss(r)} className="text-xs text-gray-400 hover:underline disabled:opacity-40">
-            Dismiss
-          </button>
+        <span className="text-gray-600" title={`${r.demand} org${r.demand === 1 ? '' : 's'} added a firm matching this name or domain`}>
+          {r.demand} org{r.demand === 1 ? '' : 's'}
         </span>
       ),
+    },
+    {
+      key: 'source', label: 'Source',
+      render: (r) => <span className="text-xs text-gray-400">{r.kind === 'submission' ? 'submission form' : 'manual pipeline entry'}</span>,
     },
   ];
 
   return (
-    <Card title={`Added by startups (${total})`}>
-      <p className="mb-3 text-xs text-gray-500">
-        Investors a founder added by hand, still undecided. Rows whose domain matches the catalog exactly are
-        linked automatically and never appear here. A row with a probable match merges into it (filling gaps only,
-        never overwriting); a row without one is promoted as a new entry. Fix any field that looks wrong first —
-        the correction is saved on the founder&apos;s own record.
-      </p>
-      <QueueTable<CandidateRow>
-        columns={columns}
-        rows={rows ?? []}
-        total={total}
-        loading={rows === null}
-        getRowId={(r) => r.id}
-        hiddenInternalCount={hiddenInternal}
-        emptyMessage="Nothing left to review here."
-        renderBulkActions={(ids, clear) => (
-          <>
-            {/* Prompt 570 §D.6 — three actions, because "add to catalog"
-                collapsed two different decisions into one button and gave no
-                way to say "these are the same firm" without also promoting
-                the ones that are not. */}
-            <button disabled={bulkBusy} onClick={() => void addSelectedToCatalog(ids, clear)}
-              className="rounded-lg bg-[#0E7490] px-3 py-1 text-xs font-medium text-white disabled:opacity-40">
-              {bulkBusy ? 'Working…' : `Add ${ids.length} to catalog`}
-            </button>
-            <button disabled={bulkBusy} onClick={() => void relinkSelected(ids, clear)}
-              title="Re-run the matcher over these rows; exact domain matches link and leave the queue"
-              className="rounded-lg border border-[#0E7490] px-3 py-1 text-xs font-medium text-[#0E7490] disabled:opacity-40">
-              Link exact matches
-            </button>
-            <button disabled={bulkBusy} onClick={() => void dismissSelected(ids, clear)}
-              className="rounded-lg border border-gray-300 px-3 py-1 text-xs text-gray-600 disabled:opacity-40">
-              Dismiss…
-            </button>
-            {bulkResult && <span className="text-gray-500">{bulkResult}</span>}
-          </>
-        )}
-        filterControls={(state, set) => (
-          <label className="flex items-center gap-1.5">
-            Minimum grade
-            <select value={state.filters.grade ?? 'all'}
-              onChange={(e) => set({ filters: { ...state.filters, grade: e.target.value === 'all' ? '' : e.target.value } })}
-              className="rounded border border-gray-300 px-1.5 py-0.5">
-              <option value="all">All</option>
-              {(['A', 'B', 'C', 'D', 'E'] as const).map((g) => <option key={g} value={g}>{g} or better</option>)}
-            </select>
-          </label>
-        )}
-        renderExpanded={(r) => {
-          const legacy = toLegacyManualEntity(r);
-          const match = r.catalogMatch ? catalog.find((c) => c.id === r.catalogMatch!.id) : undefined;
-          return (
-            <div className="space-y-3">
-              {result[r.id] && <p className="text-xs text-[#B00000]">{result[r.id]}</p>}
-              {editId === r.id
-                ? <ManualEntityEditForm row={legacy} onCancel={() => setEditId(null)} onSaved={() => { setEditId(null); refresh(); }} />
-                : (
-                  <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-gray-600 sm:grid-cols-4">
-                    <div><dt className="text-gray-400">HQ</dt><dd>{[r.detail.hqCity, r.detail.hqCountry].filter(Boolean).join(', ') || '—'}</dd></div>
-                    <div><dt className="text-gray-400">Geographies</dt><dd>{r.detail.geographies?.length ? r.detail.geographies.join(', ') : '—'}</dd></div>
-                    <div><dt className="text-gray-400">Stage</dt><dd>{fmtStage(r.detail.stageMin, r.detail.stageMax)}</dd></div>
-                    <div><dt className="text-gray-400">Sectors</dt><dd>{r.detail.sectors.length ? r.detail.sectors.join(', ') : '—'}</dd></div>
-                  </dl>
-                )}
-              {/* §D.5 — candidate against catalog entry, side by side, reusing
-                  the merge tool's own table rather than a second rendering of
-                  the same comparison. */}
-              {match && <CompareTable manual={legacy} catalogEntity={match} />}
-              <ManualEntityContactsPanel contacts={r.detail.contacts} />
-            </div>
-          );
-        }}
-      />
-    </Card>
-  );
-}
-
-
-// Prompt 190 — wraps AddedByStartupsTab + QualityPanel for this tab.
-// Fetches its own catalog copy rather than threading it down from
-// BackofficeQueuePage (which has nothing else in common with Catalog data)
-// — the prompt's own text explicitly leaves this as an implementation
-// choice ("ou o componente busca a sua própria cópia, se for mais simples
-// do que passar por props entre páginas").
-function CatalogCandidatesTab() {
-  const [catalog, setCatalog] = useState<CatalogEntity[] | null>(null);
-  const [err, setErr] = useState('');
-
-  function refresh() {
-    fetch('/api/backoffice/catalog').then((r) => r.json()).then((body) => {
-      if (body.ok === false) { setErr(body.error); return; }
-      setCatalog(body.catalog);
-    });
-  }
-  useEffect(refresh, []);
-
-  return (
     <div className="space-y-4">
-      {err && <p className="text-sm text-[#B00000]">{err}</p>}
-      {catalog && <AddedByStartupsTab catalog={catalog} onPromoted={refresh} />}
+      <Card title={`New investors (${total})`}>
+        <p className="mb-3 text-xs text-gray-500">
+          Investors a founder added by hand, or submitted through the public form — one queue (Prompt 572 §B),
+          still undecided. Rows whose domain matches the catalog exactly are linked automatically and never appear
+          here. A row with a probable match merges into it (filling gaps only, never overwriting); a row without
+          one is promoted as a new entry. Demand counts every org whose own entry normalizes to the same name or
+          domain (via catalog-dedupe.ts).
+        </p>
+        <ReviewQueueLayout<UnifiedInvestorRow>
+          columns={columns}
+          rows={rows ?? []}
+          total={total}
+          loading={rows === null}
+          getRowId={(r) => r.id}
+          hiddenInternalCount={hiddenInternal}
+          emptyMessage="Nothing left to review here."
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          panelTitle={(r) => r.name}
+          filterControls={(state, set) => (
+            <label className="flex items-center gap-1.5">
+              Minimum grade
+              <select value={state.filters.grade ?? 'all'}
+                onChange={(e) => set({ filters: { ...state.filters, grade: e.target.value === 'all' ? '' : e.target.value } })}
+                className="rounded border border-gray-300 px-1.5 py-0.5">
+                <option value="all">All</option>
+                {(['A', 'B', 'C', 'D', 'E'] as const).map((g) => <option key={g} value={g}>{g} or better</option>)}
+              </select>
+            </label>
+          )}
+          renderBulkActions={(ids, clear) => (
+            <>
+              {/* Prompt 570 §D.6 — three actions, because "add to catalog"
+                  collapsed two different decisions into one button and gave no
+                  way to say "these are the same firm" without also promoting
+                  the ones that are not. Scoped to kind==='candidate' rows. */}
+              <button disabled={bulkBusy} onClick={() => void addSelectedToCatalog(ids, clear)}
+                className="rounded-lg bg-[#0E7490] px-3 py-1 text-xs font-medium text-white disabled:opacity-40">
+                {bulkBusy ? 'Working…' : `Add ${ids.length} to catalog`}
+              </button>
+              <button disabled={bulkBusy} onClick={() => void relinkSelected(ids, clear)}
+                title="Re-run the matcher over these rows; exact domain matches link and leave the queue"
+                className="rounded-lg border border-[#0E7490] px-3 py-1 text-xs font-medium text-[#0E7490] disabled:opacity-40">
+                Link exact matches
+              </button>
+              <button disabled={bulkBusy} onClick={() => void dismissSelected(ids, clear)}
+                className="rounded-lg border border-gray-300 px-3 py-1 text-xs text-gray-600 disabled:opacity-40">
+                Dismiss…
+              </button>
+              {bulkResult && <span className="text-gray-500">{bulkResult}</span>}
+            </>
+          )}
+          renderPanel={(row) => {
+            const catalogEntry = row.catalogMatch ? catalog?.find((c) => c.id === row.catalogMatch!.id) : undefined;
+            return (
+              <div className="space-y-4">
+                {actionErr[row.id] && <p className="text-xs text-[#B00000]">{actionErr[row.id]}</p>}
+                <ReviewFacts
+                  what={<>{row.name}{row.website && <> — <a href={row.website.startsWith('http') ? row.website : `https://${row.website}`} target="_blank" rel="noreferrer" className="text-[#0E7490] hover:underline">{row.website}</a></>}</>}
+                  whoFrom={<>{row.orgName}{row.addedByEmail ? ` · ${row.addedByEmail}` : ''} · {row.kind === 'submission' ? 'submission form' : 'manual pipeline entry'} · {new Date(row.createdAt).toLocaleDateString()}</>}
+                  proof={row.catalogMatch
+                    ? <>Probable match: <b>{row.catalogMatch.name}</b>{catalogEntry?.website ? ` (${catalogEntry.website})` : ''} — {row.catalogMatch.verificationStatus}</>
+                    : 'No catalog match found — this would be a new entry.'}
+                  thenWhat={row.kind === 'submission'
+                    ? (row.catalogMatch ? `Merges into ${row.catalogMatch.name}, filling empty fields only.` : 'Adds a new, verified catalog entry.')
+                    : (row.catalogMatch ? `Merges into ${row.catalogMatch.name}, filling empty fields only, overwriting nothing.` : 'Promotes as a new catalog entry.')}
+                />
+                {row.kind === 'candidate' && editingId === row.id ? (
+                  // Prompt 191 §A's inline fixer, unchanged — still PATCHes
+                  // manual-entities/[id] with the same body. Only its trigger
+                  // moved (a panel link instead of a row-level "Edit" button).
+                  <ManualEntityEditForm row={toLegacyManualEntity(row)} onCancel={() => setEditingId(null)}
+                    onSaved={() => { setEditingId(null); refresh(); }} />
+                ) : (
+                  <>
+                    {row.kind === 'candidate' && catalogEntry ? (
+                      // §D.5 — candidate against its probable catalog match, side
+                      // by side, reusing the merge tool's own comparison table.
+                      <CompareTable manual={toLegacyManualEntity(row)} catalogEntity={catalogEntry} />
+                    ) : (
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600">
+                        <div><dt className="text-gray-400">HQ</dt><dd>{[row.detail.hqCity, row.detail.hqCountry].filter(Boolean).join(', ') || '—'}</dd></div>
+                        <div><dt className="text-gray-400">Sectors</dt><dd>{row.detail.sectors.length ? row.detail.sectors.join(', ') : '—'}</dd></div>
+                        <div><dt className="text-gray-400">Stage</dt><dd>{fmtStage(row.detail.stageMin, row.detail.stageMax)}</dd></div>
+                        <div><dt className="text-gray-400">Check size</dt><dd>{fmtCheck(row.detail.checkMinEur, row.detail.checkMaxEur)}</dd></div>
+                      </dl>
+                    )}
+                    {row.detail.thesis && <p className="text-xs text-gray-600">{row.detail.thesis}</p>}
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10.5px] font-semibold uppercase tracking-wide text-gray-400">Contacts</p>
+                        {row.kind === 'candidate' && (
+                          <button onClick={() => setEditingId(row.id)} className="text-[10.5px] font-medium text-cyan-700 hover:underline">
+                            Fix a field
+                          </button>
+                        )}
+                      </div>
+                      <div className="mt-1">
+                        <ManualEntityContactsPanel contacts={row.detail.contacts} />
+                      </div>
+                    </div>
+                  </>
+                )}
+                {row.kind === 'candidate' ? (
+                  <ReviewActionFooter
+                    busy={busyId === row.id}
+                    onApprove={() => addToCatalog(row)}
+                    approveLabel={row.catalogMatch ? 'Merge into match' : 'Promote as new'}
+                    onDismiss={(reason) => dismiss(row, reason)}
+                    dismissLabel="Dismiss"
+                  />
+                ) : (
+                  <ReviewActionFooter
+                    busy={busyId === row.id}
+                    onApprove={() => reviewSubmission(row, 'approved')}
+                    approveLabel="Verify & merge to catalog"
+                    onReject={(reason) => reviewSubmission(row, 'rejected', reason)}
+                    rejectLabel="Reject"
+                  />
+                )}
+              </div>
+            );
+          }}
+        />
+      </Card>
       <QualityPanel />
     </div>
   );
@@ -1613,6 +1717,15 @@ function BackofficeQueueContent() {
     router.replace(pathname, { scroll: false });
   }, [pathname, router]);
 
+  // Prompt 572 §B.1 — "Submissions" and "Catalog candidates" left TABS (so
+  // they no longer render as nav items) but an old bookmark/link naming
+  // either key by itself still has to land somewhere real, not the "All
+  // queues" board it would silently fall back to otherwise (TABS.some()
+  // above returns false for a key that's valid in Tab but absent from TABS).
+  useEffect(() => {
+    if (urlTab === 'candidates' || urlTab === 'submissions') openTab('new_investors');
+  }, [urlTab, openTab]);
+
   return (
     <div className="space-y-5">
       <h1 className="text-lg font-bold">Queue</h1>
@@ -1647,9 +1760,8 @@ function BackofficeQueueContent() {
           onOpen={openTab}
         />
       )}
+      {tab === 'new_investors' && <NewInvestorsTab />}
       {tab === 'contributions' && <ContributionsTab />}
-      {tab === 'candidates' && <CatalogCandidatesTab />}
-      {tab === 'submissions' && <SubmissionsTab />}
       {tab === 'claims' && <ClaimsTab />}
       {tab === 'identity' && <InvestorIdentityTab />}
       {tab === 'gdpr' && <GdprTab />}
