@@ -5152,3 +5152,25 @@ future row that loses its member.
 `matchdeal_eligible_deck` needed no change: 563 already calls
 `matchdeal_profile_discovery_excluded(p.membership_id, p.kind)` unconditionally
 in both branches. One function, both kinds, never duplicated.
+
+## Prompt 569 §0 — account deletion already existed; what was missing was saying so (04/09/2026)
+
+The back-office review reported "no option to delete startup or investor
+accounts" and authorised building a soft-delete with a mandatory reason.
+It is already built, and has been since Prompt 123 C.2:
+`POST /api/backoffice/moderation/delete` sets `moderation_status='deleted'`,
+drops no row, and **requires** a justification in the API rather than only in
+the form. `ModerationControls` is already mounted on both Startups and
+Investors. Building a second mechanism would have duplicated a working one —
+the same trap 568 avoided with `is_test`.
+
+What was actually wrong is that an **active** account rendered only "Suspend",
+so nothing on screen revealed deletion existed. The gate is deliberate —
+suspend, then a 30-day quarantine, enforced in `canDelete` and not merely by a
+disabled button — and it is unchanged. Two lines of copy now state the path,
+and the quarantine's remaining wait is written out instead of living in a
+`title` attribute that touch users and non-hoverers never see.
+
+**The general point:** "the product cannot do X" and "the product never says it
+can do X" produce the same screenshot and want opposite fixes. Read the routes
+before accepting the first reading.

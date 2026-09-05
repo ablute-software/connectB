@@ -68,7 +68,24 @@ export function ModerationControls({ targetType, targetId, status, quarantineUnt
   }
 
   if (status === 'active') {
-    return <button onClick={() => setMode('suspend')} className="text-xs text-[#B00000] hover:underline">Suspend</button>;
+    // Prompt 569 §0 — the path to deletion is now stated, not hidden.
+    //
+    // Deleting an account has existed since Prompt 123 C.2 (soft: it sets
+    // moderation_status='deleted' and drops no row, with a justification the
+    // API requires, not just the form). But an ACTIVE account only ever
+    // rendered "Suspend", so from the screen there was no way to know deletion
+    // existed at all — which is what the back-office review read as a missing
+    // feature. The gate itself is deliberate and stays exactly as it is:
+    // suspend, then a 30-day quarantine, enforced in canDelete rather than by
+    // a disabled button. Saying so costs one line and removes the guesswork.
+    return (
+      <div className="flex flex-col gap-0.5">
+        <button onClick={() => setMode('suspend')} className="text-left text-xs text-[#B00000] hover:underline">Suspend</button>
+        <span className="text-[10px] leading-tight text-gray-400">
+          To delete: suspend first, then delete after the 30-day quarantine.
+        </span>
+      </div>
+    );
   }
 
   const quarantineActive = !!quarantineUntil && new Date(quarantineUntil) > new Date();
@@ -95,6 +112,14 @@ export function ModerationControls({ targetType, targetId, status, quarantineUnt
           Delete
         </button>
       </div>
+      {/* Prompt 569 §0 — a disabled button with only a title attribute reads as
+          "broken" rather than "not yet": the reason was invisible on touch and
+          to anyone who does not hover. */}
+      {quarantineActive && (
+        <span className="text-[10px] leading-tight text-gray-400">
+          Delete unlocks when the quarantine elapses.
+        </span>
+      )}
     </div>
   );
 }
