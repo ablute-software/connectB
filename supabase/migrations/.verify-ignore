@@ -1,0 +1,4 @@
+# Prompt 575 — files main deliberately carries that production has not run.
+# One filename per line, with the reason after a #. Anything listed here stops
+# `--check` failing CI, so a line is a decision someone made, not a snooze.
+# Empty today: every file in main is applied.

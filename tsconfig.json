@@ -26,7 +26,11 @@
         "./src/*"
       ]
     },
-    "target": "es2020"
+    "target": "es2020",
+    // Prompt 575 — scripts/ runs under `node --experimental-strip-types`, which
+    // requires the .ts extension on relative imports. noEmit is already on
+    // (Next compiles), so this only teaches tsc to accept what Node needs.
+    "allowImportingTsExtensions": true
   },
   "include": [
     "next-env.d.ts",
