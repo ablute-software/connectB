@@ -216,7 +216,12 @@ function MultiSelectFilter({ label, options, selected, onChange }: {
 // the predicate that governs the quota, served as `gateComplete` by
 // /api/pipeline-unlock, which the page already fetches. Anything less than
 // literally the same predicate reopens the race.
-type UnlockState = { gateComplete: boolean; catalogQuotaTarget: number; deliverable: number; missing: string[] };
+// Prompt 579 — `unlimited` (true only for an is_ablute_developer() account,
+// migration 0166) means `deliverable` is already the real catalog supply
+// left, with no quota ceiling behind it — never the raw sentinel; see
+// computeDeliverable in pipeline-unlock-server.ts, the one place this number
+// is computed for both this page and the deliver route.
+type UnlockState = { gateComplete: boolean; catalogQuotaTarget: number; deliverable: number; unlimited: boolean; missing: string[] };
 // Matched by name, not id — packs have no stable machine key (no `kind`
 // column like folders do); acceptable here since this only ever unlocks a
 // curated catalog pack, not a security-relevant lookup like Prompt 103's
@@ -346,6 +351,13 @@ function PipelineTopUpBanner({ unlock, onDelivered }: { unlock: UnlockState | nu
   const starterPack = db.packs.find((p) => p.name === STARTER_PACK_NAME);
   const n = unlock?.deliverable ?? 0;
   if (!unlock || !unlock.gateComplete || n <= 0 || !starterPack) return null;
+  // Prompt 579 — an unlimited account (is_ablute_developer()) has no quota
+  // ceiling to unlock past, so there is nothing for a button to do — `n` is
+  // already the real eligible-and-undelivered count, never the 999999
+  // sentinel (see computeDeliverable, pipeline-unlock-server.ts). "Your
+  // profile earned these" is gone too: deliverable is a plan ceiling minus
+  // what's already delivered, not a claim about fit, and it was never true.
+  const { unlimited } = unlock;
 
   async function run() {
     if (!starterPack) return;
@@ -360,15 +372,19 @@ function PipelineTopUpBanner({ unlock, onDelivered }: { unlock: UnlockState | nu
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#0E7490]/20 bg-[#0E7490]/5 px-4 py-3">
       <div className="text-sm text-gray-700">
-        <span className="font-medium text-gray-900">{n} more matched investor{n === 1 ? '' : 's'} ready for you.</span>{' '}
-        {error
-          ? <span className="text-red-700">We couldn&apos;t add them just now — try again in a moment.</span>
-          : 'Your profile earned these — they\u2019re waiting in the catalog.'}
+        <span className="font-medium text-gray-900">
+          {unlimited
+            ? `${n} matched investor${n === 1 ? '' : 's'} waiting in the catalog.`
+            : `${n} more matched investor${n === 1 ? '' : 's'} in the catalog.`}
+        </span>
+        {error && <span className="ml-1 text-red-700">We couldn&apos;t add them just now — try again in a moment.</span>}
       </div>
-      <button disabled={unlocking} onClick={run}
-        className="shrink-0 rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white hover:bg-[#0c637b] disabled:opacity-50">
-        {unlocking ? 'Unlocking\u2026' : `Unlock ${n} more investor${n === 1 ? '' : 's'}`}
-      </button>
+      {!unlimited && (
+        <button disabled={unlocking} onClick={run}
+          className="shrink-0 rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white hover:bg-[#0c637b] disabled:opacity-50">
+          {unlocking ? 'Unlocking\u2026' : `Unlock ${n}`}
+        </button>
+      )}
     </div>
   );
 }
@@ -646,7 +662,7 @@ export default function PipelinePage() {
       .then((b) => {
         if (b.ok) setUnlock({
           gateComplete: b.gateComplete, catalogQuotaTarget: b.catalogQuotaTarget ?? 0,
-          deliverable: b.deliverable ?? 0, missing: b.missing ?? [],
+          deliverable: b.deliverable ?? 0, unlimited: !!b.unlimited, missing: b.missing ?? [],
         });
       })
       .catch(() => {});
