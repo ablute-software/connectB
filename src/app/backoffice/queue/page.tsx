@@ -3,7 +3,8 @@
 // Contributions/GDPR logic carried over from the pre-Bloco-3 backoffice
 // page; Submissions/Claims are new tabs consolidating what used to be a
 // separate founder-store-scoped "Review queue" section.
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Card, Tooltip } from '@/components/ui';
 import { useConfirm } from '@/lib/confirm';
@@ -14,6 +15,7 @@ import { DomainMismatchTab } from '@/components/backoffice/DomainMismatchTab';
 import { CompetitorIntelTab } from '@/components/backoffice/CompetitorIntelTab';
 import { ENTITY_ENRICHMENT_FIELD_LABELS, isKnownEntityField } from '@/lib/entity-enrichment';
 import { manualEntityCompleteness, type CompletenessGrade } from '@/lib/completeness';
+import { QueueTable, type QueueColumn } from '@/components/backoffice/QueueTable';
 
 // Prompt 190 — 'candidates' ("Catalog candidates") added next to
 // Contributions per Nuno's explicit decision: "Added by startups" (Prompt
@@ -942,6 +944,42 @@ type ManualEntity = {
   likelyDuplicate: { catalogId: string; reason: 'domain' | 'name' | 'alias'; catalogEntity: { id: string; name: string; website: string | null; verificationStatus: string } } | null;
 };
 
+// Prompt 570 §D.4 — what the candidates endpoint returns now. The heavy
+// per-row detail still ships, but lives under `detail` because the table shows
+// it in the expand panel rather than in five stacked cells.
+type CandidateRow = {
+  id: string; orgId: string; orgName: string; orgIsInternal: boolean;
+  name: string; website: string | null;
+  grade: CompletenessGrade; createdAt: string;
+  status: 'pending' | 'probable_match' | 'linked' | 'merged' | 'promoted' | 'dismissed';
+  hasContact: boolean;
+  catalogMatch: { id: string; name: string; website: string | null; verificationStatus: string } | null;
+  detail: {
+    hqCity: string | null; hqCountry: string | null; geographies: string[] | null;
+    stageMin: string | null; stageMax: string | null; checkMinEur: number | null; checkMaxEur: number | null;
+    sectors: string[]; thesis: string | null; email: string | null; phone: string | null;
+    contacts: ManualEntityContact[];
+  };
+};
+
+// ManualEntityEditForm and CompareTable predate this shape and are unchanged
+// on purpose: rewriting three more components to move four fields would be
+// churn, and the edit form still PATCHes the same route with the same body.
+function toLegacyManualEntity(r: CandidateRow): ManualEntity {
+  return {
+    id: r.id, orgId: r.orgId, orgName: r.orgName, name: r.name, website: r.website,
+    hqCity: r.detail.hqCity, hqCountry: r.detail.hqCountry, geographies: r.detail.geographies,
+    stageMin: r.detail.stageMin, stageMax: r.detail.stageMax,
+    checkMinEur: r.detail.checkMinEur, checkMaxEur: r.detail.checkMaxEur,
+    sectors: r.detail.sectors, thesis: r.detail.thesis,
+    email: r.detail.email, phone: r.detail.phone, createdAt: r.createdAt,
+    contacts: r.detail.contacts,
+    likelyDuplicate: r.catalogMatch
+      ? { catalogId: r.catalogMatch.id, reason: 'domain', catalogEntity: r.catalogMatch }
+      : null,
+  };
+}
+
 // Prompt 276 — completeness grade badge for a manually-added row. A best
 // (green) to worst (gray) scale, not a pass/fail one: nothing here is
 // actually wrong, a low grade just means more enrichment work later.
@@ -964,7 +1002,14 @@ function CompareTable({ manual, catalogEntity }: { manual: ManualEntity; catalog
     ['Geographies', manual.geographies?.join(', ') || '—', catalogEntity.geographies?.join(', ') || '—'],
     ['Stage', fmtStage(manual.stageMin, manual.stageMax), fmtStage(catalogEntity.stage_min, catalogEntity.stage_max)],
     ['Check', fmtCheck(manual.checkMinEur, manual.checkMaxEur), fmtCheck(catalogEntity.check_min_eur, catalogEntity.check_max_eur)],
-    ['Sectors', manual.sectors.join(', ') || '—', catalogEntity.sectors.join(', ') || '—'],
+    // Prompt 570 §D.5 — optional chaining, like the Geographies row above it.
+    // These two were the only unguarded `.join` here, and an absent `sectors`
+    // on either side threw a TypeError that took the whole Queue page down
+    // rather than one cell. Caught on screen: tsc cannot see it (both are
+    // typed as arrays) and no test rendered this component. The exposure also
+    // rose with this prompt — CompareTable used to sit behind a "Likely
+    // duplicate" click and now renders whenever a matched row is expanded.
+    ['Sectors', manual.sectors?.join(', ') || '—', catalogEntity.sectors?.join(', ') || '—'],
   ];
   return (
     <table className="w-full text-xs">
@@ -1098,79 +1143,56 @@ function ManualEntityEditForm({ row, onSaved, onCancel }: { row: ManualEntity; o
 // own next refresh once treated (§E) — see manual-entities/route.ts's own
 // header for the catalog_review_status mechanism (migration 0169,
 // proposed, not yet applied).
+// Prompt 191 — selection model: per-row Merge/Promote replaced by a checkbox
+// plus a single "Add selected to catalog" bulk action; the system still
+// decides merge-vs-promote per row. Inline editing (§A), a read-only contacts
+// expansion (§B), and Dismiss (§E.3).
+//
+// Prompt 570 §D.4 — rebuilt on QueueTable (§C). What changed and why:
+//
+// The list is server-paged, sorted and filtered. It used to load every row and
+// do all three in the browser, which was fine at 751 rows and became a lie the
+// moment paging existed — "grade A first" would have meant "grade A first
+// among these 25". Grade now comes from the route, computed over the whole
+// matching set with the same completeness.ts the browser used.
+//
+// The queue lists what is undecided: pending + probable_match. The 692 rows
+// the reconcile linked are gone from here entirely, and the resolved ones sit
+// behind "Show resolved" rather than mixed in.
+//
+// Five columns left the table for the expand panel — HQ, geographies, stage,
+// sectors, contact detail — because five stacked values per cell made every
+// row five lines tall.
+//
+// The merge-vs-promote contract is now exact and comes from the data:
+// probable_match always carries a catalog row to merge into, pending never
+// does (see catalog-candidate-reconcile.ts). This component asserts that
+// rather than assuming it — a pending row with a match, or the reverse, is a
+// bug upstream and is reported instead of acted on.
 function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[]; onPromoted: () => void }) {
-  const [rows, setRows] = useState<ManualEntity[] | null>(null);
+  const params = useSearchParams();
+  const [rows, setRows] = useState<CandidateRow[] | null>(null);
+  const [total, setTotal] = useState(0);
+  const [hiddenInternal, setHiddenInternal] = useState(0);
   const [err, setErr] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [result, setResult] = useState<Record<string, string>>({});
-  const [compareId, setCompareId] = useState<string | null>(null);
-  const [contactsId, setContactsId] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkResult, setBulkResult] = useState('');
-  // Prompt 276 — 'all' shows every row; a letter shows that grade AND
-  // anything better (e.g. 'B' shows A and B), matching "aprova A e B de
-  // uma vez" rather than exactly-this-grade-only.
-  const [minGrade, setMinGrade] = useState<CompletenessGrade | 'all'>('all');
 
-  const graded = useMemo(() => {
-    const m = new Map<string, ReturnType<typeof manualEntityCompleteness>>();
-    for (const r of rows ?? []) {
-      m.set(r.id, manualEntityCompleteness({
-        website: r.website, hqCity: r.hqCity, hqCountry: r.hqCountry, geographies: r.geographies,
-        stageMin: r.stageMin, stageMax: r.stageMax, checkMinEur: r.checkMinEur, checkMaxEur: r.checkMaxEur,
-        sectors: r.sectors, contactCount: r.contacts.length,
-      }));
-    }
-    return m;
-  }, [rows]);
-
-  // Prompt 276 §3/§4 — default order becomes grade descending (A first),
-  // created_at desc as the tiebreak within the same grade (the API's own
-  // order, preserved exactly where grade doesn't distinguish two rows).
-  // Filtered to minGrade first so "select all" below only ever touches
-  // what's actually on screen, never all 757 regardless of the filter.
-  const visibleRows = useMemo(() => {
-    if (!rows) return [];
-    const list = minGrade === 'all' ? rows : rows.filter((r) => (graded.get(r.id)?.grade ?? 'E').localeCompare(minGrade) <= 0);
-    return [...list].sort((a, b) =>
-      (graded.get(a.id)?.grade ?? 'E').localeCompare(graded.get(b.id)?.grade ?? 'E') || b.createdAt.localeCompare(a.createdAt));
-  }, [rows, graded, minGrade]);
-
-  function refresh() {
-    fetch('/api/backoffice/catalog/manual-entities').then((r) => r.json()).then((body) => {
+  const qs = params.toString();
+  const refresh = useCallback(() => {
+    fetch(`/api/backoffice/catalog/manual-entities?${qs}`).then((r) => r.json()).then((body) => {
       if (body.ok === false) { setErr(body.error); return; }
       setRows(body.manualEntities);
-      // Prompt 191 §E — a row that's gone after refresh (promoted/merged/
-      // dismissed elsewhere, or by a teammate) shouldn't linger selected.
-      setSelectedIds((prev) => new Set([...prev].filter((id) => (body.manualEntities as ManualEntity[]).some((r) => r.id === id))));
-    });
-  }
-  useEffect(refresh, []);
+      setTotal(body.total ?? 0);
+      setHiddenInternal(body.hiddenInternal ?? 0);
+    }).catch((e) => setErr((e as Error).message));
+  }, [qs]);
+  useEffect(refresh, [refresh]);
 
-  function toggleSelected(id: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }
-  // Prompt 276 §4 — operates on visibleRows (post-filter), not the full
-  // 757: toggles only the rows currently on screen, leaving any selection
-  // made under a DIFFERENT filter (e.g. grade A selected, then switched to
-  // viewing grade B) untouched rather than clobbering it.
-  function toggleSelectAll() {
-    if (visibleRows.length === 0) return;
-    const allVisibleSelected = visibleRows.every((r) => selectedIds.has(r.id));
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      for (const r of visibleRows) { if (allVisibleSelected) next.delete(r.id); else next.add(r.id); }
-      return next;
-    });
-  }
-
-  async function dismiss(row: ManualEntity) {
+  async function dismiss(row: CandidateRow) {
     setBusyId(row.id);
     const res = await fetch(`/api/backoffice/catalog/manual-entities/${row.id}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dismiss: true }),
@@ -1181,25 +1203,31 @@ function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[];
     refresh();
   }
 
-  // Prompt 191 §C — one action, the row's own likelyDuplicate decides
-  // merge vs. promote, exactly what the two old per-row buttons did.
-  async function addSelectedToCatalog() {
-    const ids = [...selectedIds];
+  // One action; the row's stored status decides merge vs promote, exactly what
+  // the two old per-row buttons did — only now the decision is a fact in the
+  // database rather than something recomputed on every render.
+  async function addSelectedToCatalog(ids: string[], clear: () => void) {
     if (ids.length === 0 || !rows) return;
     setBulkBusy(true); setBulkResult('');
     const outcomes = await Promise.all(ids.map(async (id) => {
       const row = rows.find((r) => r.id === id);
       if (!row) return { id, ok: true }; // already gone — nothing to do
-      if (row.likelyDuplicate) {
-        const res = await fetch('/api/backoffice/catalog/merge', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ keepId: row.likelyDuplicate.catalogId, manualEntityId: row.id }),
-        });
-        const body = await res.json();
-        return { id, ok: body.ok !== false, error: body.ok === false ? body.error : undefined };
+
+      // The invariant, checked rather than trusted. If it ever breaks, merging
+      // on a match the rules declined to make would quietly write the wrong
+      // firm into the catalog; refusing is the cheaper failure.
+      if (row.status === 'probable_match' && !row.catalogMatch) {
+        return { id, ok: false, error: 'No catalog match stored for a probable_match row — re-run reconcile.' };
       }
-      const res = await fetch('/api/backoffice/catalog/promote', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ manualEntityId: row.id }),
+      if (row.status === 'pending' && row.catalogMatch) {
+        return { id, ok: false, error: 'A pending row carries a match — re-run reconcile before adding it.' };
+      }
+
+      const [url, payload] = row.catalogMatch
+        ? ['/api/backoffice/catalog/merge', { keepId: row.catalogMatch.id, manualEntityId: row.id }]
+        : ['/api/backoffice/catalog/promote', { manualEntityId: row.id }];
+      const res = await fetch(url as string, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       });
       const body = await res.json();
       return { id, ok: body.ok !== false, error: body.ok === false ? body.error : undefined };
@@ -1214,112 +1242,122 @@ function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[];
       for (const o of failed) if (o.error) next[o.id] = o.error;
       return next;
     });
-    setSelectedIds(new Set());
+    clear();
     refresh(); onPromoted();
   }
 
   if (err) return <Card title="Added by startups"><p className="text-sm text-[#B00000]">{err}</p></Card>;
-  if (!rows) return <Card title="Added by startups"><p className="text-sm text-gray-400">Loading…</p></Card>;
+
+  const columns: QueueColumn<CandidateRow>[] = [
+    { key: 'grade', label: 'Grade', sortable: true, render: (r) => <GradeBadge grade={r.grade} percent={0} /> },
+    {
+      key: 'investor', label: 'Investor', sortable: true,
+      render: (r) => (
+        <div>
+          <div className="font-medium">{r.name}</div>
+          {r.website && <div className="text-xs font-normal text-gray-400">{r.website}</div>}
+        </div>
+      ),
+    },
+    { key: 'org', label: 'Added by', render: (r) => <span className="text-gray-500">{r.orgName}</span> },
+    {
+      key: 'added', label: 'Added when', sortable: true,
+      render: (r) => <span className="text-gray-500">{new Date(r.createdAt).toLocaleDateString()}</span>,
+    },
+    {
+      key: 'match', label: 'Match', sortable: true,
+      render: (r) => (r.catalogMatch
+        ? <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+            probable → {r.catalogMatch.name}
+          </span>
+        : <span className="text-xs text-gray-300">—</span>),
+    },
+    {
+      key: 'contact', label: 'Contact', align: 'right',
+      render: (r) => (r.hasContact
+        ? <span className="text-green-600" title="Has a person, an inbox or a phone">✓</span>
+        : <span className="text-gray-300">—</span>),
+    },
+    {
+      key: 'actions', label: '', align: 'right',
+      render: (r) => (
+        <span className="whitespace-nowrap">
+          <button onClick={() => setEditId(editId === r.id ? null : r.id)} className="mr-2 text-xs text-cyan-700 hover:underline">
+            {editId === r.id ? 'Close' : 'Edit'}
+          </button>
+          <button disabled={busyId === r.id} onClick={() => dismiss(r)} className="text-xs text-gray-400 hover:underline disabled:opacity-40">
+            Dismiss
+          </button>
+        </span>
+      ),
+    },
+  ];
 
   return (
-    <Card title={`Added by startups (${rows.length})`}>
+    <Card title={`Added by startups (${total})`}>
       <p className="mb-3 text-xs text-gray-500">
-        Every investor a founder added manually (any org), cross-checked against the shared catalog by domain, name,
-        and known aliases. Fix any field that looks wrong before adding it — the correction is saved on the
-        founder&apos;s own record and carries through to whatever you add next. Select rows and add them to the
-        catalog in one go: a flagged row merges into its likely match (filling gaps only, never overwriting), an
-        unflagged row is promoted as a new entry. Dismiss a row that isn&apos;t worth either.
+        Investors a founder added by hand, still undecided. Rows whose domain matches the catalog exactly are
+        linked automatically and never appear here. A row with a probable match merges into it (filling gaps only,
+        never overwriting); a row without one is promoted as a new entry. Fix any field that looks wrong first —
+        the correction is saved on the founder&apos;s own record.
       </p>
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <button disabled={selectedIds.size === 0 || bulkBusy} onClick={addSelectedToCatalog}
-          className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
-          {bulkBusy ? 'Adding…' : `Add selected to catalog (${selectedIds.size})`}
-        </button>
-        {bulkResult && <span className="text-xs text-gray-500">{bulkResult}</span>}
-        {/* Prompt 276 §4 — "minimum grade" (A/B/... and better), not an
-            exact-grade filter: the point is "show me the richest rows so
-            I can select-all and approve them together", which a
-            single-grade-only filter would make into several separate
-            select-all passes for no benefit. */}
-        <label className="ml-auto text-xs text-gray-500">Minimum grade
-          <select value={minGrade} onChange={(e) => setMinGrade(e.target.value as CompletenessGrade | 'all')}
-            className="ml-1.5 rounded border border-gray-300 px-1.5 py-1 text-xs">
-            <option value="all">All</option>
-            {(['A', 'B', 'C', 'D', 'E'] as const).map((g) => <option key={g} value={g}>{g} or better</option>)}
-          </select>
-        </label>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
-              <th className="w-8 py-1.5"><input type="checkbox" checked={visibleRows.length > 0 && visibleRows.every((r) => selectedIds.has(r.id))} onChange={toggleSelectAll} /></th>
-              <th>Grade</th>
-              <th>Startup org</th><th>Investor</th><th>HQ</th><th>Geographies</th><th>Stage</th><th>Sectors</th><th>Contact</th><th>Match</th><th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibleRows.map((r) => {
-              const catalogEntity = r.likelyDuplicate ? catalog.find((c) => c.id === r.likelyDuplicate!.catalogId) : undefined;
-              const g = graded.get(r.id);
-              return (
-                <Fragment key={r.id}>
-                  <tr className="border-t border-gray-50 align-top">
-                    <td className="py-2"><input type="checkbox" checked={selectedIds.has(r.id)} onChange={() => toggleSelected(r.id)} /></td>
-                    <td>{g && <GradeBadge grade={g.grade} percent={g.percent} />}</td>
-                    <td className="text-gray-500">{r.orgName}</td>
-                    <td className="font-medium">{r.name}{r.website && <div className="text-xs font-normal text-gray-400">{r.website}</div>}</td>
-                    <td className="text-gray-500">{[r.hqCity, r.hqCountry].filter(Boolean).join(', ') || '—'}</td>
-                    <td className="max-w-[160px] text-xs text-gray-500">{r.geographies?.length ? r.geographies.join(', ') : '—'}</td>
-                    <td className="text-gray-500">{fmtStage(r.stageMin, r.stageMax)}</td>
-                    <td className="max-w-[200px] text-xs text-gray-500">{r.sectors.length ? r.sectors.join(', ') : '—'}</td>
-                    <td className="text-xs text-gray-500">{[r.email, r.phone].filter(Boolean).join(' · ') || '—'}</td>
-                    <td>
-                      {r.likelyDuplicate ? (
-                        <button onClick={() => setCompareId(compareId === r.id ? null : r.id)}
-                          className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 hover:bg-amber-100"
-                          title={`Matched by ${r.likelyDuplicate.reason}`}>
-                          Likely duplicate: {r.likelyDuplicate.catalogEntity.name}
-                        </button>
-                      ) : <span className="text-xs text-gray-300">No match</span>}
-                    </td>
-                    <td className="whitespace-nowrap text-right">
-                      <button onClick={() => setEditId(editId === r.id ? null : r.id)} className="mr-2 text-xs text-cyan-700 hover:underline">
-                        {editId === r.id ? 'Close' : 'Edit'}
-                      </button>
-                      <button onClick={() => setContactsId(contactsId === r.id ? null : r.id)} className="mr-2 text-xs text-cyan-700 hover:underline">
-                        {contactsId === r.id ? 'Close' : `Contacts (${r.contacts.length})`}
-                      </button>
-                      <button disabled={busyId === r.id} onClick={() => dismiss(r)} className="text-xs text-gray-400 hover:underline disabled:opacity-40">Dismiss</button>
-                    </td>
-                  </tr>
-                  {editId === r.id && (
-                    <tr className="border-t border-gray-50">
-                      <td colSpan={11} className="py-2">
-                        <ManualEntityEditForm row={r} onCancel={() => setEditId(null)} onSaved={() => { setEditId(null); refresh(); }} />
-                      </td>
-                    </tr>
-                  )}
-                  {contactsId === r.id && (
-                    <tr className="border-t border-gray-50"><td colSpan={11} className="py-2"><ManualEntityContactsPanel contacts={r.contacts} /></td></tr>
-                  )}
-                  {compareId === r.id && catalogEntity && (
-                    <tr className="border-t border-gray-50"><td colSpan={11} className="py-2"><CompareTable manual={r} catalogEntity={catalogEntity} /></td></tr>
-                  )}
-                  {result[r.id] && (
-                    <tr><td colSpan={11} className="pb-2 text-xs text-gray-500">{result[r.id]}</td></tr>
-                  )}
-                </Fragment>
-              );
-            })}
-            {rows.length === 0 && <tr><td colSpan={11} className="py-4 text-center text-sm text-gray-400">No manually-added investors from startups yet.</td></tr>}
-            {rows.length > 0 && visibleRows.length === 0 && <tr><td colSpan={11} className="py-4 text-center text-sm text-gray-400">No rows at grade {minGrade} or better.</td></tr>}
-          </tbody>
-        </table>
-      </div>
+      <QueueTable<CandidateRow>
+        columns={columns}
+        rows={rows ?? []}
+        total={total}
+        loading={rows === null}
+        getRowId={(r) => r.id}
+        hiddenInternalCount={hiddenInternal}
+        emptyMessage="Nothing left to review here."
+        renderBulkActions={(ids, clear) => (
+          <>
+            <button disabled={bulkBusy} onClick={() => void addSelectedToCatalog(ids, clear)}
+              className="rounded-lg bg-[#0E7490] px-3 py-1 text-xs font-medium text-white disabled:opacity-40">
+              {bulkBusy ? 'Adding…' : `Add ${ids.length} to catalog`}
+            </button>
+            {bulkResult && <span className="text-gray-500">{bulkResult}</span>}
+          </>
+        )}
+        filterControls={(state, set) => (
+          <label className="flex items-center gap-1.5">
+            Minimum grade
+            <select value={state.filters.grade ?? 'all'}
+              onChange={(e) => set({ filters: { ...state.filters, grade: e.target.value === 'all' ? '' : e.target.value } })}
+              className="rounded border border-gray-300 px-1.5 py-0.5">
+              <option value="all">All</option>
+              {(['A', 'B', 'C', 'D', 'E'] as const).map((g) => <option key={g} value={g}>{g} or better</option>)}
+            </select>
+          </label>
+        )}
+        renderExpanded={(r) => {
+          const legacy = toLegacyManualEntity(r);
+          const match = r.catalogMatch ? catalog.find((c) => c.id === r.catalogMatch!.id) : undefined;
+          return (
+            <div className="space-y-3">
+              {result[r.id] && <p className="text-xs text-[#B00000]">{result[r.id]}</p>}
+              {editId === r.id
+                ? <ManualEntityEditForm row={legacy} onCancel={() => setEditId(null)} onSaved={() => { setEditId(null); refresh(); }} />
+                : (
+                  <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-gray-600 sm:grid-cols-4">
+                    <div><dt className="text-gray-400">HQ</dt><dd>{[r.detail.hqCity, r.detail.hqCountry].filter(Boolean).join(', ') || '—'}</dd></div>
+                    <div><dt className="text-gray-400">Geographies</dt><dd>{r.detail.geographies?.length ? r.detail.geographies.join(', ') : '—'}</dd></div>
+                    <div><dt className="text-gray-400">Stage</dt><dd>{fmtStage(r.detail.stageMin, r.detail.stageMax)}</dd></div>
+                    <div><dt className="text-gray-400">Sectors</dt><dd>{r.detail.sectors.length ? r.detail.sectors.join(', ') : '—'}</dd></div>
+                  </dl>
+                )}
+              {/* §D.5 — candidate against catalog entry, side by side, reusing
+                  the merge tool's own table rather than a second rendering of
+                  the same comparison. */}
+              {match && <CompareTable manual={legacy} catalogEntity={match} />}
+              <ManualEntityContactsPanel contacts={r.detail.contacts} />
+            </div>
+          );
+        }}
+      />
     </Card>
   );
 }
+
 
 // Prompt 190 — wraps AddedByStartupsTab + QualityPanel for this tab.
 // Fetches its own catalog copy rather than threading it down from
