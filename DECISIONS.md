@@ -5259,3 +5259,74 @@ knowing is not zero.
 `?tab=` never worked: the page ignored the query string, so every direct link
 to a queue opened the first tab. Fixed as part of §B, since the board's cards
 would have inherited it.
+
+## Prompt 577 — every applied migration has a file in `main`; every file in `main` is in the ledger or in `.verify-ignore` with a reason (05/09/2026)
+
+`verify:migrations` (575) found 12 migrations production had applied with no
+file anywhere, one file (`0300`) whose functions were live but whose ledger
+row never existed, and 6 files main carried that looked unapplied but might
+be hiding under another name. Closing all three lists needed zero new
+behaviour — the only production write in the whole prompt is the one `0300`
+ledger row — and turned out to need far less invention than the count
+suggested.
+
+**11 of the 12 "no file anywhere" migrations were never missing content —
+they were missing a name match.** Checked one at a time against production
+(an index, a constraint, a function body, a trigger's live definition) before
+concluding anything: 9 of them are small pushes that a session applied
+individually against production, then folded into ONE already-committed file
+when writing it to the repo. `0302_matchdeal_investor_firm_view.sql` alone
+accounts for five ledger rows this way; `0285_investor_seat_limit.sql` and
+`0247_enqueue_enrichment_on_delivery.sql` two more between them. A ledger
+name and a file's own name are allowed to disagree by design (that's the
+whole reason the join is on a normalised name, not the number) — what wasn't
+handled yet was a ledger name matching a file OTHER than the one its own
+name would suggest. `verify-migrations.ts` now carries a `LEDGER_NAME_ALIASES`
+map for exactly that, each line commented with the production check that
+justified it, never the name alone.
+
+**The other two of the 12 could not be reconstructed, and weren't.** One
+function body (`0129b`) has been completely overwritten twice since by later
+migrations — "last definition wins" means nothing today would even read a
+reconstruction of it, and the exact text is gone from production. One data
+backfill (`wave_fit_score`) names a column that has never existed on the
+table its own name implies — `fit_score`/`wave` live on `entities`, not
+`catalog_entities` — and no file, forensic timestamp cluster, or admin audit
+row points at what it actually changed. Both are in `.verify-ignore` by
+ledger name (a new thing that file can do now — the old format could only
+silence a *file* main carried, never an applied ledger row with no file to
+name), with the specific evidence that ruled out reconstruction, not a
+guess dressed up as one.
+
+**Of the 6 "maybe renamed" files, the evidence went three different ways, and
+each got the ending its own evidence pointed to** — not the ending that
+would have made the report look cleaner. `0066` was the one clean rename
+(aliased). `0100`'s enum rename is confirmably live in production
+(`pg_enum` shows it) but never got its own ledger row at all — applied,
+just untracked, which is a real third category between "matched" and
+"never ran." `0117` is a genuine match, discovered by comparing the
+`ablute_`/Caramel Biscuit's current data shape against what its coalesce
+would produce against August-era `orgs` rows — but it binds to the
+*earlier* of two production pushes that share one ledger name, and the
+ledger's own name-keyed lookup can only ever keep one of two identical
+names. Forcing that through the alias map would have implied a precision
+(which of two rows) the mechanism doesn't have, so it's documented instead.
+`0142` and `0143` are the opposite of what their presence in `main` might
+suggest: both confirmed **never applied** — one by its own header, one by a
+later migration's header saying so about it explicitly, one by a live data
+check the migration's own unconditional UPDATE would have failed if it had
+run. A no-op file sitting in `main` unapplied is not evidence it ran; only
+checking production is.
+
+The two remaining `verify:migrations` findings — `0289` and `0292`, each
+claimed by both `main` and an unrelated unmerged branch — are untouched on
+purpose. They belong to other prompts' pending merges, not this
+reconciliation.
+
+**The generalisable part:** a name-keyed join is only as complete as the
+names agree, and names drift in exactly the situations most worth tracking —
+an iterative session against production, an old rename, a proposal whose
+header goes stale the moment production changes underneath it. The fix isn't
+a smarter matcher; it's a documented exception for every case the matcher
+structurally cannot see, each one earned by checking production rather than
+inferring from the file's own claims about itself.
