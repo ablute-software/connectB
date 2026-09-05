@@ -3,7 +3,7 @@
 // Contributions/GDPR logic carried over from the pre-Bloco-3 backoffice
 // page; Submissions/Claims are new tabs consolidating what used to be a
 // separate founder-store-scoped "Review queue" section.
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Card, Tooltip } from '@/components/ui';
@@ -1571,7 +1571,23 @@ function KeyPeoplePromoteTab() {
   );
 }
 
+// Prompt 570 §B / 575 — the Suspense boundary useSearchParams() requires.
+//
+// Without it `next build` compiles and then fails at the prerender step with
+// "useSearchParams() should be wrapped in a suspense boundary", and the deploy
+// never lands. Worth stating how it got past me: I was grepping the build
+// output for /Compiled|Failed/, which matches "✓ Compiled successfully" and
+// does NOT match "Error occurred prerendering page". The build was red and I
+// read it as green three times. Check the exit code, not a pattern.
 export default function BackofficeQueuePage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-sm text-gray-400">Loading queue…</div>}>
+      <BackofficeQueueContent />
+    </Suspense>
+  );
+}
+
+function BackofficeQueueContent() {
   // Prompt 570 §B — the board is the landing view, and ?tab= finally works.
   //
   // It never did: this was useState('contributions') and the query string was
