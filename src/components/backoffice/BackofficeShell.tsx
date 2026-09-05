@@ -161,35 +161,40 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
         brandName={BRAND_NAME}
         subtitle="Back-office"
         groupStyle="cards"
+        collapsible
         beforeItems={
-          <div className="mx-3 mt-1 flex flex-col gap-2 rounded-xl bg-gray-900 p-3">
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-wider text-blue-300">
-                <span aria-hidden>⛨</span> Operator mode
+          <div className="mx-1.5 mt-1 flex flex-col gap-2 rounded-xl bg-gray-900 p-3 min-[1440px]:mx-3">
+            <div className="flex items-center justify-center min-[1440px]:justify-between">
+              <span className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-wider text-blue-300" title="Operator mode">
+                <span aria-hidden>⛨</span> <span className="hidden min-[1440px]:inline">Operator mode</span>
               </span>
             </div>
-            <Link href={fromPath}
-              className="flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-2 text-[12.5px] font-medium text-gray-900 transition hover:bg-gray-100">
-              <span aria-hidden>←</span> Back to {fromLabel}
+            <Link href={fromPath} title={`Back to ${fromLabel}`}
+              className="flex items-center justify-center gap-1.5 rounded-lg bg-white px-2.5 py-2 text-[12.5px] font-medium text-gray-900 transition hover:bg-gray-100 min-[1440px]:justify-start">
+              <span aria-hidden>←</span> <span className="hidden min-[1440px]:inline">Back to {fromLabel}</span>
             </Link>
-            <BackofficeSearch />
+            {/* ⌘K keeps working globally (BackofficeSearch's own keydown
+                listener) even with the trigger button hidden — nothing is
+                lost by dropping the discoverability hint on the narrow rail. */}
+            <div className="hidden min-[1440px]:block"><BackofficeSearch /></div>
           </div>
         }
         items={items}
         footer={
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center justify-center gap-2 min-[1440px]:justify-between">
             <div className="flex min-w-0 items-center gap-2.5">
-              <div className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-[#0E7490] text-[11px] font-bold text-white">{initials}</div>
-              <div className="min-w-0">
+              <div className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-[#0E7490] text-[11px] font-bold text-white" title={me?.email ?? undefined}>{initials}</div>
+              <div className="hidden min-w-0 min-[1440px]:block">
                 <div className="truncate text-[12px] font-medium text-gray-700">{me?.email ?? '—'}</div>
                 <div className="text-[10px] uppercase tracking-wide text-[#0E7490]">Operator</div>
               </div>
             </div>
-            <LogoutButton className="shrink-0" />
+            <LogoutButton compact className="min-[1440px]:hidden shrink-0" />
+            <LogoutButton className="hidden shrink-0 min-[1440px]:inline-block" />
           </div>
         }
       />
-      <div className="flex-1 md:ml-60">
+      <div className="flex-1 md:ml-16 min-[1440px]:ml-60">
         <WorkspaceHeader
           left={<div className="text-[15px] font-bold text-[#0E7490] md:hidden" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>{BRAND_NAME} · Back-office</div>}
           right={<span className="text-xs text-gray-300">Platform team console</span>}
