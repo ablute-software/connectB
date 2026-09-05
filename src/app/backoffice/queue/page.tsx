@@ -4,7 +4,7 @@
 // page; Submissions/Claims are new tabs consolidating what used to be a
 // separate founder-store-scoped "Review queue" section.
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Card, Tooltip } from '@/components/ui';
 import { useConfirm } from '@/lib/confirm';
@@ -16,6 +16,7 @@ import { CompetitorIntelTab } from '@/components/backoffice/CompetitorIntelTab';
 import { ENTITY_ENRICHMENT_FIELD_LABELS, isKnownEntityField } from '@/lib/entity-enrichment';
 import { manualEntityCompleteness, type CompletenessGrade } from '@/lib/completeness';
 import { QueueTable, type QueueColumn } from '@/components/backoffice/QueueTable';
+import { QueueTriageBoard } from '@/components/backoffice/QueueTriageBoard';
 
 // Prompt 190 — 'candidates' ("Catalog candidates") added next to
 // Contributions per Nuno's explicit decision: "Added by startups" (Prompt
@@ -1571,7 +1572,31 @@ function KeyPeoplePromoteTab() {
 }
 
 export default function BackofficeQueuePage() {
-  const [tab, setTab] = useState<Tab>('contributions');
+  // Prompt 570 §B — the board is the landing view, and ?tab= finally works.
+  //
+  // It never did: this was useState('contributions') and the query string was
+  // ignored, so every "direct link" to a queue silently opened the first tab.
+  // The prompt assumed those links worked; they did not, and the board would
+  // have inherited the same dead end.
+  const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const urlTab = params.get('tab');
+  const tab: Tab | null = TABS.some((t) => t.key === urlTab) ? (urlTab as Tab) : null;
+
+  const openTab = useCallback((key: string) => {
+    const next = new URLSearchParams(params.toString());
+    next.set('tab', key);
+    // Only the tab survives the move: a page or sort from the queue you just
+    // left means nothing in the one you are opening.
+    for (const k of ['page', 'size', 'sort', 'dir', 'grade']) next.delete(k);
+    router.replace(`${pathname}?${next.toString()}`, { scroll: false });
+  }, [params, pathname, router]);
+
+  const backToBoard = useCallback(() => {
+    router.replace(pathname, { scroll: false });
+  }, [pathname, router]);
+
   return (
     <div className="space-y-5">
       <h1 className="text-lg font-bold">Queue</h1>
@@ -1588,14 +1613,24 @@ export default function BackofficeQueuePage() {
           Settings → Import history → Needs review
         </Link>.
       </p>
-      <div className="flex gap-1 border-b border-gray-200">
+      <div className="flex flex-wrap gap-1 border-b border-gray-200">
+        <button onClick={backToBoard}
+          className={`px-3 py-2 text-sm font-medium ${tab === null ? 'border-b-2 border-[#0E7490] text-[#0E7490]' : 'text-gray-400 hover:text-gray-600'}`}>
+          All queues
+        </button>
         {TABS.map((t) => (
-          <button key={t.key} onClick={() => setTab(t.key)}
+          <button key={t.key} onClick={() => openTab(t.key)}
             className={`px-3 py-2 text-sm font-medium ${tab === t.key ? 'border-b-2 border-[#0E7490] text-[#0E7490]' : 'text-gray-400 hover:text-gray-600'}`}>
             {t.label}
           </button>
         ))}
       </div>
+      {tab === null && (
+        <QueueTriageBoard
+          labels={Object.fromEntries(TABS.map((t) => [t.key, t.label]))}
+          onOpen={openTab}
+        />
+      )}
       {tab === 'contributions' && <ContributionsTab />}
       {tab === 'candidates' && <CatalogCandidatesTab />}
       {tab === 'submissions' && <SubmissionsTab />}
