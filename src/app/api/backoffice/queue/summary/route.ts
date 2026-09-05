@@ -22,6 +22,8 @@ import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { hasDomainMismatch } from '@/lib/domain-mismatch';
 
+export interface QueueSummaryResponse { ok: true; rows: QueueSummaryRow[]; systemNominal: boolean }
+
 export interface QueueSummaryRow {
   key: string;
   /** Decisions waiting. null = computed elsewhere, see the header. */
@@ -83,6 +85,17 @@ export async function GET() {
     admin.from('entities').select('id, website, email_domain'),
   ]);
 
+  // Prompt 576 §3 — the sidebar's System status dot. Deliberately the
+  // smallest real signal available today (email_send_log failures in the
+  // last 24h) rather than the full 4-source aggregation (Migrations/ledger,
+  // Gap engine, Audit log) — that fusion is 572-574/Phase 2's job. A single
+  // honest signal beats a hardcoded green dot; this is not a placeholder
+  // pretending to be a health check, it just isn't the complete one yet.
+  const since24h = new Date(Date.now() - 24 * 3600_000).toISOString();
+  const { count: emailFailures } = await admin.from('email_send_log').select('id', { count: 'exact', head: true })
+    .in('status', ['failed', 'render_failed']).gte('created_at', since24h);
+  const systemNominal = (emailFailures ?? 0) === 0;
+
   // GDPR is the only queue with a deadline today: 30 days from the request.
   const gdprOldestAt = (gdprOldest.data ?? [])[0]?.created_at as string | undefined;
   const gdprAge = daysSince(gdprOldestAt);
@@ -112,7 +125,7 @@ export async function GET() {
     { key: 'competitor_intel', count: null },
   ];
 
-  return NextResponse.json({ ok: true, rows }, {
+  return NextResponse.json({ ok: true, rows, systemNominal }, {
     // Short cache: the board is a glance, and twelve counts do not need to be
     // to-the-second. 30s is the prompt's own allowance.
     headers: { 'Cache-Control': 'private, max-age=30' },

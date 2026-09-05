@@ -272,7 +272,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
               <>
                 <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-gray-300">Platform</div>
                 <Tooltip text="Switch to the platform team's console — catalog curation, cross-org queues, no founder pipeline data." side="right" block>
-                  <Link href="/backoffice"
+                  {/* Prompt 576 §3a — the exit button on the other side needs
+                      to know where to return to; the origin is carried
+                      explicitly in the URL, never re-derived once inside the
+                      back-office (no founder-workspace session lives there). */}
+                  <Link href={`/backoffice?from=${encodeURIComponent(path || '/pipeline')}&fromLabel=${encodeURIComponent(db.org.name ? `${db.org.name} (founder)` : 'founder')}`}
                     className="flex items-center gap-2.5 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-[13.5px] text-gray-700 transition hover:bg-gray-100">
                     <span className="w-4 text-center text-gray-400">◉</span> Back-office →
                   </Link>

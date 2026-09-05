@@ -1,57 +1,41 @@
 'use client';
 // BLOCO 3 — the back-office console gets its OWN chrome, completely
 // separate from the founder Shell (src/components/shell.tsx early-returns
-// bare children for this route). Zero founder nav items, dark "PLATFORM"
-// header so a dual-role user (Nuno: founder of ablute_ AND platform admin)
-// never confuses which view they're in. Client-side redirect here is a UX
-// nicety only — the real 403 is enforced server-side in middleware.ts and
+// bare children for this route). Client-side redirect here is a UX nicety
+// only — the real 403 is enforced server-side in middleware.ts and
 // independently in every /api/backoffice/* route (requirePlatformAdmin()).
-import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import { BRAND_NAME } from '@/lib/brand';
+//
+// Prompt 576 §3 — the flat top-nav-bar chrome this file used to render
+// directly is replaced by BackofficeShell (the same WorkspaceSidebar/
+// WorkspaceHeader the founder shell uses, in its own 6-group configuration —
+// see that component's own header for why it's a sibling rather than a
+// branch inside <Shell>). No route in this tree changes; every existing
+// page under /backoffice/* renders exactly where it already did.
+import { Suspense, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { BackofficeShell } from '@/components/backoffice/BackofficeShell';
 import { useUsageHeartbeat } from '@/lib/use-usage-heartbeat';
 
-const NAV = [
-  { href: '/backoffice', label: 'Today' },
-  { href: '/backoffice/queue', label: 'Queue' },
-  { href: '/backoffice/catalog', label: 'Catalog' },
-  { href: '/backoffice/investors', label: 'Investors' },
-  { href: '/backoffice/startups', label: 'Startups' },
-  { href: '/backoffice/support', label: 'Customer Support' },
-  // Prompt 293 §2/§3 — new AI Costs tab, single source ai_call_log (0202).
-  { href: '/backoffice/costs', label: 'AI Costs' },
-  // Prompt 358 Phase 3.3 — gap-interrogation engine health (gap_reconciliations/gap_questions).
-  { href: '/backoffice/gap-engine-health', label: 'Gap Engine Health' },
-  // Prompt 537 §1(b)/§2 — every send attempt with the provider's verbatim
-  // answer, plus the sender-domain health card. Its whole purpose is that
-  // "the email didn't arrive" is answered by reading a row.
-  { href: '/backoffice/email-delivery', label: 'Email delivery' },
-  { href: '/backoffice/promo-codes', label: 'Promo Codes & Offers' },
-  { href: '/backoffice/plan-requests', label: 'Plan Requests' },
-];
-
 export default function BackofficeLayout({ children }: { children: React.ReactNode }) {
-  const path = usePathname();
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center text-sm text-gray-400">Loading…</div>}>
+      <BackofficeLayoutContent>{children}</BackofficeLayoutContent>
+    </Suspense>
+  );
+}
+
+function BackofficeLayoutContent({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const [me, setMe] = useState<{ authEnabled: boolean; role: string; orgRole?: string | null } | null>(null);
-  const [supportBadge, setSupportBadge] = useState(0);
+  const [me, setMe] = useState<{ authEnabled: boolean; role: string; user: { email?: string } | null } | null>(null);
 
   useEffect(() => {
-    fetch('/api/me').then((r) => r.json()).then(setMe).catch(() => setMe({ authEnabled: false, role: 'none' }));
+    fetch('/api/me').then((r) => r.json()).then(setMe).catch(() => setMe({ authEnabled: false, role: 'none', user: null }));
   }, []);
 
   // Prompt 295 §1 — separate context from the founder shell's own 'crm'
   // heartbeat: a dual-role account (Nuno) genuinely uses two different
   // shells, and this table should be able to tell them apart.
   useUsageHeartbeat({ context: 'backoffice', enabled: me?.authEnabled === true && me?.role === 'developer' });
-
-  useEffect(() => {
-    if (me?.authEnabled === false || me?.role !== 'developer') return;
-    fetch('/api/backoffice/support').then((r) => r.json()).then((body) => {
-      if (body.ok) setSupportBadge(body.counts.navBadge as number);
-    }).catch(() => {});
-  }, [me]);
 
   useEffect(() => {
     if (me && me.authEnabled && me.role !== 'developer') router.replace('/pipeline');
@@ -62,49 +46,8 @@ export default function BackofficeLayout({ children }: { children: React.ReactNo
   }
 
   return (
-    <div className="min-h-screen bg-[#F7F9FA] text-[#1A1A1A]">
-      <header className="border-b border-gray-800 bg-gray-900 px-4 py-3 md:px-8">
-        <div className="mx-auto flex max-w-6xl items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="text-[17px] font-bold leading-none tracking-tight text-white" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
-              {BRAND_NAME}
-            </div>
-          </div>
-          <nav className="flex items-center gap-1">
-            {NAV.map((n) => {
-              const active = n.href === '/backoffice' ? path === '/backoffice' : path?.startsWith(n.href);
-              return (
-                <Link key={n.href} href={n.href}
-                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition ${
-                    active ? 'bg-white text-gray-900' : 'text-gray-300 hover:bg-white/10'}`}>
-                  {n.label}
-                  {n.href === '/backoffice/support' && supportBadge > 0 && (
-                    <span className="rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">{supportBadge}</span>
-                  )}
-                </Link>
-              );
-            })}
-          </nav>
-          {/* Prompt 570 §E — a solid control, the same white as the active
-              nav item, rather than a ghost button.
-
-              The request framed this as a contrast fix, and measured it is
-              not one: gray-300 on gray-900 is already about 12:1, well past
-              AA. What was wrong is weight. A transparent button with a
-              20%-white border, sitting beside nav items that fill solid
-              white when active, reads as the disabled state of something —
-              which is a poor look for the only way back out of the
-              back-office. Solid white with gray-900 text takes it to roughly
-              17.7:1 and, more to the point, makes it look pressable. */}
-          {me?.orgRole && (
-            <Link href="/pipeline"
-              className="rounded-lg bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 transition hover:bg-gray-100">
-              ← Back to ablute_ (founder)
-            </Link>
-          )}
-        </div>
-      </header>
-      <main className="mx-auto max-w-6xl p-4 md:p-8">{children}</main>
-    </div>
+    <BackofficeShell me={me?.user ? { email: me.user.email, role: me.role } : null}>
+      {children}
+    </BackofficeShell>
   );
 }

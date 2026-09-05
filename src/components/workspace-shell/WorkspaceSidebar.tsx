@@ -8,9 +8,14 @@ import Link from 'next/link';
 import { Fragment, type ReactNode } from 'react';
 import type { WorkspaceNavItem } from './types';
 
-export function WorkspaceSidebar({ brandName, subtitle, items, afterItems, footer, groupStyle = 'dividers' }: {
+export function WorkspaceSidebar({ brandName, subtitle, beforeItems, items, afterItems, footer, groupStyle = 'dividers' }: {
   brandName: ReactNode;
   subtitle: string;
+  // Prompt 576 §3 — opaque content between the brand header and the nav
+  // list (the back-office's Operator-mode strip, exit button, and search).
+  // Mirrors afterItems exactly: optional, additive, zero effect on any
+  // caller that doesn't pass it.
+  beforeItems?: ReactNode;
   items: WorkspaceNavItem[];
   afterItems?: ReactNode;
   footer: ReactNode;
@@ -28,10 +33,12 @@ export function WorkspaceSidebar({ brandName, subtitle, items, afterItems, foote
 }) {
   function renderItem(n: WorkspaceNavItem) {
     const className = `flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] transition ${
-      n.active ? 'bg-[#0E7490] font-medium text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'}`;
+      n.active ? 'bg-[#0E7490] font-medium text-white shadow-sm'
+        : n.dimmed ? 'text-gray-400 hover:bg-gray-50'
+        : 'text-gray-600 hover:bg-gray-50'}`;
     const inner = (
       <>
-        <span className={`w-4 text-center ${n.active ? '' : 'text-gray-400'}`}>{n.icon}</span>
+        <span className={`w-4 text-center ${n.active ? '' : n.dimmed ? 'text-gray-300' : 'text-gray-400'}`}>{n.icon}</span>
         <span className={n.emphasize ? 'font-semibold tracking-wide' : undefined}>{n.label}</span>
         {!!n.badge && (
           <span className="ml-auto rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-white">{n.badge}</span>
@@ -42,6 +49,19 @@ export function WorkspaceSidebar({ brandName, subtitle, items, afterItems, foote
       <Link href={n.href} data-tour-id={n.tourId} className={className}>{inner}</Link>
     ) : (
       <button onClick={n.onSelect} className={`w-full text-left ${className}`}>{inner}</button>
+    );
+  }
+
+  // Prompt 576 §3 — an uppercase label above a group's first item. Only
+  // rendered when that item actually set one; founder/investor/guest items
+  // never do, so this renders nothing for them.
+  function renderGroupHeader(label: string | undefined, meta: ReactNode | undefined) {
+    if (!label) return null;
+    return (
+      <div className="flex items-center justify-between px-2.5 pb-1 pt-1 text-[10.5px] font-bold uppercase tracking-wider text-gray-400">
+        <span>{label}</span>
+        {meta}
+      </div>
     );
   }
 
@@ -63,10 +83,12 @@ export function WorkspaceSidebar({ brandName, subtitle, items, afterItems, foote
         </div>
         <div className="mt-1.5 text-[11px] font-medium uppercase tracking-widest text-gray-300">{subtitle}</div>
       </div>
+      {beforeItems}
       <nav className="mt-1 flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
         {groupStyle === 'cards' ? (
           runs.map((run, ri) => (
             <Fragment key={ri}>
+              {renderGroupHeader(run.items[0]?.groupLabel, run.items[0]?.groupMeta)}
               {run.group !== undefined ? (
                 <div className={`space-y-0.5 rounded-xl border border-gray-100/80 bg-white p-1.5 shadow-[0_1px_2px_rgba(15,23,30,0.04),0_0_0_1px_rgba(15,23,30,0.03)] ${ri > 0 ? 'mt-2' : ''}`}>
                   {run.items.map((n) => <Fragment key={n.key}>{renderItem(n)}</Fragment>)}
@@ -81,12 +103,15 @@ export function WorkspaceSidebar({ brandName, subtitle, items, afterItems, foote
             // Prompt 314 §B — a subtle divider wherever `group` changes
             // between consecutive items. Founder-only in practice pre-343:
             // the investor/guest shells never set `group`, so it stayed
-            // undefined for every item there and this never fired.
+            // undefined for every item there and this never fired. UNCHANGED
+            // by 576 §3 — isNewGroup below is a separate, additive check.
             const prevGroup = i > 0 ? items[i - 1].group : undefined;
             const showDivider = n.group !== undefined && prevGroup !== undefined && n.group !== prevGroup;
+            const isNewGroup = n.group !== undefined && (i === 0 || prevGroup !== n.group);
             return (
               <Fragment key={n.key}>
                 {showDivider && <div className="my-2 border-t border-gray-100" />}
+                {isNewGroup && renderGroupHeader(n.groupLabel, n.groupMeta)}
                 {renderItem(n)}
               </Fragment>
             );
