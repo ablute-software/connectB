@@ -1193,14 +1193,62 @@ function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[];
   useEffect(refresh, [refresh]);
 
   async function dismiss(row: CandidateRow) {
+    const reason = window.prompt(`Why is ${row.name} not going into the catalog?`)?.trim();
+    if (!reason) return; // cancelled, or empty — the API refuses it either way
     setBusyId(row.id);
     const res = await fetch(`/api/backoffice/catalog/manual-entities/${row.id}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dismiss: true }),
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dismiss: true, reason }),
     });
     const body = await res.json();
     setBusyId(null);
     if (body.ok === false) { setResult((prev) => ({ ...prev, [row.id]: body.error })); return; }
     refresh();
+  }
+
+  // Prompt 570 §D.6 — re-run the reconcile over just these rows. The same
+  // route the whole-catalog run uses, scoped by ids: exact domain matches
+  // become `linked` and leave the queue without anyone deciding anything,
+  // which is the point — that decision was never a judgement call.
+  async function relinkSelected(ids: string[], clear: () => void) {
+    if (ids.length === 0) return;
+    setBulkBusy(true); setBulkResult('');
+    const res = await fetch('/api/backoffice/catalog/candidates/reconcile', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+    });
+    const body = await res.json();
+    setBulkBusy(false);
+    setBulkResult(body.ok === false
+      ? body.error
+      : `${body.after?.linked ?? 0} linked, ${body.after?.probable_match ?? 0} probable, ${body.after?.pending ?? 0} still pending.`);
+    clear(); refresh();
+  }
+
+  // One reason for the batch, asked once. The API requires it per row anyway,
+  // so a cancelled prompt cannot half-dismiss anything.
+  async function dismissSelected(ids: string[], clear: () => void) {
+    if (ids.length === 0) return;
+    const reason = window.prompt(`Why are these ${ids.length} candidates not going into the catalog?`)?.trim();
+    if (!reason) return;
+    setBulkBusy(true); setBulkResult('');
+    const outcomes = await Promise.all(ids.map(async (id) => {
+      const res = await fetch(`/api/backoffice/catalog/manual-entities/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dismiss: true, reason }),
+      });
+      const body = await res.json();
+      return { id, ok: body.ok !== false, error: body.ok === false ? body.error : undefined };
+    }));
+    setBulkBusy(false);
+    const failed = outcomes.filter((o) => !o.ok);
+    setBulkResult(failed.length === 0
+      ? `Dismissed ${outcomes.length}.`
+      : `Dismissed ${outcomes.length - failed.length} of ${outcomes.length}; ${failed.length} failed.`);
+    setResult((prev) => {
+      const next = { ...prev };
+      for (const o of failed) if (o.error) next[o.id] = o.error;
+      return next;
+    });
+    clear(); refresh();
   }
 
   // One action; the row's stored status decides merge vs promote, exactly what
@@ -1311,9 +1359,22 @@ function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[];
         emptyMessage="Nothing left to review here."
         renderBulkActions={(ids, clear) => (
           <>
+            {/* Prompt 570 §D.6 — three actions, because "add to catalog"
+                collapsed two different decisions into one button and gave no
+                way to say "these are the same firm" without also promoting
+                the ones that are not. */}
             <button disabled={bulkBusy} onClick={() => void addSelectedToCatalog(ids, clear)}
               className="rounded-lg bg-[#0E7490] px-3 py-1 text-xs font-medium text-white disabled:opacity-40">
-              {bulkBusy ? 'Adding…' : `Add ${ids.length} to catalog`}
+              {bulkBusy ? 'Working…' : `Add ${ids.length} to catalog`}
+            </button>
+            <button disabled={bulkBusy} onClick={() => void relinkSelected(ids, clear)}
+              title="Re-run the matcher over these rows; exact domain matches link and leave the queue"
+              className="rounded-lg border border-[#0E7490] px-3 py-1 text-xs font-medium text-[#0E7490] disabled:opacity-40">
+              Link exact matches
+            </button>
+            <button disabled={bulkBusy} onClick={() => void dismissSelected(ids, clear)}
+              className="rounded-lg border border-gray-300 px-3 py-1 text-xs text-gray-600 disabled:opacity-40">
+              Dismiss…
             </button>
             {bulkResult && <span className="text-gray-500">{bulkResult}</span>}
           </>
