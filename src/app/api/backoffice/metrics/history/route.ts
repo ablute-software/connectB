@@ -30,13 +30,27 @@ export async function GET(req: Request) {
   const paths = metricsParam.split(',').map((p) => p.trim()).filter(Boolean);
   const limit = Math.min(Number(searchParams.get('limit')) || 90, 365);
 
+  // Prompt 569 §2 — DESCENDING, then reversed for display.
+  //
+  // This was `ascending: true` with the same limit, which returns the OLDEST
+  // `limit` snapshots, not the most recent ones. With 652 snapshots in
+  // production the drill-down was drawing 21-22 August and calling its last
+  // point "current": the card said "Startups activated 1" (live, correct) and
+  // the popup said "Activated: 2", which was the true value back on 30/08
+  // before the rolling 30-day window moved past it. Neither number was
+  // invented; the popup was simply two weeks behind, silently.
+  //
+  // The card is the authority for "now". This series is history, and history
+  // has to end at the newest point for its last value to mean anything.
   const { data, error } = await admin.from('metrics_snapshots').select('computed_at, payload')
-    .eq('scope', 'overview').order('computed_at', { ascending: true }).limit(limit);
+    .eq('scope', 'overview').order('computed_at', { ascending: false }).limit(limit);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  // Oldest-first for the chart; the newest snapshot is now the last point.
+  const rows = [...(data ?? [])].reverse();
 
   const series = paths.map((path) => ({
     path,
-    points: (data ?? [])
+    points: rows
       .map((row) => ({ computedAt: row.computed_at as string, value: getPath(row.payload, path) }))
       .filter((p): p is { computedAt: string; value: number } => p.value !== null),
   }));
