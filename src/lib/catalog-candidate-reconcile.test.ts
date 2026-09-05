@@ -49,13 +49,39 @@ describe('reconcileCandidates', () => {
     expect(out[0].basis).toBe('domain');
   });
 
-  it('no match stays pending, and records the delivery link when there is one', () => {
-    const out = reconcileCandidates([
-      { id: 'e1', name: 'Nobody', website: 'https://nobody.example', catalog_review_status: 'pending' },
-      { id: 'e2', name: 'Nobody', website: 'https://nobody.example', catalog_review_status: 'pending', deliveredCatalogId: 'cat-x' },
-    ], CATALOG);
+  it('no match and no delivery stays pending, with nothing to merge into', () => {
+    const out = reconcileCandidates(
+      [{ id: 'e1', name: 'Nobody', website: 'https://nobody.example', catalog_review_status: 'pending' }],
+      CATALOG,
+    );
     expect(out[0]).toEqual({ id: 'e1', status: 'pending', catalogId: null, basis: 'none' });
-    expect(out[1]).toEqual({ id: 'e2', status: 'pending', catalogId: 'cat-x', basis: 'delivery' });
+  });
+
+  it('a delivered row whose name and domain both drifted is probable, not pending', () => {
+    // Earlybird Venture Capital delivered, then renamed by hand to "Earlybird
+    // Health strategy": neither rule matches any more, but the platform itself
+    // put that firm in front of this founder, which is a stronger statement
+    // than either rule.
+    const out = reconcileCandidates(
+      [{ id: 'e1', name: 'Earlybird Health strategy', website: null, catalog_review_status: 'pending', deliveredCatalogId: 'cat-eb' }],
+      CATALOG,
+    );
+    expect(out[0]).toEqual({ id: 'e1', status: 'probable_match', catalogId: 'cat-eb', basis: 'delivery' });
+  });
+
+  it('the queue contract holds: probable_match always has a match, pending never does', () => {
+    // What the bulk action depends on — merge needs a catalog row to merge
+    // into, and promote must only ever run on a row that has none.
+    const out = reconcileCandidates([
+      { id: 'a', name: 'Kurma', website: 'kurmapartners.com', catalog_review_status: 'pending' },
+      { id: 'b', name: 'btov', website: 'https://elsewhere.example', catalog_review_status: 'pending' },
+      { id: 'c', name: 'Drifted', website: null, catalog_review_status: 'pending', deliveredCatalogId: 'cat-x' },
+      { id: 'd', name: 'Nobody', website: 'https://nobody.example', catalog_review_status: 'pending' },
+    ], CATALOG);
+    for (const d of out) {
+      if (d.status === 'probable_match') expect(d.catalogId).not.toBeNull();
+      if (d.status === 'pending') expect(d.catalogId).toBeNull();
+    }
   });
 
   it('never returns a row a human already decided', () => {

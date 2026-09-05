@@ -93,15 +93,28 @@ export function reconcileCandidates(
       continue;
     }
 
-    // No rule matched. The delivery link, where one exists, is still the truth
-    // about where this row came from — recorded, without claiming a match the
-    // rules did not find.
-    out.push({
-      id: c.id,
-      status: 'pending',
-      catalogId: c.deliveredCatalogId ?? null,
-      basis: c.deliveredCatalogId ? 'delivery' : 'none',
-    });
+    // Neither rule matched, but this row was DELIVERED from a catalog row —
+    // which is a stronger statement than either: the platform itself put that
+    // firm in front of this founder. Earlybird Venture Capital arriving as
+    // "Earlybird Health strategy" is the shape: renamed by hand after
+    // delivery, so name and domain both drift, and the link survives anyway.
+    //
+    // probable_match rather than linked, deliberately: a delivery says where
+    // the row came from, not that the founder did not then edit it into
+    // something else. It is exactly the "two named things, human decides"
+    // case, so it belongs in the queue rather than out of it.
+    //
+    // This also makes the queue's merge-vs-promote contract exact:
+    // probable_match always carries a catalog row to merge into, pending never
+    // does. Before this, a pending row could carry a delivery-derived id and
+    // the bulk action would have merged on a correspondence the rules had just
+    // declined to make.
+    if (c.deliveredCatalogId) {
+      out.push({ id: c.id, status: 'probable_match', catalogId: c.deliveredCatalogId, basis: 'delivery' });
+      continue;
+    }
+
+    out.push({ id: c.id, status: 'pending', catalogId: null, basis: 'none' });
   }
   return out;
 }
