@@ -559,11 +559,21 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         // matching comment in store-demo.tsx. The lock above is unchanged
         // (independent of task creation); the follow-up TASK now comes
         // from the engine's visible, confirmable suggestion instead.
-      } else if (input.classification && ['interested', 'meeting_request', 'question'].includes(input.classification)) {
+      } else {
         const entity = prev.entities.find((e) => e.id === input.entity_id);
-        if (entity && ['not_contacted', 'contacted'].includes(entity.status)) {
-          entityPatch = { status: 'in_conversation' };
+        if (entity?.status === 'dormant') {
+          // Prompt 578 §D.2 follow-up — same reopen as the outbound branch
+          // above, mirrored for the direction Nuno confirmed had the exact
+          // same gap: a reply against a dormant (Frozen) entity saved fine
+          // but left it frozen. Unconditional on classification, same as
+          // outbound. 'passed'/'invested' stay untouched, same reasoning.
+          entityPatch = { status: 'contacted' };
           entities = entities.map((e) => e.id === input.entity_id ? { ...e, ...entityPatch } : e);
+        } else if (input.classification && ['interested', 'meeting_request', 'question'].includes(input.classification)) {
+          if (entity && ['not_contacted', 'contacted'].includes(entity.status)) {
+            entityPatch = { status: 'in_conversation' };
+            entities = entities.map((e) => e.id === input.entity_id ? { ...e, ...entityPatch } : e);
+          }
         }
       }
 

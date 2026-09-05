@@ -172,7 +172,18 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
           // after this returns), never a silently-created generic one the
           // founder never saw.
         } else {
-          if (input.classification && ['interested', 'meeting_request', 'question'].includes(input.classification)) {
+          const inboundTarget = next.entities.find((e) => e.id === input.entity_id);
+          if (inboundTarget?.status === 'dormant') {
+            // Prompt 578 §D.2 follow-up — same reopen as the outbound branch
+            // above, mirrored for the direction Nuno confirmed had the exact
+            // same gap: a reply against a dormant (Frozen) entity saved fine
+            // but left it frozen. Unconditional on classification, same as
+            // outbound — even a reply that isn't obviously positive still
+            // means the relationship isn't dormant/silent any more.
+            // 'passed'/'invested' stay untouched, same reasoning as outbound.
+            next.entities = next.entities.map((e) =>
+              e.id === input.entity_id ? { ...e, status: 'contacted' } : e);
+          } else if (input.classification && ['interested', 'meeting_request', 'question'].includes(input.classification)) {
             next.entities = next.entities.map((e) =>
               e.id === input.entity_id && ['not_contacted', 'contacted'].includes(e.status)
                 ? { ...e, status: 'in_conversation' } : e);
