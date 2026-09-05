@@ -77,6 +77,48 @@ describe('compareLedgerToRepo', () => {
     expect(f.filter((x) => x.category === 'file_not_applied')).toHaveLength(0);
   });
 
+  it('resolves an applied-no-file entry through a ledger alias — the 0066 case', () => {
+    // Ledger says "audit_log_admin_user_index"; the file that actually
+    // satisfies it is named "audit_log_admin_index.sql" — a small rename
+    // between what got typed at apply time and the file's own stem.
+    const f = compareLedgerToRepo({
+      ledger: [{ version: '1', name: 'audit_log_admin_user_index' }],
+      mainFiles: ['0066_audit_log_admin_index.sql'],
+      branchFiles: branch({}),
+      ledgerAliases: { audit_log_admin_user_index: 'audit_log_admin_index' },
+    });
+    expect(f).toEqual([]);
+  });
+
+  it('lets several ledger names point at one consolidated file — the 0302 case', () => {
+    const f = compareLedgerToRepo({
+      ledger: [
+        { version: '1', name: 'matchdeal_investor_firm_view' },
+        { version: '2', name: 'matchdeal_firm_view_coherent_pairs_and_empty_arrays' },
+        { version: '3', name: 'matchdeal_apply_firm_enum_casts' },
+      ],
+      mainFiles: ['0302_matchdeal_investor_firm_view.sql'],
+      branchFiles: branch({}),
+      ledgerAliases: {
+        matchdeal_firm_view_coherent_pairs_and_empty_arrays: 'matchdeal_investor_firm_view',
+        matchdeal_apply_firm_enum_casts: 'matchdeal_investor_firm_view',
+      },
+    });
+    expect(f).toEqual([]);
+  });
+
+  it('respects the ignore list for an applied entry with no file anywhere, by ledger name', () => {
+    // Distinct from the filename form above: this entry has no file at all,
+    // so there is nothing to key the ignore line on except the ledger's own
+    // name column.
+    const f = compareLedgerToRepo({
+      ledger: [{ version: '1', name: 'backfill_catalog_wave_fit_score' }],
+      mainFiles: [], branchFiles: branch({}),
+      ignored: new Set(['backfill_catalog_wave_fit_score']),
+    });
+    expect(f).toEqual([]);
+  });
+
   it('says nothing when the ledger and main agree', () => {
     expect(compareLedgerToRepo({
       ledger: [{ version: '1', name: 'moderation_reaches_discovery' }],

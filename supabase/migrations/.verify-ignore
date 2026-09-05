@@ -1,4 +1,76 @@
-# Prompt 575 — files main deliberately carries that production has not run.
-# One filename per line, with the reason after a #. Anything listed here stops
-# `--check` failing CI, so a line is a decision someone made, not a snooze.
-# Empty today: every file in main is applied.
+# Prompt 575 — files main deliberately carries that production has not run,
+# or applied ledger rows that have no file and cannot be reconstructed.
+# One filename per line (or "NNNN-NNNN" for an inclusive numeric range), or a
+# ledger name verbatim for an applied entry with no file anywhere. The reason
+# goes after a #. Anything listed here stops `--check` failing CI, so a line
+# is a decision someone made, not a snooze.
+#
+# Prompt 577 populated this file for the first time — see that prompt's own
+# report for the production evidence behind each line below.
+
+# Pre-ledger era: the ledger's own first row is 20260729012404, so nothing
+# applied before that can ever get a ledger entry, however this
+# reconciliation goes. Genuinely a repo/production gap, not a matching bug.
+0001-0045
+
+# Same pre-ledger reality as 0001-0045, numbered later because it was
+# written as a retroactive capture afterward: MatchDeal's initial schema (16
+# tables, 1 view, 26 functions, 2 triggers), applied ad hoc across several
+# sessions 2026-07-27..29, before any of it went through a tracked migration
+# push. See the file's own header for the full account, including what it
+# deliberately did NOT fix while capturing.
+0053_retroactive_matchdeal_schema_capture.sql
+
+# Confirmed LIVE in production 2026-09-05 (pg_enum: doc_visibility's values
+# are due_diligence/on_grant/open — already renamed from private/link_anyone)
+# but no ledger row exists under this or any related name, and every
+# neighbouring file (0090-0109) already has its own 1:1 ledger match. Applied
+# via direct SQL, or folded into a neighbouring push that was never itself
+# named for this change — applied, just untracked. Not a candidate for
+# re-applying.
+0100_doc_visibility_rename_values.sql
+
+# Confirmed APPLIED, 2026-09-05, via data archaeology rather than a ledger
+# name match: ablute_'s matchdeal_profiles.description equals orgs.one_liner
+# (the coalesce fallback this file's UPDATE would reach when orgs.description
+# was still empty, which it was in early August), and Caramel Biscuit's
+# equals orgs.description directly (already non-empty at the time). This is
+# the EARLIER of the ledger's two identically-named
+# "matchdeal_startup_profile_backfill" rows (20260805171307) — the later one
+# (20260902213051) is 0299_matchdeal_startup_profile_backfill.sql, already
+# matched directly. The ledger-name join is a Map keyed by normalized name,
+# so two rows sharing one name can only ever resolve to the LAST one; there
+# is no way to point this file at the specific earlier row through the alias
+# map without the alias machinery implying a precision (a specific ledger
+# version) it does not actually carry. Documented here instead.
+0117_matchdeal_startup_profile_backfill_proposal.sql
+
+# Confirmed NEVER applied, 2026-09-05: Sherlock Deal_ test's
+# matchdeal_profiles.sectors is still [saas,health] while its orgs.sectors is
+# [] — this file's unconditional `sectors = o.sectors` copy would have
+# overwritten it to empty had it run. Matches the file's own header ("ESTADO:
+# PROPOSTO. NAO APLICADO."). Pending Nuno's decision to apply or discard.
+0142_backfill_matchdeal_startup_sectors_country.sql
+
+# Confirmed NEVER applied — 0181_support_tickets_blocked_source.sql's own
+# header says so explicitly ("A 0143 continua por aplicar por outro motivo
+# (revisao propria) -- nao confundir as duas"). 'suspended' reached the
+# production constraint through 0181 instead, which included it in its own
+# rebuilt list anticipating 0143 had not run. Harmless no-op if applied now
+# (the constraint already carries 'suspended'); pending Nuno's decision.
+0143_support_tickets_suspended_source.sql
+
+# Applied 2026-08-06 (20260806090853). matchdeal_record_interest_notification
+# has been completely replaced twice since (0302, then 0304 — last
+# definition wins, see verify:migrations' own §B). The specific "verbatim
+# body" text this push set is no longer live anywhere production can be
+# asked about, and reconstructing it now would mean inventing content.
+0129b_matchdeal_record_interest_notification_repo_verbatim_body
+
+# Applied 2026-08-10 (20260810134308). No committed file mentions
+# "wave_fit_score"; no column by that name exists (fit_score and wave live on
+# `entities`, not `catalog_entities`); no cluster in entities'
+# created_at/updated_at around that timestamp points to a specific backfill
+# run. Cannot reconstruct the WHERE/SET without inventing it — flagged for
+# Nuno; write it properly if he recalls the specific fix.
+backfill_catalog_wave_fit_score

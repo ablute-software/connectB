@@ -18,10 +18,48 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import {
-  compareLedgerToRepo, nextFreeNumber,
+  compareLedgerToRepo, nextFreeNumber, fileNumber,
   functionsDefinedIn,
   type Finding, type LedgerEntry,
 } from '../src/lib/migration-ledger.ts';
+
+// Prompt 577 — the reconciliation sweep. Every entry here was checked against
+// production (a query, or a matching header in the file itself), not
+// guessed: see prompt_577's own report for the evidence behind each line.
+// Ledger name (normalized) -> the file's own normalized name. Many ledger
+// rows can point at one file — that is the common shape, a session iterating
+// against production through several small named pushes before committing
+// ONE consolidated file for the repo.
+const LEDGER_NAME_ALIASES: Record<string, string> = {
+  // Typed as "...user_index" at apply time; the committed file is
+  // "audit_log_admin_index.sql". Confirmed: the index it creates
+  // (admin_audit_log_admin_user_id_idx) exists in production.
+  audit_log_admin_user_index: 'audit_log_admin_index',
+  // 0247's revoke-from-public went out first; the security advisor then
+  // flagged residual anon/authenticated grants, and this second push added
+  // the revoke lines 0247 already carries today (see the file's own comment
+  // just above them).
+  enqueue_enrichment_revoke_execute: 'enqueue_enrichment_on_delivery',
+  // Both are iterative fixes to 0285 that are already reflected in its
+  // committed body: the re-link carve-out (with a comment describing the
+  // exact production case that forced it) and `set search_path` on all
+  // three functions.
+  investor_seat_limit_allow_relink: 'investor_seat_limit',
+  investor_seat_limit_pin_search_path: 'investor_seat_limit',
+  // Prompt 555, one session, four incremental production pushes folded into
+  // one committed file: the enum-cast helpers, the empty-array/ticket-pair
+  // pruning in matchdeal_investor_firm_view itself, the write-path function
+  // that fills an entity from the firm, and the one-time backfill in §D.
+  matchdeal_apply_firm_enum_casts: 'matchdeal_investor_firm_view',
+  matchdeal_firm_backfill_existing_entities: 'matchdeal_investor_firm_view',
+  matchdeal_firm_view_coherent_pairs_and_empty_arrays: 'matchdeal_investor_firm_view',
+  matchdeal_write_paths_fill_from_firm: 'matchdeal_investor_firm_view',
+  // The first apply of 0304 lost the functions' original comments (a plain
+  // `create or replace function` from the MCP tool does not require them);
+  // this second push, 102 seconds later, restored them. 0304's committed
+  // body already carries the restored comments throughout.
+  matchdeal_write_paths_skip_test_investors_restore_comments: 'matchdeal_write_paths_skip_test_investors',
+};
 
 const DIR = 'supabase/migrations';
 const PROJECT_REF = 'wkjcaoqdvhykrfacsylr';
@@ -107,15 +145,32 @@ for (const b of remoteBranches()) {
 }
 
 const ignorePath = `${DIR}/.verify-ignore`;
-const ignored = new Set(
-  existsSync(ignorePath)
-    ? readFileSync(ignorePath, 'utf8').split('\n').map((l) => l.split('#')[0].trim()).filter(Boolean)
-    : [],
-);
+const ignored = new Set<string>();
+if (existsSync(ignorePath)) {
+  for (const raw of readFileSync(ignorePath, 'utf8').split('\n')) {
+    const line = raw.split('#')[0].trim();
+    if (!line) continue;
+    // Prompt 577 — "NNNN-NNNN" covers every main file numbered in that
+    // inclusive range, for the one exception too large to spell out file by
+    // file: 0001-0045 predates the ledger itself (its first row is
+    // 2026-07-29; nothing before that can ever get a ledger entry, no
+    // matter how this reconciliation goes).
+    const range = /^(\d{4})-(\d{4})$/.exec(line);
+    if (range) {
+      const [lo, hi] = [Number(range[1]), Number(range[2])];
+      for (const f of mainFiles) {
+        const n = fileNumber(f);
+        if (n !== null && n >= lo && n <= hi) ignored.add(f);
+      }
+    } else {
+      ignored.add(line);
+    }
+  }
+}
 
 const ledger = await readLedger();
 const findings: Finding[] = ledger
-  ? compareLedgerToRepo({ ledger, mainFiles, branchFiles, ignored })
+  ? compareLedgerToRepo({ ledger, mainFiles, branchFiles, ignored, ledgerAliases: LEDGER_NAME_ALIASES })
   : compareLedgerToRepo({ ledger: [], mainFiles: [], branchFiles, ignored });
 
 const LABELS: Record<string, string> = {

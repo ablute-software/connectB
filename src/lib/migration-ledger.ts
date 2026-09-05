@@ -62,17 +62,36 @@ export interface CompareInput {
   mainFiles: string[];
   /** filename -> branches that carry it, excluding main. */
   branchFiles: Map<string, string[]>;
-  /** Filenames the repository has declared intentionally unapplied. */
+  /** Filenames the repository has declared intentionally unapplied, or ledger
+   * names (the `name` column verbatim) for an applied entry that has no file
+   * anywhere and is documented instead of reconstructed. */
   ignored?: Set<string>;
+  /**
+   * Prompt 577 — a ledger name that is satisfied by a file under a
+   * DIFFERENT normalized name. Keyed by the ledger's normalized name, valued
+   * by the file's. Two shapes produce this, and both were found doing the
+   * 577 reconciliation: a small rename between what got typed as the
+   * migration name at apply time and the file's own stem (0066's ledger
+   * name is "audit_log_admin_user_index", the file is
+   * "audit_log_admin_index.sql"), and a session that iterated against
+   * production through several small named pushes and then committed ONE
+   * consolidated file for the repo (0302_matchdeal_investor_firm_view.sql
+   * alone satisfies five separate ledger rows this way). Many ledger names
+   * can point at the same file; a file's own primary ledger row is matched
+   * directly and never needs an alias, so this can only ADD matches, never
+   * steal one.
+   */
+  ledgerAliases?: Record<string, string>;
 }
 
 export function compareLedgerToRepo(input: CompareInput): Finding[] {
-  const { ledger, mainFiles, branchFiles, ignored = new Set() } = input;
+  const { ledger, mainFiles, branchFiles, ignored = new Set(), ledgerAliases = {} } = input;
   const findings: Finding[] = [];
 
   const ledgerByName = new Map<string, LedgerEntry>();
   for (const e of ledger) {
-    const k = normalizeMigrationName(e.name ?? e.version);
+    const k0 = normalizeMigrationName(e.name ?? e.version);
+    const k = ledgerAliases[k0] ?? k0;
     if (k) ledgerByName.set(k, e);
   }
   const mainByName = new Map<string, string>();
@@ -87,6 +106,12 @@ export function compareLedgerToRepo(input: CompareInput): Finding[] {
   // Applied, with no file in main. The schema is ahead of what can be replayed.
   for (const [key, entry] of ledgerByName) {
     if (mainByName.has(key)) continue;
+    // Prompt 577 — a ledger row documented in .verify-ignore by its own name
+    // rather than aliased to a file, because no file can honestly represent
+    // it: the change it made has since been fully superseded (last
+    // definition wins — see functionOwners below) or the specific
+    // WHERE/SET it ran can no longer be reconstructed without inventing it.
+    if (ignored.has(entry.name ?? entry.version)) continue;
     const onBranch = branchByName.get(key);
     if (onBranch) {
       findings.push({
