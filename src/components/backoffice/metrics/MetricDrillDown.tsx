@@ -69,12 +69,16 @@ function LineChart({ series, history }: { series: DrillDownSeries[]; history: Hi
 }
 
 export function MetricDrillDown({
-  title, series, entitiesMetric, period, onClose,
+  title, series, entitiesMetric, period, viewAllHref, onClose,
 }: {
   title: string;
   series: DrillDownSeries[];
   entitiesMetric?: string;
   period?: string;
+  // Prompt 569 §3 — for a metric whose members aren't founder orgs (so the
+  // "Ver quem são" list below doesn't apply), a plain link into the page
+  // that can actually list them, pre-filtered to this same window.
+  viewAllHref?: string;
   onClose: () => void;
 }) {
   const [history, setHistory] = useState<HistorySeries[] | null>(null);
@@ -149,6 +153,14 @@ export function MetricDrillDown({
         )}
         {!err && history && maxPoints >= 2 && <LineChart series={series} history={history} />}
         {!err && !history && <p className="text-sm text-gray-400">Loading…</p>}
+
+        {viewAllHref && (
+          <div className="mt-4 border-t border-gray-100 pt-3">
+            <a href={viewAllHref} className="text-xs font-medium text-[#0E7490] hover:underline">
+              ▸ View in Catalog →
+            </a>
+          </div>
+        )}
 
         {entitiesMetric && (
           <div className="mt-4 border-t border-gray-100 pt-3">

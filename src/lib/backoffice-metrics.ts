@@ -159,21 +159,30 @@ export async function activeFundraisingStartups(admin: SupabaseClient): Promise<
 // entities/interactions activity, analytics_events for this org in the
 // window, and org profile updates (updated_at). Documented gap, not a
 // silent shortcut — see the Fase C report.
-export async function startupsWithRelevantActivity(admin: SupabaseClient, range: DateRange): Promise<number> {
+// Prompt 569 §4 — extracted from startupsWithRelevantActivity so the
+// "Relevant activity" drill-down can list WHICH orgs these are, reusing the
+// exact same set rather than a second, looser definition of "active" (the
+// same principle the entities route already states for its other two
+// metrics).
+export async function relevantActivityOrgIds(admin: SupabaseClient, range: DateRange): Promise<Set<string>> {
   const orgs = await realOrgs(admin);
   const orgIds = orgs.map((o) => o.id);
-  if (orgIds.length === 0) return 0;
+  const active = new Set<string>();
+  if (orgIds.length === 0) return active;
   const [{ data: interactions }, { data: events }, { data: relUpdates }] = await Promise.all([
     admin.from('interactions').select('org_id').in('org_id', orgIds).gte('occurred_at', range.from.toISOString()).lt('occurred_at', range.to.toISOString()),
     admin.from('analytics_events').select('organization_id').eq('organization_type', 'startup').in('organization_id', orgIds)
       .gte('event_timestamp', range.from.toISOString()).lt('event_timestamp', range.to.toISOString()),
     admin.from('entities').select('org_id').in('org_id', orgIds).gte('updated_at', range.from.toISOString()).lt('updated_at', range.to.toISOString()),
   ]);
-  const active = new Set<string>();
   for (const r of interactions ?? []) active.add(r.org_id);
   for (const r of events ?? []) active.add(r.organization_id);
   for (const r of relUpdates ?? []) active.add(r.org_id);
-  return active.size;
+  return active;
+}
+
+export async function startupsWithRelevantActivity(admin: SupabaseClient, range: DateRange): Promise<number> {
+  return (await relevantActivityOrgIds(admin, range)).size;
 }
 
 export async function activationRate7d(admin: SupabaseClient, range: DateRange): Promise<number | null> {
@@ -672,15 +681,22 @@ export async function relevantActivitySummary(admin: SupabaseClient, range: Date
   // tracked in MatchDeal/portal tables this file doesn't otherwise touch —
   // approximated here via matchdeal_swipes as the one reliably-populated
   // signal; portal_questions/soft-commits are lower volume and additive.
-  const { count: investorsWithActivity } = await admin.from('matchdeal_swipes').select('actor_profile_id', { count: 'exact', head: true })
+  //
+  // Prompt 569 §4 — this used to be `count: 'exact', head: true` on the row
+  // set itself, i.e. a SWIPE count, not an INVESTOR count: one investor
+  // swiping 50 times inflated the number 50x under a label that says
+  // "investors". Fetching the actor column and counting distinct values is
+  // the label's actual claim.
+  const { data: swipeRows } = await admin.from('matchdeal_swipes').select('actor_profile_id')
     .gte('created_at', range.from.toISOString()).lt('created_at', range.to.toISOString());
+  const investorsWithActivity = new Set((swipeRows ?? []).map((r) => r.actor_profile_id)).size;
   const orgs = await realOrgs(admin);
   const orgIds = orgs.map((o) => o.id);
   const { data: firstActions } = orgIds.length ? await admin.from('interactions').select('org_id, occurred_at').in('org_id', orgIds).order('occurred_at', { ascending: true }) : { data: [] };
   const firstByOrg = new Map<string, string>();
   for (const a of firstActions ?? []) if (!firstByOrg.has(a.org_id)) firstByOrg.set(a.org_id, a.occurred_at);
   const pairs: [string, string][] = orgs.filter((o) => firstByOrg.has(o.id)).map((o) => [o.created_at, firstByOrg.get(o.id)!]);
-  return { startupsWithActivity: startups, investorsWithActivity: investorsWithActivity ?? 0, medianDaysToFirstAction: medianDays(pairs) };
+  return { startupsWithActivity: startups, investorsWithActivity, medianDaysToFirstAction: medianDays(pairs) };
 }
 
 // =========================================================================
@@ -827,6 +843,7 @@ export interface ActionListRow { orgId: string; orgName: string; detail: string 
 
 export async function actionLists(admin: SupabaseClient): Promise<Record<string, ActionListRow[]>> {
   const orgs = await realOrgs(admin);
+  const now = new Date();
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000);
   const orgIds = orgs.map((o) => o.id);
   const [{ data: relations }, { data: interactions }, { data: redemptions }, { data: grants }, { data: views }] = await Promise.all([
@@ -841,17 +858,33 @@ export async function actionLists(admin: SupabaseClient): Promise<Record<string,
   const relationsByOrg = new Map<string, { status: string }[]>();
   for (const r of relations ?? []) relationsByOrg.set(r.org_id, [...(relationsByOrg.get(r.org_id) ?? []), r]);
 
+  // Prompt 569 §6 — a bare date or a repeated "No activity on file" gives no
+  // way to tell which org needs attention first. Days-since is the same
+  // signal already computed above (lastActivity / o.created_at), just
+  // turned into a number that sorts by urgency instead of a string that
+  // doesn't — never a new "last login" source this list wasn't already using.
+  const daysSince = (iso: string) => Math.floor((now.getTime() - new Date(iso).getTime()) / 86400000);
   const inactive30d: ActionListRow[] = orgs.filter((o) => {
     const last = lastActivity.get(o.id);
     return !last || new Date(last) < thirtyDaysAgo;
-  }).map((o) => ({ orgId: o.id, orgName: o.name, detail: lastActivity.get(o.id) ? `Last activity ${lastActivity.get(o.id)!.slice(0, 10)}` : 'No activity on file' }));
+  }).map((o) => {
+    const last = lastActivity.get(o.id);
+    return {
+      orgId: o.id, orgName: o.name,
+      detail: last ? `${daysSince(last)} days since last activity` : `No activity on file — registered ${daysSince(o.created_at)} days ago`,
+      sortValue: last ? daysSince(last) : daysSince(o.created_at),
+    };
+  }).sort((a, b) => b.sortValue - a.sortValue).map(({ sortValue: _sortValue, ...row }) => row);
 
   const neverContacted: ActionListRow[] = orgs.filter((o) => {
     const rels = relationsByOrg.get(o.id) ?? [];
     return rels.length > 0 && rels.every((r) => r.status === 'not_contacted');
-  }).map((o) => ({ orgId: o.id, orgName: o.name, detail: `${(relationsByOrg.get(o.id) ?? []).length} in pipeline, none contacted` }));
+  }).map((o) => ({
+    orgId: o.id, orgName: o.name,
+    detail: `${(relationsByOrg.get(o.id) ?? []).length} in pipeline, none contacted · registered ${daysSince(o.created_at)} days ago`,
+    sortValue: daysSince(o.created_at),
+  })).sort((a, b) => b.sortValue - a.sortValue).map(({ sortValue: _sortValue, ...row }) => row);
 
-  const now = new Date();
   const activePromoOrgIds = new Set((redemptions ?? []).filter((r) => benefitStillActive(r.benefit_ends_at as string | null, now)).map((r) => r.org_id));
   const incompleteWithPromo: ActionListRow[] = orgs.filter((o) => !o.profile_reached_80_at && activePromoOrgIds.has(o.id))
     .map((o) => ({ orgId: o.id, orgName: o.name, detail: 'Promo active, profile still below 80%' }));
@@ -863,8 +896,15 @@ export async function actionLists(admin: SupabaseClient): Promise<Record<string,
   // shows here if no document_view row references its id.
   const viewedGrantIds = new Set((views ?? []).map((v) => v.grant_id).filter(Boolean));
   const grantsUnopened: ActionListRow[] = (grants ?? []).filter((g) => !!g.confirmed_at && !viewedGrantIds.has(g.id))
-    .map((g) => orgs.find((o) => o.id === g.org_id)).filter((o): o is OrgRow => !!o)
-    .map((o) => ({ orgId: o.id, orgName: o.name, detail: 'Access grant confirmed, no document_views on file' }));
+    .map((g) => {
+      const org = orgs.find((o) => o.id === g.org_id);
+      return org ? { org, confirmedAt: g.confirmed_at as string } : null;
+    }).filter((row): row is { org: OrgRow; confirmedAt: string } => !!row)
+    // Prompt 569 §6 — same fetch this list already made (access_grants.confirmed_at),
+    // just surfaced: the longer a confirmed grant sits unopened, the more it
+    // looks like the investor never noticed the invite.
+    .map(({ org, confirmedAt }) => ({ orgId: org.id, orgName: org.name, detail: `Confirmed ${daysSince(confirmedAt)} days ago, no document_views on file`, sortValue: daysSince(confirmedAt) }))
+    .sort((a, b) => b.sortValue - a.sortValue).map(({ sortValue: _sortValue, ...row }) => row);
 
   return {
     inactive_30d: inactive30d,

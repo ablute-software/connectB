@@ -1,18 +1,18 @@
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
-import { resolvePeriod, type Period } from '@/lib/backoffice-metrics';
+import { resolvePeriod, relevantActivityOrgIds, type Period } from '@/lib/backoffice-metrics';
 import { isExcludedOrgName } from '@/lib/analytics-events';
 import { usageSessionsAvailable } from '@/lib/usage-sessions-capability';
 
-// Prompt 296 §2 — "Ver quem são" drill-down, wired for the two Overview
-// cards that represent an identifiable SET of real orgs rather than a rate
-// or aggregate (New startups, Startups with active round) — the only two
-// the prompt names explicitly. Each branch below re-applies the EXACT same
-// filter its own counting function in backoffice-metrics.ts uses
-// (newStartups/activeFundraisingStartups) — never a second, looser
-// definition of the same set. usage_sessions time-in-session (Prompt 295)
-// is attached only when at least one real session row exists for the org;
-// never fabricated or estimated when absent.
+// Prompt 296 §2 — "Ver quem são" drill-down, originally wired for the two
+// Overview cards that represent an identifiable SET of real orgs rather than
+// a rate or aggregate (New startups, Startups with active round). Prompt 569
+// §4 added a third: Relevant activity, via relevantActivityOrgIds — the same
+// set-building function startupsWithRelevantActivity() itself calls, so this
+// list can never drift into a second, looser definition of "relevant
+// activity" than the number above it. usage_sessions time-in-session
+// (Prompt 295) is attached only when at least one real session row exists
+// for the org; never fabricated or estimated when absent.
 export async function GET(req: Request) {
   const auth = await requirePlatformAdmin();
   if ('error' in auth) return auth.error;
@@ -35,6 +35,10 @@ export async function GET(req: Request) {
     }) as { id: string; name: string; created_at: string }[];
   } else if (metric === 'activeFundraisingStartups') {
     orgs = realOrgs.filter((o) => o.round_raising === true) as { id: string; name: string; created_at: string }[];
+  } else if (metric === 'startupsWithRelevantActivity') {
+    const { current } = resolvePeriod(period);
+    const activeIds = await relevantActivityOrgIds(admin, current);
+    orgs = realOrgs.filter((o) => activeIds.has(o.id as string)) as { id: string; name: string; created_at: string }[];
   } else {
     return NextResponse.json({ ok: false, error: 'unsupported metric for this drill-down.' }, { status: 400 });
   }

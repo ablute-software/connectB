@@ -9,7 +9,8 @@
 // "Catalog candidates" tab, alongside Contributions) per Nuno's explicit
 // decision that review work belongs in the Queue, not hidden inside
 // Catalog. This page is back to a single view, same as before 187.
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, Suspense, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui';
 import { EnrichmentCampaignPanel } from '@/components/backoffice/EnrichmentCampaignPanel';
 import { OutreachSupplyCard } from '@/components/backoffice/OutreachSupplyCard';
@@ -24,7 +25,7 @@ type CatalogEntity = {
   sectors: string[]; website: string | null; verification_status: 'verified' | 'pending' | 'rejected';
   verified_at: string | null; source: string; notes: string | null; aliases: string[];
   stage_min: string | null; stage_max: string | null; check_min_eur: number | null; check_max_eur: number | null;
-  geographies: string[] | null; contacts: ContactRow[];
+  geographies: string[] | null; contacts: ContactRow[]; created_at: string;
 };
 
 function fmtCheck(min: number | null, max: number | null) {
@@ -300,7 +301,7 @@ function ContactsPanel({ entityId, contacts, refresh }: { entityId: string; cont
   );
 }
 
-function CatalogTable({ catalog, refresh }: { catalog: CatalogEntity[]; refresh: () => void }) {
+function CatalogTable({ catalog, refresh, initialAddedWindow }: { catalog: CatalogEntity[]; refresh: () => void; initialAddedWindow: { from: string; to: string } | null }) {
   const [newRow, setNewRow] = useState({ name: '', type: 'vc', website: '' });
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState('');
@@ -318,6 +319,12 @@ function CatalogTable({ catalog, refresh }: { catalog: CatalogEntity[]; refresh:
   const [sectorFilter, setSectorFilter] = useState('');
   const [checkMin, setCheckMin] = useState('');
   const [checkMax, setCheckMax] = useState('');
+  // Prompt 569 §3 — arrives from the Metrics "Catalog entities added"
+  // drill-down's "View in Catalog" link, pre-filtering to the exact window
+  // that stat's own number was computed over. A plain admin-set filter, not
+  // a separate mode: it's clearable like any other, and starts unset on a
+  // normal visit to this page.
+  const [addedWindow, setAddedWindow] = useState(initialAddedWindow);
 
   const typeOptions = useMemo(() => Array.from(new Set(catalog.map((c) => c.type))).sort(), [catalog]);
   const countryOptions = useMemo(() => Array.from(new Set(catalog.map((c) => c.hq_country).filter((v): v is string => !!v))).sort(), [catalog]);
@@ -325,9 +332,9 @@ function CatalogTable({ catalog, refresh }: { catalog: CatalogEntity[]; refresh:
   const stageOptions = useMemo(() => Array.from(new Set(catalog.flatMap((c) => [c.stage_min, c.stage_max]).filter((v): v is string => !!v))).sort(), [catalog]);
   const sectorOptions = useMemo(() => Array.from(new Set(catalog.flatMap((c) => c.sectors))).sort(), [catalog]);
 
-  const hasFilters = !!(typeFilter || countryFilter || geoFilter || stageFilter || sectorFilter || checkMin || checkMax);
+  const hasFilters = !!(typeFilter || countryFilter || geoFilter || stageFilter || sectorFilter || checkMin || checkMax || addedWindow);
   function clearFilters() {
-    setTypeFilter(''); setCountryFilter(''); setGeoFilter(''); setStageFilter(''); setSectorFilter(''); setCheckMin(''); setCheckMax('');
+    setTypeFilter(''); setCountryFilter(''); setGeoFilter(''); setStageFilter(''); setSectorFilter(''); setCheckMin(''); setCheckMax(''); setAddedWindow(null);
   }
 
   function checkMatches(c: CatalogEntity): boolean {
@@ -349,6 +356,7 @@ function CatalogTable({ catalog, refresh }: { catalog: CatalogEntity[]; refresh:
     if (stageFilter && c.stage_min !== stageFilter && c.stage_max !== stageFilter) return false;
     if (sectorFilter && !c.sectors.includes(sectorFilter)) return false;
     if (!checkMatches(c)) return false;
+    if (addedWindow && !(c.created_at >= addedWindow.from && c.created_at < addedWindow.to)) return false;
     return true;
   });
 
@@ -404,6 +412,12 @@ function CatalogTable({ catalog, refresh }: { catalog: CatalogEntity[]; refresh:
         </select>
         <input type="number" placeholder="Check min €" value={checkMin} onChange={(e) => setCheckMin(e.target.value)} className="w-28 rounded-lg border border-gray-300 px-2 py-1 text-xs" />
         <input type="number" placeholder="Check max €" value={checkMax} onChange={(e) => setCheckMax(e.target.value)} className="w-28 rounded-lg border border-gray-300 px-2 py-1 text-xs" />
+        {addedWindow && (
+          <span className="flex items-center gap-1.5 rounded-lg bg-[#E8F4F8] px-2 py-1 text-xs text-[#0E7490]">
+            Added {addedWindow.from.slice(0, 10)} – {addedWindow.to.slice(0, 10)}
+            <button onClick={() => setAddedWindow(null)} className="font-bold hover:opacity-70">✕</button>
+          </span>
+        )}
         {hasFilters && <button onClick={clearFilters} className="text-xs text-gray-400 hover:underline">Clear filters</button>}
       </div>
       <div className="overflow-x-auto">
@@ -473,9 +487,25 @@ function CatalogTable({ catalog, refresh }: { catalog: CatalogEntity[]; refresh:
   );
 }
 
+// Prompt 569 §3 / 575 — the Suspense boundary useSearchParams() requires.
+// Same established pattern as backoffice/queue/page.tsx: without it, `next
+// build` compiles and then fails at the prerender step, and the deploy
+// never lands. Verify by exit code, not by grepping build output.
 export default function BackofficeCatalogPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-sm text-gray-400">Loading catalog…</div>}>
+      <BackofficeCatalogContent />
+    </Suspense>
+  );
+}
+
+function BackofficeCatalogContent() {
   const [catalog, setCatalog] = useState<CatalogEntity[] | null>(null);
   const [err, setErr] = useState('');
+  const params = useSearchParams();
+  const addedFrom = params.get('addedFrom');
+  const addedTo = params.get('addedTo');
+  const initialAddedWindow = addedFrom && addedTo ? { from: addedFrom, to: addedTo } : null;
 
   function refresh() {
     fetch('/api/backoffice/catalog').then((r) => r.json()).then((body) => {
@@ -501,7 +531,7 @@ export default function BackofficeCatalogPage() {
           then executes. */}
       <OutreachSupplyCard />
       <EnrichmentCampaignPanel onEntityEnriched={refresh} />
-      {catalog && <CatalogTable catalog={catalog} refresh={refresh} />}
+      {catalog && <CatalogTable catalog={catalog} refresh={refresh} initialAddedWindow={initialAddedWindow} />}
     </div>
   );
 }

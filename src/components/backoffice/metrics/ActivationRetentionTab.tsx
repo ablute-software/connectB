@@ -16,11 +16,12 @@ interface ActivationData {
   activity: { startupsWithActivity: number; investorsWithActivity: number; medianDaysToFirstAction: number | null };
 }
 
-function MiniStat({ label, value }: { label: string; value: string | number }) {
+function MiniStat({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
     <div className="rounded-xl border border-gray-100 bg-white p-3">
       <div className="text-lg font-bold text-[#0E7490]">{value}</div>
       <div className="mt-0.5 text-[11px] text-gray-500">{label}</div>
+      {hint && <div className="mt-0.5 text-[10px] text-gray-400">{hint}</div>}
     </div>
   );
 }
@@ -74,9 +75,14 @@ export function ActivationRetentionTab() {
           </Card>
 
           <Card title="Relevant activity">
+            <p className="mb-3 text-xs text-gray-400">
+              Startups: a logged interaction, an analytics event, or a catalog edit in the period — several planned
+              signals (Smart Calendar, AI Drafts, Review/Optimization) aren&apos;t tracked yet. Investors: distinct
+              investors who swiped in MatchDeal in the period.
+            </p>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <MiniStat label="Startups with activity" value={data.activity.startupsWithActivity} />
-              <MiniStat label="Investors with activity" value={data.activity.investorsWithActivity} />
+              <MiniStat label="Investors with activity" value={data.activity.investorsWithActivity} hint="distinct investors, MatchDeal swipes" />
               <MiniStat label="Median days to first action" value={data.activity.medianDaysToFirstAction ?? '—'} />
             </div>
           </Card>

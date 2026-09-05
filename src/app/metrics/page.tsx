@@ -187,6 +187,7 @@ interface OverviewData {
   };
   valueProof: { qualifiedConversations: number; medianDaysToFirstResponse: number | null };
   alerts: { failedAutomations: number; hardBounces: number; overduePipelines: number; failedPayments: number };
+  period: { current: { from: string; to: string } };
 }
 
 // Prompt 296 §2 — every Stat is clickable when it names its own history
@@ -216,7 +217,7 @@ function Stat({ label, value, hint, delta, onClick }: { label: string; value: st
 }
 
 interface Staleness { lastSnapshotAt: string | null; eventsSinceSnapshot: number; worthRefreshing: boolean }
-interface DrillDownState { title: string; series: DrillDownSeries[]; entitiesMetric?: string; period?: string }
+interface DrillDownState { title: string; series: DrillDownSeries[]; entitiesMetric?: string; period?: string; viewAllHref?: string }
 
 function fmtEurReal(n: number): string { return `€${Math.round(n).toLocaleString()}`; }
 
@@ -283,7 +284,16 @@ function OverviewTab() {
                 })} />
               <Stat label="Catalog entities added" value={data.growth.newCatalogEntities.value} delta={data.growth.newCatalogEntities.deltaPct}
                 hint="imported/enriched — not necessarily a real account"
-                onClick={() => setDrillDown({ title: 'Catalog entities added', series: [{ path: 'growth.newCatalogEntities.value', label: 'Catalog entities', color: '#7c3aed' }] })} />
+                onClick={() => setDrillDown({
+                  title: 'Catalog entities added', period,
+                  series: [{ path: 'growth.newCatalogEntities.value', label: 'Catalog entities', color: '#7c3aed' }],
+                  // Prompt 569 §3 — these are investor firms, not founder
+                  // orgs, so the "Ver quem são" list (built for orgs with a
+                  // founder dossier to open) doesn't fit them. A link into
+                  // the Catalog itself, pre-filtered to the same window,
+                  // does the same job without repurposing that mechanism.
+                  viewAllHref: `/backoffice/catalog?addedFrom=${encodeURIComponent(data.period.current.from)}&addedTo=${encodeURIComponent(data.period.current.to)}`,
+                })} />
               <Stat label="Investor accounts registered" value={data.growth.newRegisteredInvestorAccounts.value} delta={data.growth.newRegisteredInvestorAccounts.deltaPct}
                 hint="a real person actually signed in"
                 onClick={() => setDrillDown({ title: 'Investor accounts registered', series: [{ path: 'growth.newRegisteredInvestorAccounts.value', label: 'Registered accounts', color: '#2563eb' }] })} />
@@ -295,8 +305,13 @@ function OverviewTab() {
                   series: [{ path: 'growth.activeFundraisingStartups', label: 'Active round', color: '#d97706' }],
                   entitiesMetric: 'activeFundraisingStartups',
                 })} />
-              <Stat label="Relevant activity" value={data.growth.startupsWithRelevantActivity} hint="in the selected period"
-                onClick={() => setDrillDown({ title: 'Relevant activity', series: [{ path: 'growth.startupsWithRelevantActivity', label: 'Relevant activity', color: '#db2777' }] })} />
+              <Stat label="Relevant activity" value={data.growth.startupsWithRelevantActivity}
+                hint="startups with a logged interaction, an analytics event, or a catalog edit in the period — several planned signals (Smart Calendar, AI Drafts, Review/Optimization) aren't tracked yet"
+                onClick={() => setDrillDown({
+                  title: 'Relevant activity', period,
+                  series: [{ path: 'growth.startupsWithRelevantActivity', label: 'Relevant activity', color: '#db2777' }],
+                  entitiesMetric: 'startupsWithRelevantActivity',
+                })} />
               <Stat label="7-day activation rate" value={data.growth.activationRate7d != null ? `${data.growth.activationRate7d}%` : '—'}
                 onClick={() => setDrillDown({ title: '7-day activation rate', series: [{ path: 'growth.activationRate7d', label: 'Activation rate', color: '#0E7490', formatValue: (v) => `${v}%` }] })} />
               <Stat label="30-day retention" value={data.growth.retention30d != null ? `${data.growth.retention30d}%` : '—'}
@@ -391,6 +406,7 @@ function OverviewTab() {
           series={drillDown.series}
           entitiesMetric={drillDown.entitiesMetric}
           period={drillDown.period}
+          viewAllHref={drillDown.viewAllHref}
           onClose={() => setDrillDown(null)}
         />
       )}
