@@ -38,3 +38,13 @@ next-env.d.ts
 
 # local visual-verification output (scripts/verify-pair-visual.mjs)
 /artifacts/
+
+# Prompt 575 — ad-hoc verification scratch, never committed.
+#
+# ~90 of these accumulated untracked over months, and one of them
+# (_lote_E_founder_cookie.txt) was a founder session cookie in plain text. A
+# `git add -A scripts` staged the lot, including that file; it was caught by
+# reading the staged list, which is a reflex and not a control. This is the
+# control. Real, reusable scripts have no leading underscore and are unaffected.
+/scripts/_*
+/.scratch_pacote/
