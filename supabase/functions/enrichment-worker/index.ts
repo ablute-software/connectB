@@ -99,11 +99,50 @@ const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')!;
 const ENRICHMENT_ENABLED = (Deno.env.get('ENRICHMENT_ENABLED') ?? 'false').toLowerCase() === 'true';
 const DAILY_COST_CAP_EUR = Number(Deno.env.get('ENRICHMENT_DAILY_COST_CAP_EUR') ?? '5');
 const LAYER1_MODEL = Deno.env.get('ENRICHMENT_LAYER1_MODEL') ?? 'claude-haiku-4-5';
-const LAYER2_MODEL = Deno.env.get('ENRICHMENT_LAYER2_MODEL') ?? 'claude-sonnet-5';
+// Prompt 583 §B.1 — "claude-sonnet-5 sai do worker": the measured Layer 2
+// average (152,229 input / 6,433 output tokens, €0.32/person) was mostly a
+// consequence of running every person through sonnet-5's per-token price
+// (2x haiku's input, 2x its output) regardless of whether a cheap bio-only
+// pass could have answered it for ~€0.005. haiku-4-5 is now the default
+// for every Layer 2 call; a future "deep research" override for a
+// specific person would pass a different model explicitly, but no call
+// site asks for that today, so it isn't built here.
+const LAYER2_MODEL = Deno.env.get('ENRICHMENT_LAYER2_MODEL') ?? 'claude-haiku-4-5';
 const BATCH_SIZE = Number(Deno.env.get('ENRICHMENT_BATCH_SIZE') ?? '5');
+// Prompt 583 §B.1b — web fallback caps: at most 3 sources actually read
+// (unchanged from before), each truncated to ~4k tokens' worth of text
+// before entering the prompt (~4 chars/token, so 16,000 chars), keeping
+// total page-text input for 3 sources around 12k tokens — well inside the
+// prompt's own ≤20k-token budget once the rest of the prompt (person
+// context, instructions) is added. max_uses on the search tool itself
+// drops from 10 to 5: the old value existed to stop the model from
+// mistaking OUR cap for the search tool being broken (Prompt 281), not
+// because 10 searches were ever needed — 5 keeps that same headroom at
+// roughly half the multi-turn context this tool's own pause_turn loop can
+// accumulate.
+const WEB_FALLBACK_MAX_SOURCES_READ = 3;
+const WEB_FALLBACK_PAGE_CHAR_LIMIT = 16000;
+const WEB_FALLBACK_SEARCH_MAX_USES = 5;
+// Below this confidence, the bio-only pass (§B.1a) doesn't get to decide
+// alone — falls through to the web-search path (§B.1b) instead.
+const BIO_HOOK_CONFIDENCE_THRESHOLD = 0.6;
 const MAX_PROFILE_PAGES_PER_ENTITY = 10; // doc §3.2 step 3
 const BIO_LENGTH_THRESHOLD = 300; // doc's own heuristic, reused for D1-b scaling decision
-const USER_AGENT = 'SherlockDealBot/1.0 (+https://sherlockdeal.com/enrichment-bot)';
+
+// Prompt 583 §D.2 — a custom bot UA is exactly what the measured 403/429
+// pattern (19 http_403, 5 http_429 in one production sample) points at:
+// many sites block-list unrecognized bot user-agents by pattern while
+// accepting ordinary browser traffic. A real browser UA + Accept-Language
+// is not deception about WHAT is fetching (robots.txt is still checked
+// first, same as before) — it is fetching the same way a human visitor's
+// browser would, which is what most of these sites' bot-blocking is
+// actually trying to distinguish from.
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+const ACCEPT_LANGUAGE = 'en-US,en;q=0.9';
+// One retry after a 403/429, per §D.2 — a bot-blocking site is not going
+// to reconsider in 1.5s, but this catches the genuinely transient case
+// (a WAF's momentary rate-limit blip) before concluding it's structural.
+const BLOCK_RETRY_DELAY_MS = 1500;
 
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
@@ -288,7 +327,7 @@ async function isAllowedByRobots(targetUrl: string): Promise<boolean> {
 
 async function fetchPage(url: string): Promise<{ ok: true; html: string } | { ok: false; reason: string }> {
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(15000) });
+    const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT, 'Accept-Language': ACCEPT_LANGUAGE }, signal: AbortSignal.timeout(15000) });
     if (!res.ok) return { ok: false, reason: `http_${res.status}` };
     const ct = res.headers.get('content-type') ?? '';
     if (!ct.includes('html')) return { ok: false, reason: 'not_html' };
@@ -298,19 +337,44 @@ async function fetchPage(url: string): Promise<{ ok: true; html: string } | { ok
   }
 }
 
+// Prompt 583 §D.2 — 403/429 get exactly one retry after a short backoff
+// before being called structurally "blocked" rather than "failed": a real
+// network/5xx error keeps its existing behavior (immediate 'failed'
+// reason, retried on a later cron cycle via the job's own attempts
+// counter) — only a bot-rejection status code gets this distinct
+// treatment, because retrying it every few minutes like a transient error
+// has no realistic chance of a different outcome.
+async function fetchPageWithBlockRetry(url: string): Promise<{ ok: true; html: string } | { ok: false; reason: string; blocked: boolean }> {
+  const first = await fetchPage(url);
+  if (first.ok) return first;
+  if (first.reason !== 'http_403' && first.reason !== 'http_429') return { ...first, blocked: false };
+  await new Promise((resolve) => setTimeout(resolve, BLOCK_RETRY_DELAY_MS));
+  const second = await fetchPage(url);
+  if (second.ok) return second;
+  if (second.reason !== 'http_403' && second.reason !== 'http_429') return { ...second, blocked: false };
+  return { ok: false, reason: `blocked_${second.reason}`, blocked: true };
+}
+
+// Prompt 583 §D.1 — pattern expanded to the prompt's own exact list
+// (team|people|partners|about|who-we-are|equipa|equipo|équipe|team-and-
+// advisors), union'd with what was already here rather than replacing it —
+// dropping an already-working match (nosotros, qui-sommes, quem-somos,
+// our-team, sobre-nos) to satisfy a differently-worded new list would be a
+// regression, not a fix.
+const TEAM_PAGE_PATTERN = /team|about|people|partners|equipa|equipo|équipe|team-and-advisors|nosotros|qui-sommes|quem-somos|who-we-are|our-team|sobre-nos/i;
+
 function discoverTeamPageUrl(homepageHtml: string, baseUrl: string): string | null {
   const doc = new DOMParser().parseFromString(homepageHtml, 'text/html');
   if (!doc) return null;
   const anchors = [...doc.querySelectorAll('a')] as any[];
-  const pattern = /team|about|people|equipa|nosotros|qui-sommes|quem-somos|who-we-are|our-team|sobre-nos/i;
   let best: string | null = null;
   let bestScore = -1;
   for (const a of anchors) {
     const href = a.getAttribute('href');
     if (!href) continue;
     const text = (a.textContent ?? '').trim();
-    const hrefMatch = pattern.test(href);
-    const textMatch = pattern.test(text);
+    const hrefMatch = TEAM_PAGE_PATTERN.test(href);
+    const textMatch = TEAM_PAGE_PATTERN.test(text);
     if (!hrefMatch && !textMatch) continue;
     const score = (hrefMatch ? 2 : 0) + (textMatch ? 1 : 0) - (href.length > 60 ? 1 : 0);
     if (score > bestScore) {
@@ -323,6 +387,45 @@ function discoverTeamPageUrl(homepageHtml: string, baseUrl: string): string | nu
     }
   }
   return best;
+}
+
+// Prompt 583 §D.1 — sitemap.xml first, before the nav-link scan: a
+// sitemap lists every real URL on the site regardless of how (or whether)
+// the homepage's own nav menu links to it, which is exactly what the
+// nav-link scan below cannot see when a menu is rendered by JavaScript
+// (the kimaventures.com/team case that motivated the fallback-paths list
+// in the first place — a sitemap sidesteps that failure mode entirely
+// rather than working around it after the fact).
+//
+// No cost, no model call: a plain XML fetch and a regex over <loc> text.
+// Absent/unreachable sitemap (very common) is not an error — it just
+// means this step finds nothing and the nav-link scan runs as before.
+async function discoverTeamPageUrlViaSitemap(baseUrl: string): Promise<string | null> {
+  let sitemapUrl: string;
+  try {
+    sitemapUrl = new URL('/sitemap.xml', baseUrl).toString();
+  } catch {
+    return null;
+  }
+  if (!(await isAllowedByRobots(sitemapUrl))) return null;
+  // fetchPage() rejects a non-HTML content-type — sitemap.xml is served
+  // as XML, so this reads the body directly rather than reusing fetchPage.
+  let xml: string;
+  try {
+    const res = await fetch(sitemapUrl, { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(10000) });
+    if (!res.ok) return null;
+    xml = await res.text();
+  } catch {
+    return null;
+  }
+  const locs = [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => m[1]);
+  const candidates = locs.filter((loc) => TEAM_PAGE_PATTERN.test(loc));
+  if (candidates.length === 0) return null;
+  // Shortest path wins — /team beats /team/jane-doe/bio, the same
+  // "prefer the index page, not a deep sub-page" intuition the nav-link
+  // scorer expresses via its href-length penalty.
+  candidates.sort((a, b) => a.length - b.length);
+  return candidates[0];
 }
 
 // Recurso barato quando discoverTeamPageUrl nao encontra nada (menu
@@ -518,6 +621,7 @@ async function callClaude(opts: {
   tools?: any[];
   toolChoice?: any;
   timeoutMs?: number;
+  maxTokens?: number;
 }): Promise<any> {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -528,7 +632,7 @@ async function callClaude(opts: {
     },
     body: JSON.stringify({
       model: opts.model,
-      max_tokens: 4096,
+      max_tokens: opts.maxTokens ?? 4096,
       system: opts.system,
       messages: opts.messages,
       ...(opts.tools ? { tools: opts.tools } : {}),
@@ -645,6 +749,34 @@ const RECORD_RESEARCH_TOOL = {
   },
 };
 
+// Prompt 583 §B.1a — the cheap first step: a hook straight from the bio
+// team page enrichment already captured, no web call at all. Same D1
+// discipline as everywhere else in this file — hook_evidence_quote must
+// be copied verbatim from the bio text given, checked for literal
+// presence before the hook is accepted (see processPersonJob), so a
+// confident-sounding but fabricated "evidence" quote can't slip a hook
+// through that the bio never actually supported.
+const EXTRACT_HOOK_FROM_BIO_TOOL = {
+  name: 'extract_hook_from_bio',
+  description:
+    'Extracts a hook and supporting facts from a biography, with no web research. hook_evidence_quote must be copied EXACTLY from the bio text given — never paraphrased, never summarized — since it is what proves the hook came from this specific bio.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      hook: {
+        type: ['string', 'null'],
+        description: 'Same bar as always: (a) specific to THIS person, not a generic fact about the fund; (b) recent or still current; (c) relevant to an investment approach. Leave null rather than force a weak one.',
+      },
+      hook_evidence_quote: { type: ['string', 'null'], description: 'the exact phrase from the bio that supports the hook, copied verbatim — required whenever hook is non-null' },
+      background: { type: ['string', 'null'] },
+      intro_path: { type: ['string', 'null'] },
+      watch_outs: { type: ['string', 'null'] },
+      kill_words: { type: 'array', items: { type: 'string' } },
+      confidence: { type: 'number', description: '0 to 1: how confident this bio alone gives a genuinely good, specific, current hook. Below 0.6, a web search follow-up will run — score honestly rather than inflating this to avoid it.' },
+    },
+  },
+};
+
 // Falha de desenho identificada pelo Nuno apos o piloto de 3 angels: a
 // Camada 2 pesquisava mas nunca lia — sintetizava a partir de titulos e
 // snippets de resultados de pesquisa, que nao dao material para um gancho.
@@ -720,18 +852,26 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
 
   if (!(await isAllowedByRobots(homepageUrl))) return { status: 'skipped', reason: 'robots_disallowed' };
 
-  const homepage = await fetchPage(homepageUrl);
-  if (!homepage.ok) return { status: 'failed', reason: homepage.reason };
+  const homepage = await fetchPageWithBlockRetry(homepageUrl);
+  if (!homepage.ok) return { status: homepage.blocked ? 'blocked' : 'failed', reason: homepage.reason };
   telemetry.webCalls += 1;
 
-  let teamUrl = discoverTeamPageUrl(homepage.html, homepageUrl);
+  // Prompt 583 §D.1 — sitemap first: it lists every real URL on the site
+  // regardless of how (or whether) the homepage's own nav menu links to
+  // it, which sidesteps the exact failure mode TEAM_PATH_FALLBACKS below
+  // was already working around (a JS-rendered menu the nav-link scan
+  // can't see into). Falls through to the nav-link scan when the sitemap
+  // is absent or has nothing matching — very common, not an error.
+  let teamUrl = await discoverTeamPageUrlViaSitemap(homepageUrl);
+  telemetry.webCalls += 1;
+  if (!teamUrl) teamUrl = discoverTeamPageUrl(homepage.html, homepageUrl);
   let teamPage: { ok: true; html: string } | null = null;
 
   if (teamUrl) {
     if (!(await isAllowedByRobots(teamUrl))) return { status: 'skipped', reason: 'robots_disallowed' };
-    const fetched = await fetchPage(teamUrl);
+    const fetched = await fetchPageWithBlockRetry(teamUrl);
     telemetry.webCalls += 1;
-    if (!fetched.ok) return { status: 'failed', reason: fetched.reason };
+    if (!fetched.ok) return { status: fetched.blocked ? 'blocked' : 'failed', reason: fetched.reason };
     teamPage = fetched;
   } else {
     // Recurso barato: a descoberta por link falhou. Caso real medido antes
@@ -759,8 +899,42 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
       teamPage = candidatePage;
       break;
     }
-    if (!teamUrl || !teamPage) return { status: 'skipped', reason: 'team_page_not_found' };
   }
+
+  // Prompt 583 §D.1 — "seguir uma variante de lingua (/en/)": nothing
+  // found in the site's default language across sitemap + nav-link scan +
+  // fixed paths — try once more against an /en/ prefix before giving up.
+  // The sitemap search above already covers every locale (it matches any
+  // <loc> containing the pattern, never scoped to a path prefix, and
+  // sitemap.xml itself always resolves from the origin regardless of what
+  // path is passed as base) — repeating it here would just re-fetch the
+  // identical URL for an identical result, so only the nav-link scan is
+  // worth running again, against the /en/ homepage specifically.
+  if (!teamUrl || !teamPage) {
+    let enHomepageUrl: string | null = null;
+    try {
+      enHomepageUrl = new URL('/en/', homepageUrl).toString();
+    } catch {
+      enHomepageUrl = null;
+    }
+    if (enHomepageUrl && enHomepageUrl !== homepageUrl && (await isAllowedByRobots(enHomepageUrl))) {
+      const enHomepage = await fetchPage(enHomepageUrl);
+      telemetry.webCalls += 1;
+      if (enHomepage.ok) {
+        const enTeamUrl = discoverTeamPageUrl(enHomepage.html, enHomepageUrl);
+        if (enTeamUrl && (await isAllowedByRobots(enTeamUrl))) {
+          const enFetched = await fetchPage(enTeamUrl);
+          telemetry.webCalls += 1;
+          if (enFetched.ok) {
+            teamUrl = enTeamUrl;
+            teamPage = enFetched;
+          }
+        }
+      }
+    }
+  }
+
+  if (!teamUrl || !teamPage) return { status: 'skipped', reason: 'team_page_not_found' };
 
   const teamText = htmlToText(teamPage.html);
   if (looksLikeJsOnlyShell(teamPage.html, teamText.length)) return { status: 'skipped', reason: 'js_only_site' };
@@ -1002,9 +1176,19 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
     peopleProcessed++;
   }
 
+  // Prompt 583 §D.3 — a team page that was successfully read but named
+  // zero people is not the same outcome as a team actually captured: 99
+  // entities were 'enriched' with nobody attached before this, invisible
+  // to outreach_readiness's own "the data is good" bonus check (migration
+  // 0300) in a way that read as "healthy", not "needs another look".
+  const foundAnyone = affiliationsCreated.length > 0;
   await supabase
     .from('catalog_entities')
-    .update({ enrichment_status: 'enriched', enriched_at: new Date().toISOString(), enrichment_stale_after: addMonths(new Date(), 6).toISOString() })
+    .update({
+      enrichment_status: foundAnyone ? 'enriched' : 'done_no_people',
+      enriched_at: new Date().toISOString(),
+      enrichment_stale_after: addMonths(new Date(), 6).toISOString(),
+    })
     .eq('id', entity.id);
 
   return { status: 'done', reason: null, peopleProcessed, peopleWithBio, affiliationsCreated: affiliationsCreated.length };
@@ -1037,14 +1221,98 @@ function addDays(d: Date, n: number): Date {
 // ============================================================
 // Camada 2 — processa uma catalog_people (hook, D9: nunca le linkedin.com).
 // ============================================================
+// Prompt 583 §B.1a — literal-presence check on the bio-path's own
+// evidence quote, same D1 discipline (isLiterallyOnPage) every other
+// model-sourced value in this file already goes through. Compares against
+// the SAME normalized text the bio was itself sliced from, so typographic
+// quote/dash differences never cause a false rejection.
+function bioHookIsSupported(hookEvidenceQuote: string | null | undefined, bioRawNormalized: string): boolean {
+  if (!hookEvidenceQuote) return false;
+  return bioRawNormalized.includes(normalizeForMatch(hookEvidenceQuote));
+}
+
 async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry, batchId: string) {
-  const { data: person, error: personErr } = await supabase.from('catalog_people').select('id, full_name, entity_id').eq('id', job.target_id).single();
+  const { data: person, error: personErr } = await supabase.from('catalog_people').select('id, full_name, entity_id, linkedin_url').eq('id', job.target_id).single();
   if (personErr || !person) throw new Error(`person_not_found: ${personErr?.message ?? job.target_id}`);
 
-  const { data: entity } = await supabase.from('catalog_entities').select('name, is_test').eq('id', person.entity_id).maybeSingle();
+  const { data: entity } = await supabase.from('catalog_entities').select('name, website, thesis, is_test').eq('id', person.entity_id).maybeSingle();
   if (entity?.is_test) return { status: 'skipped', reason: 'is_test entity, skipped by policy' };
 
-  if (dryRun) return { status: 'dry_run', reason: null, dryRunReport: { person: person.full_name } };
+  const { data: affiliation } = await supabase.from('catalog_person_affiliations').select('title').eq('person_id', person.id).eq('is_primary', true).maybeSingle();
+  const { data: existingResearch } = await supabase.from('catalog_people_research').select('bio_raw').eq('person_id', person.id).maybeSingle();
+  const bioRaw = existingResearch?.bio_raw ?? null;
+
+  // Prompt 583 §B.3 — pre-verification with no model call at all: nothing
+  // for a search to search FOR (no LinkedIn, no firm website — layer 1
+  // already established the entity's website is reachable, since it can
+  // only reach 'enriched' by successfully fetching it, so "no website on
+  // file" is the honest proxy for "unreachable" here) and no bio to
+  // extract from. 2 of the 3 real none_found jobs in the prompt's own
+  // report (Isabel Eberhardt, Sven Eppert) cost €0.25-0.33 for exactly
+  // this reason — this makes them cost €0 instead. Written straight to
+  // 'none_found' (not a new status) with the same 90-day stale-after a
+  // researched-but-empty result already gets — this IS that outcome, just
+  // reached without spending anything to confirm it.
+  if (!person.linkedin_url && !entity?.website && !bioRaw) {
+    if (!dryRun) {
+      await supabase.from('catalog_people').update({
+        hook_status: 'none_found', enrichment_status: 'enriched',
+        enriched_at: new Date().toISOString(), enrichment_stale_after: addDays(new Date(), 90).toISOString(),
+      }).eq('id', person.id);
+    }
+    return { status: 'skipped', reason: 'insufficient_inputs' };
+  }
+
+  if (dryRun) return { status: 'dry_run', reason: null, dryRunReport: { person: person.full_name, hasBio: !!bioRaw, willTryWebFallback: !bioRaw } };
+
+  // Prompt 583 §B.1a — the cheap path: a hook straight from the bio team-
+  // page enrichment already captured, haiku, zero web calls. Skipped
+  // entirely when there's no bio to read (falls straight to §B.1b).
+  let bioResult: { hook: string | null; background: string | null; introPath: string | null; watchOuts: string | null; killWords: string[]; confidence: number } | null = null;
+  if (bioRaw) {
+    const personContext = `${person.full_name}${affiliation?.title ? ` (${affiliation.title})` : ''} at ${entity?.name ?? 'a venture fund'}${entity?.thesis ? `. Fund thesis: ${entity.thesis}` : ''}`;
+    const bioExtraction = await callClaude({
+      model: LAYER2_MODEL,
+      system: 'Extract a hook and supporting facts from this person\'s biography — no web research, only what the bio itself says. '
+        + 'Write every text field in English regardless of the bio\'s own language. '
+        + 'hook_evidence_quote must be copied EXACTLY from the bio given whenever hook is non-null.',
+      messages: [{ role: 'user', content: `Person: ${personContext}\n\nBio:\n${bioRaw}\n\nExtract a hook and supporting facts, based only on this bio.` }],
+      tools: [EXTRACT_HOOK_FROM_BIO_TOOL],
+      toolChoice: { type: 'tool', name: 'extract_hook_from_bio' },
+      maxTokens: 1024,
+    });
+    addUsage(telemetry, LAYER2_MODEL, bioExtraction.usage);
+    const parsed = extractToolInput(bioExtraction, 'extract_hook_from_bio');
+    if (parsed) {
+      const bioRawNormalized = normalizeForMatch(bioRaw);
+      const hookSupported = bioHookIsSupported(parsed.hook_evidence_quote, bioRawNormalized);
+      bioResult = {
+        hook: hookSupported ? parsed.hook : null,
+        background: parsed.background ?? null,
+        introPath: parsed.intro_path ?? null,
+        watchOuts: parsed.watch_outs ?? null,
+        killWords: parsed.kill_words ?? [],
+        confidence: (typeof parsed.confidence === 'number' && parsed.hook && hookSupported) ? parsed.confidence : 0,
+      };
+    }
+  }
+
+  // Prompt 583 §B.1b — only when the bio path found nothing or wasn't
+  // confident enough. This is the ONLY branch that ever touches the web,
+  // so most people with a decent existing bio never reach it at all.
+  if (bioResult && bioResult.confidence >= BIO_HOOK_CONFIDENCE_THRESHOLD) {
+    await supabase.from('catalog_people_research').upsert({
+      person_id: person.id, hook: bioResult.hook, hook_source: 'bio',
+      background: bioResult.background, intro_path: bioResult.introPath,
+      watch_outs: bioResult.watchOuts, kill_words: bioResult.killWords,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'person_id' });
+    await supabase.from('catalog_people').update({
+      hook_status: 'researched', enrichment_status: 'enriched',
+      enriched_at: new Date().toISOString(), enrichment_stale_after: addDays(new Date(), 90).toISOString(),
+    }).eq('id', person.id);
+    return { status: 'done', reason: null, hookWritten: true, hookSource: 'bio', usedWebFallback: false };
+  }
 
   const sourceUrls = new Set<string>();
   const searchMessages: any[] = [];
@@ -1082,7 +1350,7 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
       model: LAYER2_MODEL,
       system: SEARCH_SYSTEM_PROMPT,
       messages: searchMessages,
-      tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 10, blocked_domains: ['linkedin.com'] }],
+      tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: WEB_FALLBACK_SEARCH_MAX_USES, blocked_domains: ['linkedin.com'] }],
       timeoutMs: 120000,
     });
     addUsage(telemetry, LAYER2_MODEL, searchResponse.usage);
@@ -1097,7 +1365,7 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
         model: LAYER2_MODEL,
         system: SEARCH_SYSTEM_PROMPT,
         messages: searchMessages,
-        tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 10, blocked_domains: ['linkedin.com'] }],
+        tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: WEB_FALLBACK_SEARCH_MAX_USES, blocked_domains: ['linkedin.com'] }],
         timeoutMs: 120000,
       });
       addUsage(telemetry, LAYER2_MODEL, searchResponse.usage);
@@ -1122,16 +1390,17 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
     const selection = await callClaude({
       model: LAYER2_MODEL,
       system: 'Escolhe fontes para ler, copiando os URLs EXACTAMENTE da lista fornecida — nunca inventes nem alteres um URL.',
-      messages: [...selectionMessages, { role: 'user', content: `Escolhe ate 3 destas fontes para ler na integra:\n${formatCandidateList(candidateList)}` }],
+      messages: [...selectionMessages, { role: 'user', content: `Escolhe ate ${WEB_FALLBACK_MAX_SOURCES_READ} destas fontes para ler na integra:\n${formatCandidateList(candidateList)}` }],
       tools: [SELECT_SOURCES_TOOL],
       toolChoice: { type: 'tool', name: 'select_sources' },
+      maxTokens: 512,
     });
     addUsage(telemetry, LAYER2_MODEL, selection.usage);
     const selectionParsed = extractToolInput(selection, 'select_sources');
     const chosenUrls: string[] = (selectionParsed?.urls ?? [])
       .map((u: string) => candidateList.find((c) => c === u))
       .filter((u: string | undefined): u is string => !!u)
-      .slice(0, 3);
+      .slice(0, WEB_FALLBACK_MAX_SOURCES_READ);
 
     for (const url of chosenUrls) {
       if (!(await isAllowedByRobots(url))) continue;
@@ -1140,7 +1409,7 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
       if (!page.ok) continue;
       const text = htmlToText(page.html);
       if (text.length < 100) continue;
-      readSources.push({ url, text: text.slice(0, 20000) });
+      readSources.push({ url, text: text.slice(0, WEB_FALLBACK_PAGE_CHAR_LIMIT) });
     }
   }
 
@@ -1185,6 +1454,12 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
     ],
     tools: [RECORD_RESEARCH_TOOL],
     toolChoice: { type: 'tool', name: 'record_research' },
+    // Prompt 583 §B.2 — "≤800 tokens de saída": 1024, not 800 exactly, is
+    // a hard ceiling (max_tokens truncates mid-generation) rather than a
+    // soft target — cutting a tool call's JSON off mid-structure would
+    // break parsing entirely, so this leaves headroom above the target
+    // instead of enforcing it to the token.
+    maxTokens: 1024,
   });
   addUsage(telemetry, LAYER2_MODEL, synthesis.usage);
 
@@ -1219,13 +1494,24 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
 
   // Regra do Nuno: hook so se escreve com fonte LIDA. Sem isso, hook_status
   // = none_found e o campo fica vazio — um hook inventado queima o contacto.
+  //
+  // Prompt 583 §B — a low-confidence bio hook (bioResult) is what SENT
+  // this job down the web-fallback path in the first place, so it never
+  // resurfaces here even if the web search itself found nothing: the
+  // whole point of the confidence gate is that an unconfirmed bio hook
+  // doesn't ship on its own. background/intro_path/watch_outs/kill_words
+  // carry no such restriction — those fall back to the bio path's own
+  // (bio-grounded, just not hook-confident) values when the web synthesis
+  // came back null for them, rather than discarding a real fact the bio
+  // already supported.
   const researchPatch: Record<string, unknown> = {
-    intro_path: result.intro_path ?? null,
-    watch_outs: result.watch_outs ?? null,
-    kill_words: result.kill_words ?? [],
-    background: result.background ?? null,
+    intro_path: result.intro_path ?? bioResult?.introPath ?? null,
+    watch_outs: result.watch_outs ?? bioResult?.watchOuts ?? null,
+    kill_words: (result.kill_words?.length ? result.kill_words : bioResult?.killWords) ?? [],
+    background: result.background ?? bioResult?.background ?? null,
     email_guess: result.email_guess ?? null,
     email_guess_confidence: result.email_guess_confidence ?? null,
+    hook_source: hasReadSource && result.hook ? 'web' : null,
     updated_at: new Date().toISOString(),
   };
   if (hasReadSource && result.hook) {
@@ -1248,6 +1534,9 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
     reason: null,
     hasReadSource,
     hookWritten: hasReadSource && !!result.hook,
+    hookSource: hasReadSource && result.hook ? 'web' : null,
+    usedWebFallback: true,
+    triedBioFirst: !!bioRaw,
     sourcesFound: sourceUrls.size,
     sourcesRead: readSources.length,
     reusedExistingSources: !isFreshSearch,
@@ -1283,6 +1572,30 @@ Deno.serve(async (req) => {
   }
 
   const body = await req.json().catch(() => ({}));
+
+  // Prompt 583 §E.2 — "tecto diário e cap por corrida passam a
+  // configuração visível": both are env vars read into this same process,
+  // so the only honest way to show their CURRENT value elsewhere (the
+  // Next app runs as a separate process/runtime and can't read this
+  // function's own env) is to ask this function directly. No queue
+  // access, no cost — same auth gate as everything else here, since even
+  // config values are backoffice-only information, not public.
+  if (body?.statusOnly === true) {
+    const startOfDay = new Date();
+    startOfDay.setUTCHours(0, 0, 0, 0);
+    const { data: todaySpend } = await supabase.from('enrichment_jobs').select('cost_eur').gte('started_at', startOfDay.toISOString());
+    const spentToday = (todaySpend ?? []).reduce((sum, r) => sum + (r.cost_eur ?? 0), 0);
+    return json({
+      ok: true,
+      enrichmentEnabled: ENRICHMENT_ENABLED,
+      dailyCostCapEur: DAILY_COST_CAP_EUR,
+      spentTodayEur: Number(spentToday.toFixed(5)),
+      defaultBatchSize: BATCH_SIZE,
+      layer1Model: LAYER1_MODEL,
+      layer2Model: LAYER2_MODEL,
+    });
+  }
+
   const dryRun = body?.dryRun === true;
   // Filtro opcional de camada para corridas escalonadas (ex.: so a Camada 1
   // dos 6 VC primeiro, so a Camada 2 dos 3 angels depois). Omitido = qualquer
@@ -1380,10 +1693,16 @@ Deno.serve(async (req) => {
       // Nunca entra no ciclo de repeticoes — nao incrementa attempts.
       await flushTelemetry(job.id, telemetry, { status: 'skipped', last_error: outcome.reason, finished_at: new Date().toISOString() }, jobTarget);
     } else {
+      // Prompt 583 §D.2 — a persistent 403/429 (outcome.status === 'blocked',
+      // set by fetchPageWithBlockRetry via processEntityJob) reuses the same
+      // attempts/requeue cadence as a generic error — a bot-blocking site
+      // deserves a later retry too, since the block may not be permanent —
+      // but its terminal state is written as 'blocked', not 'failed', so it
+      // reads as "this site rejects bots" rather than "something broke".
       const attempts = (job.attempts ?? 0) + 1;
       const terminal = attempts >= 3;
       await flushTelemetry(job.id, telemetry, {
-        status: terminal ? 'failed' : 'queued',
+        status: terminal ? (outcome.status === 'blocked' ? 'blocked' : 'failed') : 'queued',
         attempts,
         last_error: outcome.reason,
         finished_at: terminal ? new Date().toISOString() : null,

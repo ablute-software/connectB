@@ -17,6 +17,13 @@
 // hook_status has 3 values (to_research/researched/none_found) — the
 // panel wants real counts for all three (§B.1), so `status` is a filter
 // param (default to_research) rather than three separate endpoints.
+//
+// Prompt 583 §C — migration 0332 narrowed both RPCs to only ever return
+// people worth a €0.30+ hook-research call: rank <= 2 by default (Nuno's
+// own recommendation, "until hook quality is proven"), cascading to 3 or
+// 4 only when a firm's whole roster has nobody more senior, rank 9 never.
+// seniority_rank now comes through in the page response for that reason —
+// it's the exact number the cascade decided on, not decoration.
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 
@@ -37,7 +44,7 @@ export async function GET(req: Request) {
     ? Number(params.get('pageSize')) as typeof PAGE_SIZES[number] : 25;
 
   type CountsRow = { to_research: number; researched: number; none_found: number; to_research_with_demand: number };
-  type PageRow = { id: string; full_name: string; entity_name: string; demand: number; low_chance: boolean };
+  type PageRow = { id: string; full_name: string; entity_name: string; demand: number; low_chance: boolean; seniority_rank: number | null };
 
   const [{ data: countsRaw, error: countsErr }, { data: pageRaw, error: pageErr }, { data: recentJobs }] = await Promise.all([
     admin.rpc('catalog_layer2_candidate_counts'),
@@ -63,7 +70,7 @@ export async function GET(req: Request) {
 
   const rows = ((pageRaw as PageRow[] | null) ?? []).map((r) => ({
     id: r.id, name: r.full_name, entityName: r.entity_name,
-    demand: Number(r.demand), lowChance: r.low_chance,
+    demand: Number(r.demand), lowChance: r.low_chance, seniorityRank: r.seniority_rank,
   }));
 
   const costs = (recentJobs ?? []).map((j) => j.cost_eur as number).filter((c) => c > 0);
