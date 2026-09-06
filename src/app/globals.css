@@ -25,6 +25,40 @@ body {
   --sb-accent: oklch(52% 0.14 258);
   --sb-danger: oklch(55% 0.19 25);
   --sb-success: oklch(58% 0.13 150);
+  /* Prompt 593 §B — the scrollbar's own thumb tones. Neither existing
+     token fits: --sb-border (34% L) sits too close to --sb-bg (24% L) to
+     find against it, --sb-dim (68% L) is built for readable TEXT and
+     shouts next to a fill this size. Nuno's own bar: lighter than the
+     menu, with some presence, "sem exagero". */
+  --sb-scroll-thumb: oklch(44% 0.025 260);
+  --sb-scroll-thumb-hover: oklch(56% 0.03 260);
+}
+
+/* Prompt 593 §B — restyles the native scrollbar inside the dark
+   back-office sidebar (applied via .sd-dark-scrollbar, dark theme only)
+   to the same blue-258/260 family as the rest of the shell. Firefox
+   (scrollbar-width/-color) and Chromium (::-webkit-scrollbar*, the engine
+   Nuno's own Windows/Chrome uses) need separate rules — CSS has no single
+   cross-engine scrollbar syntax yet. Track transparent (never the
+   default's white — that's what read as a rendering error against
+   --sb-bg); thumb one step lighter than the shell, another step lighter
+   on hover; thin, so it reads as chrome, not content. */
+.sd-dark-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sb-scroll-thumb) transparent;
+}
+.sd-dark-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+.sd-dark-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sd-dark-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--sb-scroll-thumb);
+  border-radius: 9999px;
+}
+.sd-dark-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: var(--sb-scroll-thumb-hover);
 }
 
 /* Onboarding modal entrance (onboarding_sherlockdeal_v2.md §6): fade +
