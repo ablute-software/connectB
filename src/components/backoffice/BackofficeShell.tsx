@@ -112,7 +112,7 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
     // here" never look identical once a request is actually close to due.
     item('review-gdpr', gdprSlaDays !== null && gdprSlaDays <= 7 ? `GDPR — due in ${Math.max(gdprSlaDays, 0)}d` : 'GDPR',
       '/backoffice/queue?tab=gdpr', { icon: '☰', group: 1, badge: gdpr || undefined, dimmed: !gdpr }),
-    item('review-trust', 'Trust & safety', '/backoffice/queue?tab=suspicious', { icon: '☰', group: 1, badge: trustSafety || undefined, dimmed: !trustSafety }),
+    item('review-trust', 'Trust & safety', '/backoffice/queue?tab=trust_safety', { icon: '☰', group: 1, badge: trustSafety || undefined, dimmed: !trustSafety }),
     // Prompt 576 §2 only names Support as feeding Attention's aggregate
     // feed (Phase 2); it doesn't say where the existing ticket-list PAGE
     // itself lives. Review fits it best today — daily, decision-driven —
@@ -126,7 +126,11 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
     item('accounts-promo', 'Promo codes & offers', '/backoffice/promo-codes', { icon: '◉', group: 2, dimmed: true }),
 
     item('data-catalog', 'Catalog', '/backoffice/catalog', { icon: '▦', group: 3, groupLabel: 'Data' }),
-    item('data-market', 'Market companies', '/backoffice/queue?tab=competitor_intel', { icon: '▦', group: 3, dimmed: true }),
+    // Prompt 574 §D — real now: org_competitors grouped by market_companies,
+    // read-only (no review action exists on that table anywhere — see
+    // /api/backoffice/market-companies's own header). Not the same feature
+    // as Review's "Competitor intel" tab, which tracks investor_investments.
+    item('data-market', 'Market companies', '/backoffice/market-companies', { icon: '▦', group: 3 }),
 
     item('insight-metrics', 'Metrics', '/metrics', { icon: '◆', group: 4, groupLabel: 'Insight' }),
     item('insight-usage', 'Usage', '/metrics', { icon: '◆', group: 4, dimmed: true }),

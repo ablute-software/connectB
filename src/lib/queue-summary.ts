@@ -21,6 +21,7 @@
 // zero.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { hasDomainMismatch } from './domain-mismatch';
+import { gdprDueAt } from './gdpr';
 
 export interface QueueSummaryRow {
   key: string;
@@ -109,9 +110,11 @@ export async function getQueueSummaryRows(admin: SupabaseClient): Promise<QueueS
   const identityHidden = selfDeclaredHidden + documentsHidden;
 
   // GDPR is the only queue with a deadline today: 30 days from the request.
+  // Prompt 574 §A.1 — gdprDueAt is the one shared function now; queue-summary,
+  // Attention, and the Queue page's own GdprTab all read the SAME calculation.
   const gdprOldestAt = (gdprOldest.data ?? [])[0]?.created_at as string | undefined;
   const gdprAge = daysSince(gdprOldestAt);
-  const slaDueInDays = gdprAge === null ? null : 30 - gdprAge;
+  const slaDueInDays = gdprOldestAt ? gdprDueAt(gdprOldestAt).daysLeft : null;
 
   const mismatchCount = (entitiesForMismatch.data ?? []).filter((e) =>
     hasDomainMismatch(e.website as string | null, e.email_domain as string | null)).length;

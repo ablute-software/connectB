@@ -11,9 +11,9 @@ import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { getQueueSummaryRows } from '@/lib/queue-summary';
 import { getSystemSignals } from '@/lib/system-status';
 import { needsAttention } from '@/lib/support-ticket-flags';
+import { gdprDueAt } from '@/lib/gdpr';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const GDPR_DEADLINE_DAYS = 30;
 
 export interface AttentionRow {
   tag: string; title: string; context: string; ageLabel: string;
@@ -56,12 +56,11 @@ export async function GET() {
   // Not folded into the general sort below on purpose.
   if ((gdprPending ?? []).length > 0) {
     const oldest = gdprPending![0];
-    const daysLeft = GDPR_DEADLINE_DAYS - daysSince(oldest.created_at);
+    const due = gdprDueAt(oldest.created_at);
     rows.push({
       tag: 'GDPR', title: `${gdprPending!.length} GDPR request(s) pending`,
       context: `Oldest: ${oldest.kind} — ${oldest.claimant_email}`,
-      ageLabel: daysLeft < 0 ? `${-daysLeft}d overdue` : `oldest: ${daysLeft} days left of ${GDPR_DEADLINE_DAYS}`,
-      href: '/backoffice/queue?tab=gdpr', buttonLabel: 'Review', urgent: daysLeft <= 7,
+      ageLabel: `oldest: ${due.label}`, href: '/backoffice/queue?tab=gdpr', buttonLabel: 'Review', urgent: due.overdue || due.daysLeft <= 7,
     });
   }
 
@@ -103,7 +102,7 @@ export async function GET() {
     },
     {
       tag: 'Trust & safety', countValue: sum(count('suspicious'), count('fraud')),
-      oldestDays: null, context: 'Flagged accounts or founder-reported fraud', tab: 'suspicious',
+      oldestDays: null, context: 'Flagged accounts or founder-reported fraud', tab: 'trust_safety',
     },
   ];
   for (const c of reviewCategories) {

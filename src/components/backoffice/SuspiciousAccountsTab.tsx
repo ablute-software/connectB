@@ -23,12 +23,12 @@ interface Flag {
 }
 
 interface FlagAction {
-  id: string; actionType: 'alert_email' | 'suspend' | 'delete_and_block';
+  id: string; actionType: 'alert_email' | 'suspend' | 'delete_and_block' | 'dismiss';
   suspendHours: number | null; emailId: string | null; actor: string; createdAt: string; notes: string | null;
 }
 
 const ACTION_LABEL: Record<FlagAction['actionType'], string> = {
-  alert_email: 'Alert email sent', suspend: 'Suspended', delete_and_block: 'Deleted + email blocked',
+  alert_email: 'Alert email sent', suspend: 'Suspended', delete_and_block: 'Deleted + email blocked', dismiss: 'Dismissed',
 };
 
 function emptyRef(): EvidenceRef { return { table: '', id: '', note: '' }; }
@@ -162,7 +162,7 @@ function FlagDetail({ flag, onChanged }: { flag: Flag; onChanged: () => void }) 
           ))}
         </ul>
       )}
-      <SuspiciousFlagActions flagId={flag.id} hasEmail={!!flag.email} onChanged={() => { refresh(); onChanged(); }} />
+      <SuspiciousFlagActions flagId={flag.id} targetType={flag.targetType} companyName={flag.companyName} hasEmail={!!flag.email} onChanged={() => { refresh(); onChanged(); }} />
       {actions && actions.length > 0 && (
         <div className="border-t border-gray-200 pt-2">
           <p className="text-[11px] font-semibold uppercase text-gray-400">Action history</p>

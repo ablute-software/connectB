@@ -33,13 +33,19 @@ import type { MxLookupResult } from '@/lib/investor-domain-mx';
 // directly by TABS below, so they never render as a nav item) purely so
 // BackofficeQueueContent's own redirect (see there) has something to match
 // on an old bookmark/link.
-type Tab = 'contributions' | 'new_investors' | 'candidates' | 'submissions' | 'claims' | 'identity' | 'gdpr' | 'suspicious' | 'fraud' | 'key_people' | 'community' | 'domain_mismatch' | 'competitor_intel';
+type Tab = 'contributions' | 'new_investors' | 'candidates' | 'submissions' | 'claims' | 'identity' | 'gdpr' | 'trust_safety' | 'suspicious' | 'fraud' | 'key_people' | 'community' | 'domain_mismatch' | 'competitor_intel';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'new_investors', label: 'New investors' },
   { key: 'contributions', label: 'Contributions' },
-  { key: 'claims', label: 'Claims' },
   { key: 'identity', label: 'Investor identity' },
+  // Prompt 574 §C — diagnosed: no LinkedIn OAuth entry point exists
+  // anywhere in this codebase (a placeholder button behind
+  // NEXT_PUBLIC_LINKEDIN_OAUTH_ENABLED, unset everywhere), and nothing
+  // writes to profile_claims except this tab's own read. Left exactly as
+  // it already was — collapses to "Queue clear" on its own, no new UI, per
+  // the prompt's own explicit "não construir UI para uma fila sem porta."
+  { key: 'claims', label: 'Person claims' },
   { key: 'gdpr', label: 'GDPR' },
   // Prompt 284 §1 — entities.email_domain vs entities.website mismatches
   // (54 in production, Nalka Invest being the case that surfaced it) —
@@ -49,13 +55,13 @@ const TABS: { key: Tab; label: string }[] = [
   // purely so an old ?tab=domain_mismatch link still redirects (see the
   // redirect effect near InvestorIdentityTab), same pattern 572 used for
   // 'candidates'/'submissions'.
-  // Prompt 244/245 — manual flagging by developers (not automatic
-  // detection), see SuspiciousAccountsTab.tsx.
-  { key: 'suspicious', label: 'Suspicious accounts' },
-  // Prompt 277 A.3 — founder-submitted (not developer-flagged, the
-  // opposite direction from the tab above) fraud/scam reports, see
-  // FraudFlagsTab.tsx for why this isn't just an extension of it.
-  { key: 'fraud', label: 'Fraud reports' },
+  //
+  // Prompt 574 §B — Suspicious accounts (Prompt 244/245, developer-
+  // flagged) and Fraud reports (Prompt 277 A.3, founder-submitted) merge
+  // into one Trust & safety tab with a source filter; 'suspicious'/'fraud'
+  // stay valid Tab values purely so old ?tab=suspicious / ?tab=fraud links
+  // redirect (see the redirect effect below), same pattern as above.
+  { key: 'trust_safety', label: 'Trust & safety' },
   // Prompt 264 — bulk-promote verified key_people research to real
   // contacts, across every org (248 entities had this gap in production
   // at the time this shipped; a reusable screen, not a one-off fix).
@@ -623,20 +629,22 @@ type GdprRequest = {
   id: string; person_id: string | null; claimant_name: string | null; claimant_email: string;
   kind: 'rectify' | 'erase'; details: string | null; status: 'pending' | 'resolved' | 'rejected';
   created_at: string; resolved_at: string | null;
+  daysLeft: number; overdue: boolean; dueLabel: string;
+  namedPerson: { id: string; name: string; orgName: string; entityName: string | null } | null;
+  requesterEmailMatchesRecord: boolean | null;
+  resolvedByEmail: string | null; reviewer_notes: string | null; resolution_method: string | null;
+  removal_summary: { people_rows: number; orgs_affected: number; erased_at?: string } | null;
   matches: { personId: string; name: string; orgName: string }[];
 };
 
-const GDPR_DEADLINE_DAYS = 30;
-
-function daysLeft(createdAt: string): number {
-  const deadline = new Date(createdAt).getTime() + GDPR_DEADLINE_DAYS * 24 * 60 * 60 * 1000;
-  return Math.ceil((deadline - Date.now()) / (24 * 60 * 60 * 1000));
-}
-
 function GdprTab() {
+  const showResolvedParam = useSearchParams().get('resolved') === 'show';
   const [items, setItems] = useState<GdprRequest[] | null>(null);
   const [err, setErr] = useState('');
-  const [busy, setBusy] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionErr, setActionErr] = useState<Record<string, string>>({});
+  const [rectifyNotes, setRectifyNotes] = useState('');
 
   function refresh() {
     fetch('/api/backoffice/gdpr').then((r) => r.json()).then((body) => {
@@ -646,69 +654,153 @@ function GdprTab() {
   }
   useEffect(refresh, []);
 
-  async function resolve(id: string, decision: 'resolved' | 'rejected') {
-    setBusy(id);
-    await fetch(`/api/backoffice/gdpr/${id}/resolve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision }) });
-    setBusy(null); refresh();
+  async function act(row: GdprRequest, action: 'rectify' | 'erase' | 'reject', payload: Record<string, string>) {
+    setBusyId(row.id);
+    const res = await fetch(`/api/backoffice/gdpr/${row.id}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const body = await res.json();
+    setBusyId(null);
+    if (body.ok === false) { setActionErr((prev) => ({ ...prev, [row.id]: body.error })); return; }
+    setSelectedId(null); setRectifyNotes('');
+    refresh();
   }
 
   if (err) return <p className="text-sm text-[#B00000]">{err}</p>;
   if (!items) return <p className="text-sm text-gray-400">Loading…</p>;
-  const pending = items.filter((r) => r.status === 'pending').sort((a, b) => a.created_at.localeCompare(b.created_at));
-  const past = items.filter((r) => r.status !== 'pending');
-  const overdueCount = pending.filter((r) => daysLeft(r.created_at) <= 7).length;
+  const pending = items.filter((r) => r.status === 'pending');
+  const overdueCount = pending.filter((r) => r.overdue || r.daysLeft <= 7).length;
+
+  const columns: QueueColumn<GdprRequest>[] = [
+    { key: 'kind', label: 'Kind', render: (r) => (
+        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${r.kind === 'erase' ? 'bg-red-100 text-red-800' : 'bg-cyan-100 text-cyan-800'}`}>{r.kind}</span>
+    ) },
+    { key: 'claimant', label: 'Requester', render: (r) => (
+        <div><div className="font-medium">{r.claimant_name || r.claimant_email}</div><div className="text-xs font-normal text-gray-400">{r.claimant_email}</div></div>
+    ) },
+    { key: 'when', label: 'Submitted', sortable: true, render: (r) => <span className="text-gray-500">{new Date(r.created_at).toLocaleDateString()}</span> },
+    { key: 'due', label: 'Due', render: (r) => r.status !== 'pending'
+        ? <span className="text-xs text-gray-300">—</span>
+        : <span className={r.overdue || r.daysLeft <= 7 ? 'font-semibold text-[#B00000]' : r.daysLeft <= 14 ? 'font-semibold text-amber-600' : 'text-gray-400'}>{r.dueLabel}</span> },
+    { key: 'status', label: '', render: (r) => r.status !== 'pending'
+        ? <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${r.status === 'resolved' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{r.status}</span>
+        : null },
+  ];
 
   return (
-    <Card title={`GDPR / RGPD requests (${pending.length})`} tint={overdueCount > 0 ? 'red' : undefined}>
-      <p className="mb-3 text-xs text-gray-500">
-        Legal deadline is {GDPR_DEADLINE_DAYS} days from submission. &quot;Erase&quot; nulls PII on every matched people row across every org.
-      </p>
-      {pending.length === 0 ? <p className="text-sm text-gray-400">Queue clear.</p> : (
-        <ul className="space-y-2">
-          {pending.map((r) => {
-            const left = daysLeft(r.created_at);
-            const deadlineClass = left <= 7 ? 'text-[#B00000] font-semibold' : left <= 14 ? 'text-amber-600 font-semibold' : 'text-gray-400';
-            return (
-              <li key={r.id} className="rounded-xl border border-gray-100 bg-gray-50 p-3 text-sm">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${r.kind === 'erase' ? 'bg-red-100 text-red-800' : 'bg-cyan-100 text-cyan-800'}`}>{r.kind}</span>
-                  <span className="font-medium">{r.claimant_name || r.claimant_email}</span>
-                  <span className="text-xs text-gray-400">{r.claimant_email}</span>
-                  <span className={`ml-auto text-xs ${deadlineClass}`}>{left < 0 ? `${-left}d overdue` : `${left}d left`}</span>
-                </div>
-                {r.details && <p className="mt-1 text-xs text-gray-600">{r.details}</p>}
-                <div className="mt-1 text-xs text-gray-400">
-                  {r.matches.length === 0 ? 'No matching record found by email — link manually if needed.' : `Matches: ${r.matches.map((m) => `${m.name} (${m.orgName})`).join(', ')}`}
-                </div>
-                <div className="mt-2 flex gap-2">
-                  <Tooltip text={r.kind === 'erase' ? 'Nulls out PII on every matched person record across every org — irreversible.' : 'Marks this rectification request as handled.'}>
-                    <button disabled={busy === r.id} onClick={() => resolve(r.id, 'resolved')} className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800 disabled:opacity-40">
-                      {r.kind === 'erase' ? 'Erase & resolve' : 'Mark resolved'}
-                    </button>
-                  </Tooltip>
-                  <Tooltip text="Declines the request — no data is changed.">
-                    <button disabled={busy === r.id} onClick={() => resolve(r.id, 'rejected')} className="rounded border border-red-200 px-2 py-1 text-xs text-[#B00000] hover:bg-red-50 disabled:opacity-40">Reject</button>
-                  </Tooltip>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {past.length > 0 && (
-        <details className="mt-3">
-          <summary className="cursor-pointer text-xs text-gray-400">Decided ({past.length})</summary>
-          <ul className="mt-2 space-y-1 text-xs">
-            {past.map((r) => (
-              <li key={r.id} className="flex items-center gap-2">
-                <span className={`rounded-full px-1.5 py-0.5 font-semibold ${r.status === 'resolved' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{r.status}</span>
-                <span>{r.kind} — {r.claimant_email}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-    </Card>
+    <div className="space-y-4">
+      <Card title={`GDPR / RGPD requests (${pending.length})`} tint={overdueCount > 0 ? 'red' : undefined}>
+        <p className="mb-3 text-xs text-gray-500">
+          The only queue with a legal deadline — 30 days from submission, nearest first. &quot;Erase&quot; nulls PII on
+          every matched people row across every org (never deletes the row — every other table that references it
+          stays valid); the correction for Rectify happens in the founder&apos;s own People record.
+        </p>
+        <ReviewQueueLayout<GdprRequest>
+          columns={columns}
+          rows={showResolvedParam ? items : pending}
+          total={pending.length}
+          getRowId={(r) => r.id}
+          emptyMessage="Queue clear."
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          panelTitle={(r) => r.claimant_name || r.claimant_email}
+          renderPanel={(row) => (
+            <div className="space-y-4">
+              {actionErr[row.id] && <p className="text-xs text-[#B00000]">{actionErr[row.id]}</p>}
+              <ReviewFacts
+                what={<>{row.kind === 'erase' ? 'Erase' : 'Rectify'} request{row.details && <> — {row.details}</>}</>}
+                whoFrom={<>{row.claimant_name || '(no name given)'} · {row.claimant_email} · submitted {new Date(row.created_at).toLocaleDateString()}</>}
+                proof={
+                  <>
+                    {row.namedPerson ? (
+                      <>Named record: <b>{row.namedPerson.name}</b> at {row.namedPerson.orgName}{row.namedPerson.entityName ? ` (${row.namedPerson.entityName})` : ''}
+                        {' — '}{row.requesterEmailMatchesRecord ? <span className="text-green-700">requester email matches ✓</span> : <span className="text-[#B00000]">requester email does not match ✗</span>}</>
+                    ) : 'No specific record named — matched only by email below.'}
+                    <div className="mt-1">
+                      {row.matches.length === 0 ? 'No people row currently matches this email in any org.' : (
+                        <>Affected orgs: {[...new Set(row.matches.map((m) => m.orgName))].join(', ')} ({row.matches.length} record{row.matches.length === 1 ? '' : 's'})</>
+                      )}
+                    </div>
+                  </>
+                }
+                thenWhat={row.status !== 'pending' ? undefined : row.kind === 'erase'
+                  ? `Erasing nulls name/email/phone/LinkedIn on all ${row.matches.length} matched record(s) and marks them do-not-contact. Interaction history stays (it's the founder's own correspondence record), but no longer names this person.`
+                  : 'Marking resolved records that the correction was made — the actual field edit happens in the founder\'s own People screen.'}
+              />
+              {row.status !== 'pending' ? (
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600">
+                  <div><dt className="text-gray-400">Resolved by</dt><dd>{row.resolvedByEmail ?? 'Unknown'}</dd></div>
+                  <div><dt className="text-gray-400">Resolved at</dt><dd>{row.resolved_at ? new Date(row.resolved_at).toLocaleString() : '—'}</dd></div>
+                  {row.resolution_method && <div><dt className="text-gray-400">Method</dt><dd>{row.resolution_method}</dd></div>}
+                  {row.reviewer_notes && <div className="col-span-2"><dt className="text-gray-400">Notes</dt><dd>{row.reviewer_notes}</dd></div>}
+                  {row.removal_summary && (
+                    <div className="col-span-2"><dt className="text-gray-400">Removed</dt>
+                      <dd>{row.removal_summary.people_rows} record(s) across {row.removal_summary.orgs_affected} org(s) — PII nulled, not the rows themselves.</dd>
+                    </div>
+                  )}
+                </dl>
+              ) : row.kind === 'rectify' ? (
+                <>
+                  <textarea value={rectifyNotes} onChange={(e) => setRectifyNotes(e.target.value)} rows={2}
+                    placeholder="What was corrected, and where (optional)"
+                    className="w-full rounded-lg border border-gray-300 p-2 text-xs" />
+                  <ReviewActionFooter
+                    busy={busyId === row.id}
+                    onApprove={() => act(row, 'rectify', { notes: rectifyNotes })}
+                    approveLabel="Mark resolved"
+                    onReject={(reason) => act(row, 'reject', { reason })}
+                  />
+                </>
+              ) : (
+                // Erase gets the red-toned slot (ReviewActionFooter's
+                // onReject styling) — it's the one genuinely irreversible
+                // action in this whole panel; rejecting the REQUEST itself
+                // (declining to act) is the lower-stakes one and sits on
+                // the neutral onDismiss slot instead.
+                <ReviewActionFooter
+                  busy={busyId === row.id}
+                  onReject={(reason) => act(row, 'erase', { reason })}
+                  rejectLabel="Erase"
+                  onDismiss={(reason) => act(row, 'reject', { reason })}
+                  dismissLabel="Reject request"
+                />
+              )}
+            </div>
+          )}
+        />
+      </Card>
+    </div>
+  );
+}
+
+// Prompt 574 §B — Suspicious accounts (developer-flagged, Prompt 244/245)
+// and Fraud reports (founder-submitted, Prompt 277 A.3) share one tab with
+// a source filter now, rather than two separate top-level tabs. Kept as a
+// thin wrapper around the existing SuspiciousAccountsTab/FraudFlagsTab
+// content — NOT rebuilt onto ReviewQueueLayout's row+panel shape: both
+// already carry real, working, non-trivial UI of their own (evidence refs
+// and a repeatable action history for one; a cross-org confirmation
+// threshold and founder disputes for the other) that doesn't reduce to a
+// single-row-select-then-decide panel without a real redesign this prompt
+// didn't scope. SuspiciousFlagActions.tsx itself DID migrate to
+// AccountActionPanel (§B.3's own explicit instruction) — see that file.
+type TrustSafetySource = 'all' | 'suspicious' | 'fraud';
+
+function TrustSafetyTab() {
+  const urlSource = useSearchParams().get('source');
+  const [source, setSource] = useState<TrustSafetySource>(urlSource === 'suspicious' || urlSource === 'fraud' ? urlSource : 'all');
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-1.5 text-xs">
+        {(['all', 'suspicious', 'fraud'] as const).map((s) => (
+          <button key={s} onClick={() => setSource(s)}
+            className={`rounded-full px-2.5 py-1 font-medium ${source === s ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+            {s === 'all' ? 'All' : s === 'suspicious' ? 'Suspicious accounts' : 'Fraud reports'}
+          </button>
+        ))}
+      </div>
+      {(source === 'all' || source === 'suspicious') && <SuspiciousAccountsTab />}
+      {(source === 'all' || source === 'fraud') && <FraudFlagsTab />}
+    </div>
   );
 }
 
@@ -1907,7 +1999,15 @@ function BackofficeQueueContent() {
   useEffect(() => {
     if (urlTab === 'candidates' || urlTab === 'submissions') openTab('new_investors');
     if (urlTab === 'domain_mismatch') openTab('identity');
-  }, [urlTab, openTab]);
+    // Prompt 574 §B — keeps which of the two an old link meant, as its own
+    // ?source= rather than collapsing both into the same undifferentiated
+    // "trust_safety" landing.
+    if (urlTab === 'suspicious' || urlTab === 'fraud') {
+      const next = new URLSearchParams(params.toString());
+      next.set('tab', 'trust_safety'); next.set('source', urlTab);
+      router.replace(`${pathname}?${next.toString()}`, { scroll: false });
+    }
+  }, [urlTab, openTab, params, pathname, router]);
 
   return (
     <div className="space-y-5">
@@ -1948,8 +2048,7 @@ function BackofficeQueueContent() {
       {tab === 'claims' && <ClaimsTab />}
       {tab === 'identity' && <InvestorIdentityTab />}
       {tab === 'gdpr' && <GdprTab />}
-      {tab === 'suspicious' && <SuspiciousAccountsTab />}
-      {tab === 'fraud' && <FraudFlagsTab />}
+      {tab === 'trust_safety' && <TrustSafetyTab />}
       {tab === 'key_people' && <KeyPeoplePromoteTab />}
       {tab === 'community' && <ContributionsByUsersTab />}
       {tab === 'competitor_intel' && <CompetitorIntelTab />}
