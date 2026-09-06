@@ -938,7 +938,7 @@ function InvestorIdentityTab() {
     <div className="space-y-4">
       <Card title={`Investor identity (${counts.self_declared + counts.document + counts.claim})`}>
         <p className="mb-3 text-xs text-gray-500">
-          Three ways an investor's identity gets verified — a firm they self-declared, an uploaded document, or a
+          Three ways an investor&apos;s identity gets verified — a firm they self-declared, an uploaded document, or a
           claim on a firm already in the catalog — one queue, one panel. Domain mismatch is a filter here now, not
           its own tab: fixing a field on an existing catalog row is a different action from approving a request.
         </p>
@@ -976,7 +976,7 @@ function InvestorIdentityTab() {
               return (
                 <div className="space-y-4">
                   {actionErr[row.id] && <p className="text-xs text-[#B00000]">{actionErr[row.id]}</p>}
-                  {row.isInternal && <p className="text-xs text-gray-400">Internal / QA account — shown because "Hide internal" is off.</p>}
+                  {row.isInternal && <p className="text-xs text-gray-400">Internal / QA account — shown because &quot;Hide internal&quot; is off.</p>}
                   <ReviewFacts
                     what={<>{row.entityName}{row.entityWebsite && <> — <a href={row.entityWebsite.startsWith('http') ? row.entityWebsite : `https://${row.entityWebsite}`} target="_blank" rel="noreferrer" className="text-[#0E7490] hover:underline">{row.entityWebsite}</a></>}</>}
                     whoFrom={<>{row.requesterEmail} · {kindLabel} · {new Date(row.createdAt).toLocaleDateString()}</>}
@@ -985,9 +985,9 @@ function InvestorIdentityTab() {
                         {row.entityWebsite == null ? (
                           <>No website declared — domain check impossible.</>
                         ) : row.domainMatch ? (
-                          <>Requester domain <b>{row.claimantDomain}</b> matches the firm's own domain (<b>{row.entityDomain}</b>).</>
+                          <>Requester domain <b>{row.claimantDomain}</b> matches the firm&apos;s own domain (<b>{row.entityDomain}</b>).</>
                         ) : (
-                          <>Requester domain <b>{row.claimantDomain ?? '—'}</b> does not match the firm's domain (<b>{row.entityDomain ?? '—'}</b>).</>
+                          <>Requester domain <b>{row.claimantDomain ?? '—'}</b> does not match the firm&apos;s domain (<b>{row.entityDomain ?? '—'}</b>).</>
                         )}
                         {claimantMx && <div className="mt-1 text-xs text-gray-500">MX on {row.claimantDomain}: {claimantMx.checked ? (claimantMx.hasMx ? 'configured' : 'no mail servers found') : `couldn't check (${claimantMx.reason})`}</div>}
                         {entityMx && <div className="text-xs text-gray-500">MX on {row.entityDomain}: {entityMx.checked ? (entityMx.hasMx ? 'configured' : 'no mail servers found') : `couldn't check (${entityMx.reason})`}</div>}
@@ -1020,7 +1020,7 @@ function InvestorIdentityTab() {
                       <div><dt className="text-gray-400">Resolved at</dt><dd>{row.resolvedAt ? new Date(row.resolvedAt).toLocaleString() : '—'}</dd></div>
                       {row.resolutionMethod && <div><dt className="text-gray-400">Method</dt><dd>{row.resolutionMethod}</dd></div>}
                       {row.resolutionNotes && <div className="col-span-2"><dt className="text-gray-400">Notes</dt><dd>{row.resolutionNotes}</dd></div>}
-                      {row.notifyFailed && <div className="col-span-2 text-amber-700">The claimant's decision notice failed to send.</div>}
+                      {row.notifyFailed && <div className="col-span-2 text-amber-700">The claimant&apos;s decision notice failed to send.</div>}
                     </dl>
                   ) : row.kind === 'claim' ? (
                     // §C's own action list names exactly one verify button
