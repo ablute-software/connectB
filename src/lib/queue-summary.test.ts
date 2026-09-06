@@ -34,11 +34,40 @@ describe('groupIntoReviewCards', () => {
     expect(cards.map((c) => c.key)).toEqual(Object.keys(REVIEW_CARD_LABELS));
   });
 
-  it('sums new_investors from candidates+submissions and takes the known oldest', () => {
+  it('sums new_investors from candidates+submissions and takes the only known oldest', () => {
     const card = groupIntoReviewCards(BASE_ROWS).find((c) => c.key === 'new_investors')!;
     expect(card.count).toBe(2); // 0 (candidates) + 2 (submissions)
     expect(card.hiddenInternal).toBe(5); // candidates' own hidden count carries through
-    expect(card.oldestDays).toBe(4); // candidates has none pending (null), submissions is 4
+    expect(card.oldestDays).toBe(4); // candidates has none pending (null), submissions is 4 — only one side known, so max/min agree here
+  });
+
+  // Prompt 872 §A — the case the test above can't catch: with BOTH sides
+  // known, the fused oldest is the OLDER (larger age) of the two, never the
+  // newer one. A prior version of this file used minKnown here — with
+  // candidates=30d/submissions=4d it would have read "oldest: 4 days" while
+  // a month-old item waited, the exact "wrong number reads as more true
+  // than a dash" mistake sumKnown exists to avoid, just on this field.
+  it('with both parts known, the fused oldest is the OLDER one, not the newer', () => {
+    const rows = BASE_ROWS.map((r) => {
+      if (r.key === 'candidates') return row('candidates', { count: 1, oldestDays: 30 });
+      if (r.key === 'submissions') return row('submissions', { count: 1, oldestDays: 4 });
+      return r;
+    });
+    const card = groupIntoReviewCards(rows).find((c) => c.key === 'new_investors')!;
+    expect(card.oldestDays).toBe(30);
+  });
+
+  it('trust_safety oldest is also the older of its two known parts', () => {
+    const rows = BASE_ROWS.map((r) => {
+      if (r.key === 'suspicious') return row('suspicious', { count: 1, oldestDays: 7 });
+      if (r.key === 'fraud') return row('fraud', { count: 1, oldestDays: 12 });
+      // community must be known too, or trustSafetyCount (and so oldestDays,
+      // per §B) stays null regardless of suspicious/fraud's own ages.
+      if (r.key === 'community') return row('community', { count: 0, oldestDays: null });
+      return r;
+    });
+    const card = groupIntoReviewCards(rows).find((c) => c.key === 'trust_safety')!;
+    expect(card.oldestDays).toBe(12);
   });
 
   it('passes contributions/identity/claims/gdpr through unchanged (1:1 sources)', () => {
@@ -55,6 +84,18 @@ describe('groupIntoReviewCards', () => {
     // A null count here, not "2", is the whole point of sumKnown.
     const card = groupIntoReviewCards(BASE_ROWS).find((c) => c.key === 'trust_safety')!;
     expect(card.count).toBeNull();
+  });
+
+  // Prompt 872 §B — the same discipline extended to oldest: BASE_ROWS'
+  // suspicious has a real oldestDays nowhere set (undefined), but even if it
+  // did, count being null (community unknown) must force oldestDays null
+  // too — the card cannot claim to know the queue's oldest item while also
+  // admitting it doesn't know the queue's size.
+  it('trust_safety oldest is null whenever its count is null, even if suspicious/fraud have known ages', () => {
+    const rows = BASE_ROWS.map((r) => (r.key === 'suspicious' ? row('suspicious', { count: 2, oldestDays: 9 }) : r));
+    const card = groupIntoReviewCards(rows).find((c) => c.key === 'trust_safety')!;
+    expect(card.count).toBeNull(); // community still unknown
+    expect(card.oldestDays).toBeNull(); // must not report 9 while count is unknown
   });
 
   it('trust_safety becomes a real number once community is a real number too', () => {

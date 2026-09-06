@@ -185,9 +185,16 @@ function sumKnown(...vals: (number | null | undefined)[]): number | null {
   return vals.some((v) => v === null || v === undefined) ? null : (vals as number[]).reduce((s, v) => s + v, 0);
 }
 
-function minKnown(...vals: (number | null | undefined)[]): number | null {
+// Prompt 872 §A — the oldest item across two fused queues is whichever ONE
+// item has waited longest, i.e. the larger of the two ages (oldestDays is
+// an age: daysSince the oldest created_at, so bigger = older). Named
+// maxKnown, not minKnown, on purpose — a previous version of this file had
+// it backwards: candidates=30d/submissions=4d read "oldest: 4 days" while a
+// month-old item waited, exactly the "wrong number reads as more true than
+// a dash" mistake sumKnown exists to avoid, just on the wrong field.
+function maxKnown(...vals: (number | null | undefined)[]): number | null {
   const known = vals.filter((v): v is number => v !== null && v !== undefined);
-  return known.length ? Math.min(...known) : null;
+  return known.length ? Math.max(...known) : null;
 }
 
 /**
@@ -209,13 +216,20 @@ export function groupIntoReviewCards(rows: QueueSummaryRow[]): QueueSummaryRow[]
   const suspicious = by('suspicious');
   const fraud = by('fraud');
   const community = by('community');
+  // Prompt 872 §B — the same null discipline as count, applied to oldest:
+  // today community never carries an age either, so this is a no-op (count
+  // is already null whenever oldest would be too), but the rule is the
+  // safeguard, not the coincidence — if community ever gains a real
+  // oldestDays without gaining a real count, this keeps the card from
+  // claiming an "oldest" that only ever covered two of its three sources.
+  const trustSafetyCount = sumKnown(suspicious?.count, fraud?.count, community?.count);
 
   return [
     {
       key: 'new_investors',
       count: sumKnown(candidates?.count, submissions?.count),
       hiddenInternal: candidates?.hiddenInternal,
-      oldestDays: minKnown(candidates?.oldestDays, submissions?.oldestDays),
+      oldestDays: maxKnown(candidates?.oldestDays, submissions?.oldestDays),
     },
     { key: 'contributions', count: contributions?.count ?? null, oldestDays: contributions?.oldestDays },
     { key: 'identity', count: identity?.count ?? null, hiddenInternal: identity?.hiddenInternal, oldestDays: identity?.oldestDays },
@@ -223,8 +237,8 @@ export function groupIntoReviewCards(rows: QueueSummaryRow[]): QueueSummaryRow[]
     { key: 'gdpr', count: gdpr?.count ?? null, oldestDays: gdpr?.oldestDays, slaDueInDays: gdpr?.slaDueInDays },
     {
       key: 'trust_safety',
-      count: sumKnown(suspicious?.count, fraud?.count, community?.count),
-      oldestDays: minKnown(suspicious?.oldestDays, fraud?.oldestDays),
+      count: trustSafetyCount,
+      oldestDays: trustSafetyCount !== null ? maxKnown(suspicious?.oldestDays, fraud?.oldestDays) : null,
     },
   ];
 }
