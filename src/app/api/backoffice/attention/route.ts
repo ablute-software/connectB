@@ -78,9 +78,12 @@ export async function GET() {
 
   const reviewCategories: { tag: string; countValue: number; oldestDays: number | null; context: string; tab: string }[] = [
     {
-      tag: 'New investors', countValue: sum(count('candidates'), count('submissions'), count('investor_claims')),
+      // Prompt 573 — investor_claims (investor_entity_claims) moved to
+      // Investor identity below: a claim targets an EXISTING catalog firm,
+      // not a new one, so it was never really "new investors" work.
+      tag: 'New investors', countValue: sum(count('candidates'), count('submissions')),
       oldestDays: queueRows.find((r) => r.key === 'candidates')?.oldestDays ?? null,
-      context: 'Candidate firms with no existing catalog match', tab: 'candidates',
+      context: 'Candidate firms with no existing catalog match', tab: 'new_investors',
     },
     {
       tag: 'Contributions', countValue: count('contributions'),
@@ -88,8 +91,11 @@ export async function GET() {
       context: 'Submitted field edits awaiting a decision', tab: 'contributions',
     },
     {
-      tag: 'Investor identity', countValue: sum(count('identity'), count('domain_mismatch')),
-      oldestDays: null, context: 'Self-declared firms or domain mismatches awaiting verification', tab: 'identity',
+      // Prompt 573 — 'identity' now IS the real count (self-declared +
+      // document + claim, non-internal); domain_mismatch is a filter on
+      // this same queue, not a separate count folded in on top of it.
+      tag: 'Investor identity', countValue: count('identity'),
+      oldestDays: null, context: 'Self-declared firms, documents, or claims awaiting verification', tab: 'identity',
     },
     {
       tag: 'Person claims', countValue: count('claims'),

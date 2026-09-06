@@ -18,6 +18,8 @@ import { manualEntityCompleteness, ENRICHMENT_REQUEST_FIELD, type CompletenessGr
 import { QueueTable, type QueueColumn } from '@/components/backoffice/QueueTable';
 import { QueueTriageBoard } from '@/components/backoffice/QueueTriageBoard';
 import { ReviewQueueLayout, ReviewFacts, ReviewActionFooter } from '@/components/backoffice/ReviewQueueLayout';
+import type { UnifiedIdentityRow } from '@/lib/investor-identity-row';
+import type { MxLookupResult } from '@/lib/investor-domain-mx';
 
 // Prompt 190 — 'candidates' ("Catalog candidates") added next to
 // Contributions per Nuno's explicit decision: "Added by startups" (Prompt
@@ -42,7 +44,11 @@ const TABS: { key: Tab; label: string }[] = [
   // Prompt 284 §1 — entities.email_domain vs entities.website mismatches
   // (54 in production, Nalka Invest being the case that surfaced it) —
   // live detection, not a stored flag, see DomainMismatchTab.tsx.
-  { key: 'domain_mismatch', label: 'Domain mismatch' },
+  // Prompt 573 §C — folded into Investor identity as a filter chip rather
+  // than its own top-level tab; 'domain_mismatch' stays a valid Tab value
+  // purely so an old ?tab=domain_mismatch link still redirects (see the
+  // redirect effect near InvestorIdentityTab), same pattern 572 used for
+  // 'candidates'/'submissions'.
   // Prompt 244/245 — manual flagging by developers (not automatic
   // detection), see SuspiciousAccountsTab.tsx.
   { key: 'suspicious', label: 'Suspicious accounts' },
@@ -706,94 +712,270 @@ function GdprTab() {
   );
 }
 
-// Identity verification Fase A (prompt 63) — one queue for the two things
-// that make a catalog_entities row 'verified': an investor-proposed new
-// firm (Bloco 1), or an uploaded document against an existing/new firm
-// (Bloco 3). Same Card/Tooltip/Approve-Reject shape as SubmissionsTab above.
-interface PendingEntity { id: string; catalogEntityId: string; addedByEmail: string; createdAt: string; entityName: string; website: string | null }
-interface PendingDocument { id: string; investorEmail: string; catalogEntityId: string; fileName: string; createdAt: string; entityName: string; url: string | null; malwareFlagged?: boolean }
+// Prompt 573 §C — one queue for the three things that verify an investor's
+// identity: a self-declared new firm (Bloco 1), an uploaded document
+// (Bloco 3), or a claim on an EXISTING catalog firm (investor_entity_claims
+// — previously counted (queue-summary's investor_claims) but never
+// rendered anywhere; Phase 1 of Prompt 576 even folded its count into "New
+// investors" as an explicit stated placeholder, corrected here and in
+// BackofficeShell to live under Investor identity instead, where it
+// actually belongs). "Domain mismatch" is a filter chip on this same queue
+// now, not its own tab — see the redirect above and DomainMismatchTab.tsx,
+// reused as-is rather than merged row-for-row (its own review unit is "fix
+// a field on an entities row", structurally different from "approve/reject
+// a verification decision").
+type IdentityFilter = 'all' | 'self_declared' | 'document' | 'claim' | 'domain_mismatch';
 
 function InvestorIdentityTab() {
-  const [pendingEntities, setPendingEntities] = useState<PendingEntity[] | null>(null);
-  const [documents, setDocuments] = useState<PendingDocument[] | null>(null);
+  // QueueTable's own "Show resolved"/"Hide internal" checkboxes write
+  // ?resolved=show / ?internal=shown to the URL (queue-table-state.ts's own
+  // param names) regardless of which tab renders them; reading them back
+  // here is what makes those checkboxes actually do something for this
+  // queue — rows are fetched all at once, so there's no server round-trip
+  // to gate on instead.
+  const searchParams = useSearchParams();
+  const showResolvedParam = searchParams.get('resolved') === 'show';
+  const hideInternalParam = searchParams.get('internal') !== 'shown';
+  const [rows, setRows] = useState<UnifiedIdentityRow[] | null>(null);
   const [err, setErr] = useState('');
+  const [filter, setFilter] = useState<IdentityFilter>('all');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionErr, setActionErr] = useState<Record<string, string>>({});
+  const [mx, setMx] = useState<Record<string, MxLookupResult>>({});
 
   function refresh() {
     fetch('/api/backoffice/investor-identity').then((r) => r.json()).then((body) => {
       if (body.ok === false) { setErr(body.error); return; }
-      setPendingEntities(body.pendingEntities ?? []);
-      setDocuments(body.documents ?? []);
+      setRows(body.rows ?? []);
     });
   }
   useEffect(refresh, []);
 
-  async function reviewEntity(catalogEntityId: string, decision: 'approved' | 'rejected') {
-    await fetch(`/api/backoffice/investor-identity/entities/${catalogEntityId}/review`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision }),
-    });
+  async function lookupMx(domain: string | null) {
+    if (!domain || mx[domain]) return;
+    const res = await fetch('/api/backoffice/investor-identity', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ domain }) });
+    const body = await res.json();
+    if (body.ok) setMx((prev) => ({ ...prev, [domain]: body.result }));
+  }
+
+  const reviewUrl = (row: UnifiedIdentityRow) =>
+    row.kind === 'self_declared' ? `/api/backoffice/investor-identity/entities/${row.entityId}/review`
+    : row.kind === 'document' ? `/api/backoffice/investor-identity/documents/${row.id}/review`
+    : null;
+
+  async function approve(row: UnifiedIdentityRow, method: 'domain' | 'document' | 'manual') {
+    setBusyId(row.id);
+    const url = row.kind === 'claim' ? `/api/backoffice/investor-entity-claims/${row.id}/approve` : reviewUrl(row)!;
+    const payload = row.kind === 'claim' ? { method } : { decision: 'approved' };
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const body = await res.json();
+    setBusyId(null);
+    if (body.ok === false) { setActionErr((prev) => ({ ...prev, [row.id]: body.error })); return; }
+    setSelectedId(null);
     refresh();
   }
-  async function reviewDocument(id: string, decision: 'approved' | 'rejected') {
-    await fetch(`/api/backoffice/investor-identity/documents/${id}/review`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision }),
+  async function reject(row: UnifiedIdentityRow, reason: string) {
+    setBusyId(row.id);
+    const url = row.kind === 'claim' ? `/api/backoffice/investor-entity-claims/${row.id}/reject` : reviewUrl(row)!;
+    const payload = row.kind === 'claim' ? { reason } : { decision: 'rejected', reason, notes: reason };
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const body = await res.json();
+    setBusyId(null);
+    if (body.ok === false) { setActionErr((prev) => ({ ...prev, [row.id]: body.error })); return; }
+    setSelectedId(null);
+    refresh();
+  }
+  // Prompt 573 §C — "Link to existing catalog firm": the probable match is
+  // a candidate catalog_entities row, so this is exactly what
+  // /api/backoffice/catalog/merge already does for two catalog_entities ids
+  // (Prompt 580 hardened it — inversion guard, alias-preserving, reference
+  // repointing) — reused as-is rather than building a second merge path.
+  async function linkToExisting(row: UnifiedIdentityRow, reason: string) {
+    if (!row.probableCatalogMatch) return;
+    setBusyId(row.id);
+    const res = await fetch('/api/backoffice/catalog/merge', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keepId: row.probableCatalogMatch.id, mergeIds: [row.entityId], reason }),
     });
+    const body = await res.json();
+    setBusyId(null);
+    if (body.ok === false) { setActionErr((prev) => ({ ...prev, [row.id]: body.error })); return; }
+    setSelectedId(null);
     refresh();
   }
 
   if (err) return <p className="text-sm text-[#B00000]">{err}</p>;
-  if (!pendingEntities || !documents) return <p className="text-sm text-gray-400">Loading…</p>;
+  if (!rows) return <p className="text-sm text-gray-400">Loading…</p>;
+
+  const pending = rows.filter((r) => r.status === 'pending');
+  const pendingVisible = pending.filter((r) => !r.isInternal);
+  const hiddenInternalCount = pending.filter((r) => r.isInternal).length;
+  const statusScope = showResolvedParam ? rows : pending;
+  const inScope = hideInternalParam ? statusScope.filter((r) => !r.isInternal || r.status !== 'pending') : statusScope;
+  const counts = {
+    self_declared: pendingVisible.filter((r) => r.kind === 'self_declared').length,
+    document: pendingVisible.filter((r) => r.kind === 'document').length,
+    claim: pendingVisible.filter((r) => r.kind === 'claim').length,
+  };
+  const filtered = filter === 'all' || filter === 'domain_mismatch' ? inScope : inScope.filter((r) => r.kind === filter);
+
+  const columns: QueueColumn<UnifiedIdentityRow>[] = [
+    { key: 'entity', label: 'Investor', sortable: true, render: (r) => (
+        <div><div className="font-medium">{r.entityName}</div>{r.entityWebsite && <div className="text-xs font-normal text-gray-400">{r.entityWebsite}</div>}</div>
+    ) },
+    { key: 'origin', label: 'Origin', render: (r) => (
+        <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">
+          {r.kind === 'self_declared' ? 'self-declared firm' : r.kind === 'document' ? 'document' : 'claim on existing firm'}
+        </span>
+    ) },
+    { key: 'requester', label: 'Requester', render: (r) => <span className="text-gray-500">{r.requesterEmail}</span> },
+    { key: 'when', label: 'Added when', sortable: true, render: (r) => <span className="text-gray-500">{new Date(r.createdAt).toLocaleDateString()}</span> },
+    { key: 'domain', label: 'Domain match', render: (r) => r.domainMatch == null
+        ? <span className="text-xs text-gray-300" title="No website declared — domain check impossible">—</span>
+        : r.domainMatch ? <span className="text-green-600">✓</span> : <span className="text-[#B00000]">✗</span> },
+    { key: 'status', label: '', render: (r) => (
+        <span className="flex gap-1">
+          {r.isDispute && <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">disputed</span>}
+          {r.status === 'resolved' && <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500">resolved</span>}
+        </span>
+    ) },
+  ];
 
   return (
     <div className="space-y-4">
-      <Card title={`Firms investors added themselves (${pendingEntities.length})`}>
+      <Card title={`Investor identity (${counts.self_declared + counts.document + counts.claim})`}>
         <p className="mb-3 text-xs text-gray-500">
-          &quot;My firm isn&apos;t listed&quot; (Prompt 63 Bloco 1). Approving marks the catalog entity verified — every investor
-          linked to it shows the &quot;Verified fund&quot; badge, not just the one who added it.
+          Three ways an investor's identity gets verified — a firm they self-declared, an uploaded document, or a
+          claim on a firm already in the catalog — one queue, one panel. Domain mismatch is a filter here now, not
+          its own tab: fixing a field on an existing catalog row is a different action from approving a request.
         </p>
-        {pendingEntities.length === 0 ? <p className="text-sm text-gray-400">Queue clear.</p> : (
-          <ul className="space-y-2">
-            {pendingEntities.map((e) => (
-              <li key={e.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-100 bg-gray-50 p-3 text-sm">
-                <span className="font-medium">{e.entityName}</span>
-                {e.website && <a href={e.website} target="_blank" rel="noreferrer" className="text-xs text-[#0E7490] hover:underline">{e.website}</a>}
-                <span className="text-xs text-gray-400">added by {e.addedByEmail} · {e.createdAt.slice(0, 10)}</span>
-                <div className="ml-auto flex gap-2">
-                  <button onClick={() => reviewEntity(e.catalogEntityId, 'approved')} className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800">Verify</button>
-                  <button onClick={() => reviewEntity(e.catalogEntityId, 'rejected')} className="rounded border border-red-200 px-2 py-1 text-xs text-[#B00000] hover:bg-red-50">Reject</button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+        <div className="mb-3 flex flex-wrap gap-1.5 text-xs">
+          {([
+            ['all', `All (${counts.self_declared + counts.document + counts.claim})`],
+            ['self_declared', `Self-declared (${counts.self_declared})`],
+            ['document', `Documents (${counts.document})`],
+            ['claim', `Claims (${counts.claim})`],
+            ['domain_mismatch', 'Domain mismatch'],
+          ] as [IdentityFilter, string][]).map(([f, label]) => (
+            <button key={f} onClick={() => { setFilter(f); setSelectedId(null); }}
+              className={`rounded-full px-2.5 py-1 font-medium ${filter === f ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
 
-      <Card title={`Verification documents (${documents.length})`}>
-        <p className="mb-3 text-xs text-gray-500">
-          Uploaded incorporation/registry documents (Prompt 63 Bloco 3). Approving verifies the linked catalog entity.
-        </p>
-        {documents.length === 0 ? <p className="text-sm text-gray-400">Queue clear.</p> : (
-          <ul className="space-y-2">
-            {documents.map((d) => (
-              <li key={d.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-100 bg-gray-50 p-3 text-sm">
-                <span className="font-medium">{d.entityName}</span>
-                <span className="text-xs text-gray-500">{d.investorEmail}</span>
-                {d.url ? <a href={d.url} target="_blank" rel="noreferrer" className="text-xs text-[#0E7490] hover:underline">{d.fileName}</a> : <span className="text-xs text-gray-400">{d.fileName}</span>}
-                {/* Prompt 305 §A — the file was withheld because the daily
-                    malware sweep flagged it after upload; say so instead of
-                    a silent missing link. Reject is still the right action. */}
-                {d.malwareFlagged && (
-                  <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-[#B00000]" title="VirusTotal flagged this file as malicious — withheld from preview.">
-                    ⚠ flagged as malware
-                  </span>
-                )}
-                <span className="text-xs text-gray-400">{d.createdAt.slice(0, 10)}</span>
-                <div className="ml-auto flex gap-2">
-                  <button onClick={() => reviewDocument(d.id, 'approved')} className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800">Verify</button>
-                  <button onClick={() => reviewDocument(d.id, 'rejected')} className="rounded border border-red-200 px-2 py-1 text-xs text-[#B00000] hover:bg-red-50">Reject</button>
+        {filter === 'domain_mismatch' ? <DomainMismatchTab /> : (
+          <ReviewQueueLayout<UnifiedIdentityRow>
+            columns={columns}
+            rows={filtered}
+            total={filtered.length}
+            getRowId={(r) => r.id}
+            hiddenInternalCount={hiddenInternalCount}
+            emptyMessage="Nothing left to review here."
+            selectedId={selectedId}
+            onSelect={(id) => { setSelectedId(id); const row = rows.find((r) => r.id === id); if (row?.claimantDomain) void lookupMx(row.claimantDomain); if (row?.entityDomain) void lookupMx(row.entityDomain); }}
+            panelTitle={(r) => r.entityName}
+            renderPanel={(row) => {
+              const claimantMx = row.claimantDomain ? mx[row.claimantDomain] : undefined;
+              const entityMx = row.entityDomain ? mx[row.entityDomain] : undefined;
+              const kindLabel = row.kind === 'self_declared' ? 'self-declared firm' : row.kind === 'document' ? 'uploaded document' : 'claim on existing firm';
+              const documentClean = row.kind === 'document' && row.malwareScanStatus === 'clean';
+              return (
+                <div className="space-y-4">
+                  {actionErr[row.id] && <p className="text-xs text-[#B00000]">{actionErr[row.id]}</p>}
+                  {row.isInternal && <p className="text-xs text-gray-400">Internal / QA account — shown because "Hide internal" is off.</p>}
+                  <ReviewFacts
+                    what={<>{row.entityName}{row.entityWebsite && <> — <a href={row.entityWebsite.startsWith('http') ? row.entityWebsite : `https://${row.entityWebsite}`} target="_blank" rel="noreferrer" className="text-[#0E7490] hover:underline">{row.entityWebsite}</a></>}</>}
+                    whoFrom={<>{row.requesterEmail} · {kindLabel} · {new Date(row.createdAt).toLocaleDateString()}</>}
+                    proof={
+                      <>
+                        {row.entityWebsite == null ? (
+                          <>No website declared — domain check impossible.</>
+                        ) : row.domainMatch ? (
+                          <>Requester domain <b>{row.claimantDomain}</b> matches the firm's own domain (<b>{row.entityDomain}</b>).</>
+                        ) : (
+                          <>Requester domain <b>{row.claimantDomain ?? '—'}</b> does not match the firm's domain (<b>{row.entityDomain ?? '—'}</b>).</>
+                        )}
+                        {claimantMx && <div className="mt-1 text-xs text-gray-500">MX on {row.claimantDomain}: {claimantMx.checked ? (claimantMx.hasMx ? 'configured' : 'no mail servers found') : `couldn't check (${claimantMx.reason})`}</div>}
+                        {entityMx && <div className="text-xs text-gray-500">MX on {row.entityDomain}: {entityMx.checked ? (entityMx.hasMx ? 'configured' : 'no mail servers found') : `couldn't check (${entityMx.reason})`}</div>}
+                        {row.kind === 'document' && (
+                          <div className="mt-1">
+                            {row.documentUrl ? <a href={row.documentUrl} target="_blank" rel="noreferrer" className="text-[#0E7490] hover:underline">{row.documentFileName}</a> : <span>{row.documentFileName}</span>}
+                            <span className="ml-1.5 text-xs text-gray-400">({row.malwareScanStatus ?? 'not scanned'})</span>
+                            {row.malwareFlagged && <span className="ml-1.5 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-[#B00000]">⚠ flagged as malware</span>}
+                          </div>
+                        )}
+                        {row.kind !== 'document' && row.documentCount > 0 && <div className="mt-1 text-xs text-gray-500">{row.documentCount} verification document{row.documentCount === 1 ? '' : 's'} also on file for this firm.</div>}
+                        {row.isDispute && <div className="mt-1 text-amber-700">This firm already has an approved claimant — approving this one disputes it.</div>}
+                      </>
+                    }
+                    thenWhat={row.status === 'resolved' ? undefined : row.kind === 'claim'
+                      ? 'Approving makes this the verified owner of the catalog entity; every investor linked to it inherits the "Verified fund" badge.'
+                      : 'Approving marks the catalog entity verified — every investor linked to it inherits the badge, not just this one.'}
+                  />
+                  {row.probableCatalogMatch && (
+                    <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">
+                      Probable catalog match: <b>{row.probableCatalogMatch.name}</b>{row.probableCatalogMatch.website ? ` (${row.probableCatalogMatch.website})` : ''} — consider linking to this existing entity instead of verifying a new one.
+                    </p>
+                  )}
+                  {row.status === 'resolved' ? (
+                    // Prompt 573 §C — history: who resolved it, when, with
+                    // what method, and (for claims) whether the decision
+                    // notice actually reached the claimant.
+                    <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600">
+                      <div><dt className="text-gray-400">Resolved by</dt><dd>{row.resolvedByEmail ?? 'Unknown'}</dd></div>
+                      <div><dt className="text-gray-400">Resolved at</dt><dd>{row.resolvedAt ? new Date(row.resolvedAt).toLocaleString() : '—'}</dd></div>
+                      {row.resolutionMethod && <div><dt className="text-gray-400">Method</dt><dd>{row.resolutionMethod}</dd></div>}
+                      {row.resolutionNotes && <div className="col-span-2"><dt className="text-gray-400">Notes</dt><dd>{row.resolutionNotes}</dd></div>}
+                      {row.notifyFailed && <div className="col-span-2 text-amber-700">The claimant's decision notice failed to send.</div>}
+                    </dl>
+                  ) : row.kind === 'claim' ? (
+                    // §C's own action list names exactly one verify button
+                    // for a claim — "Verify (domain) — só activa quando
+                    // domain_match=true" — disabled, not hidden, when false.
+                    <ReviewActionFooter
+                      busy={busyId === row.id}
+                      onApprove={() => approve(row, 'domain')}
+                      approveLabel="Verify (domain)"
+                      approveDisabled={row.domainMatch !== true}
+                      onReject={(reason) => reject(row, reason)}
+                    />
+                  ) : (() => {
+                    // self_declared/document share the same verify rule:
+                    // domain match wins when present (§C's own "Verify
+                    // (domain)"), a document falls back to "Verify
+                    // (document)" gated on a clean scan, anything else has
+                    // no other evidence to gate on and stays a plain manual
+                    // call — never disabled, since refusing to let an admin
+                    // approve a self-declared firm with no evidence at all
+                    // would be a dead end, not a safeguard.
+                    //
+                    // A document-kind row is ALWAYS "Verify (document)",
+                    // gated on a clean scan, even when it also happens to
+                    // have a domain match — a domain match is corroborating
+                    // context in the PROOF text above, never a side door
+                    // around "só com documento clean" for the one kind that
+                    // actually carries a file to scan.
+                    const method: 'domain' | 'document' | 'manual' = row.kind === 'document' ? 'document' : row.domainMatch ? 'domain' : 'manual';
+                    const approveLabel = method === 'domain' ? 'Verify (domain)' : method === 'document' ? 'Verify (document)' : 'Verify (manual)';
+                    const approveDisabled = method === 'document' && !documentClean;
+                    return (
+                      <ReviewActionFooter
+                        busy={busyId === row.id}
+                        onApprove={() => approve(row, method)}
+                        approveLabel={approveLabel}
+                        approveDisabled={approveDisabled}
+                        onDismiss={row.probableCatalogMatch ? (reason) => linkToExisting(row, reason) : undefined}
+                        dismissLabel="Link to existing catalog firm"
+                        onReject={(reason) => reject(row, reason)}
+                      />
+                    );
+                  })()}
                 </div>
-              </li>
-            ))}
-          </ul>
+              );
+            }}
+          />
         )}
       </Card>
     </div>
@@ -1724,6 +1906,7 @@ function BackofficeQueueContent() {
   // above returns false for a key that's valid in Tab but absent from TABS).
   useEffect(() => {
     if (urlTab === 'candidates' || urlTab === 'submissions') openTab('new_investors');
+    if (urlTab === 'domain_mismatch') openTab('identity');
   }, [urlTab, openTab]);
 
   return (
@@ -1769,7 +1952,6 @@ function BackofficeQueueContent() {
       {tab === 'fraud' && <FraudFlagsTab />}
       {tab === 'key_people' && <KeyPeoplePromoteTab />}
       {tab === 'community' && <ContributionsByUsersTab />}
-      {tab === 'domain_mismatch' && <DomainMismatchTab />}
       {tab === 'competitor_intel' && <CompetitorIntelTab />}
     </div>
   );

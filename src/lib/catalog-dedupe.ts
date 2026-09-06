@@ -81,6 +81,37 @@ export interface DupCluster {
   suspicious: boolean;
 }
 
+// Prompt 573 §D — the single-candidate counterpart to findDuplicateClusters
+// below: "does this ONE new name/website match anything already in the
+// catalog" (investor self-registration, checked before creating a new firm)
+// needs an answer for one row, not a full-table clustering pass. Same two
+// signals (domain first, since it's the stronger one; name/parenthetical-
+// alias as a fallback), same normalizeName/normalizeDomain — just not
+// routed through union-find, because there is only ever one candidate side.
+export function findCatalogMatch(
+  candidate: { name: string; website: string | null },
+  rows: CatalogRow[],
+  aliases: Alias[] = [],
+): { id: string; reason: MatchReason } | null {
+  const candidateDomain = normalizeDomain(candidate.website);
+  if (candidateDomain) {
+    const domainHit = rows.find((r) => normalizeDomain(r.website) === candidateDomain);
+    if (domainHit) return { id: domainHit.id, reason: 'domain' };
+  }
+
+  const candidateNames = new Set([normalizeName(candidate.name), extractParenthetical(candidate.name) ? normalizeName(extractParenthetical(candidate.name)!) : null].filter((n): n is string => !!n));
+  if (candidateNames.size === 0) return null;
+
+  for (const r of rows) {
+    const rowNames = [normalizeName(r.name), extractParenthetical(r.name) ? normalizeName(extractParenthetical(r.name)!) : null].filter((n): n is string => !!n);
+    if (rowNames.some((n) => candidateNames.has(n))) return { id: r.id, reason: 'name' };
+  }
+  for (const a of aliases) {
+    if (candidateNames.has(normalizeName(a.alias))) return { id: a.catalog_id, reason: 'alias' };
+  }
+  return null;
+}
+
 export function findDuplicateClusters(rows: CatalogRow[], aliases: Alias[]): DupCluster[] {
   const parent = new Map<string, string>();
   const find = (x: string): string => {

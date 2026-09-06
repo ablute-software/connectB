@@ -60,22 +60,23 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
 
   // Prompt 576 §2's own fusion note names three folds explicitly (key_people
   // -> Contributions filter, domain_mismatch -> Investor identity filter,
-  // contributions_by_user -> Insight). The remaining queue/summary keys
-  // (submissions, investor_claims, community) aren't assigned anywhere in
-  // writing yet — folded in below by nearest conceptual fit (new investor
-  // entities; a trust/safety concern) so Attention's total is never higher
-  // than the sum of what Review's own rows show. This is a Phase 1 judgment
-  // call, not the real fusion — 572-574 replace it with the actual merge.
+  // contributions_by_user -> Insight) — both now real (Prompt 572 built the
+  // People filter old key_people counted toward; Prompt 573 built the
+  // domain_mismatch filter below, AND made queue-summary's own 'identity'
+  // count the real thing directly — self-declared + document + claim,
+  // non-internal — so nothing needs folding on top of it any more; the old
+  // `investor_claims` key that used to live under "new investor entities"
+  // is gone, its count is inside 'identity' itself now). `submissions` and
+  // `community` remain Phase 1 judgment calls, not yet replaced by 574.
   //
   // Reachability, not just counting: these 6 items are "6 cartões apontam
   // para os separadores actuais um-para-um" per §2 — 6 fast paths into
-  // /backoffice/queue, not a removal of its other 6 tabs (submissions,
-  // fraud, key_people, community, domain_mismatch). QueueTable's own
-  // internal tab bar is untouched by this file and still reaches all 12;
+  // /backoffice/queue, not a removal of its other tabs (submissions, fraud,
+  // community). QueueTable's own internal tab bar is untouched by this file;
   // these links just don't each get a dedicated sidebar shortcut yet.
-  const newInvestors = sum(count('candidates'), count('submissions'), count('investor_claims'));
+  const newInvestors = sum(count('candidates'), count('submissions'));
   const contributions = sum(count('contributions')); // key_people is null — not reflected, never assumed zero
-  const investorIdentity = sum(count('identity'), count('domain_mismatch'));
+  const investorIdentity = sum(count('identity'));
   const personClaims = sum(count('claims'));
   const gdpr = sum(count('gdpr'));
   const trustSafety = sum(count('suspicious'), count('fraud'), count('community'));
