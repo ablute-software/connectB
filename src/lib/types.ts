@@ -434,6 +434,10 @@ export interface Person {
   id: string;
   entity_id: string;
   full_name: string;
+  // Prompt 581 §D.1 — the catalog_people row this person corresponds to,
+  // when known (migration 0322). Prompt 871 §E's read-time overlay is the
+  // only founder-side thing that reads this today.
+  catalog_person_id?: string;
   role?: string;
   seniority_rank: number;
   based_in?: string;

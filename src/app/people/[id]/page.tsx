@@ -7,6 +7,7 @@ import { Card, EntityLink, PersonEmailBlock, PreflightCard, VerBadge } from '@/c
 import { browserClient } from '@/lib/supabase';
 import { preflight } from '@/lib/rules';
 import { ContributionBox } from '@/components/ContributionBox';
+import { CatalogSuggestions } from '@/components/CatalogSuggestions';
 import { EnrichmentBadge } from '@/components/EnrichmentBadge';
 import { AffiliationsCard } from '@/components/AffiliationsCard';
 import { personCompleteness } from '@/lib/completeness';
@@ -64,6 +65,10 @@ export default function PersonPage({ params }: { params: { id: string } }) {
       {!person.do_not_contact && (
         <ContributionBox subjectType="person" subjectId={person.id} orgId={db.org.id} subject={person as unknown as Record<string, unknown>}
           onApplyValue={(field, value) => updatePerson(person.id, { [field]: value } as Partial<typeof person>)} />
+      )}
+      {!person.do_not_contact && person.catalog_person_id && (
+        <CatalogSuggestions catalogPersonId={person.catalog_person_id} person={person as unknown as Record<string, unknown>}
+          onApply={(field, value) => updatePerson(person.id, { [field]: value } as Partial<typeof person>)} />
       )}
 
       {person.do_not_contact && (

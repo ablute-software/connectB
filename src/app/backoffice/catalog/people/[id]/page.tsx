@@ -16,8 +16,9 @@ interface Affiliation {
   title: string | null; kind: string; isPrimary: boolean; current: boolean;
   startedAt: string | null; endedAt: string | null;
 }
-interface QuarantineEntry { org: string; value: unknown; status: string; createdAt: string }
-interface QuarantineField { field: string; verifiedCount: number; entries: QuarantineEntry[] }
+interface QuarantineEntry { id: string; org: string; isTest: boolean; value: unknown; status: string; createdAt: string }
+interface QuarantineValue { value: unknown; realOrgCount: number; entries: QuarantineEntry[] }
+interface QuarantineField { field: string; verifiedCount: number; entries: QuarantineEntry[]; values: QuarantineValue[] }
 interface Dossier {
   person: {
     id: string; fullName: string; linkedinUrl: string | null; linkedinVerified: boolean;
@@ -64,6 +65,7 @@ export default function PersonDossierPage({ params }: { params: { id: string } }
   const [err, setErr] = useState('');
   const [researching, setResearching] = useState(false);
   const [researchState, setResearchState] = useState<{ state: string; detail?: string } | null>(null);
+  const [decidingKey, setDecidingKey] = useState<string | null>(null);
 
   function load() {
     fetch(`/api/backoffice/catalog/people/${id}`).then((r) => r.json()).then((body) => {
@@ -90,6 +92,25 @@ export default function PersonDossierPage({ params }: { params: { id: string } }
       load();
     }
     setResearching(false);
+  }
+
+  async function decide(field: string, value: unknown, decision: 'approve' | 'reject') {
+    const key = `${field}:${JSON.stringify(value)}`;
+    setDecidingKey(key);
+    try {
+      const reviewerNotes = decision === 'reject' ? window.prompt('Reason for rejecting (optional):') ?? undefined : undefined;
+      const res = await fetch(`/api/backoffice/catalog/people/${id}/quarantine`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ field, value, decision, reviewerNotes }),
+      });
+      const body = await res.json();
+      if (!body.ok) throw new Error(body.error ?? 'Could not save the decision.');
+      load();
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setDecidingKey(null);
+    }
   }
 
   if (err) return <Card title="Person"><p className="text-sm text-[#B00000]">{err}</p></Card>;
@@ -180,23 +201,49 @@ export default function PersonDossierPage({ params }: { params: { id: string } }
         )}
       </Card>
 
-      {/* §C.4 — What startups know */}
+      {/* §C.4 — What startups know. Prompt 871 §D — grouped by the exact
+          claim (field + normalized value), each with its own Approve/Reject:
+          before this, catalog_person_apply_field had no caller in this repo
+          at all, and 3-org auto-consensus is unreachable in practice (only
+          1 org has any linked people) — every contribution sat in
+          'submitted' forever with no way out. */}
       <Card title="What startups know">
         {quarantine.length === 0 ? <p className="text-sm text-gray-400">No startup-contributed facts yet.</p> : (
-          <ul className="space-y-2">
+          <ul className="space-y-3">
             {quarantine.map((q) => (
               <li key={q.field} className="rounded-lg border border-gray-100 p-2.5 text-sm">
-                <div className="mb-1 flex items-center gap-2">
-                  <span className="font-medium text-gray-700">{q.field.replace('_', ' ')}</span>
-                  {q.verifiedCount >= 3 && <span className="rounded-full bg-cyan-50 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-700">verified by {q.verifiedCount} startups</span>}
-                </div>
-                <ul className="space-y-0.5 text-xs text-gray-500">
-                  {q.entries.map((e, i) => (
-                    <li key={i}>
-                      <span className={e.status === 'verified' ? 'text-green-700' : 'text-amber-700'}>{e.status}</span>
-                      {' · '}{e.org}{' · '}{String(e.value)}{' · '}{e.createdAt.slice(0, 10)}
-                    </li>
-                  ))}
+                <div className="mb-1.5 font-medium text-gray-700">{q.field.replace('_', ' ')}</div>
+                <ul className="space-y-1.5">
+                  {q.values.map((v) => {
+                    const key = `${q.field}:${JSON.stringify(v.value)}`;
+                    const pending = v.entries.some((e) => e.status === 'submitted');
+                    const busy = decidingKey === key;
+                    return (
+                      <li key={key} className="rounded border border-gray-100 bg-gray-50/60 p-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-medium text-gray-700">{String(v.value)}</span>
+                          {v.realOrgCount >= 3 && <span className="rounded-full bg-cyan-50 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-700">verified by {v.realOrgCount} startups</span>}
+                          {pending && v.realOrgCount < 3 && <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">{v.realOrgCount}/3 real orgs</span>}
+                          {pending && (
+                            <div className="ml-auto flex gap-1.5">
+                              <button disabled={busy} onClick={() => decide(q.field, v.value, 'approve')}
+                                className="rounded bg-[#0E7490] px-2 py-0.5 text-[11px] font-medium text-white disabled:opacity-40">Approve → catalog</button>
+                              <button disabled={busy} onClick={() => decide(q.field, v.value, 'reject')}
+                                className="rounded border border-gray-300 bg-white px-2 py-0.5 text-[11px] text-gray-600 hover:bg-gray-100 disabled:opacity-40">Reject</button>
+                            </div>
+                          )}
+                        </div>
+                        <ul className="mt-1 space-y-0.5 text-xs text-gray-500">
+                          {v.entries.map((e) => (
+                            <li key={e.id}>
+                              <span className={e.status === 'verified' ? 'text-green-700' : e.status === 'rejected' ? 'text-gray-400 line-through' : 'text-amber-700'}>{e.status}</span>
+                              {' · '}{e.org}{e.isTest && ' (test)'}{' · '}{e.createdAt.slice(0, 10)}
+                            </li>
+                          ))}
+                        </ul>
+                      </li>
+                    );
+                  })}
                 </ul>
               </li>
             ))}

@@ -47,7 +47,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       .order('is_primary', { ascending: false })
       .order('current', { ascending: false }),
     admin.from('contributions')
-      .select('id, org_id, field, value, status, created_at, reviewer_notes, orgs(name)')
+      .select('id, org_id, field, value, status, created_at, reviewer_notes, orgs(name, is_test, is_internal)')
       .eq('subject_type', 'catalog_person').eq('subject_id', id)
       .order('created_at', { ascending: false }),
   ]);
@@ -62,18 +62,46 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   // §C.4 — quarantine vs. already-accepted, grouped by field so 3
   // separate org rows read as "3 startups say X", not 3 unrelated lines.
-  const contributionsByField = new Map<string, { org: string; value: unknown; status: string; createdAt: string }[]>();
+  // Prompt 871 §D — `id` added so the admin approve/reject action (below)
+  // can target the exact contributions it affects, and isTest/isInternal
+  // so the dossier can show the same real-org-only count migration 0328's
+  // consensus trigger now enforces, rather than a raw row count that
+  // could include orgs that can never actually reach consensus.
+  const contributionsByField = new Map<string, { id: string; org: string; isTest: boolean; value: unknown; status: string; createdAt: string }[]>();
   for (const c of contributionsRaw ?? []) {
-    const org = (c.orgs as unknown as { name: string } | null)?.name ?? '(unknown org)';
+    const org = c.orgs as unknown as { name: string; is_test: boolean; is_internal: boolean } | null;
     const list = contributionsByField.get(c.field) ?? [];
-    list.push({ org, value: c.value, status: c.status, createdAt: c.created_at });
+    list.push({
+      id: c.id, org: org?.name ?? '(unknown org)', isTest: !!(org?.is_test || org?.is_internal),
+      value: c.value, status: c.status, createdAt: c.created_at,
+    });
     contributionsByField.set(c.field, list);
   }
-  const quarantine = [...contributionsByField.entries()].map(([field, entries]) => ({
-    field,
-    verifiedCount: entries.filter((e) => e.status === 'verified').length,
-    entries,
-  }));
+  const normalizeForGrouping = (value: unknown): string => Array.isArray(value)
+    ? [...value].map((v) => String(v).toLowerCase().trim()).sort().join('|')
+    : String(value).toLowerCase().trim();
+  const quarantine = [...contributionsByField.entries()].map(([field, entries]) => {
+    // One admin action targets one specific (field, value) claim — group
+    // entries by their normalized value (same rule migration 0328's
+    // catalog_person_normalize_value uses) so the dossier can offer
+    // Approve/Reject per distinct claim, not per individual org row.
+    const byValue = new Map<string, typeof entries>();
+    for (const e of entries) {
+      const key = normalizeForGrouping(e.value);
+      byValue.set(key, [...(byValue.get(key) ?? []), e]);
+    }
+    const values = [...byValue.values()].map((group) => ({
+      value: group[0].value,
+      realOrgCount: new Set(group.filter((e) => !e.isTest && (e.status === 'submitted' || e.status === 'verified')).map((e) => e.org)).size,
+      entries: group,
+    }));
+    return {
+      field,
+      verifiedCount: entries.filter((e) => e.status === 'verified').length,
+      entries,
+      values,
+    };
+  });
 
   // §C.5 — manual research, server-checked team page (cached on the
   // primary entity so N people at the same firm share one check).
