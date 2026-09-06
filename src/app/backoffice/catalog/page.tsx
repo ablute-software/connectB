@@ -15,6 +15,7 @@ import { Card } from '@/components/ui';
 import { EnrichmentCampaignPanel } from '@/components/backoffice/EnrichmentCampaignPanel';
 import { OutreachSupplyCard } from '@/components/backoffice/OutreachSupplyCard';
 import { AccountActionPanel } from '@/components/backoffice/AccountActionPanel';
+import { EditCatalogEntityModal } from '@/components/backoffice/EditCatalogEntityModal';
 import type { DupMatch, MatchReason } from '@/lib/catalog-dedupe';
 import { useTableUrlState } from '@/lib/use-table-url-state';
 import { PAGE_SIZES, pageCount, rangeLabel, type ColumnSortType } from '@/lib/queue-table-state';
@@ -534,6 +535,11 @@ function CatalogTable({ catalog, refresh }: { catalog: CatalogEntity[]; refresh:
   const [creating, setCreating] = useState(false);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
   const [openContactsId, setOpenContactsId] = useState<string | null>(null);
+  // Prompt 584 §C — a modal, not a per-row expand panel like Contacts/
+  // Assist above: editing 21 fields needs real screen space, and only
+  // one row is ever edited at a time, so one piece of state (not a
+  // per-row map) is enough.
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [showMoreFilters, setShowMoreFilters] = useState(false);
 
   // Prompt 582 §B.1 — search/filters/sort/page all live in the URL now,
@@ -779,6 +785,7 @@ function CatalogTable({ catalog, refresh }: { catalog: CatalogEntity[]; refresh:
                         <button onClick={() => setOpenActionsId(openActionsId === c.id ? null : c.id)} className="block w-full text-left text-xs text-cyan-700 hover:underline">
                           {openActionsId === c.id ? 'Close assist' : 'Assist'}
                         </button>
+                        <button onClick={() => setEditingId(c.id)} className="block w-full text-left text-xs text-cyan-700 hover:underline">Edit dossier</button>
                         <button onClick={() => remove(c.id)} className="block w-full text-left text-xs text-[#B00000] hover:underline">Delete</button>
                       </div>
                     </details>
@@ -813,6 +820,9 @@ function CatalogTable({ catalog, refresh }: { catalog: CatalogEntity[]; refresh:
           {PAGE_SIZES.map((s) => <option key={s} value={s}>{s} / page</option>)}
         </select>
       </div>
+      {editingId && (
+        <EditCatalogEntityModal id={editingId} onClose={() => setEditingId(null)} onSaved={refresh} />
+      )}
     </Card>
   );
 }
