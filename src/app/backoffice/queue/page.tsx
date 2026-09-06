@@ -17,6 +17,7 @@ import { ENTITY_ENRICHMENT_FIELD_LABELS, isKnownEntityField } from '@/lib/entity
 import { manualEntityCompleteness, ENRICHMENT_REQUEST_FIELD, type CompletenessGrade } from '@/lib/completeness';
 import { QueueTable, type QueueColumn } from '@/components/backoffice/QueueTable';
 import { QueueTriageBoard } from '@/components/backoffice/QueueTriageBoard';
+import { groupIntoReviewCards, REVIEW_CARD_LABELS } from '@/lib/queue-summary';
 import { ReviewQueueLayout, ReviewFacts, ReviewActionFooter } from '@/components/backoffice/ReviewQueueLayout';
 import type { UnifiedIdentityRow } from '@/lib/investor-identity-row';
 import type { MxLookupResult } from '@/lib/investor-domain-mx';
@@ -2039,7 +2040,8 @@ function BackofficeQueueContent() {
       </div>
       {tab === null && (
         <QueueTriageBoard
-          labels={Object.fromEntries(TABS.map((t) => [t.key, t.label]))}
+          labels={REVIEW_CARD_LABELS}
+          transform={groupIntoReviewCards}
           onOpen={openTab}
         />
       )}

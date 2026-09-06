@@ -31,8 +31,14 @@ export interface QueueSummaryRow {
 const HIDE_INTERNAL_KEY = 'sd-queue-hide-internal';
 
 export function QueueTriageBoard({
-  labels, onOpen,
-}: { labels: Record<string, string>; onOpen: (key: string) => void }) {
+  labels, onOpen, transform,
+}: {
+  labels: Record<string, string>; onOpen: (key: string) => void;
+  /** Prompt 576 Fase 4 — applied to the raw rows before filtering by
+   * `labels`, so a caller can show fused cards (e.g. groupIntoReviewCards)
+   * without this component knowing anything about the fusion itself. */
+  transform?: (rows: QueueSummaryRow[]) => QueueSummaryRow[];
+}) {
   const [rows, setRows] = useState<QueueSummaryRow[] | null>(null);
   const [err, setErr] = useState('');
   const [showClear, setShowClear] = useState(false);
@@ -40,8 +46,12 @@ export function QueueTriageBoard({
   useEffect(() => {
     fetch('/api/backoffice/queue/summary').then((r) => r.json()).then((body) => {
       if (body.ok === false) { setErr(body.error); return; }
-      setRows(body.rows);
+      setRows(transform ? transform(body.rows) : body.rows);
     }).catch((e) => setErr((e as Error).message));
+    // transform is a stable module-level function reference at every call
+    // site today (groupIntoReviewCards, or omitted) — including it would
+    // only cause a needless refetch if a caller ever passed an inline arrow.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (err) return <Card title="Queues"><p className="text-sm text-[#B00000]">{err}</p></Card>;

@@ -46,10 +46,17 @@ export async function getQueueSummaryRows(admin: SupabaseClient): Promise<QueueS
 
   // One round trip per source, in parallel. head+count means the rows never
   // travel; only the oldest-timestamp reads pull a row, and only one.
+  //
+  // Prompt 576 Fase 4 — submissions/claims/identity gained their own oldest
+  // reads here (identity's via created_at on the 3 selects it already made
+  // for internal-filtering, no new round trip) so groupIntoReviewCards below
+  // can show "oldest" honestly on all 6 landing cards, not just the 3 that
+  // happened to have it already.
   const [
     contribs, contribOldest,
     candidatesVisible, candidatesInternal, candidatesOldest,
-    submissions, claims, identitySelfDeclared, identityDocuments, identityClaims,
+    submissions, submissionsOldest, claims, claimsOldest,
+    identitySelfDeclared, identityDocuments, identityClaims,
     gdpr, gdprOldest, suspicious, fraud,
     entitiesForMismatch,
   ] = await Promise.all([
@@ -70,7 +77,9 @@ export async function getQueueSummaryRows(admin: SupabaseClient): Promise<QueueS
       .in('catalog_review_status', ['pending', 'probable_match']).order('created_at', { ascending: true }).limit(1),
 
     admin.from('investor_submissions').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+    admin.from('investor_submissions').select('created_at').eq('status', 'pending').order('created_at', { ascending: true }).limit(1),
     admin.from('profile_claims').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+    admin.from('profile_claims').select('created_at').eq('status', 'pending').order('created_at', { ascending: true }).limit(1),
     // Prompt 573 §A.1/§C — "Investor identity" counts undecided rows across
     // its 3 real origins (self-declared firm, uploaded document, claim on
     // an existing firm), not documents alone — that was the old, narrower
@@ -78,9 +87,9 @@ export async function getQueueSummaryRows(admin: SupabaseClient): Promise<QueueS
     // lives on matchdeal_investor_members, one join away, which a head+count
     // query can't filter on directly; these sets are small (single digits
     // today), so filtering in JS costs nothing real.
-    admin.from('catalog_entities').select('id, matchdeal_investor_members(is_internal)').in('source', ['investor_added', 'self_declared_individual']).eq('verification_status', 'pending'),
-    admin.from('investor_verification_documents').select('id, catalog_entities(matchdeal_investor_members(is_internal))').eq('status', 'pending_review'),
-    admin.from('investor_entity_claims').select('id').eq('status', 'pending'),
+    admin.from('catalog_entities').select('id, created_at, matchdeal_investor_members(is_internal)').in('source', ['investor_added', 'self_declared_individual']).eq('verification_status', 'pending'),
+    admin.from('investor_verification_documents').select('id, created_at, catalog_entities(matchdeal_investor_members(is_internal))').eq('status', 'pending_review'),
+    admin.from('investor_entity_claims').select('id, created_at').eq('status', 'pending'),
 
     admin.from('gdpr_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
     admin.from('gdpr_requests').select('created_at').eq('status', 'pending').order('created_at', { ascending: true }).limit(1),
@@ -97,8 +106,9 @@ export async function getQueueSummaryRows(admin: SupabaseClient): Promise<QueueS
     const list = Array.isArray(members) ? members : members ? [members] : [];
     return list.length > 0 && list.every((m) => m.is_internal);
   };
-  const selfDeclaredRows = (identitySelfDeclared.data ?? []) as unknown as { id: string; matchdeal_investor_members: { is_internal: boolean }[] | { is_internal: boolean } | null }[];
-  const documentRows = (identityDocuments.data ?? []) as unknown as { id: string; catalog_entities: { matchdeal_investor_members: { is_internal: boolean }[] | { is_internal: boolean } | null }[] | { matchdeal_investor_members: { is_internal: boolean }[] | { is_internal: boolean } | null } | null }[];
+  const selfDeclaredRows = (identitySelfDeclared.data ?? []) as unknown as { id: string; created_at: string; matchdeal_investor_members: { is_internal: boolean }[] | { is_internal: boolean } | null }[];
+  const documentRows = (identityDocuments.data ?? []) as unknown as { id: string; created_at: string; catalog_entities: { matchdeal_investor_members: { is_internal: boolean }[] | { is_internal: boolean } | null }[] | { matchdeal_investor_members: { is_internal: boolean }[] | { is_internal: boolean } | null } | null }[];
+  const identityClaimRows = (identityClaims.data ?? []) as unknown as { id: string; created_at: string }[];
   const selfDeclaredHidden = selfDeclaredRows.filter((r) => anyInternal(r.matchdeal_investor_members)).length;
   const documentsHidden = documentRows.filter((r) => {
     const ce = Array.isArray(r.catalog_entities) ? r.catalog_entities[0] : r.catalog_entities;
@@ -106,8 +116,19 @@ export async function getQueueSummaryRows(admin: SupabaseClient): Promise<QueueS
   }).length;
   // A claim's whole point is an EXTERNAL person asserting ownership — there
   // is no "internal" concept for a fresh claimant to hide behind.
-  const identityVisible = (selfDeclaredRows.length - selfDeclaredHidden) + (documentRows.length - documentsHidden) + (identityClaims.data ?? []).length;
+  const identityVisible = (selfDeclaredRows.length - selfDeclaredHidden) + (documentRows.length - documentsHidden) + identityClaimRows.length;
   const identityHidden = selfDeclaredHidden + documentsHidden;
+  // Prompt 576 Fase 4 — oldest across the same 3 origins the count already
+  // unions, restricted to the same visible (non-internal) rows so a card
+  // never dates itself off a row it is also hiding.
+  const identityOldestAt = [
+    ...selfDeclaredRows.filter((r) => !anyInternal(r.matchdeal_investor_members)),
+    ...documentRows.filter((r) => {
+      const ce = Array.isArray(r.catalog_entities) ? r.catalog_entities[0] : r.catalog_entities;
+      return !anyInternal(ce?.matchdeal_investor_members);
+    }),
+    ...identityClaimRows,
+  ].map((r) => r.created_at).filter(Boolean).sort()[0];
 
   // GDPR is the only queue with a deadline today: 30 days from the request.
   // Prompt 574 §A.1 — gdprDueAt is the one shared function now; queue-summary,
@@ -126,9 +147,15 @@ export async function getQueueSummaryRows(admin: SupabaseClient): Promise<QueueS
       hiddenInternal: (candidatesInternal as { count?: number }).count ?? 0,
       oldestDays: daysSince((candidatesOldest.data ?? [])[0]?.created_at as string),
     },
-    { key: 'submissions', count: submissions.count ?? 0 },
-    { key: 'claims', count: claims.count ?? 0 },
-    { key: 'identity', count: identityVisible, hiddenInternal: identityHidden },
+    {
+      key: 'submissions', count: submissions.count ?? 0,
+      oldestDays: daysSince((submissionsOldest.data ?? [])[0]?.created_at as string),
+    },
+    {
+      key: 'claims', count: claims.count ?? 0,
+      oldestDays: daysSince((claimsOldest.data ?? [])[0]?.created_at as string),
+    },
+    { key: 'identity', count: identityVisible, hiddenInternal: identityHidden, oldestDays: daysSince(identityOldestAt) },
     { key: 'gdpr', count: gdpr.count ?? 0, oldestDays: gdprAge, slaDueInDays: (gdpr.count ?? 0) > 0 ? slaDueInDays : null },
     { key: 'domain_mismatch', count: mismatchCount },
     { key: 'suspicious', count: suspicious.count ?? 0 },
@@ -137,5 +164,67 @@ export async function getQueueSummaryRows(admin: SupabaseClient): Promise<QueueS
     { key: 'key_people', count: null },
     { key: 'community', count: null },
     { key: 'competitor_intel', count: null },
+  ];
+}
+
+// Prompt 576 Fase 4 — the Review landing's 6 cards, one per sidebar shortcut
+// (BackofficeShell's own Review group, Fase 1). Grouping lives here, not in
+// the sidebar or the board, so both read the same fusion — the raw-row board
+// (QueueTriageBoard's existing callers) and this grouped one are two VIEWS
+// of getQueueSummaryRows(), never two definitions of it.
+export const REVIEW_CARD_LABELS: Record<string, string> = {
+  new_investors: 'New investors',
+  contributions: 'Contributions',
+  identity: 'Investor identity',
+  claims: 'Person claims',
+  gdpr: 'GDPR',
+  trust_safety: 'Trust & safety',
+};
+
+function sumKnown(...vals: (number | null | undefined)[]): number | null {
+  return vals.some((v) => v === null || v === undefined) ? null : (vals as number[]).reduce((s, v) => s + v, 0);
+}
+
+function minKnown(...vals: (number | null | undefined)[]): number | null {
+  const known = vals.filter((v): v is number => v !== null && v !== undefined);
+  return known.length ? Math.min(...known) : null;
+}
+
+/**
+ * Same null discipline as the header above, applied to a SUM: a card whose
+ * parts are not all known does not get to claim a number, because a wrong
+ * number reads as more true than a dash. Trust & safety is the concrete
+ * case — `community` is always null here (its real count needs its own
+ * tab), so the fused card always shows "Counted when opened" rather than
+ * quietly reporting suspicious+fraud and calling it complete.
+ */
+export function groupIntoReviewCards(rows: QueueSummaryRow[]): QueueSummaryRow[] {
+  const by = (key: string) => rows.find((r) => r.key === key);
+  const candidates = by('candidates');
+  const submissions = by('submissions');
+  const contributions = by('contributions');
+  const identity = by('identity');
+  const claims = by('claims');
+  const gdpr = by('gdpr');
+  const suspicious = by('suspicious');
+  const fraud = by('fraud');
+  const community = by('community');
+
+  return [
+    {
+      key: 'new_investors',
+      count: sumKnown(candidates?.count, submissions?.count),
+      hiddenInternal: candidates?.hiddenInternal,
+      oldestDays: minKnown(candidates?.oldestDays, submissions?.oldestDays),
+    },
+    { key: 'contributions', count: contributions?.count ?? null, oldestDays: contributions?.oldestDays },
+    { key: 'identity', count: identity?.count ?? null, hiddenInternal: identity?.hiddenInternal, oldestDays: identity?.oldestDays },
+    { key: 'claims', count: claims?.count ?? null, oldestDays: claims?.oldestDays },
+    { key: 'gdpr', count: gdpr?.count ?? null, oldestDays: gdpr?.oldestDays, slaDueInDays: gdpr?.slaDueInDays },
+    {
+      key: 'trust_safety',
+      count: sumKnown(suspicious?.count, fraud?.count, community?.count),
+      oldestDays: minKnown(suspicious?.oldestDays, fraud?.oldestDays),
+    },
   ];
 }
