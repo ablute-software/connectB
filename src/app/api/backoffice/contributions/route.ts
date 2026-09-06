@@ -21,6 +21,15 @@ export async function GET() {
   const { data: contributions, error } = await admin
     .from('contributions')
     .select('id, subject_type, subject_id, org_id, field, value, note, status, created_at, reviewer_notes, source, confidence, source_url')
+    // Prompt 581 §D — 'catalog_person' is a new, third subject_type
+    // (quarantine for catalog-facing person facts, keyed by
+    // catalog_person_id rather than people.id). This route's own
+    // subject-name resolution below only knows 'entity'/'person'; without
+    // this filter a catalog_person row would render here as "(deleted)"
+    // (personById.get() on a catalog_person_id, which is never in that
+    // map). The People-filtered queue UI for these rows is Prompt 572's
+    // own job — this is a compatibility guard, not that feature.
+    .in('subject_type', ['entity', 'person'])
     .order('created_at', { ascending: false });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 

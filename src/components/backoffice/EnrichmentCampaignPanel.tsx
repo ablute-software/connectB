@@ -48,8 +48,10 @@
 // the worker itself cap invocations to a handful of jobs before this
 // campaign existed).
 import { useEffect, useRef, useState } from 'react';
-import { authEnabled, browserClient, SUPABASE_URL } from '@/lib/supabase';
+import Link from 'next/link';
+import { authEnabled, browserClient } from '@/lib/supabase';
 import { Card } from '@/components/ui';
+import { postJson, invokeUntilTerminal } from '@/lib/enrichment-worker-client';
 
 // Prompt 279 — existingFields is the same-tier completeness tiebreaker
 // the status route now sorts by; surfaced here only for a title tooltip,
@@ -61,12 +63,23 @@ import { Card } from '@/components/ui';
 type SectorFit = 'fit' | 'low_fit' | 'not_applicable';
 interface Candidate { id: string; name: string; verified: boolean; deliveredCount: number; existingFields: number; fit: SectorFit }
 interface Counts { total: number; pending: number; withCheckSize: number; withPeople: number; withHooks: number; chronicFetchFailures: number }
-// Prompt 281 §3 — a catalog_people row reset back to hook_status=
-// 'to_research' whose entity is already enriched, so it can never re-enter
-// the entity-driven Layer 1 -> peopleNeedingLayer2 flow on its own — this is
-// the "still in the queue" home for those rows (see status/route.ts's own
-// header comment on this list for why it has to exist as its own thing).
-interface Layer2Candidate { id: string; name: string; entityName: string; fit: SectorFit }
+// Prompt 581 §B — replaces the old fit-badged, unbounded Layer2Candidate
+// list (a catalog_people row reset back to hook_status='to_research'
+// whose entity is already enriched, so it can never re-enter the
+// entity-driven Layer 1 -> peopleNeedingLayer2 flow on its own — see
+// layer2-candidates/route.ts's own header for why it's a dedicated,
+// paginated route now instead of living inside status/route.ts).
+type HookStatus = 'to_research' | 'researched' | 'none_found';
+interface Layer2Row { id: string; name: string; entityName: string; demand: number; lowChance: boolean }
+interface Layer2Counts { toResearch: number; researched: number; noneFound: number }
+// A per-person outcome the operator can actually see, kept independent of
+// the paginated list itself — Prompt 581 §A.2 found live that the OLD
+// code relied on the row disappearing from a status-filtered list as its
+// only signal of "something happened", which reads identically to
+// "nothing happened" and hides a real failure (worker never claimed the
+// job) behind a fabricated success message.
+type L2State = 'queued' | 'researching' | 'researched' | 'none_found' | 'stuck' | 'failed';
+interface Layer2Outcome { state: L2State; detail?: string; costEur?: number }
 // Prompt 279 — rows the status route excluded from `candidates` because
 // they've failed the same fetch-stage reason >=2 campaign runs in a row
 // (site 404s/403s/429s — retrying costs a cap slot for a guaranteed
@@ -84,63 +97,6 @@ interface Summary {
 }
 const EMPTY_SUMMARY: Summary = { entitiesAttempted: 0, entitiesEnriched: 0, entitiesSkipped: 0, entitiesFailed: 0, peopleResearched: 0, hooksGained: 0, costEur: 0 };
 
-async function postJson(url: string, body: unknown) {
-  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  return res.json();
-}
-
-// Direct browser -> Edge Function call (see the file header for why this
-// can't go through a Next.js route). 170s client-side timeout — generous
-// above the worker's own internal 120s Layer-2 search timeout plus
-// overhead, so a genuinely stuck call still fails visibly instead of
-// hanging the campaign forever.
-async function invokeWorker(accessToken: string, layer: 1 | 2): Promise<Record<string, unknown>> {
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), 170_000);
-  try {
-    const res = await fetch(`${SUPABASE_URL}/functions/v1/enrichment-worker`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ maxJobs: 1, layer }),
-      signal: controller.signal,
-    });
-    return await res.json();
-  } finally {
-    clearTimeout(t);
-  }
-}
-
-// Bug found live during this campaign's own first supervised trial
-// (2026-08-19): a job the worker requeues for retry keeps its ORIGINAL
-// created_at, so it stays at the front of its (priority, created_at)
-// queue position — a naive "invoke once per candidate, then move to the
-// next" loop just kept re-claiming the SAME stuck job instead of ever
-// reaching later candidates (confirmed: one entity with a broken website
-// absorbed 3 of the first 5 invocations; 3 of 5 candidates in that trial
-// never got attempted at all). Fix: for one target, keep invoking until
-// ITS OWN job reaches a terminal status (done/skipped/failed) — bounded
-// at 4 tries, one more than the worker's own 3-attempt cap so a final
-// requeue still gets read back correctly instead of stopping one short —
-// before ever moving to the next target. Shared by both Layer 1
-// (entity) and Layer 2 (person) call sites below.
-async function invokeUntilTerminal(accessToken: string, layer: 1 | 2, collect: () => Promise<Record<string, unknown>>):
-  Promise<{ abort: string } | { error: string } | { collected: Record<string, unknown> }> {
-  let collected: Record<string, unknown> = { status: 'queued' };
-  for (let attempt = 0; attempt < 4 && collected.status === 'queued'; attempt++) {
-    let invoked: Record<string, unknown>;
-    try {
-      invoked = await invokeWorker(accessToken, layer);
-    } catch (e) {
-      return { error: `Worker call failed: ${(e as Error).message}` };
-    }
-    if (invoked.skipped) return { abort: `Enrichment is disabled server-side (${invoked.reason}).` };
-    if (invoked.stopped) return { abort: `Daily AI cost cap reached (€${Number(invoked.spentToday ?? 0).toFixed(2)} of €${invoked.cap}) — stopping here for today.` };
-    collected = await collect();
-    if (!collected.ok) return { error: String(collected.error ?? 'Unknown error.') };
-  }
-  return { collected };
-}
-
 export function EnrichmentCampaignPanel({ onEntityEnriched }: { onEntityEnriched: () => void }) {
   const [counts, setCounts] = useState<Counts | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -151,8 +107,18 @@ export function EnrichmentCampaignPanel({ onEntityEnriched }: { onEntityEnriched
   const [summary, setSummary] = useState<Summary>(EMPTY_SUMMARY);
   const [abortReason, setAbortReason] = useState('');
   const [chronicFailures, setChronicFailures] = useState<ChronicFailure[]>([]);
-  const [layer2Candidates, setLayer2Candidates] = useState<Layer2Candidate[]>([]);
-  const [researchingId, setResearchingId] = useState<string | null>(null);
+
+  // Prompt 581 §B — the hook-research bucket's own paginated state,
+  // independent of the cap-loop campaign above it.
+  const [l2Status, setL2Status] = useState<HookStatus>('to_research');
+  const [l2Page, setL2Page] = useState(1);
+  const [l2PageSize, setL2PageSize] = useState<25 | 50 | 100>(25);
+  const [l2Counts, setL2Counts] = useState<Layer2Counts>({ toResearch: 0, researched: 0, noneFound: 0 });
+  const [l2Total, setL2Total] = useState(0);
+  const [l2Rows, setL2Rows] = useState<Layer2Row[]>([]);
+  const [l2AvgCost, setL2AvgCost] = useState<number | null>(null);
+  const [l2RecommendedBatch, setL2RecommendedBatch] = useState(0);
+  const [l2Outcomes, setL2Outcomes] = useState<Record<string, Layer2Outcome>>({});
   const stopRequestedRef = useRef(false);
 
   function refreshStatus() {
@@ -160,10 +126,20 @@ export function EnrichmentCampaignPanel({ onEntityEnriched }: { onEntityEnriched
     fetch('/api/backoffice/catalog/enrichment-campaign/status').then((r) => r.json()).then((body) => {
       if (body.ok === false) { setLoadErr(body.error); return; }
       setCounts(body.counts); setCandidates(body.candidates); setChronicFailures(body.chronicFailures ?? []);
-      setLayer2Candidates(body.layer2Candidates ?? []);
     }).catch((e) => setLoadErr((e as Error).message));
   }
   useEffect(refreshStatus, []);
+
+  function refreshLayer2() {
+    const qs = new URLSearchParams({ status: l2Status, page: String(l2Page), pageSize: String(l2PageSize) });
+    fetch(`/api/backoffice/catalog/enrichment-campaign/layer2-candidates?${qs}`).then((r) => r.json()).then((body) => {
+      if (body.ok === false) return;
+      setL2Counts(body.counts); setL2Total(body.total); setL2Rows(body.rows);
+      setL2AvgCost(body.avgCostEur); setL2RecommendedBatch(body.recommendedBatchCount);
+    });
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(refreshLayer2, [l2Status, l2Page, l2PageSize]);
 
   function patchRow(id: string, patch: Partial<RowInfo>) {
     setRows((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } as RowInfo }));
@@ -186,8 +162,12 @@ export function EnrichmentCampaignPanel({ onEntityEnriched }: { onEntityEnriched
 
     const result = await invokeUntilTerminal(accessToken, 1, () =>
       postJson('/api/backoffice/catalog/enrichment-campaign/collect-entity-layer1-result', { catalogEntityId: c.id, jobId: enq.jobId }));
-    if ('abort' in result) return result;
-    if ('error' in result) { patchRow(c.id, { state: 'failed', detail: result.error }); setSummary((p) => ({ ...p, entitiesFailed: p.entitiesFailed + 1 })); return {}; }
+    if (result.kind === 'abort') return { abort: result.message };
+    if (result.kind === 'error' || result.kind === 'stuck') {
+      patchRow(c.id, { state: 'failed', detail: result.kind === 'stuck' ? 'Queued but never claimed by the worker — try again.' : result.message });
+      setSummary((p) => ({ ...p, entitiesFailed: p.entitiesFailed + 1 }));
+      return {};
+    }
     const collected = result.collected;
     addCost((collected.cost as { eur?: number } | undefined)?.eur ?? 0);
 
@@ -209,8 +189,8 @@ export function EnrichmentCampaignPanel({ onEntityEnriched }: { onEntityEnriched
       if (!enqP.ok || enqP.skip) continue;
       const resultP = await invokeUntilTerminal(accessToken, 2, () =>
         postJson('/api/backoffice/catalog/enrichment-campaign/collect-person-layer2-result', { catalogPersonId: person.id, jobId: enqP.jobId }));
-      if ('abort' in resultP) return resultP;
-      if ('error' in resultP) continue; // one person's failure doesn't abort the entity or the campaign
+      if (resultP.kind === 'abort') return { abort: resultP.message };
+      if (resultP.kind === 'error' || resultP.kind === 'stuck') continue; // one person's failure doesn't abort the entity or the campaign
       const collectedP = resultP.collected;
       addCost((collectedP.cost as { eur?: number } | undefined)?.eur ?? 0);
       setSummary((p) => ({ ...p, peopleResearched: p.peopleResearched + 1 }));
@@ -256,34 +236,48 @@ export function EnrichmentCampaignPanel({ onEntityEnriched }: { onEntityEnriched
     refreshStatus();
   }
 
-  // Prompt 281 §3 — the standalone Layer-2 half of "still in the queue":
-  // a single person, enqueued+invoked directly (enqueue-person-layer2 has
-  // no knowledge of which entity it belongs to or whether that entity is
-  // 'pending' — it only checks the person's own hook_status), mirroring
-  // retryOne's bypass pattern above but for Layer 2 instead of Layer 1.
-  async function researchPerson(id: string, name: string) {
-    setLoadErr(''); setResearchingId(id);
-    const { data: { session } } = await browserClient().auth.getSession();
-    if (!session) { setLoadErr('Session expired — sign in again.'); setResearchingId(null); return; }
-    patchRow(id, { name, state: 'layer2', hooksGained: 0, detail: 'Researching…' });
-    const enq = await postJson('/api/backoffice/catalog/enrichment-campaign/enqueue-person-layer2', { catalogPersonId: id });
-    if (!enq.ok || enq.skip) {
-      patchRow(id, { state: 'skipped', detail: enq.reason ?? enq.error });
-      setResearchingId(null);
+  function patchOutcome(id: string, patch: Layer2Outcome) {
+    setL2Outcomes((prev) => ({ ...prev, [id]: patch }));
+  }
+
+  // Prompt 581 §B.3 — a single person's research, rewritten around three
+  // real problems found live in the old version (Prompt 281 §3's
+  // researchPerson): (1) it treated the row vanishing from a
+  // status-filtered list as the only success signal — a genuine success
+  // read identically to nothing happening; (2) it couldn't distinguish a
+  // real none_found from a job the worker never claimed (both surfaced as
+  // "No usable hook found", even though the fixed shared client below now
+  // makes that distinction available); (3) it spent ~€0.30 on a search
+  // with nothing to search from — 2 of the 3 real none_found jobs in this
+  // campaign's history had neither a LinkedIn URL nor a firm website.
+  async function researchPerson(row: Layer2Row, force = false) {
+    if (row.lowChance && !force) {
+      patchOutcome(row.id, { state: 'stuck', detail: 'Low chance of results — no LinkedIn or firm website to search from. Click again to research anyway.' });
       return;
     }
+    setLoadErr('');
+    patchOutcome(row.id, { state: 'queued' });
+    const { data: { session } } = await browserClient().auth.getSession();
+    if (!session) { setLoadErr('Session expired — sign in again.'); return; }
+    const enq = await postJson('/api/backoffice/catalog/enrichment-campaign/enqueue-person-layer2', { catalogPersonId: row.id });
+    if (!enq.ok || enq.skip) { patchOutcome(row.id, { state: 'failed', detail: enq.reason ?? enq.error ?? 'Could not enqueue.' }); return; }
+    patchOutcome(row.id, { state: 'researching' });
     const result = await invokeUntilTerminal(session.access_token, 2, () =>
-      postJson('/api/backoffice/catalog/enrichment-campaign/collect-person-layer2-result', { catalogPersonId: id, jobId: enq.jobId }));
-    if ('abort' in result) { setAbortReason(result.abort); patchRow(id, { state: 'failed', detail: result.abort }); }
-    else if ('error' in result) { patchRow(id, { state: 'failed', detail: result.error }); }
-    else {
-      const collected = result.collected;
-      addCost((collected.cost as { eur?: number } | undefined)?.eur ?? 0);
-      setSummary((p) => ({ ...p, peopleResearched: p.peopleResearched + 1, hooksGained: p.hooksGained + (collected.hookWritten ? 1 : 0) }));
-      patchRow(id, { state: 'done', hooksGained: collected.hookWritten ? 1 : 0, detail: collected.hookWritten ? undefined : 'No usable hook found — background may still have been recorded.' });
-    }
-    setResearchingId(null);
-    refreshStatus();
+      postJson('/api/backoffice/catalog/enrichment-campaign/collect-person-layer2-result', { catalogPersonId: row.id, jobId: enq.jobId }));
+    if (result.kind === 'abort') { setAbortReason(result.message); patchOutcome(row.id, { state: 'failed', detail: result.message }); return; }
+    if (result.kind === 'error') { patchOutcome(row.id, { state: 'failed', detail: result.message }); return; }
+    if (result.kind === 'stuck') { patchOutcome(row.id, { state: 'stuck', detail: 'Queued but the worker never claimed it — try again.' }); return; }
+    const collected = result.collected;
+    const cost = (collected.cost as { eur?: number } | undefined)?.eur ?? 0;
+    patchOutcome(row.id, {
+      state: collected.hookWritten ? 'researched' : 'none_found',
+      detail: collected.hookWritten ? 'Hook found.' : 'No usable hook found — background may still have been recorded.',
+      costEur: cost,
+    });
+    // Deliberately NOT an immediate refreshLayer2(): the row staying put
+    // with its outcome visible is the whole fix for §A.2's "silent
+    // vanish" bug. It leaves the to_research list on the NEXT page
+    // load/tab revisit, once its own outcome has actually been seen.
   }
 
   if (!authEnabled) {
@@ -360,12 +354,12 @@ export function EnrichmentCampaignPanel({ onEntityEnriched }: { onEntityEnriched
                 {r.state === 'layer1' ? 'team page…' : r.state === 'layer2' ? 'hooks…' : r.state}
               </span>
               <span className="min-w-0 flex-1 truncate font-medium text-gray-800">{r.name}</span>
-              {r.fit === 'low_fit' && (
-                <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
-                  title="Delivered to a healthtech org, but its own sectors/thesis show no healthtech-adjacent signal — kept in the queue, just not prioritized.">
-                  ⚠️ low fit
-                </span>
-              )}
+              {/* Prompt 581 §A.1/§B.2 — "fit" is computed against the union
+                  of sectors of whichever orgs this row has ever been
+                  delivered to, not the viewing admin's own org (there
+                  isn't one) — confirmed meaningless as a trust signal in
+                  back-office, so the badge is gone; the value itself stays
+                  as a server-side sort tiebreaker only (see status/route.ts). */}
               {r.hooksGained > 0 && <span className="shrink-0 text-[#0E7490]">+{r.hooksGained} hook{r.hooksGained > 1 ? 's' : ''}</span>}
               {r.detail && <span className="min-w-0 flex-1 truncate text-gray-400">{r.detail}</span>}
             </li>
@@ -396,35 +390,81 @@ export function EnrichmentCampaignPanel({ onEntityEnriched }: { onEntityEnriched
         </div>
       )}
 
-      {/* Prompt 281 §3 — people reset back to hook_status='to_research'
+      {/* Prompt 581 §B — people reset back to hook_status='to_research'
           whose entity is already enriched, so the normal Layer-1-driven
-          flow can never re-surface them on its own. Explicit per-person
-          action (not folded into the automatic cap loop above) — a
-          smaller, safer diff, and it matches the "don't spend by
-          accident" caution Prompt 279 already established for this
-          campaign, especially right after 280/281 fixed real quality bugs. */}
-      {layer2Candidates.length > 0 && (
-        <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 p-2.5">
-          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-            Hook research candidates — entity already enriched ({layer2Candidates.length})
-          </p>
-          <ul className="space-y-1 text-xs">
-            {layer2Candidates.map((p) => (
-              <li key={p.id} className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate font-medium text-gray-700">{p.name}</span>
-                <span className="shrink-0 truncate text-gray-400">{p.entityName}</span>
-                {p.fit === 'low_fit' && (
-                  <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">⚠️ low fit</span>
-                )}
-                <button disabled={running || researchingId === p.id} onClick={() => void researchPerson(p.id, p.name)}
-                  className="shrink-0 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] text-gray-600 hover:bg-gray-100 disabled:opacity-40">
-                  {researchingId === p.id ? 'Researching…' : 'Research now'}
-                </button>
-              </li>
-            ))}
-          </ul>
+          flow can never re-surface them on its own. Real counts across
+          all 3 hook_status values (no hidden cap — see
+          layer2-candidates/route.ts's own header for the 1000-vs-3136
+          bug this replaces), paginated, ordered by demand (§B.4), each
+          name linking to its own dossier (§C, §B.5). */}
+      <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 p-2.5">
+        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Hook research</p>
+        <div className="mb-2 flex flex-wrap gap-1.5 text-xs">
+          {([
+            ['to_research', `${l2Counts.toResearch} to research`],
+            ['researched', `${l2Counts.researched} researched`],
+            ['none_found', `${l2Counts.noneFound} none found`],
+          ] as [HookStatus, string][]).map(([key, label]) => (
+            <button key={key} onClick={() => { setL2Status(key); setL2Page(1); }}
+              className={`rounded-full px-2 py-0.5 font-medium ${l2Status === key ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100'}`}>
+              {label}
+            </button>
+          ))}
         </div>
-      )}
+        {l2Status === 'to_research' && (
+          <p className="mb-2 text-[11px] text-gray-500">
+            {l2RecommendedBatch} of these belong to a firm already in at least one org&apos;s pipeline (a proxy for &quot;worth it today&quot;, not the exact readiness&gt;=55 cut — see Prompt 581&apos;s report).
+            {l2AvgCost != null && <> Estimated at the last 30 days&apos; real average, €{l2AvgCost.toFixed(2)}/person: ≈€{(l2AvgCost * l2RecommendedBatch).toFixed(2)}.</>}
+            {' '}Batch execution isn&apos;t wired up yet — pending the batch-criterion decision (see report); nothing runs from this line.
+          </p>
+        )}
+        {l2Rows.length === 0 ? (
+          <p className="text-xs text-gray-400">Nothing in this bucket.</p>
+        ) : (
+          <ul className="divide-y divide-gray-100 text-xs">
+            {l2Rows.map((p) => {
+              const outcome = l2Outcomes[p.id];
+              const busy = outcome?.state === 'queued' || outcome?.state === 'researching';
+              return (
+                <li key={p.id} className="flex items-center gap-2 py-1.5">
+                  <Link href={`/backoffice/catalog/people/${p.id}`} className="min-w-0 flex-1 truncate font-medium text-[#0E7490] hover:underline">
+                    {p.name}
+                  </Link>
+                  <span className="shrink-0 truncate text-gray-400" title={`${p.demand} org(s) with this firm in their pipeline`}>{p.entityName} · {p.demand} org{p.demand === 1 ? '' : 's'}</span>
+                  {p.lowChance && !outcome && (
+                    <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800" title="No LinkedIn on the person, no website on the firm — little for the model to search from.">
+                      ⚠️ low chance
+                    </span>
+                  )}
+                  {outcome && (
+                    <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                      outcome.state === 'researched' ? 'bg-green-100 text-green-800'
+                        : outcome.state === 'none_found' ? 'bg-gray-100 text-gray-600'
+                        : outcome.state === 'failed' || outcome.state === 'stuck' ? 'bg-red-100 text-red-700'
+                        : 'bg-cyan-100 text-cyan-800'}`}
+                      title={outcome.detail}>
+                      {outcome.state === 'researched' ? 'hook ✓' : outcome.state.replace('_', ' ')}
+                      {outcome.costEur != null && ` · €${outcome.costEur.toFixed(2)}`}
+                    </span>
+                  )}
+                  <button disabled={busy} onClick={() => void researchPerson(p, outcome?.state === 'stuck' && p.lowChance)}
+                    className="shrink-0 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] text-gray-600 hover:bg-gray-100 disabled:opacity-40">
+                    {busy ? (outcome.state === 'queued' ? 'Queued…' : 'Researching…') : outcome?.state === 'stuck' && p.lowChance ? 'Research anyway' : outcome ? 'Research again' : 'Research now'}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+          <button disabled={l2Page <= 1} onClick={() => setL2Page((p) => p - 1)} className="rounded border border-gray-300 px-2 py-1 disabled:opacity-30">← Prev</button>
+          <span>Page {l2Page} of {Math.max(1, Math.ceil(l2Total / l2PageSize))} ({l2Total} total)</span>
+          <button disabled={l2Page >= Math.ceil(l2Total / l2PageSize)} onClick={() => setL2Page((p) => p + 1)} className="rounded border border-gray-300 px-2 py-1 disabled:opacity-30">Next →</button>
+          <select value={l2PageSize} onChange={(e) => { setL2PageSize(Number(e.target.value) as 25 | 50 | 100); setL2Page(1); }} className="ml-1 rounded border border-gray-300 px-1.5 py-1">
+            {[25, 50, 100].map((s) => <option key={s} value={s}>{s} / page</option>)}
+          </select>
+        </div>
+      </div>
     </Card>
   );
 }
