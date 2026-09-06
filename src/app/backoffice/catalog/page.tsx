@@ -37,7 +37,12 @@ type CatalogEntity = {
 // /api/backoffice/catalog/dedupe (not present on CatalogEntity generally;
 // only the merge-duplicates cluster response carries these three counts).
 type DedupeMember = CatalogEntity & { deliveries: number; packs: number; aliasCount: number };
-type DupCluster = { reasons: MatchReason[]; matches: DupMatch[]; suspicious: boolean; members: DedupeMember[] };
+// Prompt 580b §A.1 — one specific pair marked "not sure", from
+// /api/backoffice/catalog/dedupe's own uncertainPairs (server-derived,
+// keyed by the same a/b ids as everything else here — never re-derived
+// client-side).
+type UncertainPair = { a: string; b: string; reason: string | null; dismissedAt: string };
+type DupCluster = { reasons: MatchReason[]; matches: DupMatch[]; suspicious: boolean; members: DedupeMember[]; uncertainPairs: UncertainPair[] };
 
 function fmtCheck(min: number | null, max: number | null) {
   if (!min && !max) return '—';
@@ -83,58 +88,95 @@ const REASON_LABEL: Record<MatchReason, string> = { domain: 'domain', name: 'nam
 function MergeDuplicatesTool({ onMerged }: { onMerged: () => void }) {
   const [clusters, setClusters] = useState<DupCluster[] | null>(null);
   const [err, setErr] = useState('');
-  const [keepChoice, setKeepChoice] = useState<Record<number, string>>({});
+  // Prompt 580b §A.1 — decisions are per PAIR now, not per group: up to 2
+  // checked ids per cluster (checkbox, not radio) instead of one "keep".
+  const [selected, setSelected] = useState<Record<number, string[]>>({});
   const [panelFor, setPanelFor] = useState<number | null>(null);
-  const [dismissBusy, setDismissBusy] = useState<number | null>(null);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
   const [result, setResult] = useState('');
+  const [unsureOnly, setUnsureOnly] = useState(false);
 
   function refresh() {
     fetch('/api/backoffice/catalog/dedupe').then((r) => r.json()).then((body) => {
       if (body.ok === false) { setErr(body.error); return; }
-      const cls = body.clusters as DupCluster[];
-      setClusters(cls);
-      setKeepChoice(Object.fromEntries(cls.map((cl, i) => [i, pickDefaultKeeper(cl.members)])));
+      setClusters(body.clusters as DupCluster[]);
+      setSelected({});
     });
   }
   useEffect(refresh, []);
 
-  function keeperFor(i: number, cl: DupCluster): string {
-    return keepChoice[i] ?? cl.members[0].id;
-  }
-  function isInversion(i: number, cl: DupCluster): boolean {
-    const keepId = keeperFor(i, cl);
-    const keeper = cl.members.find((m) => m.id === keepId);
-    return keeper?.verification_status !== 'verified' && cl.members.some((m) => m.id !== keepId && m.verification_status === 'verified');
-  }
   function nameOf(cl: DupCluster, id: string): string {
     return cl.members.find((m) => m.id === id)?.name ?? id;
   }
+  function pairFor(i: number): [string, string] | null {
+    const sel = selected[i] ?? [];
+    return sel.length === 2 ? [sel[0], sel[1]] : null;
+  }
+  function toggleSelect(i: number, id: string) {
+    setSelected((prev) => {
+      const cur = prev[i] ?? [];
+      if (cur.includes(id)) return { ...prev, [i]: cur.filter((x) => x !== id) };
+      if (cur.length >= 2) return prev; // exactly 2 at a time — a 3rd click does nothing until one is unchecked
+      return { ...prev, [i]: [...cur, id] };
+    });
+  }
+  function uncertainFor(cl: DupCluster, a: string, b: string): UncertainPair | undefined {
+    return cl.uncertainPairs.find((u) => (u.a === a && u.b === b) || (u.a === b && u.b === a));
+  }
 
-  async function confirmMerge(i: number, cl: DupCluster, reason: string): Promise<{ ok: boolean; error?: string }> {
-    const keepId = keeperFor(i, cl);
-    const mergeIds = cl.members.map((m) => m.id).filter((id) => id !== keepId);
+  async function confirmMerge(i: number, cl: DupCluster, pair: [string, string], reason: string): Promise<{ ok: boolean; error?: string }> {
+    const [x, y] = pair;
+    const members = [cl.members.find((m) => m.id === x)!, cl.members.find((m) => m.id === y)!];
+    const keepId = pickDefaultKeeper(members);
+    const mergeIds = [x, y].filter((id) => id !== keepId);
+    const keeper = members.find((m) => m.id === keepId)!;
+    const loser = members.find((m) => m.id !== keepId)!;
+    const invertsVerification = keeper.verification_status !== 'verified' && loser.verification_status === 'verified';
     const res = await fetch('/api/backoffice/catalog/merge', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keepId, mergeIds, reason, confirmInversion: isInversion(i, cl) }),
+      body: JSON.stringify({ keepId, mergeIds, reason, confirmInversion: invertsVerification }),
     });
     const body = await res.json().catch(() => ({}));
     if (!body.ok) return { ok: false, error: body.error ?? 'Merge failed.' };
-    setResult(`Merged ${body.mergedCount} row(s) into the kept entry.${Object.keys(body.conflicts ?? {}).length ? ' Some fields conflicted and were left for manual review — see the audit log.' : ''}`);
+    setResult(`Merged ${nameOf(cl, loser.id)} into ${nameOf(cl, keeper.id)}.${Object.keys(body.conflicts ?? {}).length ? ' Some fields conflicted and were left for manual review — see the audit log.' : ''}`);
     return { ok: true };
   }
 
-  async function dismiss(i: number, cl: DupCluster) {
+  // Prompt 580b §A.1 — "Not the same" for exactly the 2 selected firms
+  // (or, from the group-level button, every member at once — dismiss/
+  // route.ts already dismisses every pairwise combination it's given, so
+  // the "whole group" case is just this same call with more ids, per
+  // §A.3: "= 'Not the same' em todos os pares de uma vez").
+  async function notTheSame(key: string, ids: string[]) {
     const reason = window.prompt('Why are these not duplicates?')?.trim();
     if (!reason) return;
-    setDismissBusy(i); setResult('');
+    setBusyKey(key); setResult('');
     const res = await fetch('/api/backoffice/catalog/dedupe/dismiss', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids: cl.members.map((m) => m.id), reason }),
+      body: JSON.stringify({ ids, reason }),
     });
     const body = await res.json().catch(() => ({}));
-    setDismissBusy(null);
+    setBusyKey(null);
     if (!body.ok) { setResult(body.error); return; }
     setResult(`Dismissed. Removed ${body.removedAliases} linking alias(es).`);
+    refresh();
+  }
+
+  async function notSure(key: string, pair: [string, string]) {
+    // Cancel (null) means the operator backed out; an empty string is a
+    // deliberate "not sure, no note" — the note itself is optional, the
+    // ACTION isn't.
+    const note = window.prompt('Note (optional) — why not sure?');
+    if (note === null) return;
+    setBusyKey(key); setResult('');
+    const res = await fetch('/api/backoffice/catalog/dedupe/uncertain', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: pair, note: note || undefined }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setBusyKey(null);
+    if (!body.ok) { setResult(body.error); return; }
+    setResult('Marked not sure — still in the group, off the auto-merge path.');
     refresh();
   }
 
@@ -144,29 +186,44 @@ function MergeDuplicatesTool({ onMerged }: { onMerged: () => void }) {
   // Prompt 580 §B.5 — "(3)" used to mean 3 groups while showing 4 rows in
   // one of them; both numbers now, always.
   const totalFirms = clusters.reduce((s, cl) => s + cl.members.length, 0);
+  const totalUnsure = clusters.reduce((s, cl) => s + cl.uncertainPairs.length, 0);
   const countLabel = clusters.length === 0 ? '0' : `${clusters.length} group${clusters.length === 1 ? '' : 's'} · ${totalFirms} firm${totalFirms === 1 ? '' : 's'}`;
+  const visibleClusters = unsureOnly ? clusters.filter((cl) => cl.uncertainPairs.length > 0) : clusters;
 
   return (
     <Card title={`Merge duplicates (${countLabel})`} tint={clusters.length > 0 ? 'amber' : undefined}>
       <p className="mb-3 text-xs text-gray-500">
         Matched by normalized website domain, normalized name (diacritics/legal-suffix/parenthetical stripped), and known aliases.
+        Select exactly two firms below to decide that pair: Same firm, Not the same, or Not sure.
       </p>
+      {totalUnsure > 0 && (
+        <button onClick={() => setUnsureOnly((v) => !v)}
+          className={`mb-2 rounded-full px-2.5 py-1 text-xs font-medium ${unsureOnly ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+          Unsure ({totalUnsure})
+        </button>
+      )}
       {result && <p className="mb-2 text-xs text-cyan-800">{result}</p>}
-      {clusters.length === 0 ? <p className="text-sm text-gray-400">No likely duplicates found.</p> : (
+      {visibleClusters.length === 0 ? <p className="text-sm text-gray-400">{unsureOnly ? 'No unsure pairs.' : 'No likely duplicates found.'}</p> : (
         <div className="space-y-3">
-          {clusters.map((cl, i) => {
-            const keepId = keeperFor(i, cl);
-            const losers = cl.members.filter((m) => m.id !== keepId);
-            const totalDeliveries = losers.reduce((s, m) => s + m.deliveries, 0);
-            const totalPacks = losers.reduce((s, m) => s + m.packs, 0);
-            const totalAliases = losers.reduce((s, m) => s + m.aliasCount, 0);
-            const cascadeLines = [
-              `Deletes ${losers.length} catalog ${losers.length === 1 ? 'entry' : 'entries'}: ${losers.map((m) => m.name).join(', ')}.`,
-              `Repoints ${totalDeliveries} catalog deliveries (founder pipelines) to the kept entry.`,
-              `Repoints ${totalPacks} pack reference${totalPacks === 1 ? '' : 's'}.`,
-              `Adds ${losers.length} name${losers.length === 1 ? '' : 's'} and ${totalAliases} existing alias(es) as new aliases of the kept entry.`,
-              ...(isInversion(i, cl) ? ['⚠ Merges a VERIFIED entry into a pending one.'] : []),
-            ];
+          {visibleClusters.map((cl) => {
+            const i = clusters.indexOf(cl);
+            const pair = pairFor(i);
+            const pairMembers = pair ? pair.map((id) => cl.members.find((m) => m.id === id)!) : null;
+            const uncertainForPair = pair ? uncertainFor(cl, pair[0], pair[1]) : undefined;
+            let cascadeLines: string[] = [];
+            if (pairMembers) {
+              const keepId = pickDefaultKeeper(pairMembers);
+              const keeper = pairMembers.find((m) => m.id === keepId)!;
+              const loser = pairMembers.find((m) => m.id !== keepId)!;
+              const inversion = keeper.verification_status !== 'verified' && loser.verification_status === 'verified';
+              cascadeLines = [
+                `Deletes 1 catalog entry: ${loser.name}.`,
+                `Repoints ${loser.deliveries} catalog deliveries (founder pipelines) to the kept entry.`,
+                `Repoints ${loser.packs} pack reference${loser.packs === 1 ? '' : 's'}.`,
+                `Adds 1 name and ${loser.aliasCount} existing alias(es) as new aliases of the kept entry.`,
+                ...(inversion ? ['⚠ Merges a VERIFIED entry into a pending one.'] : []),
+              ];
+            }
             return (
               <div key={i} className={`rounded-xl border p-3 ${cl.suspicious ? 'border-[#B00000]/40 bg-red-50/40' : 'border-amber-200 bg-amber-50/50'}`}>
                 <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-amber-800">
@@ -191,35 +248,60 @@ function MergeDuplicatesTool({ onMerged }: { onMerged: () => void }) {
                   </ul>
                 )}
                 <ul className="space-y-1 text-sm">
-                  {cl.members.map((m) => (
-                    <li key={m.id} className="flex items-center gap-2">
-                      <input type="radio" name={`keep-${i}`} checked={keepId === m.id}
-                        onChange={() => setKeepChoice({ ...keepChoice, [i]: m.id })} />
-                      <span className="font-medium">{m.name}</span>
-                      {m.website && <span className="text-xs text-gray-400">{m.website}</span>}
-                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${m.verification_status === 'verified' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{m.verification_status}</span>
-                      <span className="text-[10px] text-gray-400">{m.deliveries} deliveries · {m.packs} packs · {m.aliasCount} aliases</span>
-                    </li>
-                  ))}
+                  {cl.members.map((m) => {
+                    const isSelected = (selected[i] ?? []).includes(m.id);
+                    return (
+                      <li key={m.id} className="flex items-center gap-2">
+                        <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(i, m.id)} />
+                        <span className="font-medium">{m.name}</span>
+                        {m.website && <span className="text-xs text-gray-400">{m.website}</span>}
+                        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${m.verification_status === 'verified' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{m.verification_status}</span>
+                        <span className="text-[10px] text-gray-400">{m.deliveries} deliveries · {m.packs} packs · {m.aliasCount} aliases</span>
+                      </li>
+                    );
+                  })}
                 </ul>
-                <div className="mt-2 flex gap-2">
-                  <button onClick={() => setPanelFor(i)}
+                {/* Prompt 580b §A.1 — labels for every pair already marked
+                    "not sure", regardless of which two are currently
+                    checked, so a revisit doesn't need to re-select first. */}
+                {cl.uncertainPairs.length > 0 && (
+                  <ul className="mt-1.5 space-y-0.5 text-[11px] text-gray-500">
+                    {cl.uncertainPairs.map((u, ui) => (
+                      <li key={ui}>
+                        {nameOf(cl, u.a)} ↔ {nameOf(cl, u.b)} — <span className="font-medium text-amber-700">not sure</span> · {u.dismissedAt.slice(0, 10)}{u.reason ? ` · ${u.reason}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button disabled={!pair} onClick={() => setPanelFor(i)}
                     className="rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-800 disabled:opacity-40">
-                    Merge into selected
+                    Same firm
                   </button>
-                  {/* Prompt 580 §B.1 — the button the tool never had: the
-                      exact 4-firm group named in this prompt could only ever
-                      be merged, never dismissed as unrelated. */}
-                  <button disabled={dismissBusy === i} onClick={() => void dismiss(i, cl)}
+                  <button disabled={!pair || busyKey === `same:${i}`} onClick={() => pair && void notTheSame(`pair:${i}`, pair)}
                     className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">
-                    {dismissBusy === i ? 'Dismissing…' : 'Not duplicates'}
+                    {busyKey === `pair:${i}` ? 'Working…' : 'Not the same'}
+                  </button>
+                  <button disabled={!pair} onClick={() => pair && void notSure(`unsure:${i}`, pair)}
+                    className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+                    {busyKey === `unsure:${i}` ? 'Working…' : 'Not sure'}
+                  </button>
+                  {!pair && <span className="text-[11px] text-gray-400">Select two firms above to decide that pair.</span>}
+                  {uncertainForPair && <span className="text-[11px] text-amber-700">This pair is currently marked not sure.</span>}
+                  {/* Prompt 580 §B.1 / 580b §A.3 — the whole-group version
+                      stays for the simple case: every pair dismissed at
+                      once, same call dismiss/route.ts already made before
+                      per-pair decisions existed. */}
+                  <button disabled={busyKey === `group:${i}`} onClick={() => void notTheSame(`group:${i}`, cl.members.map((m) => m.id))}
+                    className="ml-auto rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+                    {busyKey === `group:${i}` ? 'Working…' : 'Not duplicates (whole group)'}
                   </button>
                 </div>
-                {panelFor === i && (
-                  <AccountActionPanel title="Merge" name={`Keep: ${nameOf(cl, keepId)}`}
+                {panelFor === i && pair && (
+                  <AccountActionPanel title="Merge" name={`Keep: ${nameOf(cl, pickDefaultKeeper(pair.map((id) => cl.members.find((m) => m.id === id)!)))}`}
                     cascadeLines={cascadeLines} confirmLabel="Confirm merge"
                     reasonPlaceholder="Why are these the same firm?"
-                    onConfirm={(reason) => confirmMerge(i, cl, reason)}
+                    onConfirm={(reason) => confirmMerge(i, cl, pair, reason)}
                     onClose={() => setPanelFor(null)}
                     onDone={() => { setPanelFor(null); refresh(); onMerged(); }} />
                 )}

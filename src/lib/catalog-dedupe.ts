@@ -112,7 +112,25 @@ export function findCatalogMatch(
   return null;
 }
 
-export function findDuplicateClusters(rows: CatalogRow[], aliases: Alias[]): DupCluster[] {
+// Prompt 580b §A.2 — canonical "a:b" key for a pair, lowest id first, so
+// the caller's dismissed set and this function's own lookups always agree
+// regardless of which order a pair is described in.
+export function pairKey(a: string, b: string): string {
+  return a < b ? `${a}:${b}` : `${b}:${a}`;
+}
+
+export function findDuplicateClusters(
+  rows: CatalogRow[], aliases: Alias[],
+  // Prompt 580b §A.2 — "Not the same" on a specific pair has to split the
+  // GROUP, not just get remembered for next time (the pre-580b behavior:
+  // a cluster only disappeared once EVERY pair in it was dismissed,
+  // because the union-find step itself never knew about dismissals and
+  // kept chaining every id together regardless). Passing dismissed pairs
+  // in and skipping exactly those unions is what makes "Mustard Seed MAZE
+  // != btov" actually remove btov from that group instead of just
+  // recording a note nothing reads yet.
+  dismissedPairs: Set<string> = new Set(),
+): DupCluster[] {
   const parent = new Map<string, string>();
   const find = (x: string): string => {
     if (!parent.has(x)) parent.set(x, x);
@@ -122,7 +140,10 @@ export function findDuplicateClusters(rows: CatalogRow[], aliases: Alias[]): Dup
     parent.set(x, root);
     return root;
   };
-  const union = (a: string, b: string) => { parent.set(find(a), find(b)); };
+  const union = (a: string, b: string) => {
+    if (dismissedPairs.has(pairKey(a, b))) return;
+    parent.set(find(a), find(b));
+  };
   for (const r of rows) find(r.id);
 
   const byDomain = new Map<string, string[]>();
@@ -152,13 +173,22 @@ export function findDuplicateClusters(rows: CatalogRow[], aliases: Alias[]): Dup
     if (n) byValue.set(n, [...(byValue.get(n) ?? []), { id: a.catalog_id, viaAlias: true }]);
   }
 
+  // Prompt 580b §A.2 — every pair within a shared value, not "chain to the
+  // first id": groups here are tiny (2-5 members), so this stays O(1) in
+  // practice, and it is what lets union() skip exactly one dismissed edge
+  // (say, 0-1) while still connecting the group through any OTHER
+  // undismissed edge (0-2, 1-2) — chaining only to index 0 would have
+  // wrongly severed the whole group the moment its first pair was
+  // dismissed, even if a second, un-dismissed edge still ties it together.
   for (const ids of byDomain.values()) {
     const uniq = [...new Set(ids)];
-    for (let i = 1; i < uniq.length; i++) union(uniq[0], uniq[i]);
+    for (let i = 0; i < uniq.length; i++)
+      for (let j = i + 1; j < uniq.length; j++) union(uniq[i], uniq[j]);
   }
   for (const entries of byValue.values()) {
     const uniqIds = [...new Set(entries.map((e) => e.id))];
-    for (let i = 1; i < uniqIds.length; i++) union(uniqIds[0], uniqIds[i]);
+    for (let i = 0; i < uniqIds.length; i++)
+      for (let j = i + 1; j < uniqIds.length; j++) union(uniqIds[i], uniqIds[j]);
   }
 
   const groups = new Map<string, Set<string>>();

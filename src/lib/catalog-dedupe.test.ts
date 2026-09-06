@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findCatalogMatch, findDuplicateClusters, normalizeDomain, normalizeName, type Alias, type CatalogRow } from './catalog-dedupe';
+import { findCatalogMatch, findDuplicateClusters, normalizeDomain, normalizeName, pairKey, type Alias, type CatalogRow } from './catalog-dedupe';
 
 describe('normalizeName', () => {
   it('strips parentheticals, diacritics, and legal suffixes', () => {
@@ -133,6 +133,68 @@ describe('findDuplicateClusters — the 2026-08-13 incident, reproduced', () => 
     const twoAliases: Alias[] = [{ catalog_id: 'btov', alias: 'Mustard Seed MAZE' }];
     const [cluster] = findDuplicateClusters(twoRows, twoAliases);
     expect(cluster.suspicious).toBe(false);
+  });
+
+  // Prompt 580b §A.2 — dismissing a pair must split the GROUP, not just
+  // get remembered for next time (the pre-580b behavior: a cluster only
+  // disappeared once EVERY pair in it was dismissed, because union-find
+  // itself had no notion of dismissal). A genuine star — A directly tied
+  // to both B and C by its own two separate aliases — plus one real,
+  // unrelated match (C<->D) that must survive dismissing A's edges
+  // untouched.
+  describe('findDuplicateClusters — §A.2 group splitting from dismissed pairs', () => {
+    // C<->D matches by DOMAIN, a completely independent mechanism from
+    // A's own two NAME/alias edges — deliberately, so the one "real"
+    // match in this fixture can never accidentally share a byValue entry
+    // with A's edges (which is exactly what made an earlier draft of this
+    // fixture, using a parenthetical for the C<->D match instead, need a
+    // second dismissal to fully isolate A: its alias and D's parenthetical
+    // both normalized to the same value as C's real name, a 3-way share
+    // dismissing just one pair doesn't fully undo).
+    const starRows: CatalogRow[] = [
+      { id: 'a', name: 'Firm A', website: null },
+      { id: 'b', name: 'Firm B', website: null },
+      { id: 'c', name: 'Firm C', website: 'https://firmc.example' },
+      { id: 'd', name: 'Firm D', website: 'https://firmc.example' },
+    ];
+    const starAliases: Alias[] = [
+      { catalog_id: 'a', alias: 'Firm B' },
+      { catalog_id: 'a', alias: 'Firm C' },
+    ];
+
+    it('with no dismissals, all four chain together into one cluster', () => {
+      const clusters = findDuplicateClusters(starRows, starAliases);
+      expect(clusters).toHaveLength(1);
+      expect(clusters[0].ids.sort()).toEqual(['a', 'b', 'c', 'd']);
+    });
+
+    it('dismissing A-B only drops B; A stays tied to C (and D, via C)', () => {
+      const clusters = findDuplicateClusters(starRows, starAliases, new Set([pairKey('a', 'b')]));
+      expect(clusters).toHaveLength(1);
+      expect(clusters[0].ids.sort()).toEqual(['a', 'c', 'd']);
+    });
+
+    it('dismissing both of A\'s edges isolates A and B, leaving the one real match (C-D) intact', () => {
+      const dismissedPairs = new Set([pairKey('a', 'b'), pairKey('a', 'c')]);
+      const clusters = findDuplicateClusters(starRows, starAliases, dismissedPairs);
+      expect(clusters).toHaveLength(1);
+      expect(clusters[0].ids.sort()).toEqual(['c', 'd']);
+      const allIds = clusters.flatMap((cl) => cl.ids);
+      expect(allIds).not.toContain('a');
+      expect(allIds).not.toContain('b');
+    });
+  });
+
+  it('dismissing only the btov-msm pair drops just btov, leaving the rest of the chain grouped', () => {
+    // The fixture's own edges are a CHAIN, not a star: btov->msm (via
+    // btov's alias), msm->nysno (via msm's alias), nysno->sv (via nysno's
+    // alias) — btov is connected to nothing but msm. Dismissing that one
+    // pair must isolate btov alone while msm/nysno/sv stay grouped via
+    // their own separate, undismissed edges.
+    const dismissedPairs = new Set([pairKey('btov', 'msm')]);
+    const clusters = findDuplicateClusters(rows, aliases, dismissedPairs);
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0].ids.sort()).toEqual(['msm', 'nysno', 'sv']);
   });
 });
 

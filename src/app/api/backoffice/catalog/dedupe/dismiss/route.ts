@@ -36,7 +36,7 @@ export async function POST(req: Request) {
 
   const { error: dismissErr } = await admin.from('catalog_dedupe_dismissals')
     .upsert(pairs.map(([a, b]) => ({
-      a_catalog_id: a, b_catalog_id: b, reason: reason.trim(), dismissed_by: userId,
+      a_catalog_id: a, b_catalog_id: b, reason: reason.trim(), dismissed_by: userId, status: 'not_same',
     })), { onConflict: 'a_catalog_id,b_catalog_id' });
   if (dismissErr) return NextResponse.json({ ok: false, error: dismissErr.message }, { status: 500 });
 

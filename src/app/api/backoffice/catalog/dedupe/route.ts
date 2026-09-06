@@ -2,7 +2,7 @@
 // (IRM_SPEC §9b-3). Read-only: proposes clusters, doesn't touch anything.
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
-import { findDuplicateClusters } from '@/lib/catalog-dedupe';
+import { findDuplicateClusters, pairKey } from '@/lib/catalog-dedupe';
 
 export async function GET() {
   const auth = await requirePlatformAdmin();
@@ -19,30 +19,45 @@ export async function GET() {
     // visible symptom) — real, but not a public-facing bug, so listed
     // above as diagnosed rather than as the 08/13 incident's own cause.
     admin.from('entity_aliases').select('catalog_id, alias').not('catalog_id', 'is', null),
-    admin.from('catalog_dedupe_dismissals').select('a_catalog_id, b_catalog_id'),
+    admin.from('catalog_dedupe_dismissals').select('a_catalog_id, b_catalog_id, status, reason, dismissed_by, dismissed_at'),
   ]);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
-  const byId = new Map((catalog ?? []).map((c) => [c.id, c]));
-  const dismissedPairs = new Set((dismissals ?? []).map((d) => `${d.a_catalog_id}:${d.b_catalog_id}`));
-  const isPairDismissed = (a: string, b: string) => {
-    const [x, y] = [a, b].sort();
-    return dismissedPairs.has(`${x}:${y}`);
-  };
+  // Prompt 580b §A.2 — 'not_same' pairs are real edges to REMOVE from the
+  // graph (splits the group); 'uncertain' pairs stay in the group (no
+  // edge removed) and are only looked up afterward, per-cluster, to
+  // attach a label. Two separate maps because they do two separate things.
+  const dismissedPairs = new Set<string>();
+  const uncertainByPair = new Map<string, { reason: string | null; dismissedBy: string | null; dismissedAt: string }>();
+  for (const d of dismissals ?? []) {
+    const key = pairKey(d.a_catalog_id as string, d.b_catalog_id as string);
+    if (d.status === 'uncertain') {
+      uncertainByPair.set(key, { reason: d.reason as string | null, dismissedBy: d.dismissed_by as string | null, dismissedAt: d.dismissed_at as string });
+    } else {
+      dismissedPairs.add(key);
+    }
+  }
 
-  // Prompt 580 §B.2/§B.3 — the pre-selected keeper favors verified, then
-  // whichever candidate has more real-world weight already attached to it
-  // (deliveries = founder pipelines carrying it, packs, aliases); the same
-  // three counts are what the confirm panel's cascade preview states for
-  // whichever candidates end up as losers. All three tables are exactly
-  // what merge/route.ts itself repoints or deletes — nothing here counts
-  // anything that route doesn't actually touch.
-  const candidateIds = (catalog ?? []).map((c) => c.id as string);
-  const [{ data: deliveryRows }, { data: packRows }, { data: aliasCountRows }] = candidateIds.length
+  const byId = new Map((catalog ?? []).map((c) => [c.id, c]));
+  const clusters = findDuplicateClusters(catalog ?? [], aliases ?? [], dismissedPairs);
+
+  // Prompt 580b §B — "0 deliveries · 0 packs · 0 aliases" for all five,
+  // including btov (which really has 7 aliases and real deliveries):
+  // the old code scoped its .in('catalog_id', candidateIds) to EVERY
+  // catalog_entities row (763 of them) rather than just the ids actually
+  // shown on screen. 763 UUIDs serialized into one .in() filter is a
+  // ~28,000-character query string — confirmed against production before
+  // writing this fix — well past any sane URL-length budget, so the
+  // request came back empty (or failed) for every row uniformly, not just
+  // btov. Scoping to only the ids appearing in a cluster (single/low
+  // double digits in practice) is both the fix and, incidentally, a much
+  // smaller query.
+  const clusterIds = [...new Set(clusters.flatMap((cl) => cl.ids))];
+  const [{ data: deliveryRows }, { data: packRows }, { data: aliasCountRows }] = clusterIds.length
     ? await Promise.all([
-        admin.from('catalog_deliveries').select('catalog_id').in('catalog_id', candidateIds),
-        admin.from('pack_items').select('catalog_id').in('catalog_id', candidateIds),
-        admin.from('entity_aliases').select('catalog_id').not('catalog_id', 'is', null).in('catalog_id', candidateIds),
+        admin.from('catalog_deliveries').select('catalog_id').in('catalog_id', clusterIds),
+        admin.from('pack_items').select('catalog_id').in('catalog_id', clusterIds),
+        admin.from('entity_aliases').select('catalog_id').not('catalog_id', 'is', null).in('catalog_id', clusterIds),
       ])
     : [{ data: [] }, { data: [] }, { data: [] }];
   const countBy = (rows: { catalog_id: string }[] | null) => {
@@ -54,26 +69,20 @@ export async function GET() {
   const packsById = countBy(packRows as { catalog_id: string }[] | null);
   const aliasesById = countBy(aliasCountRows as { catalog_id: string }[] | null);
 
-  const clusters = findDuplicateClusters(catalog ?? [], aliases ?? [])
-    // Prompt 580 §B.1 — a cluster stays hidden only while EVERY pair within
-    // it has been explicitly dismissed; if the data later ties one of
-    // these ids to something new, at least one pair is undismissed and the
-    // (possibly reshaped) cluster reappears on its own.
-    .filter((cl) => {
-      for (let i = 0; i < cl.ids.length; i++) {
-        for (let j = i + 1; j < cl.ids.length; j++) {
-          if (!isPairDismissed(cl.ids[i], cl.ids[j])) return true;
-        }
-      }
-      return false;
-    });
-
   return NextResponse.json({
     ok: true,
     clusters: clusters.map((cl) => ({
       reasons: cl.reasons,
       matches: cl.matches,
       suspicious: cl.suspicious,
+      // Prompt 580b §A.1/§A.2 — every pair within this (possibly just-
+      // split, possibly still-whole) group that's marked uncertain, so
+      // the UI can label "not sure" on the exact pair without the client
+      // ever re-deriving pair keys itself.
+      uncertainPairs: cl.ids.flatMap((a, i) => cl.ids.slice(i + 1).map((b) => {
+        const info = uncertainByPair.get(pairKey(a, b));
+        return info ? { a, b, ...info } : null;
+      })).filter((x): x is NonNullable<typeof x> => x !== null),
       members: cl.ids.map((id) => byId.get(id)).filter(Boolean).map((m) => ({
         ...m,
         deliveries: deliveriesById.get(m!.id as string) ?? 0,
