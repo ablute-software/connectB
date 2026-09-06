@@ -80,6 +80,25 @@ export function WorkspaceSidebar({
     } catch { /* private browsing, storage disabled — default stands */ }
   }, [collapsible]);
 
+  // Prompt 589 — --sb-w has to live on the document root, not as an inline
+  // style on this <aside>: a custom property set that way is only visible
+  // to the aside's OWN descendants, never to a SIBLING like BackofficeShell's
+  // content wrapper (CSS custom properties cascade down, never sideways).
+  // That mismatch is exactly what Nuno's drag test found — the sidebar
+  // resized, the content's left margin (a separate, static ml-60) never
+  // moved with it, overlapping the header on one side and leaving a gap on
+  // the other. Setting it on documentElement makes it a real shared value
+  // both the aside's own width AND the content margin can read.
+  useEffect(() => {
+    if (!collapsible) return;
+    document.documentElement.style.setProperty('--sb-w', `${width}px`);
+    // No cleanup here on purpose — this effect re-runs on every width tick
+    // while dragging, and a cleanup tied to those same deps would remove-
+    // then-reset the property every frame. Clearing on true unmount only
+    // is the separate, empty-deps effect below.
+  }, [collapsible, width]);
+  useEffect(() => () => { document.documentElement.style.removeProperty('--sb-w'); }, []);
+
   const onDragStart = useCallback((startEvent: React.MouseEvent) => {
     startEvent.preventDefault();
     draggingRef.current = true;

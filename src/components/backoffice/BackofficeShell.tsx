@@ -216,7 +216,15 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
           scroll horizontally — the exact classic flexbox trap, and
           invisible until a descendant actually has a real min-width to
           expose it. No effect on pages whose content already fits. */}
-      <div className="min-w-0 flex-1 md:ml-16 min-[1440px]:ml-60">
+      {/* Prompt 589 — was a static ml-60 (240px), stale against both the
+          585 default (300px) and, once the sidebar became resizable, any
+          width the operator actually drags to: WorkspaceSidebar sets
+          --sb-w on document.documentElement precisely so this SIBLING can
+          read the live value too (a custom property set inline on the
+          aside itself never reaches here — down the tree only, not
+          sideways). Fallback matches WorkspaceSidebar's own DEFAULT_WIDTH,
+          for the frame before that effect has run. */}
+      <div className="min-w-0 flex-1 md:ml-16 min-[1440px]:ml-[var(--sb-w,300px)]">
         <WorkspaceHeader
           left={<div className="text-[15px] font-bold text-[#0E7490] md:hidden" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>{BRAND_NAME} · Back-office</div>}
           right={<span className="text-xs text-gray-300">Platform team console</span>}
