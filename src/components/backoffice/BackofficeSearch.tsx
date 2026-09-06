@@ -9,7 +9,14 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 
-interface SearchResult { kind: 'org' | 'catalog_entity' | 'person'; id: string; label: string; sublabel?: string; href: string }
+interface SearchResult {
+  kind: 'org' | 'catalog_entity' | 'person'; id: string; label: string; sublabel?: string; href: string;
+  // Prompt 592 — set only for 'person': the org whose private pipeline this
+  // contact belongs to. go() below must enter Developer Viewer for it
+  // before navigating, or href (a founder-side /entities/[id] route) 404s
+  // for a platform-admin session with no membership in that org.
+  orgId?: string | null;
+}
 
 const KIND_LABEL: Record<SearchResult['kind'], string> = { org: 'Startup', catalog_entity: 'Investor', person: 'Person' };
 
@@ -64,7 +71,30 @@ export function BackofficeSearch() {
     return () => clearTimeout(t);
   }, [q, open]);
 
-  function go(r: SearchResult) { setOpen(false); router.push(r.href); }
+  // Prompt 592 — a 'person' result points into a startup's private
+  // pipeline (/entities/[id]), which the founder-side store only ever
+  // resolves for a member of that org or a Developer Viewer session. Enter
+  // one for orgId first (the exact mechanism startups/page.tsx's own "Open
+  // as viewer" button already uses — same route, same audit trail), then
+  // navigate; without this the same click just 404s, which is the bug
+  // Nuno hit. org/catalog_entity results already land inside the
+  // back-office, no viewer session needed.
+  async function go(r: SearchResult) {
+    setOpen(false);
+    if (r.kind === 'person' && r.orgId) {
+      try {
+        const res = await fetch('/api/backoffice/viewer/enter', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ orgId: r.orgId }),
+        });
+        const body = await res.json();
+        if (!body.ok) { alert(`Could not open this person's workspace: ${body.error}`); return; }
+      } catch {
+        alert("Could not open this person's workspace.");
+        return;
+      }
+    }
+    router.push(r.href);
+  }
 
   function onInputKeyDown(e: React.KeyboardEvent) {
     if (!results?.length) return;
