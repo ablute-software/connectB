@@ -20,6 +20,15 @@ export function BackofficeSearch() {
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
+  // Prompt 587 §B — the shortcut itself already handles both metaKey (Mac)
+  // and ctrlKey (Windows/Linux, where Nuno actually tests) below; only the
+  // HINT text was Mac-only, showing "⌘K" on a keyboard that doesn't have
+  // that key. navigator.platform is checked client-side only (SSR default
+  // is the Windows/Linux label, the common case and Nuno's own).
+  const [modifierLabel, setModifierLabel] = useState('Ctrl K');
+  useEffect(() => {
+    if (/mac/i.test(navigator.platform || navigator.userAgent)) setModifierLabel('⌘K');
+  }, []);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -66,12 +75,15 @@ export function BackofficeSearch() {
 
   return (
     <>
+      {/* Prompt 587 §A — was its own hardcoded gray-800 patch, a second dark
+          surface next to the Operator-mode box's own; now the same
+          --sb-* tokens as the rest of the shell, one continuous surface. */}
       <button onClick={() => setOpen(true)}
-        className="flex w-full items-center justify-between rounded-lg border border-gray-700 bg-gray-800/60 px-2.5 py-2 text-left text-[12.5px] text-gray-400 transition hover:bg-gray-800">
+        className="flex w-full items-center justify-between rounded-lg border border-[var(--sb-border)] bg-[var(--sb-active)] px-2.5 py-2 text-left text-[12.5px] text-[var(--sb-dim)] transition hover:bg-white/5">
         <span className="flex items-center gap-2">
           <span aria-hidden>⌕</span> Search firms, people, orgs…
         </span>
-        <span className="rounded border border-gray-700 px-1.5 py-0.5 font-mono text-[10px] text-gray-500">⌘K</span>
+        <span className="rounded border border-[var(--sb-border)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--sb-dim)]">{modifierLabel}</span>
       </button>
       {open && typeof document !== 'undefined' && createPortal(
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[15vh]" onClick={() => setOpen(false)}>

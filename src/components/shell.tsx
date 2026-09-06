@@ -180,8 +180,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // the rest have no real founder-workspace session to attribute at all).
   // Same condition as the early-return two lines down, computed once here
   // so both share it instead of duplicating the path list.
+  // Prompt 587 §C — /metrics joins /backoffice here: it now renders inside
+  // BackofficeShell (its own layout.tsx), not the founder chrome, so this
+  // Shell must stay out of the way the same way it already does for
+  // /backoffice.
   const isBareShellRoute = path === '/' || path === '/investors' || path === '/pair' || isStandaloneAuthPage
-    || path?.startsWith('/guest') || path?.startsWith('/claim') || path?.startsWith('/invite') || path?.startsWith('/portal') || path?.startsWith('/backoffice');
+    || path?.startsWith('/guest') || path?.startsWith('/claim') || path?.startsWith('/invite') || path?.startsWith('/portal') || path?.startsWith('/backoffice') || path?.startsWith('/metrics');
   useUsageHeartbeat({ context: 'crm', enabled: me?.authEnabled === true && !isBareShellRoute });
   // /pair is the MatchDeal PWA (MD-08). It was missing from this list, so
   // the phone screen behind the QR code inherited the founder CRM chrome —
@@ -281,14 +285,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
                     <span className="w-4 text-center text-gray-400">◉</span> Back-office →
                   </Link>
                 </Tooltip>
-                {/* Prompt 122 Block A (F0.5) — Metrics promoted out of the
-                    Back-office console into this sidebar, immediately below
-                    the Back-office link, same platform-admin gate. */}
-                <Link href="/metrics"
-                  className={`mt-0.5 flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] transition ${
-                    path?.startsWith('/metrics') ? 'bg-[#0E7490] font-medium text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'}`}>
-                  <span className={`w-4 text-center ${path?.startsWith('/metrics') ? '' : 'text-gray-400'}`}>◆</span> Metrics
-                </Link>
+                {/* Prompt 587 §C — the Metrics shortcut that used to live
+                    here (Prompt 122 Block A) is gone: Metrics now renders
+                    inside BackofficeShell's own Insight section, reachable
+                    via Back-office → above, not duplicated as a second
+                    founder-sidebar entry point. */}
               </>
             )}
           </>
