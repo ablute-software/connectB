@@ -18,14 +18,20 @@ function splitEmails(raw: string | null | undefined): string[] {
   return raw.split(/[,;\s]+/).map((e) => e.trim().toLowerCase()).filter((e) => e.includes('@'));
 }
 
-export async function POST(_req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, { params }: { params: { id: string } }) {
   const { id } = params;
   const auth = await requirePlatformAdmin();
   if ('error' in auth) return auth.error;
   const { admin, userId } = auth;
 
+  // Prompt 573 §B/§C — which of the two verification-method buttons the
+  // admin actually clicked (Verify (domain) vs Verify (document)); falls
+  // back to inferring from the claim's own domain_match for any caller that
+  // doesn't pass it, so this stays backward-compatible.
+  const { method } = await req.json().catch(() => ({})) as { method?: 'domain' | 'document' | 'manual' };
+
   const { data: claim, error: claimErr } = await admin.from('investor_entity_claims')
-    .select('id, catalog_entity_id, claimant_user_id, claimant_email, requested_role, status').eq('id', id).single();
+    .select('id, catalog_entity_id, claimant_user_id, claimant_email, requested_role, status, domain_match').eq('id', id).single();
   if (claimErr) return NextResponse.json({ ok: false, error: claimErr.message }, { status: 404 });
   if (claim.status === 'approved') return NextResponse.json({ ok: true, alreadyApproved: true });
 
@@ -53,9 +59,10 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
     }, { status: 409 });
   }
 
+  const resolvedMethod = method ?? (claim.domain_match ? 'domain' : 'manual');
   const { error: memberErr } = await admin.from('matchdeal_investor_members').upsert({
     user_id: claim.claimant_user_id, catalog_entity_id: claim.catalog_entity_id,
-    status: 'active', domain_verified: true, role: claim.requested_role,
+    status: 'active', domain_verified: true, role: claim.requested_role, verification_method: resolvedMethod,
   }, { onConflict: 'user_id,catalog_entity_id' });
   if (memberErr) return NextResponse.json({ ok: false, error: memberErr.message }, { status: 500 });
 
@@ -66,7 +73,7 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
   if (entityUpdateErr) return NextResponse.json({ ok: false, error: entityUpdateErr.message }, { status: 500 });
 
   const { error: claimUpdateErr } = await admin.from('investor_entity_claims').update({
-    status: 'approved', resolved_by: userId, resolved_at: new Date().toISOString(),
+    status: 'approved', resolved_by: userId, resolved_at: new Date().toISOString(), verification_method: resolvedMethod,
   }).eq('id', id);
   if (claimUpdateErr) return NextResponse.json({ ok: false, error: claimUpdateErr.message }, { status: 500 });
 

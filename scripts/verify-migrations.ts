@@ -59,6 +59,11 @@ const LEDGER_NAME_ALIASES: Record<string, string> = {
   // this second push, 102 seconds later, restored them. 0304's committed
   // body already carries the restored comments throughout.
   matchdeal_write_paths_skip_test_investors_restore_comments: 'matchdeal_write_paths_skip_test_investors',
+  // Prompt 574 — the GDPR erase migration's first production push named
+  // the wrong target in one function; the second push, 641 seconds later,
+  // corrected it. 0321_gdpr_erase_and_resolution.sql's committed body is
+  // the corrected version.
+  gdpr_erase_and_resolution_v2_corrected_target: 'gdpr_erase_and_resolution',
 };
 
 const DIR = 'supabase/migrations';

@@ -20,9 +20,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const role = await resolveRole(user.id, user.email, sb, user.email_confirmed_at);
   if (role !== 'developer') return NextResponse.json({ ok: false, error: 'Platform admin only.' }, { status: 403 });
 
-  const { decision } = await req.json() as { decision?: 'approved' | 'rejected' };
+  const { decision, reason } = await req.json() as { decision?: 'approved' | 'rejected'; reason?: string };
   if (decision !== 'approved' && decision !== 'rejected') {
     return NextResponse.json({ ok: false, error: 'decision must be approved or rejected' }, { status: 400 });
+  }
+  // Prompt 573 §C — "razão obrigatória" on a destructive decision. Logged to
+  // admin_audit_log.detail (already the durable record for every action
+  // here) rather than a new column — no other query needs this as a field.
+  if (decision === 'rejected' && !reason?.trim()) {
+    return NextResponse.json({ ok: false, error: 'A reason is required to reject.' }, { status: 400 });
   }
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
@@ -33,8 +39,17 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }).eq('id', params.id);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
+  // Prompt 573 §B — a manual backoffice approval IS the verification event
+  // for a self-declared firm; the member row's own method (set at add-firm
+  // time from the domain-match check alone) upgrades to 'manual' here
+  // rather than staying whatever it was before an admin looked at it.
+  if (decision === 'approved') {
+    await admin.from('matchdeal_investor_members').update({ verification_method: 'manual' }).eq('catalog_entity_id', params.id).eq('verification_method', 'none');
+  }
+
   await logAdminAction(admin, {
-    adminUserId: user.id, action: `investor_added_entity_${decision}`, subjectType: 'catalog_entity', subjectId: params.id, detail: {},
+    adminUserId: user.id, action: `investor_added_entity_${decision}`, subjectType: 'catalog_entity', subjectId: params.id,
+    detail: reason ? { reason } : {},
   });
 
   return NextResponse.json({ ok: true });

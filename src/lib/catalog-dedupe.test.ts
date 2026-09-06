@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findDuplicateClusters, normalizeDomain, normalizeName, type Alias, type CatalogRow } from './catalog-dedupe';
+import { findCatalogMatch, findDuplicateClusters, normalizeDomain, normalizeName, type Alias, type CatalogRow } from './catalog-dedupe';
 
 describe('normalizeName', () => {
   it('strips parentheticals, diacritics, and legal suffixes', () => {
@@ -133,5 +133,35 @@ describe('findDuplicateClusters — the 2026-08-13 incident, reproduced', () => 
     const twoAliases: Alias[] = [{ catalog_id: 'btov', alias: 'Mustard Seed MAZE' }];
     const [cluster] = findDuplicateClusters(twoRows, twoAliases);
     expect(cluster.suspicious).toBe(false);
+  });
+});
+
+// Prompt 573 §D — the single-candidate lookup used by investor
+// self-registration to search the catalog before creating a new firm.
+describe('findCatalogMatch', () => {
+  const catalog: CatalogRow[] = [
+    { id: 'nysno', name: 'Nysnø Climate Investments', website: 'https://nysno.no' },
+    { id: 'maze', name: 'MAZE (Mustard Seed MAZE)', website: null },
+  ];
+
+  it('matches on domain, even when the candidate name differs entirely', () => {
+    expect(findCatalogMatch({ name: 'Nysno', website: 'www.nysno.no' }, catalog)).toEqual({ id: 'nysno', reason: 'domain' });
+  });
+
+  it('falls back to normalized name when there is no domain to compare', () => {
+    expect(findCatalogMatch({ name: 'Nysnø Climate Investments', website: null }, catalog)).toEqual({ id: 'nysno', reason: 'name' });
+  });
+
+  it('matches a parenthetical alternate name against the real row', () => {
+    expect(findCatalogMatch({ name: 'Mustard Seed MAZE', website: null }, catalog)).toEqual({ id: 'maze', reason: 'name' });
+  });
+
+  it('matches a known alias', () => {
+    const aliases: Alias[] = [{ catalog_id: 'maze', alias: 'Busy Angels SCR' }];
+    expect(findCatalogMatch({ name: 'Busy Angels SCR', website: null }, catalog, aliases)).toEqual({ id: 'maze', reason: 'alias' });
+  });
+
+  it('returns null for a genuinely new firm', () => {
+    expect(findCatalogMatch({ name: 'Totally New Ventures', website: 'https://totallynew.vc' }, catalog)).toBeNull();
   });
 });

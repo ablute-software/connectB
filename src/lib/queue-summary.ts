@@ -21,6 +21,7 @@
 // zero.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { hasDomainMismatch } from './domain-mismatch';
+import { gdprDueAt } from './gdpr';
 
 export interface QueueSummaryRow {
   key: string;
@@ -48,7 +49,8 @@ export async function getQueueSummaryRows(admin: SupabaseClient): Promise<QueueS
   const [
     contribs, contribOldest,
     candidatesVisible, candidatesInternal, candidatesOldest,
-    submissions, claims, identity, gdpr, gdprOldest, suspicious, fraud, entityClaims,
+    submissions, claims, identitySelfDeclared, identityDocuments, identityClaims,
+    gdpr, gdprOldest, suspicious, fraud,
     entitiesForMismatch,
   ] = await Promise.all([
     admin.from('contributions').select('id', { count: 'exact', head: true }).eq('status', 'submitted'),
@@ -69,20 +71,50 @@ export async function getQueueSummaryRows(admin: SupabaseClient): Promise<QueueS
 
     admin.from('investor_submissions').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
     admin.from('profile_claims').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-    admin.from('investor_verification_documents').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+    // Prompt 573 §A.1/§C — "Investor identity" counts undecided rows across
+    // its 3 real origins (self-declared firm, uploaded document, claim on
+    // an existing firm), not documents alone — that was the old, narrower
+    // definition. Fetches rows rather than a head-count: "is this internal"
+    // lives on matchdeal_investor_members, one join away, which a head+count
+    // query can't filter on directly; these sets are small (single digits
+    // today), so filtering in JS costs nothing real.
+    admin.from('catalog_entities').select('id, matchdeal_investor_members(is_internal)').in('source', ['investor_added', 'self_declared_individual']).eq('verification_status', 'pending'),
+    admin.from('investor_verification_documents').select('id, catalog_entities(matchdeal_investor_members(is_internal))').eq('status', 'pending_review'),
+    admin.from('investor_entity_claims').select('id').eq('status', 'pending'),
+
     admin.from('gdpr_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
     admin.from('gdpr_requests').select('created_at').eq('status', 'pending').order('created_at', { ascending: true }).limit(1),
     admin.from('suspicious_account_flags').select('id', { count: 'exact', head: true }).eq('status', 'open'),
     admin.from('entity_fraud_flags').select('id', { count: 'exact', head: true }).eq('status', 'open'),
-    admin.from('investor_entity_claims').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
 
     admin.from('entities').select('id, website, email_domain'),
   ]);
 
+  // A row with no linked member at all (shouldn't happen given the two
+  // write paths that create these, but never assumed) counts as NOT
+  // internal — hiding it silently would be worse than showing it once.
+  const anyInternal = (members: { is_internal: boolean }[] | { is_internal: boolean } | null | undefined): boolean => {
+    const list = Array.isArray(members) ? members : members ? [members] : [];
+    return list.length > 0 && list.every((m) => m.is_internal);
+  };
+  const selfDeclaredRows = (identitySelfDeclared.data ?? []) as unknown as { id: string; matchdeal_investor_members: { is_internal: boolean }[] | { is_internal: boolean } | null }[];
+  const documentRows = (identityDocuments.data ?? []) as unknown as { id: string; catalog_entities: { matchdeal_investor_members: { is_internal: boolean }[] | { is_internal: boolean } | null }[] | { matchdeal_investor_members: { is_internal: boolean }[] | { is_internal: boolean } | null } | null }[];
+  const selfDeclaredHidden = selfDeclaredRows.filter((r) => anyInternal(r.matchdeal_investor_members)).length;
+  const documentsHidden = documentRows.filter((r) => {
+    const ce = Array.isArray(r.catalog_entities) ? r.catalog_entities[0] : r.catalog_entities;
+    return anyInternal(ce?.matchdeal_investor_members);
+  }).length;
+  // A claim's whole point is an EXTERNAL person asserting ownership — there
+  // is no "internal" concept for a fresh claimant to hide behind.
+  const identityVisible = (selfDeclaredRows.length - selfDeclaredHidden) + (documentRows.length - documentsHidden) + (identityClaims.data ?? []).length;
+  const identityHidden = selfDeclaredHidden + documentsHidden;
+
   // GDPR is the only queue with a deadline today: 30 days from the request.
+  // Prompt 574 §A.1 — gdprDueAt is the one shared function now; queue-summary,
+  // Attention, and the Queue page's own GdprTab all read the SAME calculation.
   const gdprOldestAt = (gdprOldest.data ?? [])[0]?.created_at as string | undefined;
   const gdprAge = daysSince(gdprOldestAt);
-  const slaDueInDays = gdprAge === null ? null : 30 - gdprAge;
+  const slaDueInDays = gdprOldestAt ? gdprDueAt(gdprOldestAt).daysLeft : null;
 
   const mismatchCount = (entitiesForMismatch.data ?? []).filter((e) =>
     hasDomainMismatch(e.website as string | null, e.email_domain as string | null)).length;
@@ -96,12 +128,11 @@ export async function getQueueSummaryRows(admin: SupabaseClient): Promise<QueueS
     },
     { key: 'submissions', count: submissions.count ?? 0 },
     { key: 'claims', count: claims.count ?? 0 },
-    { key: 'identity', count: identity.count ?? 0 },
+    { key: 'identity', count: identityVisible, hiddenInternal: identityHidden },
     { key: 'gdpr', count: gdpr.count ?? 0, oldestDays: gdprAge, slaDueInDays: (gdpr.count ?? 0) > 0 ? slaDueInDays : null },
     { key: 'domain_mismatch', count: mismatchCount },
     { key: 'suspicious', count: suspicious.count ?? 0 },
     { key: 'fraud', count: fraud.count ?? 0 },
-    { key: 'investor_claims', count: entityClaims.count ?? 0 },
     // Counted when opened — see the header for why they are not reimplemented.
     { key: 'key_people', count: null },
     { key: 'community', count: null },

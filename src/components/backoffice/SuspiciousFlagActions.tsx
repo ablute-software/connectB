@@ -1,26 +1,37 @@
 'use client';
-// Prompt 244/245 — the three actions for one Suspicious Accounts flag.
-// Same "confirm-then-justify inline" pattern as ModerationControls.tsx
-// (suspend/delete already require this for the plain Startups/Investors
-// flow) — a second explicit click plus a non-empty justification before
-// anything fires. Alert email doesn't need a justification (it isn't a
-// moderation action, just a notice), but still requires the confirm click.
+// Prompt 244/245 — the actions for one Suspicious Accounts flag.
+// Prompt 574 §B.3 — Suspend/Delete now go through AccountActionPanel (the
+// Fase 3 side panel, generalized by Prompt 580 specifically so this
+// migration wouldn't need a second panel built for it — checked directly:
+// its own header comment already names "the Suspicious Accounts queue in a
+// later phase" as the reason it took an onConfirm callback instead of a
+// hardcoded endpoint). Same real routes underneath
+// (/api/backoffice/suspicious-flags/[id]/{suspend,delete-and-block}), same
+// applyModerationAction() state machine those already called — this is a
+// UI-layer migration, not a new backend behavior. Alert email and the new
+// Dismiss stay their own small inline flows: alert_email isn't destructive
+// (AccountActionPanel's own scope is Suspend/Delete only), and Dismiss has
+// no moderation cascade to preview at all — there's nothing it removes.
 import { useState } from 'react';
+import { AccountActionPanel } from './AccountActionPanel';
+import { moderationCascadeLines } from '@/lib/moderation-cascade-copy';
+import type { ModerationTargetType } from '@/lib/account-moderation';
 
-type Mode = 'alert_email' | 'suspend' | 'delete_and_block';
+type Mode = 'alert_email' | 'dismiss';
+type SuspendPanel = { hours: number; label: string } | null;
 
 const SUSPEND_PRESETS = [
   { label: '24 hours', hours: 24 },
-  { label: '3 days', hours: 72 },
   { label: '7 days', hours: 24 * 7 },
-  { label: '30 days', hours: 24 * 30 },
+  { label: 'Indefinite', hours: null as number | null },
 ];
 
-export function SuspiciousFlagActions({ flagId, hasEmail, onChanged }: {
-  flagId: string; hasEmail: boolean; onChanged: () => void;
+export function SuspiciousFlagActions({ flagId, targetType, companyName, hasEmail, onChanged }: {
+  flagId: string; targetType: ModerationTargetType; companyName: string; hasEmail: boolean; onChanged: () => void;
 }) {
   const [mode, setMode] = useState<Mode | null>(null);
-  const [hours, setHours] = useState(24);
+  const [suspendPanel, setSuspendPanel] = useState<SuspendPanel>(null);
+  const [deletePanel, setDeletePanel] = useState(false);
   const [justification, setJustification] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -36,12 +47,11 @@ export function SuspiciousFlagActions({ flagId, hasEmail, onChanged }: {
     cancel(); onChanged();
   }
 
-  async function submitSuspend() {
-    if (!justification.trim()) { setErr('Justification is required.'); return; }
+  async function submitDismiss() {
+    if (!justification.trim()) { setErr('A reason is required.'); return; }
     setBusy(true); setErr('');
-    const res = await fetch(`/api/backoffice/suspicious-flags/${flagId}/suspend`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hours, justification }),
+    const res = await fetch(`/api/backoffice/suspicious-flags/${flagId}/dismiss`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: justification }),
     });
     const body = await res.json();
     setBusy(false);
@@ -49,21 +59,30 @@ export function SuspiciousFlagActions({ flagId, hasEmail, onChanged }: {
     cancel(); onChanged();
   }
 
-  async function submitDeleteAndBlock() {
-    if (!justification.trim()) { setErr('Justification is required.'); return; }
-    setBusy(true); setErr('');
-    const res = await fetch(`/api/backoffice/suspicious-flags/${flagId}/delete-and-block`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ justification }),
-    });
-    const body = await res.json();
-    setBusy(false);
-    if (!body.ok) { setErr(body.error); return; }
-    cancel(); onChanged();
-  }
+  const panel = (suspendPanel || deletePanel) && (
+    <AccountActionPanel
+      title={suspendPanel ? 'Suspend' : 'Delete'} name={companyName}
+      cascadeLines={moderationCascadeLines(targetType)}
+      confirmLabel={suspendPanel ? `Confirm suspend (${suspendPanel.label})` : 'Confirm delete'}
+      reasonPlaceholder="Why is this account being suspended/deleted?"
+      onConfirm={async (reason) => {
+        const url = suspendPanel
+          ? `/api/backoffice/suspicious-flags/${flagId}/suspend`
+          : `/api/backoffice/suspicious-flags/${flagId}/delete-and-block`;
+        const body = suspendPanel
+          ? JSON.stringify({ hours: suspendPanel.hours, justification: reason })
+          : JSON.stringify({ justification: reason });
+        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+        const resBody = await res.json().catch(() => ({}));
+        return { ok: !!resBody.ok, error: resBody.error };
+      }}
+      onClose={() => { setSuspendPanel(null); setDeletePanel(false); }}
+      onDone={() => { setSuspendPanel(null); setDeletePanel(false); onChanged(); }} />
+  );
 
   if (mode === 'alert_email') {
     return (
+      <>
       <div className="flex flex-col gap-1">
         <p className="text-[11px] text-gray-500">Sends a generic &quot;unusual activity&quot; notice to the email on file. Wording isn&apos;t final yet.</p>
         {err && <span className="text-[11px] text-[#B00000]">{err}</span>}
@@ -75,71 +94,52 @@ export function SuspiciousFlagActions({ flagId, hasEmail, onChanged }: {
           <button onClick={cancel} className="rounded border border-gray-300 px-2 py-0.5 text-[11px]">Cancel</button>
         </div>
       </div>
+      {panel}
+      </>
     );
   }
 
-  if (mode === 'suspend') {
+  if (mode === 'dismiss') {
     return (
+      <>
       <div className="flex flex-col gap-1">
-        <div className="flex flex-wrap gap-1">
-          {SUSPEND_PRESETS.map((p) => (
-            <button key={p.hours} onClick={() => setHours(p.hours)}
-              className={`rounded-full px-2 py-0.5 text-[11px] ${hours === p.hours ? 'bg-[#0E7490] text-white' : 'bg-gray-100 text-gray-600'}`}>
-              {p.label}
-            </button>
-          ))}
-        </div>
-        <label className="flex items-center gap-1 text-[11px] text-gray-500">
-          or custom hours:
-          <input type="number" min={1} value={hours} onChange={(e) => setHours(Number(e.target.value))}
-            className="w-20 rounded border border-gray-200 px-1 py-0.5 text-[11px]" />
-        </label>
-        <textarea value={justification} onChange={(e) => setJustification(e.target.value)} placeholder="Justification (required)"
+        <p className="text-[11px] text-gray-500">Marks this flag reviewed — not suspicious, or not enough to act on. No moderation change.</p>
+        <textarea value={justification} onChange={(e) => setJustification(e.target.value)} placeholder="Reason (required)"
           rows={2} className="w-56 rounded border border-gray-200 p-1 text-xs" />
         {err && <span className="text-[11px] text-[#B00000]">{err}</span>}
         <div className="flex gap-1.5">
-          <button disabled={busy} onClick={() => void submitSuspend()}
-            className="rounded bg-amber-600 px-2 py-0.5 text-[11px] font-semibold text-white disabled:opacity-40">
-            {busy ? 'Saving…' : `Confirm suspend (${hours}h)`}
+          <button disabled={busy} onClick={() => void submitDismiss()}
+            className="rounded bg-gray-600 px-2 py-0.5 text-[11px] font-semibold text-white disabled:opacity-40">
+            {busy ? 'Saving…' : 'Confirm dismiss'}
           </button>
           <button onClick={cancel} className="rounded border border-gray-300 px-2 py-0.5 text-[11px]">Cancel</button>
         </div>
       </div>
-    );
-  }
-
-  if (mode === 'delete_and_block') {
-    return (
-      <div className="flex flex-col gap-1">
-        <p className="text-[11px] text-[#B00000]">
-          Deletes immediately (bypasses the usual 30-day quarantine — recorded as such) and blocks this email from
-          signing up, being invited, or being granted access again anywhere on the platform.
-        </p>
-        <textarea value={justification} onChange={(e) => setJustification(e.target.value)} placeholder="Justification (required)"
-          rows={2} className="w-56 rounded border border-gray-200 p-1 text-xs" />
-        {err && <span className="text-[11px] text-[#B00000]">{err}</span>}
-        <div className="flex gap-1.5">
-          <button disabled={busy} onClick={() => void submitDeleteAndBlock()}
-            className="rounded bg-[#B00000] px-2 py-0.5 text-[11px] font-semibold text-white disabled:opacity-40">
-            {busy ? 'Saving…' : 'Confirm delete + block'}
-          </button>
-          <button onClick={cancel} className="rounded border border-gray-300 px-2 py-0.5 text-[11px]">Cancel</button>
-        </div>
-      </div>
+      {panel}
+      </>
     );
   }
 
   return (
+    <>
     <div className="flex flex-wrap gap-2">
       <button disabled={!hasEmail} title={hasEmail ? undefined : 'No email on file'}
         onClick={() => setMode('alert_email')} className="text-xs text-[#0E7490] hover:underline disabled:text-gray-300 disabled:no-underline">
         Send alert email
       </button>
-      <button onClick={() => setMode('suspend')} className="text-xs text-amber-700 hover:underline">Suspend…</button>
+      {SUSPEND_PRESETS.map((p) => (
+        <button key={p.label} onClick={() => setSuspendPanel({ hours: p.hours ?? 24 * 365 * 10, label: p.label })}
+          className="text-xs text-amber-700 hover:underline">
+          Suspend ({p.label})
+        </button>
+      ))}
       <button disabled={!hasEmail} title={hasEmail ? undefined : 'No email on file to block'}
-        onClick={() => setMode('delete_and_block')} className="text-xs text-[#B00000] hover:underline disabled:text-gray-300 disabled:no-underline">
+        onClick={() => setDeletePanel(true)} className="text-xs text-[#B00000] hover:underline disabled:text-gray-300 disabled:no-underline">
         Delete + block email
       </button>
+      <button onClick={() => setMode('dismiss')} className="text-xs text-gray-500 hover:underline">Dismiss…</button>
     </div>
+    {panel}
+    </>
   );
 }
