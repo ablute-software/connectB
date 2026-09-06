@@ -95,11 +95,14 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
   }
 
   const items: WorkspaceNavItem[] = [
-    item('attention', 'Attention', '/backoffice', { icon: '⚑', badge: attentionTotal || undefined }),
+    // Prompt 585 §A — the one badge in the whole dark sidebar allowed
+    // outside the blue family: this is the aggregate total, not a per-item
+    // count, so it gets --sb-danger red instead of --sb-badge blue.
+    item('attention', 'Attention', '/backoffice', { icon: '⚑', badge: attentionTotal || undefined, badgeDanger: true }),
 
     item('review-new', 'New investors', '/backoffice/queue?tab=candidates', {
       icon: '☰', group: 1, groupLabel: 'Review', groupMeta: reviewTotal > 0
-        ? <span className="rounded-full bg-gray-700 px-1.5 text-[10px] font-bold text-white">{reviewTotal}</span> : undefined,
+        ? <span className="rounded-full bg-[var(--sb-active)] px-1.5 text-[10px] font-bold text-[var(--sb-text)]">{reviewTotal}</span> : undefined,
       badge: newInvestors || undefined, dimmed: !newInvestors,
     }),
     item('review-contributions', 'Contributions', '/backoffice/queue?tab=contributions', { icon: '☰', group: 1, badge: contributions || undefined, dimmed: !contributions }),
@@ -145,7 +148,7 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
     // level above the four individual detail pages it links out to.
     item('system-overview', 'Overview', '/backoffice/system', {
       icon: '●', group: 5, groupLabel: 'System',
-      groupMeta: <span className={`inline-block h-[7px] w-[7px] rounded-full ${systemNominal === false ? 'bg-red-500' : 'bg-green-500'}`} />,
+      groupMeta: <span className={`inline-block h-[7px] w-[7px] rounded-full ${systemNominal === false ? 'bg-[var(--sb-danger)]' : 'bg-[var(--sb-success)]'}`} />,
     }),
     item('system-email', 'Email delivery', '/backoffice/email-delivery', { icon: '●', group: 5 }),
     item('system-gap', 'Gap engine health', '/backoffice/gap-engine-health', { icon: '●', group: 5 }),
@@ -168,10 +171,15 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
         subtitle="Back-office"
         groupStyle="cards"
         collapsible
+        theme="dark"
         beforeItems={
-          <div className="mx-1.5 mt-1 flex flex-col gap-2 rounded-xl bg-gray-900 p-3 min-[1440px]:mx-3">
+          // Prompt 585 §A — matches Navigation.dc.html's own operator strip:
+          // no separate card surface (that was a third, uncatalogued dark
+          // tone competing with --sb-bg), just a bottom border on the same
+          // sidebar surface.
+          <div className="mx-1.5 mt-1 flex flex-col gap-2 border-b border-[var(--sb-border)] px-1.5 pb-3 min-[1440px]:mx-3 min-[1440px]:px-1.5">
             <div className="flex items-center justify-center min-[1440px]:justify-between">
-              <span className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-wider text-blue-300" title="Operator mode">
+              <span className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-wider text-[var(--sb-text)]" title="Operator mode">
                 <span aria-hidden>⛨</span> <span className="hidden min-[1440px]:inline">Operator mode</span>
               </span>
             </div>
@@ -189,14 +197,14 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
         footer={
           <div className="flex items-center justify-center gap-2 min-[1440px]:justify-between">
             <div className="flex min-w-0 items-center gap-2.5">
-              <div className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-[#0E7490] text-[11px] font-bold text-white" title={me?.email ?? undefined}>{initials}</div>
+              <div className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-[var(--sb-accent)] text-[11px] font-bold text-white" title={me?.email ?? undefined}>{initials}</div>
               <div className="hidden min-w-0 min-[1440px]:block">
-                <div className="truncate text-[12px] font-medium text-gray-700">{me?.email ?? '—'}</div>
-                <div className="text-[10px] uppercase tracking-wide text-[#0E7490]">Operator</div>
+                <div className="truncate text-[12px] font-medium text-[var(--sb-text)]">{me?.email ?? '—'}</div>
+                <div className="text-[10px] uppercase tracking-wide text-[var(--sb-dim)]">Operator</div>
               </div>
             </div>
-            <LogoutButton compact className="min-[1440px]:hidden shrink-0" />
-            <LogoutButton className="hidden shrink-0 min-[1440px]:inline-block" />
+            <LogoutButton compact theme="dark" className="min-[1440px]:hidden shrink-0" />
+            <LogoutButton theme="dark" className="hidden shrink-0 min-[1440px]:inline-block" />
           </div>
         }
       />

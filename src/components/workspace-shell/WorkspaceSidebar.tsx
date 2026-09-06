@@ -5,10 +5,28 @@
 // badge + sessionLabel + logout) are genuinely different content, not worth
 // modeling internals for.
 import Link from 'next/link';
-import { Fragment, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { WorkspaceNavItem } from './types';
 
-export function WorkspaceSidebar({ brandName, subtitle, beforeItems, items, afterItems, footer, groupStyle = 'dividers', collapsible = false }: {
+// Prompt 585 §B — user-resizable width, backoffice sidebar only (the design
+// artifact's own 300px is the default; neither Navigation.dc.html nor
+// Main.dc.html anticipates manual resize, this is a new Nuno request, not a
+// reconciliation to spec). Starting bounds, adjustable to real rendered
+// text later: 220px is the narrowest that keeps "Promo codes & offers" and
+// "Usage · AI costs" on one line; 420px is a generous cap before the content
+// column starts feeling cramped on a 1440px viewport. Dragging below the
+// minimum clamps there rather than snapping into the icon rail — simpler to
+// get right than unifying two independent width mechanisms (this JS-driven
+// one and the icon rail's own pure-CSS 1440px breakpoint), and the doc
+// itself says either choice is fine as long as it's decided and documented.
+const WIDTH_KEY = 'sd-backoffice-sidebar-width';
+const MIN_WIDTH = 220;
+const MAX_WIDTH = 420;
+const DEFAULT_WIDTH = 300;
+
+export function WorkspaceSidebar({
+  brandName, subtitle, beforeItems, items, afterItems, footer, groupStyle = 'dividers', collapsible = false, theme = 'light',
+}: {
   brandName: ReactNode;
   subtitle: string;
   // Prompt 576 §3 — opaque content between the brand header and the nav
@@ -39,29 +57,88 @@ export function WorkspaceSidebar({ brandName, subtitle, beforeItems, items, afte
   // per side of the breakpoint, so nothing depends on a resize listener or
   // client-only state that could mismatch during SSR.
   collapsible?: boolean;
+  // Prompt 585 §A — 'dark' is the back-office's own theme (Navigation.dc.html),
+  // used ONLY when the caller opts in. Default 'light' keeps founder/
+  // investor/guest sidebars byte-for-byte unchanged — none of them pass this.
+  theme?: 'light' | 'dark';
 }) {
-  const railWidth = collapsible ? 'w-16 min-[1440px]:w-60' : 'w-60';
+  const dark = theme === 'dark';
   const hideWhenNarrow = collapsible ? 'hidden min-[1440px]:inline' : '';
   const hideBlockWhenNarrow = collapsible ? 'hidden min-[1440px]:block' : '';
+
+  // Prompt 585 §B — read the saved width only after mount (localStorage
+  // doesn't exist during SSR); a hydration frame at DEFAULT_WIDTH before the
+  // real preference applies is the accepted, standard tradeoff for a
+  // desktop-only, below-the-fold-irrelevant preference like this one.
+  const [width, setWidth] = useState(DEFAULT_WIDTH);
+  const draggingRef = useRef(false);
+  useEffect(() => {
+    if (!collapsible) return;
+    try {
+      const saved = Number(localStorage.getItem(WIDTH_KEY));
+      if (saved >= MIN_WIDTH && saved <= MAX_WIDTH) setWidth(saved);
+    } catch { /* private browsing, storage disabled — default stands */ }
+  }, [collapsible]);
+
+  const onDragStart = useCallback((startEvent: React.MouseEvent) => {
+    startEvent.preventDefault();
+    draggingRef.current = true;
+    const startX = startEvent.clientX;
+    const startWidth = width;
+    const onMove = (e: MouseEvent) => {
+      if (!draggingRef.current) return;
+      const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + (e.clientX - startX)));
+      setWidth(next);
+    };
+    const onUp = () => {
+      draggingRef.current = false;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      setWidth((current) => {
+        try { localStorage.setItem(WIDTH_KEY, String(current)); } catch { /* ignore */ }
+        return current;
+      });
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [width]);
+
+  const railWidth = collapsible ? 'w-16 min-[1440px]:w-[var(--sb-w)]' : 'w-60';
+  const asideTheme = dark ? 'border-[var(--sb-border)] bg-[var(--sb-bg)]' : 'border-gray-100 bg-white';
+  const brandTextTheme = dark ? 'text-[var(--sb-text)]' : 'text-[#0E7490]';
+  const subtitleTheme = dark ? 'text-[var(--sb-dim)]' : 'text-gray-300';
+  const groupLabelTheme = dark ? 'text-[var(--sb-dim)]' : 'text-gray-400';
+  const footerBorderTheme = dark ? 'border-[var(--sb-border)]' : 'border-gray-100';
 
   function renderItem(n: WorkspaceNavItem) {
     const className = `flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] transition ${
       collapsible ? 'justify-center min-[1440px]:justify-start' : ''} ${
-      n.active ? 'bg-[#0E7490] font-medium text-white shadow-sm'
-        : n.dimmed ? 'text-gray-400 hover:bg-gray-50'
-        : 'text-gray-600 hover:bg-gray-50'}`;
+      n.active ? (dark ? 'bg-[var(--sb-active)] text-[var(--sb-text)]' : 'bg-[#0E7490] font-medium text-white shadow-sm')
+        : n.dimmed ? (dark ? 'text-[var(--sb-dim)] hover:bg-white/5' : 'text-gray-400 hover:bg-gray-50')
+        : (dark ? 'text-[var(--sb-text)] hover:bg-white/5' : 'text-gray-600 hover:bg-gray-50')}`;
+    const iconTheme = n.active ? '' : n.dimmed ? (dark ? 'text-[var(--sb-dim)] opacity-60' : 'text-gray-300') : (dark ? 'text-[var(--sb-dim)]' : 'text-gray-400');
+    // Prompt 585 §A — the one badge allowed to break the blue family: the
+    // aggregate "Attention" total, in --sb-danger with white text (matching
+    // the reference exactly). Every other badge (section or per-item count)
+    // stays --sb-badge/--sb-text. Light theme is entirely unaffected —
+    // amber stays amber regardless of badgeDanger, since only the dark
+    // back-office sidebar ever sets it.
+    const badgeTheme = dark
+      ? (n.badgeDanger ? 'bg-[var(--sb-danger)] text-white' : 'bg-[var(--sb-badge)] text-[var(--sb-text)]')
+      : 'bg-amber-400 text-white';
+    const dotTheme = dark ? (n.badgeDanger ? 'bg-[var(--sb-danger)]' : 'bg-[var(--sb-badge)]') : 'bg-amber-400';
     const inner = (
       <>
-        <span className={`w-4 text-center ${n.active ? '' : n.dimmed ? 'text-gray-300' : 'text-gray-400'}`}>{n.icon}</span>
+        <span className={`w-4 text-center ${iconTheme}`}>{n.icon}</span>
         <span className={`${hideWhenNarrow} ${n.emphasize ? 'font-semibold tracking-wide' : ''}`}>{n.label}</span>
         {!!n.badge && (
-          <span className={`${collapsible ? 'hidden min-[1440px]:ml-auto min-[1440px]:inline-block' : 'ml-auto inline-block'} rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-white`}>
+          <span className={`${collapsible ? 'hidden min-[1440px]:ml-auto min-[1440px]:inline-block' : 'ml-auto inline-block'} rounded-full px-1.5 text-[10px] font-bold ${badgeTheme}`}>
             {n.badge}
           </span>
         )}
         {/* The collapsed rail's "número vira ponto" (§5) — same badge fact, drawn as a dot so it fits ~64px. */}
         {!!n.badge && collapsible && (
-          <span className="absolute right-1.5 top-1.5 h-[7px] w-[7px] rounded-full bg-amber-400 min-[1440px]:hidden" />
+          <span className={`absolute right-1.5 top-1.5 h-[7px] w-[7px] rounded-full min-[1440px]:hidden ${dotTheme}`} />
         )}
       </>
     );
@@ -79,7 +156,7 @@ export function WorkspaceSidebar({ brandName, subtitle, beforeItems, items, afte
   function renderGroupHeader(label: string | undefined, meta: ReactNode | undefined) {
     if (!label) return null;
     return (
-      <div className={`flex items-center pb-1 pt-1 text-[10.5px] font-bold uppercase tracking-wider text-gray-400 ${
+      <div className={`flex items-center pb-1 pt-1 text-[10.5px] font-bold uppercase tracking-wider ${groupLabelTheme} ${
         collapsible ? 'justify-center min-[1440px]:justify-between min-[1440px]:px-2.5' : 'justify-between px-2.5'}`}>
         <span className={hideWhenNarrow}>{label}</span>
         {meta}
@@ -98,17 +175,20 @@ export function WorkspaceSidebar({ brandName, subtitle, beforeItems, items, afte
   }
 
   return (
-    <aside className={`fixed inset-y-0 left-0 hidden ${railWidth} flex-col border-r border-gray-100 bg-white md:flex`}>
+    <aside
+      className={`fixed inset-y-0 left-0 hidden ${railWidth} flex-col border-r md:flex ${asideTheme}`}
+      style={collapsible ? ({ '--sb-w': `${width}px` } as React.CSSProperties) : undefined}
+    >
       <div className={collapsible ? 'px-2 pb-3 pt-6 text-center min-[1440px]:px-6 min-[1440px]:text-left' : 'px-6 pb-3 pt-6'}>
-        <div className={`text-[26px] font-bold leading-none tracking-tight text-[#0E7490] ${hideBlockWhenNarrow}`} style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
+        <div className={`text-[26px] font-bold leading-none tracking-tight ${brandTextTheme} ${hideBlockWhenNarrow}`} style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
           {brandName}
         </div>
-        <div className={`mt-1.5 text-[11px] font-medium uppercase tracking-widest text-gray-300 ${hideBlockWhenNarrow}`}>{subtitle}</div>
+        <div className={`mt-1.5 text-[11px] font-medium uppercase tracking-widest ${subtitleTheme} ${hideBlockWhenNarrow}`}>{subtitle}</div>
         {/* Prompt 576 §5 — the rail keeps SOME brand mark below 1440 rather
-            than an empty header: the first letter, same teal as the
+            than an empty header: the first letter, same accent as the
             wordmark it stands in for. */}
         {collapsible && (
-          <div className="text-[22px] font-bold leading-none text-[#0E7490] min-[1440px]:hidden" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
+          <div className={`text-[22px] font-bold leading-none min-[1440px]:hidden ${brandTextTheme}`} style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
             {typeof brandName === 'string' ? brandName[0] : '·'}
           </div>
         )}
@@ -120,7 +200,8 @@ export function WorkspaceSidebar({ brandName, subtitle, beforeItems, items, afte
             <Fragment key={ri}>
               {renderGroupHeader(run.items[0]?.groupLabel, run.items[0]?.groupMeta)}
               {run.group !== undefined ? (
-                <div className={`space-y-0.5 rounded-xl border border-gray-100/80 bg-white p-1.5 shadow-[0_1px_2px_rgba(15,23,30,0.04),0_0_0_1px_rgba(15,23,30,0.03)] ${ri > 0 ? 'mt-2' : ''}`}>
+                <div className={`space-y-0.5 rounded-xl p-1.5 ${ri > 0 ? 'mt-2' : ''} ${
+                  dark ? 'border border-white/5 bg-white/[0.02]' : 'border border-gray-100/80 bg-white shadow-[0_1px_2px_rgba(15,23,30,0.04),0_0_0_1px_rgba(15,23,30,0.03)]'}`}>
                   {run.items.map((n) => <Fragment key={n.key}>{renderItem(n)}</Fragment>)}
                 </div>
               ) : (
@@ -140,7 +221,7 @@ export function WorkspaceSidebar({ brandName, subtitle, beforeItems, items, afte
             const isNewGroup = n.group !== undefined && (i === 0 || prevGroup !== n.group);
             return (
               <Fragment key={n.key}>
-                {showDivider && <div className="my-2 border-t border-gray-100" />}
+                {showDivider && <div className={`my-2 border-t ${dark ? 'border-white/10' : 'border-gray-100'}`} />}
                 {isNewGroup && renderGroupHeader(n.groupLabel, n.groupMeta)}
                 {renderItem(n)}
               </Fragment>
@@ -149,7 +230,25 @@ export function WorkspaceSidebar({ brandName, subtitle, beforeItems, items, afte
         )}
         {afterItems}
       </nav>
-      <div className={`border-t border-gray-100 py-3 ${collapsible ? 'px-2 min-[1440px]:px-4' : 'px-4'}`}>{footer}</div>
+      <div className={`border-t py-3 ${collapsible ? 'px-2 min-[1440px]:px-4' : 'px-4'} ${footerBorderTheme}`}>{footer}</div>
+      {/* Prompt 585 §B — drag handle, expanded state only (below the 1440px
+          breakpoint the rail is the fixed 64px icon strip; resizing that
+          makes no sense). A 1px visual line plus a wider invisible hit
+          target either side of it — the width itself lives on the aside as
+          --sb-w, updated live while dragging. */}
+      {collapsible && (
+        <div
+          onMouseDown={onDragStart}
+          title="Drag to resize"
+          className="group absolute inset-y-0 right-0 z-10 hidden w-2.5 -translate-x-1/2 cursor-col-resize items-center justify-center min-[1440px]:flex"
+        >
+          {/* The 1px line is the visual; the 10px div above is the actual
+              hit target — group-hover (not hover) so mousing anywhere over
+              the wide target highlights the thin line, not just the 1px
+              itself, which a real cursor would rarely land on exactly. */}
+          <div className={`h-full w-px transition-colors ${dark ? 'bg-[var(--sb-border)] group-hover:bg-[var(--sb-accent)]' : 'bg-gray-200 group-hover:bg-[#0E7490]'}`} />
+        </div>
+      )}
     </aside>
   );
 }

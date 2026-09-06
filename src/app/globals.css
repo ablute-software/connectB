@@ -8,6 +8,25 @@ body {
   background: #f9fafb;
 }
 
+/* Prompt 585 §A — the back-office sidebar's own dark theme, lifted verbatim
+   from the approved design (Navigation.dc.html, artifact 6d8ff659). Two hue
+   families with meaning, not decoration: blue-258/260 for the shell itself
+   (background, text, active state, section/individual badges, avatar), red
+   reserved ONLY for the aggregate "Attention" total, green ONLY for the
+   System status dot. Scoped to WorkspaceSidebar's dark variant — the
+   founder/investor/guest shells stay the light theme above, untouched. */
+:root {
+  --sb-bg: oklch(24% 0.02 260);
+  --sb-text: oklch(88% 0.01 260);
+  --sb-dim: oklch(68% 0.02 260);
+  --sb-active: oklch(32% 0.035 258);
+  --sb-border: oklch(34% 0.02 260);
+  --sb-badge: oklch(28% 0.03 258);
+  --sb-accent: oklch(52% 0.14 258);
+  --sb-danger: oklch(55% 0.19 25);
+  --sb-success: oklch(58% 0.13 150);
+}
+
 /* Onboarding modal entrance (onboarding_sherlockdeal_v2.md §6): fade +
    translateY(8px) -> 0, 220ms. Exit is a plain 150ms fade, handled by the
    component unmounting after that delay rather than a separate keyframe. */

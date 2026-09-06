@@ -22,6 +22,11 @@ export interface WorkspaceNavItem {
   // Amber pending-count pill. Founder-only today (Tasks/About); generic so
   // the investor side can use it once it has something to count.
   badge?: number;
+  // Prompt 585 §A — the back-office dark theme's one exception to its own
+  // blue family: an aggregate total (today, only "Attention") renders its
+  // badge in --sb-danger red instead of --sb-badge blue. No effect in the
+  // light theme (still plain amber) or on any item that doesn't set it.
+  badgeDanger?: boolean;
   // Founder-only: onboarding tour anchors resolve `[data-tour-id="..."]`
   // against the whole document, so this attribute on the rendered <a> is
   // load-bearing for a tour mounted on a different page entirely, not
