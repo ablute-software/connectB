@@ -179,6 +179,15 @@ export const REVIEW_CARD_LABELS: Record<string, string> = {
   claims: 'Person claims',
   gdpr: 'GDPR',
   trust_safety: 'Trust & safety',
+  // Prompt 598 §A — these three existed ONLY as tabs on the Queue page, so
+  // once that tab bar went away they had no route in at all, and they never
+  // had a badge anywhere either. "All queues" is now the one board that
+  // shows every queue, so they belong on it. Their counts stay null
+  // ("counted when opened", see the header) — which also keeps them out of
+  // the collapsed All-clear block, since not knowing isn't zero.
+  key_people: 'Key people',
+  community: 'Contributions — by users',
+  competitor_intel: 'Competitor intel',
 };
 
 function sumKnown(...vals: (number | null | undefined)[]): number | null {
@@ -240,5 +249,12 @@ export function groupIntoReviewCards(rows: QueueSummaryRow[]): QueueSummaryRow[]
       count: trustSafetyCount,
       oldestDays: trustSafetyCount !== null ? maxKnown(suspicious?.oldestDays, fraud?.oldestDays) : null,
     },
+    // Prompt 598 §A — passed straight through, no fusion: each is already
+    // its own queue, and each reports count null because only its own tab
+    // can count it. They're here so "All queues" is genuinely all of them
+    // now that the tab bar is gone.
+    { key: 'key_people', count: by('key_people')?.count ?? null },
+    { key: 'community', count: by('community')?.count ?? null },
+    { key: 'competitor_intel', count: by('competitor_intel')?.count ?? null },
   ];
 }

@@ -100,28 +100,40 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
     // count, so it gets --sb-danger red instead of --sb-badge blue.
     item('attention', 'Attention', '/backoffice', { icon: '⚑', badge: attentionTotal || undefined, badgeDanger: true }),
 
-    item('review-new', 'New investors', '/backoffice/queue?tab=candidates', {
+    // Prompt 598 §A — ONE navigation for Review. The Queue page's own tab
+    // bar is gone; this is now the only place a queue is chosen, and
+    // "All queues" is the landing that still shows every queue including
+    // the empty ones. §A.2: a queue with nothing pending doesn't render
+    // here at all — moving all ten queues into the sidebar unconditionally
+    // would have made the column longer, which is the opposite of what was
+    // asked ("o sidebar tem que ficar mais simples... para evitar o
+    // scrolldown"). Each reappears by itself the moment it has an item.
+    // The section's own aggregate badge always renders, so "calm" is
+    // legible without opening anything. Deliberately NOT applied to
+    // Accounts/Data/Insight/System — those are destinations, not work
+    // queues; hiding them would be hiding navigation, not noise.
+    item('review-all', 'All queues', '/backoffice/queue', {
       icon: '☰', group: 1, groupLabel: 'Review', groupMeta: reviewTotal > 0
         ? <span className="rounded-full bg-[var(--sb-active)] px-1.5 text-[10px] font-bold text-[var(--sb-text)]">{reviewTotal}</span> : undefined,
-      badge: newInvestors || undefined, dimmed: !newInvestors,
     }),
-    item('review-contributions', 'Contributions', '/backoffice/queue?tab=contributions', { icon: '☰', group: 1, badge: contributions || undefined, dimmed: !contributions }),
-    item('review-identity', 'Investor identity', '/backoffice/queue?tab=identity', { icon: '☰', group: 1, badge: investorIdentity || undefined, dimmed: !investorIdentity }),
-    item('review-claims', 'Person claims', '/backoffice/queue?tab=claims', { icon: '☰', group: 1, badge: personClaims || undefined, dimmed: !personClaims }),
+    ...(newInvestors ? [item('review-new', 'New investors', '/backoffice/queue?tab=new_investors', { icon: '☰', group: 1, badge: newInvestors })] : []),
+    ...(contributions ? [item('review-contributions', 'Contributions', '/backoffice/queue?tab=contributions', { icon: '☰', group: 1, badge: contributions })] : []),
+    ...(investorIdentity ? [item('review-identity', 'Investor identity', '/backoffice/queue?tab=identity', { icon: '☰', group: 1, badge: investorIdentity })] : []),
+    ...(personClaims ? [item('review-claims', 'Person claims', '/backoffice/queue?tab=claims', { icon: '☰', group: 1, badge: personClaims })] : []),
     // Prompt 576 §3 — the label itself carries the deadline once it's
-    // within a week; a simpler stand-in for the wireframe's always-present
-    // clock glyph (WorkspaceNavItem has no slot for a second icon per row),
-    // but it still means "nothing today" and "no such thing as a deadline
-    // here" never look identical once a request is actually close to due.
-    item('review-gdpr', gdprSlaDays !== null && gdprSlaDays <= 7 ? `GDPR — due in ${Math.max(gdprSlaDays, 0)}d` : 'GDPR',
-      '/backoffice/queue?tab=gdpr', { icon: '☰', group: 1, badge: gdpr || undefined, dimmed: !gdpr }),
-    item('review-trust', 'Trust & safety', '/backoffice/queue?tab=trust_safety', { icon: '☰', group: 1, badge: trustSafety || undefined, dimmed: !trustSafety }),
+    // within a week. 598 §A.2 asked whether GDPR should stay pinned even
+    // when empty; the recommendation there was no, and the approved design
+    // says the same ("Deadline first — GDPR leads the board the moment it
+    // isn't empty", which only means anything if an empty GDPR isn't
+    // occupying a row). Following that: it appears the instant it has one.
+    ...(gdpr ? [item('review-gdpr', gdprSlaDays !== null && gdprSlaDays <= 7 ? `GDPR — due in ${Math.max(gdprSlaDays, 0)}d` : 'GDPR',
+      '/backoffice/queue?tab=gdpr', { icon: '☰', group: 1, badge: gdpr })] : []),
+    ...(trustSafety ? [item('review-trust', 'Trust & safety', '/backoffice/queue?tab=trust_safety', { icon: '☰', group: 1, badge: trustSafety })] : []),
     // Prompt 576 §2 only names Support as feeding Attention's aggregate
     // feed (Phase 2); it doesn't say where the existing ticket-list PAGE
-    // itself lives. Review fits it best today — daily, decision-driven —
-    // and it must keep a nav slot regardless: no existing route may become
-    // unreachable in Phase 1.
-    item('review-support', 'Customer Support', '/backoffice/support', { icon: '☰', group: 1, badge: supportBadge || undefined, dimmed: !supportBadge }),
+    // itself lives. Review fits it best today — daily, decision-driven.
+    // Same visibility rule as the queues above now that it's one nav.
+    ...(supportBadge ? [item('review-support', 'Customer Support', '/backoffice/support', { icon: '☰', group: 1, badge: supportBadge })] : []),
 
     item('accounts-startups', 'Startups', '/backoffice/startups', { icon: '◉', group: 2, groupLabel: 'Accounts' }),
     item('accounts-investors', 'Investors', '/backoffice/investors', { icon: '◉', group: 2 }),

@@ -26,32 +26,46 @@ import { serverClient, resolveRole } from '@/lib/supabase-server';
 import { entityCompleteness, personCompleteness, qualifiesForContactEnrichment, ENRICHMENT_THRESHOLD, ENRICHMENT_REQUEST_FIELD, type PersonCatalogSide } from '@/lib/completeness';
 import type { Entity, Person } from '@/lib/types';
 
-type Row = { subjectType: 'entity' | 'person'; name: string; orgId: string; active: boolean; percent: number; missing: string[]; requestCount: number };
-type QueueItem = { subjectType: 'entity' | 'person'; name: string; orgCount: number; activeCount: number; requestCount: number; minPercent: number; missing: string[]; demand: number };
+type Row = {
+  subjectType: 'entity' | 'person'; name: string; orgId: string; active: boolean;
+  percent: number; missing: string[]; requestCount: number;
+  // Prompt 594 §D — the catalog row this private-pipeline row is linked to,
+  // when it is. The queue groups by NAME (an aggregate across orgs, with no
+  // single id of its own), so a "open this profile" link needs the catalog
+  // id carried up from whichever grouped row actually has one. Null for the
+  // unlinked majority — 1299 of 1782 people rows today (595 §C) — and the
+  // client then renders plain text rather than a link to nowhere.
+  catalogId: string | null;
+};
+type QueueItem = {
+  subjectType: 'entity' | 'person'; name: string; orgCount: number; activeCount: number;
+  requestCount: number; minPercent: number; missing: string[]; demand: number; catalogId: string | null;
+};
 
 function buildQueue(rows: Row[]): QueueItem[] {
   const groups = new Map<string, {
     subjectType: 'entity' | 'person'; name: string; orgIds: Set<string>; activeOrgIds: Set<string>;
-    requestCount: number; minPercent: number; missing: Set<string>;
+    requestCount: number; minPercent: number; missing: Set<string>; catalogId: string | null;
   }>();
   for (const r of rows) {
     const key = `${r.subjectType}:${r.name.trim().toLowerCase()}`;
     const g = groups.get(key) ?? {
       subjectType: r.subjectType, name: r.name, orgIds: new Set<string>(), activeOrgIds: new Set<string>(),
-      requestCount: 0, minPercent: 100, missing: new Set<string>(),
+      requestCount: 0, minPercent: 100, missing: new Set<string>(), catalogId: null,
     };
     g.orgIds.add(r.orgId);
     if (r.active) g.activeOrgIds.add(r.orgId);
     g.requestCount += r.requestCount;
     g.minPercent = Math.min(g.minPercent, r.percent);
     r.missing.forEach((m) => g.missing.add(m));
+    g.catalogId = g.catalogId ?? r.catalogId;
     groups.set(key, g);
   }
   return [...groups.values()]
     .map((g) => ({
       subjectType: g.subjectType, name: g.name, orgCount: g.orgIds.size, activeCount: g.activeOrgIds.size,
       requestCount: g.requestCount, minPercent: g.minPercent, missing: [...g.missing],
-      demand: g.activeOrgIds.size + g.requestCount,
+      demand: g.activeOrgIds.size + g.requestCount, catalogId: g.catalogId,
     }))
     .sort((a, b) => b.demand - a.demand || a.minPercent - b.minPercent)
     .slice(0, 50);
@@ -113,11 +127,12 @@ export async function GET() {
     // org_id is NOT NULL on entities (confirmed against the schema) — the
     // Entity type only marks it optional because most callers don't select it.
     const orgId = e.org_id!;
+    const catalogId = (e as Entity & { catalog_id?: string | null }).catalog_id ?? null;
     if (c.firmographic.percent < ENRICHMENT_THRESHOLD) {
-      profileRows.push({ subjectType: 'entity', name: e.name, orgId, active, percent: c.firmographic.percent, missing: c.firmographic.missing, requestCount });
+      profileRows.push({ subjectType: 'entity', name: e.name, orgId, active, percent: c.firmographic.percent, missing: c.firmographic.missing, requestCount, catalogId });
     }
     if (qualifiesForContactEnrichment(c)) {
-      contactRows.push({ subjectType: 'entity', name: e.name, orgId, active, percent: c.contact.percent, missing: c.contact.missing, requestCount });
+      contactRows.push({ subjectType: 'entity', name: e.name, orgId, active, percent: c.contact.percent, missing: c.contact.missing, requestCount, catalogId });
     }
   }
   for (const p of (people ?? []) as Person[]) {
@@ -130,6 +145,7 @@ export async function GET() {
       // select it, not because the column can be empty.
       subjectType: 'person', name: p.full_name, orgId: p.org_id!, active: true,
       percent: c.percent, missing: c.missing, requestCount: requestCountBySubject.get(`person:${p.id}`) ?? 0,
+      catalogId: p.catalog_person_id ?? null,
     });
   }
 

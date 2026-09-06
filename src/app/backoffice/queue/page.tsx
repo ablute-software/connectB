@@ -1110,6 +1110,10 @@ function fmtStage(min: string | null, max: string | null) {
 type EnrichmentRow = {
   subjectType: 'entity' | 'person'; name: string; orgCount: number; activeCount: number;
   requestCount: number; minPercent: number; missing: string[]; demand: number;
+  // Prompt 594 §D — the catalog row behind this name-grouped queue entry,
+  // when one is linked. null for the unlinked majority, and then the name
+  // stays plain text rather than becoming a link to nowhere.
+  catalogId: string | null;
 };
 type ResearchProposal = { field: string; value: string; confidence: number; source_url: string };
 // Prompt 594 §B/§C + 595 §E — distinctOrgCount replaces the old
@@ -1225,7 +1229,31 @@ function EnrichmentQueueTable({ title, subtitle, emptyLabel, queue, research, on
               const rr = research[key];
               return (
                 <tr key={key} className="border-t border-gray-50 align-top">
-                  <td className="py-2 font-medium">{r.name}</td>
+                  {/* Prompt 594 §D — the subject column was dead text on the
+                      one list where you most want to open the record and fix
+                      it. A person goes to the dossier Prompt 581 §C already
+                      built (checked before writing a second one — it exists,
+                      with affiliations, verification levels and the
+                      quarantine decide buttons); an entity to the catalog
+                      list filtered to it, since no per-entity route exists.
+                      Both carry the origin so the dossier's back arrow
+                      returns HERE (595 §B.2) instead of its hardcoded index.
+                      No catalog link on file -> plain text, the honest
+                      answer for the 1299 unlinked rows (595 §C). */}
+                  <td className="py-2 font-medium">
+                    {r.catalogId ? (
+                      <Link
+                        href={r.subjectType === 'person'
+                          ? `/backoffice/catalog/people/${r.catalogId}?from=${encodeURIComponent('/backoffice/queue?tab=candidates')}&fromLabel=${encodeURIComponent('the quality queue')}`
+                          : `/backoffice/catalog?q=${encodeURIComponent(r.name)}`}
+                        className="text-[#0E7490] hover:underline"
+                      >
+                        {r.name}
+                      </Link>
+                    ) : (
+                      <span title="No catalog record linked to this row yet — nothing to open.">{r.name}</span>
+                    )}
+                  </td>
                   <td className="text-gray-500">{r.subjectType}</td>
                   <td className="text-gray-600" title={`${r.activeCount} active org(s) · ${r.requestCount} explicit request(s)`}>{r.demand}</td>
                   <td className="text-gray-600">{r.minPercent}%</td>
@@ -1963,12 +1991,17 @@ function KeyPeoplePromoteTab() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [applying, setApplying] = useState(false);
   const [result, setResult] = useState('');
+  // Prompt 596 §A/§C — how many entities are being held back because they
+  // already have contacts, so the list's size is explained rather than
+  // mysterious.
+  const [excludedWithContacts, setExcludedWithContacts] = useState<number | null>(null);
 
   function refresh() {
     fetch('/api/backoffice/key-people-promote').then((r) => r.json()).then((body) => {
       if (body.ok === false) { setErr(body.error); return; }
       const list = body.items as KeyPeopleCandidate[];
       setItems(list);
+      setExcludedWithContacts(typeof body.excludedWithContacts === 'number' ? body.excludedWithContacts : null);
       // Every non-needs-review row starts checked, per the prompt's own
       // "todas selecionadas por defeito, exceto as marcadas needs review."
       setSelected(new Set(list.filter((i) => !i.needsReview).map((i) => i.entityId)));
@@ -2019,6 +2052,21 @@ function KeyPeoplePromoteTab() {
         <code>people</code> rows, which none of these have yet. Applying creates one contact per parsed name, ranked
         1, 2, 3… by the order they appear in the text — never inferred from title.
       </p>
+      {/* Prompt 596 §A/§C — this list used to be silently wrong: the
+          "already has contacts" exclusion was read without paging, so
+          PostgREST's 1000-row cap hid ~780 of the 1782 people rows and
+          their entities looked empty (105 offered; direct SQL says 1 of 246
+          genuinely has none). Applying would have created second copies for
+          ~104 entities that already had contacts. The read is paged now,
+          and the number held back is stated rather than left to be
+          inferred from a list that quietly shrank. */}
+      {excludedWithContacts !== null && excludedWithContacts > 0 && (
+        <p className="mb-3 rounded-lg bg-gray-50 p-2 text-xs text-gray-600">
+          {excludedWithContacts} entit{excludedWithContacts === 1 ? 'y is' : 'ies are'} not listed because {excludedWithContacts === 1 ? 'it' : 'they'} already
+          {' '}ha{excludedWithContacts === 1 ? 's' : 've'} contacts on file — this queue only ever offers entities with none, so applying
+          {' '}can never create a second copy of someone who is already there.
+        </p>
+      )}
       <div className="mb-3 flex items-center gap-2">
         <button disabled={applying || selected.size === 0} onClick={applySelected}
           className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
@@ -2144,18 +2192,16 @@ function BackofficeQueueContent() {
           Settings → Import history → Needs review
         </Link>.
       </p>
-      <div className="flex flex-wrap gap-1 border-b border-gray-200">
-        <button onClick={backToBoard}
-          className={`px-3 py-2 text-sm font-medium ${tab === null ? 'border-b-2 border-[#0E7490] text-[#0E7490]' : 'text-gray-400 hover:text-gray-600'}`}>
-          All queues
-        </button>
-        {TABS.map((t) => (
-          <button key={t.key} onClick={() => openTab(t.key)}
-            className={`px-3 py-2 text-sm font-medium ${tab === t.key ? 'border-b-2 border-[#0E7490] text-[#0E7490]' : 'text-gray-400 hover:text-gray-600'}`}>
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {/* Prompt 598 §A.1 — the tab bar is gone. Review had two navigations
+          for the same six queues plus three that existed only here (and so
+          carried no badge anywhere); the sidebar is now the single place a
+          queue is chosen, and this page's "All queues" board is the landing
+          that still lists every queue, including the empty ones. A queue
+          view keeps one way back to that board, since the row of tabs that
+          used to serve as it no longer exists. */}
+      {tab !== null && (
+        <button onClick={backToBoard} className="text-xs text-[#0E7490] hover:underline">← All queues</button>
+      )}
       {tab === null && (
         <QueueTriageBoard
           labels={REVIEW_CARD_LABELS}

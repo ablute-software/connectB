@@ -4,6 +4,7 @@
 // matching every other back-office dossier-shaped route in this codebase.
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
+import { logAdminAction } from '@/lib/audit';
 
 const TEAM_PAGE_PATHS = ['/team', '/about', '/people'];
 const TEAM_PAGE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -169,5 +170,67 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     quarantine,
     manualLinks,
     activity,
+  });
+}
+
+// Prompt 595 §D / 597 — a developer edits a catalog person's field and it is
+// live immediately: no quarantine, no consensus wait, mirroring what 584
+// gave catalog ENTITIES. Nuno's requirement is textual — such data is
+// "assumido como verificado e credível" — so the write goes through
+// catalog_person_apply_field(..., 'verified_by_admin'), the same path the
+// consensus engine already reads, rather than a raw UPDATE that would leave
+// the value unmarked and therefore overwritable by three agreeing startups
+// later. That was 597's whole argument for option 1, and the option chosen.
+//
+// 597's CONDITION — that a consensus blocked by an admin-verified field stop
+// being silent — lives inside catalog_person_check_consensus() itself, which
+// 597 routes to the "parallel" session (same infrastructure as 871 §D). Not
+// done here: flagged, not silently assumed handled.
+const EDITABLE_FIELDS = new Set(['role', 'based_in', 'linkedin_url', 'background', 'hook', 'watch_outs', 'intro_path', 'email_guess', 'kill_words']);
+
+export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+  const auth = await requirePlatformAdmin();
+  if ('error' in auth) return auth.error;
+  const { admin, userId } = auth;
+  const { id } = params;
+
+  const { field, value } = await req.json().catch(() => ({})) as { field?: string; value?: unknown };
+  if (!field || !EDITABLE_FIELDS.has(field)) {
+    return NextResponse.json({ ok: false, error: `Field must be one of: ${[...EDITABLE_FIELDS].join(', ')}` }, { status: 400 });
+  }
+
+  // Before/after in the audit line, not just the field name — the bar 584 §C
+  // set for entities ("valores antes/depois, não só nomes de campo").
+  const [{ data: person }, { data: researchBefore }, { data: primaryAff }] = await Promise.all([
+    admin.from('catalog_people').select('id, linkedin_url, based_in').eq('id', id).maybeSingle(),
+    admin.from('catalog_people_research').select('hook, background, watch_outs, intro_path, email_guess, kill_words').eq('person_id', id).maybeSingle(),
+    admin.from('catalog_person_affiliations').select('title').eq('person_id', id).eq('is_primary', true).maybeSingle(),
+  ]);
+  if (!person) return NextResponse.json({ ok: false, error: 'No catalog person with that id.' }, { status: 404 });
+
+  const previous = field === 'role'
+    ? primaryAff?.title ?? null
+    : ((person as Record<string, unknown>)[field] ?? (researchBefore as Record<string, unknown> | null)?.[field] ?? null);
+
+  const { error: rpcErr } = await admin.rpc('catalog_person_apply_field', {
+    p_person_id: id, p_field: field, p_value: value ?? null, p_level: 'verified_by_admin',
+  });
+  if (rpcErr) return NextResponse.json({ ok: false, error: rpcErr.message }, { status: 500 });
+
+  // catalog_person_apply_field deliberately writes nothing (and marks
+  // nothing) when 'role' has no primary affiliation to land on — Prompt
+  // 871's own "Menores" fix. Read verified_fields back rather than reporting
+  // a success the database never recorded.
+  const { data: after } = await admin.from('catalog_people_research').select('verified_fields').eq('person_id', id).maybeSingle();
+  const applied = !!(after?.verified_fields as Record<string, string> | null)?.[field];
+
+  await logAdminAction(admin, {
+    adminUserId: userId, action: 'catalog_person_field_edit', subjectType: 'catalog_person', subjectId: id,
+    detail: { field, from: previous, to: value ?? null, level: 'verified_by_admin', applied },
+  });
+
+  return NextResponse.json({
+    ok: true, applied,
+    message: applied ? undefined : 'Nothing was written — this person has no primary affiliation for a role to attach to.',
   });
 }

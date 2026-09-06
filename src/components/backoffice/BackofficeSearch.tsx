@@ -92,6 +92,16 @@ export function BackofficeSearch() {
         alert("Could not open this person's workspace.");
         return;
       }
+      // Prompt 598 §B — a FULL page load, not router.push. The viewer cookie
+      // was just set on this response, but a client-side transition keeps
+      // the already-booted founder store and its already-resolved org, so
+      // /entities/[id] still resolved against "no viewer session" and showed
+      // "we couldn't find this entity". startups/page.tsx's own "Open as
+      // viewer" button has always done a full load for exactly this reason
+      // (window.location.href = '/'); this is the same move, just landing on
+      // the person's entity instead of the pipeline home.
+      window.location.href = r.href;
+      return;
     }
     router.push(r.href);
   }
