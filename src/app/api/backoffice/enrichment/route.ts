@@ -12,29 +12,47 @@
 // the actionable contact rule (qualifiesForContactEnrichment) instead of
 // a raw percent cutoff — see completeness.ts for why a percent threshold
 // doesn't work for the contact dimension yet.
+//
+// Prompt 594 §B — orgCount/activeCount/demand now count DISTINCT orgs, not
+// rows. Two `people` rows sharing one org_id (the exact shape of the
+// Ricardo Jacinto duplicate 594 §C found — same org, two person rows,
+// created 2 seconds apart in the same import) used to inflate demand by
+// double-counting one org as two, which the queue's own sort then acted
+// on directly (higher demand = higher in the queue). A name matching two
+// rows in the SAME org was never "2 orgs chasing this profile."
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient, resolveRole } from '@/lib/supabase-server';
-import { entityCompleteness, personCompleteness, qualifiesForContactEnrichment, ENRICHMENT_THRESHOLD, ENRICHMENT_REQUEST_FIELD } from '@/lib/completeness';
+import { entityCompleteness, personCompleteness, qualifiesForContactEnrichment, ENRICHMENT_THRESHOLD, ENRICHMENT_REQUEST_FIELD, type PersonCatalogSide } from '@/lib/completeness';
 import type { Entity, Person } from '@/lib/types';
 
-type Row = { subjectType: 'entity' | 'person'; name: string; active: boolean; percent: number; missing: string[]; requestCount: number };
+type Row = { subjectType: 'entity' | 'person'; name: string; orgId: string; active: boolean; percent: number; missing: string[]; requestCount: number };
 type QueueItem = { subjectType: 'entity' | 'person'; name: string; orgCount: number; activeCount: number; requestCount: number; minPercent: number; missing: string[]; demand: number };
 
 function buildQueue(rows: Row[]): QueueItem[] {
-  const groups = new Map<string, { subjectType: 'entity' | 'person'; name: string; orgCount: number; activeCount: number; requestCount: number; minPercent: number; missing: Set<string> }>();
+  const groups = new Map<string, {
+    subjectType: 'entity' | 'person'; name: string; orgIds: Set<string>; activeOrgIds: Set<string>;
+    requestCount: number; minPercent: number; missing: Set<string>;
+  }>();
   for (const r of rows) {
     const key = `${r.subjectType}:${r.name.trim().toLowerCase()}`;
-    const g = groups.get(key) ?? { subjectType: r.subjectType, name: r.name, orgCount: 0, activeCount: 0, requestCount: 0, minPercent: 100, missing: new Set<string>() };
-    g.orgCount += 1;
-    if (r.active) g.activeCount += 1;
+    const g = groups.get(key) ?? {
+      subjectType: r.subjectType, name: r.name, orgIds: new Set<string>(), activeOrgIds: new Set<string>(),
+      requestCount: 0, minPercent: 100, missing: new Set<string>(),
+    };
+    g.orgIds.add(r.orgId);
+    if (r.active) g.activeOrgIds.add(r.orgId);
     g.requestCount += r.requestCount;
     g.minPercent = Math.min(g.minPercent, r.percent);
     r.missing.forEach((m) => g.missing.add(m));
     groups.set(key, g);
   }
   return [...groups.values()]
-    .map((g) => ({ ...g, missing: [...g.missing], demand: g.activeCount + g.requestCount }))
+    .map((g) => ({
+      subjectType: g.subjectType, name: g.name, orgCount: g.orgIds.size, activeCount: g.activeOrgIds.size,
+      requestCount: g.requestCount, minPercent: g.minPercent, missing: [...g.missing],
+      demand: g.activeOrgIds.size + g.requestCount,
+    }))
     .sort((a, b) => b.demand - a.demand || a.minPercent - b.minPercent)
     .slice(0, 50);
 }
@@ -66,24 +84,51 @@ export async function GET() {
     }
   }
 
+  // Prompt 595 §C — "missing" must not accuse a person of lacking a field
+  // the catalog already has for the SAME real person (confirmed live: João
+  // Coelho Borges' catalog_person_id row carries a verified LinkedIn the
+  // queue was calling missing). One extra round trip per field source,
+  // scoped to only the catalog_person_ids actually referenced below —
+  // never all of catalog_people/catalog_people_research.
+  const catalogPersonIds = [...new Set((people ?? []).map((p) => (p as Person).catalog_person_id).filter((id): id is string => !!id))];
+  const [{ data: catalogPeople }, { data: catalogResearch }] = catalogPersonIds.length
+    ? await Promise.all([
+        admin.from('catalog_people').select('id, linkedin_url').in('id', catalogPersonIds),
+        admin.from('catalog_people_research').select('person_id, hook, background, email_verified, email_guess').in('person_id', catalogPersonIds),
+      ])
+    : [{ data: [] as { id: string; linkedin_url: string | null }[] }, { data: [] as { person_id: string; hook: string | null; background: string | null; email_verified: string | null; email_guess: string | null }[] }];
+  const catalogSideById = new Map<string, PersonCatalogSide>();
+  for (const cp of catalogPeople ?? []) catalogSideById.set(cp.id, { linkedin_url: cp.linkedin_url });
+  for (const cr of catalogResearch ?? []) {
+    const existing = catalogSideById.get(cr.person_id) ?? {};
+    catalogSideById.set(cr.person_id, { ...existing, hook: cr.hook, background: cr.background, email_verified: cr.email_verified, email_guess: cr.email_guess });
+  }
+
   const profileRows: Row[] = [];
   const contactRows: Row[] = [];
   for (const e of (entities ?? []) as Entity[]) {
     const c = entityCompleteness(e);
     const active = !['dormant', 'passed'].includes(e.status);
     const requestCount = requestCountBySubject.get(`entity:${e.id}`) ?? 0;
+    // org_id is NOT NULL on entities (confirmed against the schema) — the
+    // Entity type only marks it optional because most callers don't select it.
+    const orgId = e.org_id!;
     if (c.firmographic.percent < ENRICHMENT_THRESHOLD) {
-      profileRows.push({ subjectType: 'entity', name: e.name, active, percent: c.firmographic.percent, missing: c.firmographic.missing, requestCount });
+      profileRows.push({ subjectType: 'entity', name: e.name, orgId, active, percent: c.firmographic.percent, missing: c.firmographic.missing, requestCount });
     }
     if (qualifiesForContactEnrichment(c)) {
-      contactRows.push({ subjectType: 'entity', name: e.name, active, percent: c.contact.percent, missing: c.contact.missing, requestCount });
+      contactRows.push({ subjectType: 'entity', name: e.name, orgId, active, percent: c.contact.percent, missing: c.contact.missing, requestCount });
     }
   }
   for (const p of (people ?? []) as Person[]) {
-    const c = personCompleteness(p);
+    const catalogSide = p.catalog_person_id ? catalogSideById.get(p.catalog_person_id) : undefined;
+    const c = personCompleteness(p, catalogSide);
     if (c.percent >= ENRICHMENT_THRESHOLD || p.do_not_contact) continue;
     profileRows.push({
-      subjectType: 'person', name: p.full_name, active: true,
+      // org_id is NOT NULL on people (confirmed against the schema) — the
+      // Person type only marks it optional because most callers don't
+      // select it, not because the column can be empty.
+      subjectType: 'person', name: p.full_name, orgId: p.org_id!, active: true,
       percent: c.percent, missing: c.missing, requestCount: requestCountBySubject.get(`person:${p.id}`) ?? 0,
     });
   }

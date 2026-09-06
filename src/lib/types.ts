@@ -320,6 +320,12 @@ export interface CompanyPerson {
 export interface Entity {
   id: string;
   name: string;
+  // Prompt 594 — a real, NOT NULL column, same reasoning as Person.org_id
+  // just below: never previously needed on this type (a founder's own
+  // fetch is always already scoped to their org), so optional here since
+  // most existing selects don't include it — admin-side code that groups
+  // across orgs does.
+  org_id?: string;
   // Prompt 361 — for the Impact tab's "only possible with Sherlock" block
   // (source === 'match_deal' | 'catalog' entities, first-added date). Real
   // DB column since migration 0001; only just surfaced on the type.
@@ -433,6 +439,12 @@ export interface Entity {
 export interface Person {
   id: string;
   entity_id: string;
+  // Prompt 594/595 — a real column (every row has one; org-scoped like the
+  // rest of the pipeline), just never previously needed on this shared,
+  // mostly founder-facing type — the founder's own views never need it,
+  // their session IS the org. Optional here only because most callers still
+  // don't select it; admin-side code that groups/dedupes across orgs does.
+  org_id?: string;
   full_name: string;
   // Prompt 581 §D.1 — the catalog_people row this person corresponds to,
   // when known (migration 0322). Prompt 871 §E's read-time overlay is the

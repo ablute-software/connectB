@@ -99,17 +99,9 @@ export function WorkspaceSidebar({
   }, [collapsible, width]);
   useEffect(() => () => { document.documentElement.style.removeProperty('--sb-w'); }, []);
 
-  // Prompt 593 §A — draggingRef alone (a ref, no re-render) was enough to
-  // gate onMove, but the handle's own visibility needs a real re-render:
-  // group-hover only tracks the CURSOR being over the handle, and the
-  // cursor routinely leaves that ~10px strip mid-drag once the mouse has
-  // moved any real distance, even though the drag (mousemove/mouseup on
-  // window, not on the handle) is still very much in progress.
-  const [isDragging, setIsDragging] = useState(false);
   const onDragStart = useCallback((startEvent: React.MouseEvent) => {
     startEvent.preventDefault();
     draggingRef.current = true;
-    setIsDragging(true);
     const startX = startEvent.clientX;
     const startWidth = width;
     const onMove = (e: MouseEvent) => {
@@ -119,7 +111,6 @@ export function WorkspaceSidebar({
     };
     const onUp = () => {
       draggingRef.current = false;
-      setIsDragging(false);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       setWidth((current) => {
@@ -264,28 +255,22 @@ export function WorkspaceSidebar({
         {afterItems}
       </nav>
       <div className={`border-t py-3 ${collapsible ? 'px-2 min-[1440px]:px-4' : 'px-4'} ${footerBorderTheme}`}>{footer}</div>
-      {/* Prompt 585 §B, revised 593 §A/§C — drag handle, expanded state only
-          (below the 1440px breakpoint the rail is the fixed 64px icon
-          strip; resizing that makes no sense). Sits INSIDE the aside, to
-          the left of the scrollbar's own ~8px gutter (right-2 w-1.5 = an
-          8-14px-from-edge strip; the scrollbar below claims 0-8px) —
-          591 §A's overlap was real: this handle was never repositioned
-          for it before, 589/fdb2ad6 fixed a different bug (the content
-          margin, not this). Invisible at rest per Nuno's own words ("fica
-          feia, devia ser invisível") — cursor:col-resize alone is the
-          hover affordance; the thin line itself only appears on hover OR
-          while actively dragging (isDragging state — group-hover alone
-          drops out mid-drag the moment the cursor leaves this ~6px strip,
-          which happens almost immediately once a real drag is under way). */}
+      {/* Prompt 585 §B, revised 593/595 §A — drag handle, expanded state
+          only (below the 1440px breakpoint the rail is the fixed 64px
+          icon strip; resizing that makes no sense). Sits INSIDE the aside,
+          to the left of the scrollbar's own ~8px gutter (right-2 w-1.5 =
+          an 8-14px-from-edge strip; the scrollbar below claims 0-8px).
+          595 §A, Nuno's own words: "o que acontece normalmente noutros
+          sites é a linha não aparecer... mas aparecer o símbolo do mexer
+          divisória" — 593 still drew a line on hover/drag; this draws
+          NOTHING, ever, in any state. cursor:col-resize is the only
+          affordance a mouse over this strip gets. */}
       {collapsible && (
         <div
           onMouseDown={onDragStart}
           title="Drag to resize"
-          className="group absolute inset-y-0 right-2 z-10 hidden w-1.5 cursor-col-resize items-center justify-center min-[1440px]:flex"
-        >
-          <div className={`h-full w-px transition-colors ${isDragging ? (dark ? 'bg-[var(--sb-accent)]' : 'bg-[#0E7490]')
-            : `bg-transparent ${dark ? 'group-hover:bg-[var(--sb-accent)]' : 'group-hover:bg-[#0E7490]'}`}`} />
-        </div>
+          className="absolute inset-y-0 right-2 z-10 hidden w-1.5 cursor-col-resize min-[1440px]:block"
+        />
       )}
     </aside>
   );

@@ -117,14 +117,33 @@ export function manualEntityCompleteness(f: ManualEntityCompletenessFields): Com
   return { ...result, grade: gradeFromPercent(result.percent) };
 }
 
-export function personCompleteness(p: Person): CompletenessResult {
+// Prompt 595 §C — the catalog-side facts a linked catalog_people/
+// catalog_people_research row can supply for the SAME real person. Optional
+// on purpose: the founder-facing page (people/[id]/page.tsx) calls
+// personCompleteness with one argument and must keep meaning "does MY OWN
+// record have this filled in" — a founder has no visibility into the
+// catalog, and their own outreach still needs their own copy of the field
+// regardless of what the platform separately knows. Only the backoffice's
+// admin-side "is this genuinely unknown to the platform" question (the
+// enrichment queue, deciding whether to spend AI research on it) should
+// traverse catalog_person_id — so it's an opt-in second argument, not a
+// change to what the single-argument call means.
+export interface PersonCatalogSide {
+  linkedin_url?: string | null;
+  hook?: string | null;
+  background?: string | null;
+  email_verified?: string | null;
+  email_guess?: string | null;
+}
+
+export function personCompleteness(p: Person, catalogSide?: PersonCatalogSide | null): CompletenessResult {
   const checks: [boolean, string][] = [
-    [!!p.linkedin_url, 'LinkedIn'],
-    [!!p.email_verified || !!p.email_guess, 'email'],
+    [!!p.linkedin_url || !!catalogSide?.linkedin_url, 'LinkedIn'],
+    [!!p.email_verified || !!p.email_guess || !!catalogSide?.email_verified || !!catalogSide?.email_guess, 'email'],
     [!!p.phone, 'phone'],
     [!!p.role, 'role'],
-    [!!p.hook, 'hook / outreach angle'],
-    [!!p.background, 'background'],
+    [!!p.hook || !!catalogSide?.hook, 'hook / outreach angle'],
+    [!!p.background || !!catalogSide?.background, 'background'],
   ];
   return score(checks);
 }

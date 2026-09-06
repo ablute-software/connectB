@@ -4,6 +4,7 @@
 // page; Submissions/Claims are new tabs consolidating what used to be a
 // separate founder-store-scoped "Review queue" section.
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Card, Tooltip } from '@/components/ui';
@@ -1110,16 +1111,105 @@ type EnrichmentRow = {
   subjectType: 'entity' | 'person'; name: string; orgCount: number; activeCount: number;
   requestCount: number; minPercent: number; missing: string[]; demand: number;
 };
+type ResearchProposal = { field: string; value: string; confidence: number; source_url: string };
+// Prompt 594 §B/§C + 595 §E — distinctOrgCount replaces the old
+// appliedToOrgs (which counted matching ROWS and called them orgs, so two
+// person rows in one org read as "2 org(s)"); appliedTo carries the
+// per-row detail the popup needs, including anything withheld because the
+// row's own firm didn't match the one the research actually found.
+type ResearchAppliedTo = {
+  rowId: string; orgId: string; orgName: string; firmName: string | null;
+  appliedFields: string[]; withheldFields: string[];
+};
 type ResearchResult = {
   status: 'loading' | 'not_configured' | 'error' | 'done';
   message?: string;
-  proposals?: { field: string; value: string; confidence: number; source_url: string }[];
-  appliedToOrgs?: number;
+  subjectName?: string;
+  proposals?: ResearchProposal[];
+  distinctOrgCount?: number;
+  appliedTo?: ResearchAppliedTo[];
 };
 
-function EnrichmentQueueTable({ title, subtitle, emptyLabel, queue, research, onResearch }: {
+// Prompt 595 §E — "não faço ideia do que faz; no fim... podia abrir popup
+// simples a indicar o que de novo foi obtido". The engine already stored
+// field/value/source; this is the missing half — showing it, with a way
+// through to where the proposals are actually waiting. Portal-rendered per
+// this repo's own overlay rule (WorkspaceHeader's backdrop-blur is exactly
+// the ancestor that silently collapses a plain fixed overlay).
+function ResearchResultModal({ result, onClose, onOpenContributions }: {
+  result: ResearchResult & { subjectName: string }; onClose: () => void; onOpenContributions: () => void;
+}) {
+  if (typeof document === 'undefined') return null;
+  const withheld = (result.appliedTo ?? []).filter((a) => a.withheldFields.length > 0);
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[10vh]" onClick={onClose}>
+      <div className="max-h-[75vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-baseline justify-between border-b border-gray-100 px-5 py-3.5">
+          <h3 className="text-sm font-bold text-gray-900">Research results — {result.subjectName}</h3>
+          <button onClick={onClose} className="text-xs text-gray-400 hover:text-gray-600">Close</button>
+        </div>
+        <div className="space-y-3 px-5 py-4">
+          {(result.proposals ?? []).length === 0 ? (
+            <p className="text-sm text-gray-500">{result.message ?? 'No confident findings.'}</p>
+          ) : (
+            <>
+              <p className="text-xs text-gray-500">
+                {result.proposals!.length} field{result.proposals!.length === 1 ? '' : 's'} proposed, queued for verification
+                {' '}across {result.distinctOrgCount} org{result.distinctOrgCount === 1 ? '' : 's'}. Nothing is live until it&apos;s approved.
+              </p>
+              <dl className="space-y-2.5">
+                {result.proposals!.map((p) => (
+                  <div key={p.field} className="rounded-lg border border-gray-100 p-2.5">
+                    <dt className="flex items-baseline justify-between gap-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-gray-500">{fieldLabel(p.field)}</span>
+                      <span className="text-[10px] text-gray-400">confidence {Math.round(p.confidence * 100)}%</span>
+                    </dt>
+                    <dd className="mt-1 whitespace-pre-wrap break-words text-[13px] text-gray-800">{p.value}</dd>
+                    {p.source_url && (
+                      <dd className="mt-1 truncate text-[11px]">
+                        <a href={p.source_url} target="_blank" rel="noreferrer" className="text-[#0E7490] hover:underline">{p.source_url}</a>
+                      </dd>
+                    )}
+                  </div>
+                ))}
+              </dl>
+              {/* Prompt 594 §C — the withholding is stated, never silent. */}
+              {withheld.length > 0 && (
+                <div className="rounded-lg bg-amber-50 p-2.5 text-xs text-amber-800">
+                  <p className="font-medium">Some fields were not proposed everywhere.</p>
+                  <p className="mt-1">
+                    This name also matches {withheld.length} row{withheld.length === 1 ? '' : 's'} on a different firm. Role/background/hook
+                    describe one firm&apos;s affiliation, so they were withheld there rather than copied across:
+                  </p>
+                  <ul className="mt-1.5 space-y-0.5">
+                    {withheld.map((a) => (
+                      <li key={a.rowId}>· {a.firmName ?? 'unknown firm'} ({a.orgName}) — withheld: {a.withheldFields.join(', ')}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 border-t border-gray-100 px-5 py-3">
+          <button onClick={onClose} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50">Close</button>
+          {(result.proposals ?? []).length > 0 && (
+            <button onClick={onOpenContributions}
+              className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#0b5c73]">
+              Review in Contributions →
+            </button>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function EnrichmentQueueTable({ title, subtitle, emptyLabel, queue, research, onResearch, onShowResult }: {
   title: string; subtitle: string; emptyLabel: string; queue: EnrichmentRow[];
   research: Record<string, ResearchResult>; onResearch: (subjectType: 'entity' | 'person', name: string) => void;
+  onShowResult: (key: string) => void;
 }) {
   return (
     <Card title={`${title} (${queue.length})`}>
@@ -1147,7 +1237,11 @@ function EnrichmentQueueTable({ title, subtitle, emptyLabel, queue, research, on
                         {rr.status === 'not_configured' && <span className="text-amber-700">{rr.message}</span>}
                         {rr.status === 'error' && <span className="text-[#B00000]">{rr.message}</span>}
                         {rr.status === 'done' && (rr.proposals && rr.proposals.length > 0
-                          ? <div className="text-cyan-800">{rr.proposals.length} field(s) proposed → queued for {rr.appliedToOrgs} org(s).</div>
+                          ? (
+                            <button onClick={() => onShowResult(key)} className="text-left text-cyan-800 hover:underline">
+                              {rr.proposals.length} field(s) proposed → queued for {rr.distinctOrgCount} org(s). See what was found →
+                            </button>
+                          )
                           : <span className="text-gray-400">{rr.message ?? 'No confident findings.'}</span>)}
                       </div>
                     )}
@@ -1179,6 +1273,12 @@ function QualityPanel() {
   const [contactQueue, setContactQueue] = useState<EnrichmentRow[] | null>(null);
   const [err, setErr] = useState('');
   const [research, setResearch] = useState<Record<string, ResearchResult>>({});
+  // Prompt 595 §E — which finished result the popup is showing. Opens
+  // itself when a research call lands (that's the whole point: the run
+  // used to end with a number and no way to see what it found), and can
+  // be reopened afterwards from the row's own line.
+  const [shownResultKey, setShownResultKey] = useState<string | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
     fetch('/api/backoffice/enrichment').then((r) => r.json()).then((body) => {
@@ -1190,20 +1290,31 @@ function QualityPanel() {
 
   async function researchRow(subjectType: 'entity' | 'person', name: string) {
     const key = `${subjectType}:${name}`;
-    setResearch((prev) => ({ ...prev, [key]: { status: 'loading' } }));
+    setResearch((prev) => ({ ...prev, [key]: { status: 'loading', subjectName: name } }));
     try {
       const res = await fetch('/api/backoffice/research', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subjectType, name }) });
       const body = await res.json();
-      if (body.configured === false) setResearch((prev) => ({ ...prev, [key]: { status: 'not_configured', message: body.message } }));
-      else if (body.ok === false) setResearch((prev) => ({ ...prev, [key]: { status: 'error', message: body.error } }));
-      else setResearch((prev) => ({ ...prev, [key]: { status: 'done', proposals: body.proposals, appliedToOrgs: body.appliedToOrgs, message: body.message } }));
+      if (body.configured === false) setResearch((prev) => ({ ...prev, [key]: { status: 'not_configured', message: body.message, subjectName: name } }));
+      else if (body.ok === false) setResearch((prev) => ({ ...prev, [key]: { status: 'error', message: body.error, subjectName: name } }));
+      else {
+        setResearch((prev) => ({
+          ...prev,
+          [key]: {
+            status: 'done', subjectName: name, proposals: body.proposals,
+            distinctOrgCount: body.distinctOrgCount, appliedTo: body.appliedTo, message: body.message,
+          },
+        }));
+        setShownResultKey(key);
+      }
     } catch (e) {
-      setResearch((prev) => ({ ...prev, [key]: { status: 'error', message: (e as Error).message } }));
+      setResearch((prev) => ({ ...prev, [key]: { status: 'error', message: (e as Error).message, subjectName: name } }));
     }
   }
 
   if (err) return <Card title="Quality — enrichment queue"><p className="text-sm text-[#B00000]">{err}</p></Card>;
   if (!profileQueue || !contactQueue) return <Card title="Quality — enrichment queue"><p className="text-sm text-gray-400">Loading…</p></Card>;
+
+  const shown = shownResultKey ? research[shownResultKey] : undefined;
 
   return (
     <div className="space-y-4">
@@ -1211,14 +1322,21 @@ function QualityPanel() {
         title="Quality — profiles below 70% (firmographic)"
         subtitle="Ranked by demand. &quot;Research with AI&quot; proposes fields with source + confidence, queued for verification in Queue → Contributions."
         emptyLabel="Nothing below the firmographic completeness threshold right now."
-        queue={profileQueue} research={research} onResearch={researchRow}
+        queue={profileQueue} research={research} onResearch={researchRow} onShowResult={setShownResultKey}
       />
       <EnrichmentQueueTable
         title="Quality — contact gaps"
         subtitle="Entities already firmographically solid (≥70%) but with zero contact fields on file — the actionable follow-up list for the direct-research program."
         emptyLabel="No firmographically-qualified entity has zero contact data right now."
-        queue={contactQueue} research={research} onResearch={researchRow}
+        queue={contactQueue} research={research} onResearch={researchRow} onShowResult={setShownResultKey}
       />
+      {shown?.status === 'done' && (
+        <ResearchResultModal
+          result={{ ...shown, subjectName: shown.subjectName ?? '' }}
+          onClose={() => setShownResultKey(null)}
+          onOpenContributions={() => { setShownResultKey(null); router.push('/backoffice/queue?tab=contributions'); }}
+        />
+      )}
     </div>
   );
 }
