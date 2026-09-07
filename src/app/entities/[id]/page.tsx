@@ -451,6 +451,20 @@ export default function EntityPage({ params }: { params: { id: string } }) {
               </span>
             )}
           </div>
+          {/* Prompt 852 §E — directly under the entity header block. Prompt
+              396 §2.2 had moved it from a floating band at the very top to
+              the very bottom of the page, which fixed the prominence problem
+              by making it unfindable: on a long dossier it sat below every
+              card. Same component, same condition, same modal, same discreet
+              styling — only the position changes, to where a founder looking
+              at who this investor IS would think to look. */}
+          {entity.hard_filter_status !== 'resolved_blocked' && (
+            <div className="mt-1.5">
+              <button onClick={() => setReportingFraud(true)} className="text-xs text-gray-400 hover:text-red-700 hover:underline">
+                🚩 Report this investor
+              </button>
+            </div>
+          )}
         </div>
         {followOn.eligible && !followOn.signal?.active && (
           <button onClick={askAboutFollowOn} disabled={followOnBusy || followOn.requestPending}
@@ -999,18 +1013,6 @@ export default function EntityPage({ params }: { params: { id: string } }) {
       <ThreadDrawer entity={entity} open={drawerOpen} onClose={() => setDrawerOpen(false)}
         dealMessageTouches={dealMessageTouches} dealMessages={messaging.messages} />
 
-      {/* Prompt 396 §2.2 — moved from a floating line at the very top (a
-          visual band right above the content, even when small) to the
-          bottom of the page. Same discreet styling, same condition, same
-          modal — Prompt 285's own "reachable, never prominent" is better
-          served down here than competing with the header. */}
-      {entity.hard_filter_status !== 'resolved_blocked' && (
-        <div className="flex justify-end">
-          <button onClick={() => setReportingFraud(true)} className="text-xs text-gray-400 hover:text-red-700 hover:underline">
-            🚩 Report this investor
-          </button>
-        </div>
-      )}
       {reportingFraud && (
         <ReportFraudModal entityId={entity.id} entityName={entity.name}
           onCancel={() => setReportingFraud(false)}

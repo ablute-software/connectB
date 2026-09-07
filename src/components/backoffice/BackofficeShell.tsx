@@ -177,6 +177,10 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
     // destination existed, the link just didn't say which part).
     item('insight-usage', 'Usage', '/metrics?tab=usage', { icon: '◆', group: 4 }),
     item('insight-costs', 'AI costs', '/backoffice/costs', { icon: '◆', group: 4 }),
+    // Prompt 852 §F — both directions of "no", each a real tab on /metrics
+    // (same ?tab= mechanism Prompt 599 §1 established for Usage).
+    item('insight-startup-decisions', 'Startup decisions', '/metrics?tab=startup-decisions', { icon: '◆', group: 4 }),
+    item('insight-passes-over', 'Passes / Over', '/metrics?tab=passes-over', { icon: '◆', group: 4 }),
     // Prompt 572 §D — the placeholder above this comment used to say "no
     // page exists yet"; it does now (contribution-ranking route + this
     // page), read-only, separate from the Review queue's own decide-facts

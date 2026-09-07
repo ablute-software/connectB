@@ -33,6 +33,13 @@ import type { PassReasonCategory } from './types';
  *  "what's needed to restart"), enforced in the Postgres CHECK too. */
 export const DECISION_NOTE_MAX = 220;
 
+/** Prompt 852 §D.1 — the existing floor on the reopen note, moved here from
+ *  SherlockInsightBanner's own local const so the pass form and the banner's
+ *  editor enforce the SAME number. Two copies of "long enough to be a real
+ *  note" is how one of them ends up letting a stub through to the
+ *  reawakening engine. */
+export const REOPEN_TRIGGER_MIN_LENGTH = 15;
+
 export type StartupInvestorDecisionKind = 'not_a_fit';
 
 export const NOT_A_FIT_LABEL = 'Not a fit for us';

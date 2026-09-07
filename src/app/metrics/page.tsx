@@ -34,6 +34,7 @@ import { SampleCoverageTab } from '@/components/backoffice/metrics/SampleCoverag
 import { MethodologyTab } from '@/components/backoffice/metrics/MethodologyTab';
 import { MetricDrillDown, type DrillDownSeries } from '@/components/backoffice/metrics/MetricDrillDown';
 import { UsageRankingTab } from '@/components/backoffice/metrics/UsageRankingTab';
+import { DecisionsTab } from '@/components/backoffice/metrics/DecisionsTab';
 
 // Prompt 124 §0 — two floors, not a flat row of tabs: the rules differ (the
 // app floor can show individual accounts; Ecosystem never does — K=8 RPCs),
@@ -41,7 +42,8 @@ import { UsageRankingTab } from '@/components/backoffice/metrics/UsageRankingTab
 // cohorts), and Ecosystem only gets real screen space if it isn't competing
 // with a row of 7 tabs.
 type Floor = 'app' | 'ecosystem';
-type AppTab = 'overview' | 'growth' | 'activation' | 'fundraising' | 'organizations' | 'matchdeal' | 'usage';
+type AppTab = 'overview' | 'growth' | 'activation' | 'fundraising' | 'organizations' | 'matchdeal' | 'usage'
+  | 'startup-decisions' | 'passes-over';
 type EcosystemTabKey = 'xray' | 'sample-coverage' | 'methodology';
 
 const APP_TABS: { key: AppTab; label: string }[] = [
@@ -56,6 +58,11 @@ const APP_TABS: { key: AppTab; label: string }[] = [
   // backoffice-redesign, not yet merged) may give this its own nav location
   // once it lands — flagged per that prompt's own explicit sequencing note.
   { key: 'usage', label: 'Usage' },
+  // Prompt 852 §F — the two directions of "no", each with its own table.
+  // Deliberately two tabs and not one: they have different columns, come
+  // from different tables, and mean opposite things.
+  { key: 'startup-decisions', label: 'Startup decisions' },
+  { key: 'passes-over', label: 'Passes / Over' },
 ];
 const ECOSYSTEM_TABS: { key: EcosystemTabKey; label: string }[] = [
   { key: 'xray', label: 'X-Ray' },
@@ -325,6 +332,21 @@ function MetricsPageContent() {
   const [appTab, setAppTab] = useState<AppTab>(initialTab);
   const [ecosystemTab, setEcosystemTab] = useState<EcosystemTabKey>('xray');
 
+  // Prompt 852 §F — a useState initializer runs ONCE. That was harmless
+  // while /metrics?tab= had a single sidebar row pointing at it (arriving
+  // from another route remounts this component, so the initializer sees the
+  // right value); with three rows it is the Prompt 560 §C soft-navigation
+  // bug waiting to happen — clicking "Passes / Over" while already on
+  // /metrics?tab=usage is an in-route navigation, no remount, and the tab
+  // would simply not change. A useEffect read runs AFTER the router commits
+  // the URL, which is exactly why it is the safe half of that pair.
+  useEffect(() => {
+    if (requestedTab && APP_TABS.some((t) => t.key === requestedTab)) {
+      setFloor('app');
+      setAppTab(requestedTab as AppTab);
+    }
+  }, [requestedTab]);
+
   return (
     <div className="space-y-5">
       <h1 className="text-lg font-bold">Metrics</h1>
@@ -358,6 +380,8 @@ function MetricsPageContent() {
           {appTab === 'organizations' && <OrganizationsTab />}
           {appTab === 'matchdeal' && <MatchDealTab />}
           {appTab === 'usage' && <UsageRankingTab />}
+          {appTab === 'startup-decisions' && <DecisionsTab kind="startup" />}
+          {appTab === 'passes-over' && <DecisionsTab kind="passes" />}
         </>
       ) : (
         <>

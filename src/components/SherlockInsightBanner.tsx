@@ -29,13 +29,13 @@ import {
   INTEREST_REQUEST_APPROVE_LABEL, INTEREST_REQUEST_DENY_LABEL,
 } from '@/lib/interest-requests-client';
 import { useDecideInterest } from '@/lib/use-decide-interest';
+import { DecisionNotesCards, type DecisionNote } from './DecisionNotesCards';
+import { DECISION_NOTE_MAX, REOPEN_TRIGGER_MIN_LENGTH } from '@/lib/startup-investor-decision';
 
 // Prompt 410 §2.3 — how long the post-decision confirmation stays up. Short
 // on purpose ("toast", Nuno's own word) — this isn't an undo window (the
 // decision already posted), just an acknowledgment.
 const DECISION_TOAST_MS = 4000;
-
-const REOPEN_TRIGGER_MIN_LENGTH = 15;
 
 const NEXT_STEP_GLOSSARY: { pattern: RegExp; explain: string }[] = [
   { pattern: /pre-flight/i, explain: 'An automatic check run just before a first message — flags missing hook research, banned phrases, or reaching out too soon.' },
@@ -151,6 +151,34 @@ export function SherlockInsightBanner({
     .filter((i) => i.entity_id === entity.id && i.direction === 'in' && i.classification === 'pass')
     .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at)).at(-1);
   const lastPassReason = lastPassInteraction?.pass_reason;
+  // Prompt 852 §A/§D — what the two (or three) cards below the banner show.
+  // Every field is real or absent: no card is rendered for a note that was
+  // never written, and the date is the record's own, never invented.
+  const liveOwnDecision = (db.startupInvestorDecisions ?? [])
+    .find((d) => d.entity_id === entity.id && !d.reverted_at);
+  const decisionNotes: DecisionNote[] = [];
+  if (liveOwnDecision) {
+    decisionNotes.push({
+      kind: 'not_a_fit', category: liveOwnDecision.reason_category ?? null,
+      text: liveOwnDecision.note, recordedAt: liveOwnDecision.decided_at,
+    });
+  }
+  if (lastPassReason) {
+    decisionNotes.push({
+      kind: 'pass', category: lastPassInteraction?.pass_reason_category ?? null,
+      text: lastPassReason, recordedAt: lastPassInteraction?.occurred_at,
+    });
+  }
+  if (entity.reopen_trigger) {
+    decisionNotes.push({
+      kind: 'restart', text: entity.reopen_trigger,
+      // No date of its own: reopen_trigger is a column on the entity, not a
+      // record with its own timestamp. Saying "Recorded —" would be worse
+      // than saying nothing, so the card simply omits the line.
+      recordedAt: null,
+      onEdit: () => setReopenTriggerDraft(entity.reopen_trigger ?? ''),
+    });
+  }
   // Prompt 415 §3 — named so the lupa below (focusOverdue) can check the
   // exact same condition that decides which button the ternary renders.
   // Checking actionButton?.kind === 'follow_up' alone isn't enough: it can
@@ -254,17 +282,26 @@ export function SherlockInsightBanner({
           real contrast to stay legible; inside the solid teal banner it
           wouldn't have any, so it opens in its own small white card right
           below instead. */}
+      {/* Prompt 852 §D.2 — the two notes, side by side, directly below the
+          banner: PASS REASON (their words, with the category and the date)
+          and WHAT'S NEEDED TO RESTART (the founder's own reopen_trigger, the
+          field the reawakening engine requires). §B's own decision joins
+          them in the same card family, so the dossier says it once and in
+          one voice. Rendered outside the parkedOrClosed gate below: a
+          status='passed' entity that never went dormant has a pass reason
+          worth showing, and a live "not a fit for us" decision is worth
+          showing on any row at all. */}
+      {decisionNotes.length > 0 && <DecisionNotesCards notes={decisionNotes} />}
+
       {parkedOrClosed && (
         reopenTriggerDraft === null ? (
-          entity.reopen_trigger ? (
-            <div className="-mt-1 flex items-start gap-1.5 rounded-2xl bg-white px-4 py-2.5 text-[12px] text-gray-600 shadow-[0_4px_20px_rgba(15,23,42,0.06)]">
-              <span>Your note when freezing: &ldquo;{entity.reopen_trigger}&rdquo;</span>
-              <button onClick={() => setReopenTriggerDraft(entity.reopen_trigger ?? '')} title="Edit your note"
-                className="shrink-0 text-[11px] text-gray-300 hover:text-[#0f5132]">
-                ✎
-              </button>
-            </div>
-          ) : needsReopenTrigger(entity) ? (
+          // Prompt 852 §D.2 — the read-only "Your note when freezing" line
+          // that used to live here is gone: DecisionNotesCards above shows
+          // that same reopen_trigger, and two differently-worded copies of
+          // one note is exactly what §B forbids. What stays here is the
+          // WRITE path — the offer when there is no note yet, and the
+          // editor, which the card's own ✎ opens.
+          !entity.reopen_trigger && needsReopenTrigger(entity) ? (
             // Prompt 414 §3.1 — "Your note" made explicit here too, not
             // just once the note is saved (below): sitting directly under
             // the teal Sherlock-voiced banner, a bare "+ Set reopen
@@ -285,12 +322,19 @@ export function SherlockInsightBanner({
             <textarea value={reopenTriggerDraft} onChange={(e) => setReopenTriggerDraft(e.target.value)} rows={2} autoFocus
               placeholder="What would have to change for a re-approach to be legitimate?"
               className="w-full rounded border border-[#cdeadb] p-2 text-xs text-gray-900" />
+            {/* Prompt 852 §D.1 — the same 220 cap the pass form and §A's note
+                carry, with a live counter, and the same 15-character floor
+                as before (now the shared constant, not a second copy). */}
+            <p className={`text-right text-[10px] ${DECISION_NOTE_MAX - reopenTriggerDraft.trim().length < 0 ? 'font-semibold text-[#B00000]' : 'text-gray-400'}`}>
+              {DECISION_NOTE_MAX - reopenTriggerDraft.trim().length}
+            </p>
             {reopenTriggerDraft.trim().length > 0 && reopenTriggerDraft.trim().length < REOPEN_TRIGGER_MIN_LENGTH && (
               <p className="text-[11px] text-amber-700">A few more words help — this reads as cut off.</p>
             )}
             <div className="flex gap-1.5">
               <button
-                disabled={reopenTriggerDraft.trim().length < REOPEN_TRIGGER_MIN_LENGTH}
+                disabled={reopenTriggerDraft.trim().length < REOPEN_TRIGGER_MIN_LENGTH
+                  || reopenTriggerDraft.trim().length > DECISION_NOTE_MAX}
                 onClick={() => { updateEntity(entity.id, { reopen_trigger: reopenTriggerDraft.trim() }); setReopenTriggerDraft(null); }}
                 className="rounded-full bg-[#0f5132] px-2.5 py-1 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
                 Save
