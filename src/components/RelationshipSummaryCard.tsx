@@ -18,6 +18,7 @@ import { planPark, planPass, planInvested, planSnooze, advanceConfirmation, type
 import { SNOOZE_OPTIONS } from '@/lib/snooze-options';
 import { derivedStage } from '@/lib/derived-stage';
 import { JourneyStepper } from '@/components/JourneyStepper';
+import { DECISION_NOTE_MAX, REOPEN_TRIGGER_MIN_LENGTH, noteProblem, noteProblemMessage } from '@/lib/startup-investor-decision';
 
 const WHOSE_TURN_STYLE: Record<WhoseTurn, string> = {
   us: 'bg-cyan-100 text-cyan-900',
@@ -119,6 +120,13 @@ export function RelationshipSummaryCard({
   // immediately from the chooser itself.
   const [exitMode, setExitMode] = useState<'none' | 'pass' | 'decision-choose'>('none');
   const [passReason, setPassReason] = useState('');
+  // Prompt 852 §D.1 — the second note the pass flow now captures, saved to
+  // entities.reopen_trigger. Optional (the pass reason is the required one),
+  // but when written it must clear the same 15-character floor the banner's
+  // own editor enforces, so the reawakening engine never inherits a stub.
+  const [restartNote, setRestartNote] = useState('');
+  const passReasonRemaining = DECISION_NOTE_MAX - passReason.trim().length;
+  const restartRemaining = DECISION_NOTE_MAX - restartNote.trim().length;
   // Prompt 251/253 Bloco A — the quick-pass flow used to discard passReason
   // entirely (setEntityStatus's `reason` param is only ever used for
   // status==='dormant', never 'passed' — confirmed by reading both store
@@ -518,6 +526,24 @@ export function RelationshipSummaryCard({
           <textarea value={passReason} onChange={(e) => setPassReason(e.target.value)} rows={2}
             placeholder="Why did they pass? Verbatim if possible — REQUIRED. Ten of these rewrite the pitch."
             className="w-full rounded border border-red-200 p-2 text-xs text-gray-900" />
+          <p className={`text-right text-[10px] ${passReasonRemaining < 0 ? 'font-semibold text-[#B00000]' : 'text-gray-400'}`}>{passReasonRemaining}</p>
+          {/* Prompt 852 §D.1 — the second half of the same moment, asked
+              here instead of never. reopen_trigger is the field the
+              reawakening engine already requires (reawakening.ts: status in
+              (dormant, passed) AND a non-empty reopen_trigger), and before
+              this the pass flow never wrote it — so the engine had nothing
+              to work with on exactly the entities it exists for. Same 220
+              cap as the pass reason and §A's note; the existing 15-character
+              minimum on this note stays, so a two-word placeholder can't
+              satisfy the engine either. */}
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">What&apos;s needed to restart</div>
+          <textarea value={restartNote} onChange={(e) => setRestartNote(e.target.value)} rows={2}
+            placeholder="What would have to change for a re-approach to be legitimate? (optional)"
+            className="w-full rounded border border-red-200 p-2 text-xs text-gray-900" />
+          <p className={`text-right text-[10px] ${restartRemaining < 0 ? 'font-semibold text-[#B00000]' : 'text-gray-400'}`}>{restartRemaining}</p>
+          {restartNote.trim().length > 0 && restartNote.trim().length < REOPEN_TRIGGER_MIN_LENGTH && (
+            <p className="text-[11px] text-amber-700">A few more words help — this reads as cut off.</p>
+          )}
           {/* Prompt 251/253 Bloco A — optional, per-axis codification of
               this pass (rejection_codes). Always optional: an empty row is
               just dropped on save, never blocks it. */}
@@ -544,7 +570,8 @@ export function RelationshipSummaryCard({
           </div>
           <div className="flex gap-1.5">
             <button
-              disabled={passReason.trim().length === 0}
+              disabled={!!noteProblem(passReason) || restartRemaining < 0
+                || (restartNote.trim().length > 0 && restartNote.trim().length < REOPEN_TRIGGER_MIN_LENGTH)}
               onClick={() => {
                 const interaction = logInteraction({
                   entity_id: entity.id, direction: 'in', channel: 'email', content: passReason.trim(),
@@ -552,6 +579,9 @@ export function RelationshipSummaryCard({
                 });
                 setEntityStatus(entity.id, 'passed');
                 setRelationshipStage(entity.id, 'decision');
+                // Prompt 852 §D.1 — written only when the founder wrote one;
+                // an empty box never overwrites a note set earlier.
+                if (restartNote.trim().length > 0) updateEntity(entity.id, { reopen_trigger: restartNote.trim() });
                 applyPlan(planPass(entity, db.tasks));
                 for (const row of axisCodeRows) {
                   const level = Number(row.requiredLevel);
@@ -561,18 +591,22 @@ export function RelationshipSummaryCard({
                     level_label: row.levelLabel.trim(), source_interaction_id: interaction.id,
                   });
                 }
-                setExitMode('none'); setPassReason(''); setPassCat('other'); setAxisCodeRows([]);
+                setExitMode('none'); setPassReason(''); setPassCat('other'); setAxisCodeRows([]); setRestartNote('');
               }}
               className="rounded-full bg-[#B00000] px-2.5 py-1 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
               Save as passed
             </button>
-            <button onClick={() => { setExitMode('none'); setPassReason(''); setPassCat('other'); setAxisCodeRows([]); }}
+            <button onClick={() => { setExitMode('none'); setPassReason(''); setPassCat('other'); setAxisCodeRows([]); setRestartNote(''); }}
               className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] text-gray-600">
               Cancel
             </button>
           </div>
-          {passReason.trim().length === 0 && (
-            <p className="text-[11px] text-gray-500">A pass reason is required — it&apos;s what makes the next pitch better.</p>
+          {noteProblem(passReason) && (
+            <p className="text-[11px] text-gray-500">
+              {noteProblem(passReason) === 'empty'
+                ? 'A pass reason is required — it’s what makes the next pitch better.'
+                : noteProblemMessage(noteProblem(passReason))}
+            </p>
           )}
         </div>
       )}
