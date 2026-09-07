@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { commitmentsGateEnabled, getCommitments, isCommitmentsVersion, shouldGateCommitments, COMMITMENTS_VERSION } from './commitments';
-import { AI_TRAINING_LINE_CONFIRMED } from '../content/commitments/v1';
+import { COMMITMENT_GROUPS } from '../content/commitments/v1';
 
 describe('Prompt 603 — commitments gate', () => {
   it('the gate is off unless the environment switches it on', () => {
@@ -20,11 +20,26 @@ describe('Prompt 603 — commitments gate', () => {
     expect(shouldGateCommitments({ ...base, gateEnabled: false })).toBe(false);
   });
 
-  it('commitment 6 (no AI training) is absent until confirmed with the provider', () => {
+  // Prompt 608 §D — was `expect(numbers.includes(6)).toBe(AI_TRAINING_LINE_CONFIRMED)`,
+  // which passed whichever way the flag was set and so asserted nothing about
+  // the thing that mattered. The AI-training promise is now OUT of the
+  // structure, not dormant inside it, and this test says so flatly: nine
+  // entries, no 6, and no flag to flip.
+  it('the AI-training promise is not in the structure at all', () => {
     const numbers = getCommitments().map((c) => c.n);
-    expect(numbers.includes(6)).toBe(AI_TRAINING_LINE_CONFIRMED);
+    expect(numbers).toHaveLength(9);
+    expect(numbers).not.toContain(6);
     expect(numbers).toContain(1);
     expect(numbers).toContain(10);
+    // The gap is deliberate: `n` names a commitment inside a published version.
+    expect(numbers).toEqual([1, 2, 3, 4, 5, 7, 8, 9, 10]);
+  });
+
+  it('every commitment belongs to one of the three rendered groups', () => {
+    const keys = COMMITMENT_GROUPS.map((g) => g.key);
+    for (const c of getCommitments()) expect(keys).toContain(c.group);
+    // None of the three sections may render empty on the page.
+    for (const k of keys) expect(getCommitments().some((c) => c.group === k)).toBe(true);
   });
 
   it('the acceptance version is namespaced away from the Terms versions', () => {

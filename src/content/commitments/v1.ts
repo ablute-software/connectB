@@ -1,4 +1,4 @@
-// Prompt 603 §B — the ten commitments, as data, so the page, the acceptance
+// Prompt 603 §B — the commitments, as data, so the page, the acceptance
 // version and the links live together. Same discipline as terms.ts: a
 // material change to this text is a NEW version (a new file and a bump of
 // COMMITMENTS_VERSION in lib/commitments.ts), never a silent edit — the
@@ -6,9 +6,22 @@
 //
 // NOT LEGAL ADVICE, and not yet reviewed by a lawyer: the interstitial that
 // shows this is behind COMMITMENTS_GATE_ENABLED (lib/commitments.ts) until
-// the review and the three open answers in §C of the prompt. Commitment 6
-// (no AI training) is INCLUDED ONLY once confirmed with the AI provider's
-// contract — see AI_TRAINING_LINE_CONFIRMED.
+// the review and the open answers in §C of the prompt.
+//
+// NINE, not ten. Prompt 604 §A asked for the AI-training promise to leave the
+// STRUCTURE ("sai da estrutura, não fica como espaço vazio à espera de ser
+// reactivado sem se verificar o contrato"), and Nuno was literal: "entre as
+// claims retira a nº 6 totalmente." Prompt 603 had instead left it dormant
+// behind an AI_TRAINING_LINE_CONFIRMED flag, which is precisely the waiting
+// blank that sentence forbade — and the flag's own name was the trap: it read
+// as "flip me", when what it actually required was going and reading the AI
+// provider's contract. Removed in Prompt 608. If that day comes, the promise
+// gets written then, with the contract in hand; it is one line of text, not
+// work saved.
+//
+// The numbering deliberately keeps its gap (…5, 7…). `n` identifies a
+// commitment inside a PUBLISHED version that people have accepted by name;
+// renumbering would silently turn today's 7 into yesterday's 6.
 export interface Commitment {
   n: number;
   title: string;
@@ -19,9 +32,10 @@ export interface Commitment {
    * Prompt 606 — which of the page's three sections this belongs to.
    *
    * Structural only: no wording changes here, 604's text is closed. The
-   * grouping lives in the DATA rather than being sliced by index in the page,
-   * because AI_TRAINING_LINE_CONFIRMED can put commitment 6 back at any time
-   * and every index-based grouping would silently shift by one.
+   * grouping lives in the DATA rather than being sliced by index in the page.
+   * The immediate reason was the dormant commitment 6, now gone (608 §D), but
+   * the reason that outlives it is the larger one: slicing by index breaks on
+   * ANY future edit to the list, not only on that one.
    */
   group: CommitmentGroup;
 }
@@ -35,13 +49,10 @@ export const COMMITMENT_GROUPS: { key: CommitmentGroup; label: string }[] = [
   { key: 'you_control', label: 'You stay in control' },
 ];
 
-/** Flip to true only after the AI provider's terms are checked (§C question 1). */
-export const AI_TRAINING_LINE_CONFIRMED = false;
-
 /** The controller named in the Terms (v3, Provider clause). §C question 3 — confirm it is the same entity for the Privacy Policy. */
 export const CONTROLLER_NAME = 'Exotictarget, Lda';
 
-const ALL: Commitment[] = [
+export const COMMITMENTS_V1: Commitment[] = [
   {
     group: 'who_sees',
     n: 1, title: 'Your documents are yours.',
@@ -72,11 +83,6 @@ const ALL: Commitment[] = [
   },
   {
     group: 'how_we_handle',
-    n: 6, title: 'Your data is not used to train AI models.',
-    body: 'Neither ours nor anyone else\'s.',
-  },
-  {
-    group: 'how_we_handle',
     n: 7, title: 'We use a short list of suppliers, and they work under contract.',
     body: 'Running the service requires infrastructure: hosting, email delivery, payments, AI processing. These suppliers process your data only on our instructions, cannot use it for their own purposes, and are bound by data-protection agreements. The current list is published, and we tell you before it changes.',
     link: { href: '/legal/subprocessors', label: 'The current list of suppliers' },
@@ -98,7 +104,5 @@ const ALL: Commitment[] = [
     body: 'We study how the product is used to improve it, and we publish statistics about the market. Neither ever exposes your documents, your identity, or anything traceable to your company.',
   },
 ];
-
-export const COMMITMENTS_V1: Commitment[] = ALL.filter((c) => c.n !== 6 || AI_TRAINING_LINE_CONFIRMED);
 
 export const COMMITMENTS_FOOTNOTE = 'This page summarises how we work. The Privacy Policy and Terms are the documents that govern the relationship — this is the plain-language version, not a replacement.';
