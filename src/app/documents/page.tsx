@@ -1055,7 +1055,11 @@ function DocumentsPageInner() {
       {tab === 'documents' && <PageTour pageKey="guide_documents" />}
       {tab === 'people' && <PageTour pageKey="guide_people_access" />}
       <div className="flex items-center justify-between gap-1.5">
-        <h1 className="text-lg font-bold">{tab === 'documents' ? 'Documents & Vault Data Room' : 'People & Access'}</h1>
+        <h1 className="text-lg font-bold">
+          {tab === 'documents' ? 'Documents & Vault Data Room' : 'People & Access'}
+          {/* Prompt 603 commitment 3 — "that record is yours to inspect". */}
+          <a href="/documents/access-log" className="ml-3 align-middle text-xs font-normal text-[#0E7490] hover:underline">Access log →</a>
+        </h1>
         <VaultKillSwitch />
       </div>
       <div className="flex gap-1.5 border-b border-gray-100 pb-2">
