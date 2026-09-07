@@ -272,31 +272,58 @@ body {
   --cm-text-2: oklch(46% 0.01 95);
   --cm-rule: oklch(93% 0.005 95);
   --cm-wordmark: #0E7490;
-  /* §C.2 rules out the app blue: blue inside a teal field reads as a mistake,
-     not contrast. It asks for teal — but that assumed the artboard's button,
-     which sits on the WHITE SHEET. §C.3 pins the button over the teal FIELD
-     instead, and teal on teal disappears (confirmed on screen before changing
-     this). The prompt already settles the case in §D, for the Inverse
-     variant: where the button lands on teal, it becomes white with teal text.
-     Same two colours, same rule, contrast restored. */
-  --cm-cta-bg: #FFFFFF;
-  --cm-cta-text: #0E7490;
+  /* The colour that reads ON the field — text, and the button's body. */
+  --cm-on-field: #FFFFFF;
+
+  /* ── THE BUTTON RULE (608 §B). It is a RELATION, not a colour. ──
+     The button's colour is a function of the SURFACE BEHIND IT, and since
+     606 §C.3 option B that surface is the page's FIELD, never the sheet.
+     Written as a derivation from the field rather than as two colours copied
+     into two blocks, so it cannot drift apart and cannot be "corrected" back
+     by a loose reading of 606 §C.2 — which asked for a teal button while
+     looking at the artboard, where the button still sat on the WHITE SHEET.
+     Pinned over the teal field, that same teal disappeared.
+
+       field teal / dark  → button takes the on-field colour, text the field
+       field light        → the same derivation inverts it automatically
+
+     606 §D's Inverse variant is closed and will not be built (608 §F), but
+     the rule stays a derivation because that is what keeps the mistake from
+     coming back. */
+  --cm-cta-bg: var(--cm-on-field);
+  --cm-cta-text: var(--cm-field);
   background: var(--cm-field);
 }
 @media (prefers-color-scheme: dark) {
   .commitments-field {
-    /* §C, minor — full-strength teal behind a dark sheet is shouting. The
-       field darkens; the sheet is unchanged from the spec. */
-    --cm-field: oklch(32% 0.06 220);
+    /* 608 §C — this was oklch(32% 0.06 220), which is EIGHT POINTS LIGHTER
+       than the sheet's 24%. That inverts the whole premise: in light mode the
+       sheet (100%) sits above the field (51%) and reads as paper laid on top;
+       at 32% over a 24% sheet the sheet reads as a HOLE punched in the field,
+       and the deep shadow has nothing darker to bite into. 606 §C's
+       "escureçam o teal do fundo" meant darken it BELOW the sheet; this went
+       half way. 20% puts the field 4 points under the sheet, inside the 4–6
+       the correction asks for. The sheet itself is untouched.
+
+       CHROMA 0.036, NOT THE 0.05 THE CORRECTION NAMED, and the reason is
+       gamut, not taste: measured across the whole 18–20% band at hue 220, the
+       largest chroma sRGB can actually represent is 0.033–0.036, and 0.05
+       lands with a NEGATIVE red channel (−0.034) that the browser has to map
+       back in — implementation-defined, and the first out-of-gamut colour in
+       this codebase (every --sb-* token and the sheet are inside it). 20% is
+       also where that ceiling is highest, so this is the most teal the field
+       can be at the darkness the correction asks for. */
+    --cm-field: oklch(20% 0.036 220);
     --cm-sheet: oklch(24% 0.01 260);
     --cm-sheet-border: rgba(255, 255, 255, 0.07);
     --cm-text: oklch(92% 0.01 95);
     --cm-text-2: oklch(66% 0.01 95);
     --cm-rule: oklch(34% 0.01 95);
     --cm-wordmark: oklch(76% 0.09 195);
-    /* Dark: the field is already dim, so the sheet's own tone is the contrast. */
-    --cm-cta-bg: oklch(76% 0.09 195);
-    --cm-cta-text: oklch(22% 0.02 220);
+    /* 608 §B — the body's off-white, not pure white: over a field this dark,
+       pure white shouts. The button needs no line of its own here: it derives
+       from --cm-on-field and --cm-field above. */
+    --cm-on-field: oklch(92% 0.01 95);
   }
 }
 .commitments-sheet {
@@ -319,6 +346,10 @@ body {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 .commitments-cta:hover { filter: brightness(0.92); }
+/* Anything that sits directly on the field rather than on the sheet — the
+   note beside the button, an error. Same token as the button's body, so the
+   pinned bar never mixes pure white with the off-white of dark mode. */
+.commitments-onfield { color: var(--cm-on-field); }
 /* The pinned bar sits ON the field, so it needs to read as part of it —
    a soft fade rather than a bordered toolbar. */
 .commitments-bar {
