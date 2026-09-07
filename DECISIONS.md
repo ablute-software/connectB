@@ -5459,7 +5459,7 @@ characters, editable and revertible by the founder and whoever holds
 `interactions` row with `classification='pass'`, `entities.status='passed'`,
 a pass reason, optionally a `rejection_code`. It feeds `passReasonAlert`, the
 reawakening prefilter and the Dashboard. *We said no*: a
-`startup_investor_decisions` row (migration **0338**, applied). It writes no
+`startup_investor_decisions` row (migration **0339**, applied). It writes no
 interaction, touches no status and creates no rejection code — so a founder's
 own judgement of an investor cannot inflate the alert that exists to tell them
 their PITCH is the problem, cannot read as an investor rejection, and cannot
@@ -5467,10 +5467,19 @@ appear as a prior "no" the reawakening engine argues against. Those three are
 structural, not a filter each consumer must remember: a decision simply is not
 an interaction.
 
-**Migration number.** 0338. Swept every remote branch (highest elsewhere:
-0337 on `main`, 0327 on prompt-580, 0317 on two others) and the applied
-ledger (`0337_platform_badges`) before choosing — the rule after four
-collisions.
+**Migration number.** 0339, and it was 0338 for most of this prompt — the
+FIFTH collision, and the first one where the sweep itself was not the
+problem. The sweep was clean (highest anywhere: `0337_platform_badges`, on
+`main` and in the applied ledger), 0338 was free when I took it, and
+`0338_account_security` was applied by a parallel session about twenty
+minutes later, before I applied mine. Renumbered to 0339 after re-sweeping.
+The lesson generalises past "sweep before choosing", which was already the
+rule: **re-sweep immediately before pushing, not only before writing** — the
+window between choosing a number and publishing it is exactly as dangerous
+as the window before choosing, and with several sessions running it is
+usually longer. Nothing was at risk in the database either way: the applied
+ledger records this migration under the unnumbered name
+`startup_investor_decisions`, so only the repo filename ever collided.
 
 **Naming collision, resolved by being explicit.** `EntityFrozenState`
 already has a `not_a_fit` (hard_filter_status='resolved_not_a_fit',
