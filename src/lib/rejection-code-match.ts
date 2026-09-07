@@ -14,9 +14,21 @@
 // the rejection_code row. That snapshot (required_level/level_label) is
 // kept for citation ("the earlier no was about X") and is the ONLY
 // signal for a free-text axis_code the app has no structured field for —
-// those fall back to org_axis_classifications (0184), still unpopulated
-// until a later block adds a writer; until then they conservatively never
-// clear (no data ≠ cleared).
+// those fall back to org_axis_classifications (0184).
+//
+// Prompt 852 §G — correcting this comment, which said that table was
+// "still unpopulated until a later block adds a writer". The writer landed
+// with Prompt 251/253 Bloc C and is live: StartupAxisClassifications
+// (rendered by CompanyPanel) writes org_axis_classifications through
+// addOrgAxisClassification, and that write re-runs the detector across
+// every entity. What is true, measured in production on 07/09/2026, is
+// that the table is EMPTY — and so is rejection_codes, across 45 recorded
+// passes. The axis-coding half of the pass form ("+ Code this rejection by
+// axis", optional) has never been used once, and StartupAxisClassifications
+// deliberately renders nothing until a free-text code exists, so the whole
+// chain has never had an input rather than never having had a writer. A
+// free-text axis with no classification still conservatively never clears
+// (no data =/= cleared).
 import type { Db, Entity, Org, OrgAxisClassification, RejectionCode, Stage } from './types';
 import { STAGE_OPTIONS } from './taxonomy';
 
