@@ -15,7 +15,25 @@ export interface Commitment {
   body: string;
   /** In-app destination, so a commitment that names a feature reaches it. */
   link?: { href: string; label: string };
+  /**
+   * Prompt 606 — which of the page's three sections this belongs to.
+   *
+   * Structural only: no wording changes here, 604's text is closed. The
+   * grouping lives in the DATA rather than being sliced by index in the page,
+   * because AI_TRAINING_LINE_CONFIRMED can put commitment 6 back at any time
+   * and every index-based grouping would silently shift by one.
+   */
+  group: CommitmentGroup;
 }
+
+export type CommitmentGroup = 'who_sees' | 'how_we_handle' | 'you_control';
+
+/** Section headings, in render order. */
+export const COMMITMENT_GROUPS: { key: CommitmentGroup; label: string }[] = [
+  { key: 'who_sees', label: 'Who can see it' },
+  { key: 'how_we_handle', label: 'How we handle it' },
+  { key: 'you_control', label: 'You stay in control' },
+];
 
 /** Flip to true only after the AI provider's terms are checked (§C question 1). */
 export const AI_TRAINING_LINE_CONFIRMED = false;
@@ -25,47 +43,57 @@ export const CONTROLLER_NAME = 'Exotictarget, Lda';
 
 const ALL: Commitment[] = [
   {
+    group: 'who_sees',
     n: 1, title: 'Your documents are yours.',
     body: 'We never share a document or any information about your company with anyone unless you explicitly choose to. The only exception is a binding legal obligation — a court order or a lawful request we cannot refuse. If that ever happens and we are permitted to tell you, we will.',
   },
   {
+    group: 'who_sees',
     n: 2, title: 'You decide who sees what.',
     body: 'Access to your documents is granted by you, person by person. You can change it or revoke it at any time, and it takes effect immediately.',
     link: { href: '/documents', label: 'Manage access in the Vault' },
   },
   {
+    group: 'who_sees',
     n: 3, title: 'You can see every access.',
     body: 'Every time a document of yours is opened, it is recorded — who, and when. That record is yours to inspect.',
     link: { href: '/documents/access-log', label: 'Open the access log' },
   },
   {
+    group: 'how_we_handle',
     n: 4, title: 'Our team does not browse your content.',
     body: 'Access by our staff is restricted to what is needed to run and support the service — resolving a support request, investigating a fault. Every such access is logged with the reason and the duration, and it is visible to you. We do not read your documents out of curiosity, and we never do it to inform anyone else\'s decisions.',
     link: { href: '/documents/access-log#team', label: 'See team access on your workspace' },
   },
   {
+    group: 'how_we_handle',
     n: 5, title: 'Automated processing works for you, not on you.',
     body: 'To make the product work, our systems read your documents to produce extractions and summaries for your own workspace. That processing serves you. It is not used to reveal your content to anyone else.',
   },
   {
+    group: 'how_we_handle',
     n: 6, title: 'Your data is not used to train AI models.',
     body: 'Neither ours nor anyone else\'s.',
   },
   {
+    group: 'how_we_handle',
     n: 7, title: 'We use a short list of suppliers, and they work under contract.',
     body: 'Running the service requires infrastructure: hosting, email delivery, payments, AI processing. These suppliers process your data only on our instructions, cannot use it for their own purposes, and are bound by data-protection agreements. The current list is published, and we tell you before it changes.',
     link: { href: '/legal/subprocessors', label: 'The current list of suppliers' },
   },
   {
+    group: 'you_control',
     n: 8, title: 'We protect your data with appropriate measures — and we tell you if something goes wrong.',
     body: 'No one can promise a system will never be breached. What we can promise: encryption in transit and at rest, access limited to those who need it, and, if a breach affects your data, notification to the supervisory authority within 72 hours and to you without undue delay.',
   },
   {
+    group: 'you_control',
     n: 9, title: 'You keep your rights, and we make them usable.',
     body: 'Access, correct, export, restrict, object, or delete — from inside the app, not by writing a letter. Closing your account ends access immediately; what we retain afterwards, and for how long, is stated on that screen before you confirm.',
     link: { href: '/privacy-request', label: 'Make a data-rights request' },
   },
   {
+    group: 'you_control',
     n: 10, title: 'Aggregate insight, never your content.',
     body: 'We study how the product is used to improve it, and we publish statistics about the market. Neither ever exposes your documents, your identity, or anything traceable to your company.',
   },

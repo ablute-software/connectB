@@ -258,3 +258,69 @@ body {
   from { transform: translateX(100%); opacity: 0.6; }
   to { transform: translateX(0); opacity: 1; }
 }
+
+/* Prompt 606 — the commitments page.
+   Defined here rather than inline because the design is a THEME (a field, a
+   sheet, three text tones, a rule) that has to flip whole in dark mode; nine
+   Tailwind dark: variants scattered through the markup is the same thing
+   said worse, and one of them always gets missed. */
+.commitments-field {
+  --cm-field: #0E7490;          /* brand teal, full strength */
+  --cm-sheet: #FFFFFF;
+  --cm-sheet-border: transparent;
+  --cm-text: oklch(22% 0.01 95);
+  --cm-text-2: oklch(46% 0.01 95);
+  --cm-rule: oklch(93% 0.005 95);
+  --cm-wordmark: #0E7490;
+  /* §C.2 rules out the app blue: blue inside a teal field reads as a mistake,
+     not contrast. It asks for teal — but that assumed the artboard's button,
+     which sits on the WHITE SHEET. §C.3 pins the button over the teal FIELD
+     instead, and teal on teal disappears (confirmed on screen before changing
+     this). The prompt already settles the case in §D, for the Inverse
+     variant: where the button lands on teal, it becomes white with teal text.
+     Same two colours, same rule, contrast restored. */
+  --cm-cta-bg: #FFFFFF;
+  --cm-cta-text: #0E7490;
+  background: var(--cm-field);
+}
+@media (prefers-color-scheme: dark) {
+  .commitments-field {
+    /* §C, minor — full-strength teal behind a dark sheet is shouting. The
+       field darkens; the sheet is unchanged from the spec. */
+    --cm-field: oklch(32% 0.06 220);
+    --cm-sheet: oklch(24% 0.01 260);
+    --cm-sheet-border: rgba(255, 255, 255, 0.07);
+    --cm-text: oklch(92% 0.01 95);
+    --cm-text-2: oklch(66% 0.01 95);
+    --cm-rule: oklch(34% 0.01 95);
+    --cm-wordmark: oklch(76% 0.09 195);
+    /* Dark: the field is already dim, so the sheet's own tone is the contrast. */
+    --cm-cta-bg: oklch(76% 0.09 195);
+    --cm-cta-text: oklch(22% 0.02 220);
+  }
+}
+.commitments-sheet {
+  background: var(--cm-sheet);
+  border: 1px solid var(--cm-sheet-border);
+  box-shadow: 0 30px 70px -24px rgba(0, 0, 0, 0.38), 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+.commitments-wordmark { color: var(--cm-wordmark); }
+.commitments-title    { color: var(--cm-text); }
+.commitments-strong   { color: var(--cm-text); }
+.commitments-body,
+.commitments-grouplabel,
+.commitments-aside    { color: var(--cm-text-2); }
+.commitments-fine     { color: var(--cm-text-2); opacity: 0.75; }
+.commitments-rule     { background: var(--cm-rule); }
+.commitments-link     { color: var(--cm-wordmark); }
+.commitments-cta {
+  background: var(--cm-cta-bg);
+  color: var(--cm-cta-text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.commitments-cta:hover { filter: brightness(0.92); }
+/* The pinned bar sits ON the field, so it needs to read as part of it —
+   a soft fade rather than a bordered toolbar. */
+.commitments-bar {
+  background: linear-gradient(to top, var(--cm-field) 62%, transparent);
+}
