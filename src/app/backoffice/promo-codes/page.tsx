@@ -176,7 +176,7 @@ function CreatePromoForm({ onCreated }: { onCreated: () => void }) {
             Pioneer campaign code
           </label>
           <p className="mt-1 text-[11px] text-gray-400">
-            Whoever redeems this earns the permanent Pioneer badge once the trial ends (lifetime 20% discount, 3 referral codes) — check this only for public/accelerator/investor-portfolio campaign codes, not a one-off discount.
+            Whoever redeems this earns the permanent Pioneer badge once the trial ends (lifetime 25% discount — the pioneer minimum since Prompt 601, 3 referral codes) — check this only for public/accelerator/investor-portfolio campaign codes, not a one-off discount.
           </p>
         </div>
       </div>

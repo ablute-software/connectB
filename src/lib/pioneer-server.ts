@@ -4,8 +4,9 @@
 // -server.ts earlier this session.
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { isPioneerBadgeDue, buildReferralCodeDrafts } from './pioneer';
+import { isPioneerBadgeDue, buildReferralCodeDrafts, PIONEER_LIFETIME_DISCOUNT_PCT } from './pioneer';
 import { generatePromoCode } from './promo';
+import { platformBadgesAvailable } from './platform-badges-capability';
 import type { PlanTier } from './types';
 
 export interface GrantPioneerResult {
@@ -29,6 +30,21 @@ export async function grantPioneerBadgeAndReferrals(
     .from('orgs').update({ pioneer_badge: true }).eq('id', orgId).eq('pioneer_badge', false)
     .select('id').maybeSingle();
   const badgeGranted = !!updated;
+
+  // Prompt 601 — the status also lives in platform_badges now (one table
+  // for every platform status; platform-badges-server.ts reads both this
+  // row and the legacy flag). System-granted: granted_by null, the same
+  // convention admin_audit_log uses for "the system did this".
+  if (badgeGranted && (await platformBadgesAvailable())) {
+    const { data: existing } = await admin.from('platform_badges').select('id')
+      .eq('org_id', orgId).eq('badge', 'pioneer').is('revoked_at', null).maybeSingle();
+    if (!existing) {
+      await admin.from('platform_badges').insert({
+        org_id: orgId, badge: 'pioneer', granted_by: null,
+        justification: 'Pioneer promo code redeemed (Prompt 161 campaign)', discount_pct: PIONEER_LIFETIME_DISCOUNT_PCT,
+      });
+    }
+  }
 
   const { count: existingReferrals } = await admin
     .from('promo_codes').select('id', { count: 'exact', head: true }).eq('referral_of_org_id', orgId);

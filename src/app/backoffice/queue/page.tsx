@@ -20,6 +20,7 @@ import { QueueTable, type QueueColumn } from '@/components/backoffice/QueueTable
 import { QueueTriageBoard } from '@/components/backoffice/QueueTriageBoard';
 import { groupIntoReviewCards, REVIEW_CARD_LABELS } from '@/lib/queue-summary';
 import { ReviewQueueLayout, ReviewFacts, ReviewActionFooter } from '@/components/backoffice/ReviewQueueLayout';
+import { BadgeLapseTab } from '@/components/backoffice/BadgeLapseTab';
 import type { UnifiedIdentityRow } from '@/lib/investor-identity-row';
 import type { MxLookupResult } from '@/lib/investor-domain-mx';
 
@@ -35,7 +36,7 @@ import type { MxLookupResult } from '@/lib/investor-domain-mx';
 // directly by TABS below, so they never render as a nav item) purely so
 // BackofficeQueueContent's own redirect (see there) has something to match
 // on an old bookmark/link.
-type Tab = 'contributions' | 'new_investors' | 'candidates' | 'submissions' | 'claims' | 'identity' | 'gdpr' | 'trust_safety' | 'suspicious' | 'fraud' | 'key_people' | 'community' | 'domain_mismatch' | 'competitor_intel';
+type Tab = 'contributions' | 'new_investors' | 'candidates' | 'submissions' | 'claims' | 'identity' | 'gdpr' | 'trust_safety' | 'suspicious' | 'fraud' | 'key_people' | 'community' | 'domain_mismatch' | 'competitor_intel' | 'badge_lapse';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'new_investors', label: 'New investors' },
@@ -49,6 +50,10 @@ const TABS: { key: Tab; label: string }[] = [
   // the prompt's own explicit "não construir UI para uma fila sem porta."
   { key: 'claims', label: 'Person claims' },
   { key: 'gdpr', label: 'GDPR' },
+  // Prompt 601 §F — a tech master whose 2-month window passed with no use.
+  // Not a revocation: rights continue and nothing is charged until a person
+  // looks (BadgeLapseTab.tsx). Using the app again clears it by itself.
+  { key: 'badge_lapse', label: 'Tech master lapses' },
   // Prompt 284 §1 — entities.email_domain vs entities.website mismatches
   // (54 in production, Nalka Invest being the case that surfaced it) —
   // live detection, not a stored flag, see DomainMismatchTab.tsx.
@@ -2232,6 +2237,7 @@ function BackofficeQueueContent() {
       {tab === 'claims' && <ClaimsTab />}
       {tab === 'identity' && <InvestorIdentityTab />}
       {tab === 'gdpr' && <GdprTab />}
+      {tab === 'badge_lapse' && <BadgeLapseTab />}
       {tab === 'trust_safety' && <TrustSafetyTab />}
       {tab === 'key_people' && <KeyPeoplePromoteTab />}
       {tab === 'community' && <ContributionsByUsersTab />}

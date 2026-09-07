@@ -32,6 +32,9 @@ import { OrganisationCard } from '@/components/OrganisationCard';
 import { CompanyFactsPanel } from '@/components/CompanyFactsPanel';
 import { IdentityCard } from './IdentityCard';
 import { BadgesCard } from './BadgesCard';
+// Prompt 601 §D.2 — platform statuses, visibly separate from the company's
+// verified awards (BadgesCard): its own card, above, never sent to investors.
+import { PlatformStatusCard } from '@/components/badges/PlatformStatusCard';
 import { StartupTeamCard } from './StartupTeamCard';
 import { RoundCard } from './RoundCard';
 import { PreviousFundingCard } from '@/components/PreviousFundingCard';
@@ -165,6 +168,7 @@ export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashI
           <DemoResetCard />
         </div>
         <div className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+          <PlatformStatusCard variant="about" />
           <BadgesCard canEdit={canEdit} orgId={db.org.id} />
         </div>
       </div>
@@ -245,7 +249,8 @@ export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashI
 
       <div className="lg:sticky lg:top-[var(--settings-header-offset)] lg:overflow-y-auto lg:[max-height:calc(100vh-var(--settings-header-offset)-1rem)]"
         style={{ '--settings-header-offset': `${SETTINGS_HEADER_OFFSET_PX}px` } as React.CSSProperties}>
-        <BadgesCard canEdit={canEdit} orgId={db.org.id} />
+        <PlatformStatusCard variant="about" />
+          <BadgesCard canEdit={canEdit} orgId={db.org.id} />
       </div>
     </div>
   );

@@ -63,6 +63,7 @@ export async function getQueueSummaryRows(admin: SupabaseClient): Promise<QueueS
     gdpr, gdprOldest, suspicious, fraud,
     entitiesForMismatch,
     consensusRows, consensusSources,
+    badgeLapse,
   ] = await Promise.all([
     admin.from('contributions').select('id', { count: 'exact', head: true }).eq('status', 'submitted'),
     admin.from('contributions').select('created_at').eq('status', 'submitted').order('created_at', { ascending: true }).limit(1),
@@ -113,6 +114,11 @@ export async function getQueueSummaryRows(admin: SupabaseClient): Promise<QueueS
     // the route itself does through communityConsensusAvailable().
     admin.from('catalog_field_consensus').select('id, score'),
     admin.from('catalog_field_consensus_sources').select('consensus_id'),
+    // Prompt 601 §F — tech masters whose 2-month window passed with no use
+    // and no person has looked yet. Pre-0337 the table is missing: the
+    // error makes the count null (unknown), never zero.
+    admin.from('platform_badges').select('id', { count: 'exact', head: true })
+      .eq('badge', 'tech_master').is('revoked_at', null).not('lapsed_at', 'is', null).is('lapse_reviewed_at', null),
   ]);
 
   // A row with no linked member at all (shouldn't happen given the two
@@ -193,6 +199,7 @@ export async function getQueueSummaryRows(admin: SupabaseClient): Promise<QueueS
     { key: 'domain_mismatch', count: mismatchCount },
     { key: 'suspicious', count: suspicious.count ?? 0 },
     { key: 'fraud', count: fraud.count ?? 0 },
+    { key: 'badge_lapse', count: badgeLapse.error ? null : (badgeLapse.count ?? 0) },
     // Counted when opened — see the header for why they are not reimplemented.
     { key: 'key_people', count: null },
     { key: 'community', count: communityCount },
@@ -211,6 +218,8 @@ export const REVIEW_CARD_LABELS: Record<string, string> = {
   identity: 'Investor identity',
   claims: 'Person claims',
   gdpr: 'GDPR',
+  // Prompt 601 §F — a person decides; the status is never revoked by a clock.
+  badge_lapse: 'Tech master lapses',
   trust_safety: 'Trust & safety',
   // Prompt 598 §A — these three existed ONLY as tabs on the Queue page, so
   // once that tab bar went away they had no route in at all, and they never
@@ -277,6 +286,7 @@ export function groupIntoReviewCards(rows: QueueSummaryRow[]): QueueSummaryRow[]
     { key: 'identity', count: identity?.count ?? null, hiddenInternal: identity?.hiddenInternal, oldestDays: identity?.oldestDays },
     { key: 'claims', count: claims?.count ?? null, oldestDays: claims?.oldestDays },
     { key: 'gdpr', count: gdpr?.count ?? null, oldestDays: gdpr?.oldestDays, slaDueInDays: gdpr?.slaDueInDays },
+    { key: 'badge_lapse', count: by('badge_lapse')?.count ?? null },
     {
       key: 'trust_safety',
       count: trustSafetyCount,

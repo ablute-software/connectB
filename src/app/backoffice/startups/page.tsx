@@ -18,7 +18,7 @@
 // Pipeline (reuses pipeline-unlock.ts's own formula, never recalculated
 // separately) · Stage · AI drafts this month · AI reviews this month, plus
 // sortable columns, search, and a History subtab (Block C.2).
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { sortRows, sortIndicator } from '@/lib/table-sort';
 import { Card, Tabs } from '@/components/ui';
 import { PLANS, planName, normalizePlan, parsePlanRequest } from '@/lib/plans';
@@ -28,6 +28,7 @@ import { ModerationControls } from '@/components/backoffice/ModerationControls';
 import { ModerationHistoryCard } from '@/components/backoffice/ModerationHistoryCard';
 import { NetworkStrikesTab } from '@/components/backoffice/NetworkStrikesTab';
 import { AccountStatusFilter } from '@/components/backoffice/AccountStatusFilter';
+import { PlatformBadgeControls, type AdminBadgeRow } from '@/components/backoffice/PlatformBadgeControls';
 import type { ModerationStatus } from '@/lib/account-moderation';
 import { matchesAccountFilter, type AccountFilter } from '@/lib/account-filter';
 import { useTableUrlState } from '@/lib/use-table-url-state';
@@ -112,6 +113,18 @@ function StartupsTable() {
   const [err, setErr] = useState('');
   const [savingId, setSavingId] = useState<string | null>(null);
   const [enteringId, setEnteringId] = useState<string | null>(null);
+  // Prompt 601 §C — platform badges per org, granted/revoked inline in the
+  // Badges column. One fetch for the whole table (a handful of rows).
+  const [badgesByOrg, setBadgesByOrg] = useState<Record<string, AdminBadgeRow[]>>({});
+  const loadBadges = useCallback(() => {
+    fetch('/api/backoffice/platform-badges').then((r) => r.json()).then((body) => {
+      if (!body.ok) return;
+      const by: Record<string, AdminBadgeRow[]> = {};
+      for (const b of (body.badges ?? []) as AdminBadgeRow[]) (by[b.orgId] ??= []).push(b);
+      setBadgesByOrg(by);
+    }).catch(() => {});
+  }, []);
+  useEffect(loadBadges, [loadBadges]);
   // Prompt 576 Fase 3 — page/sort/dir/search/status filter all live in the
   // URL now, same shape the Queue already uses (queue-table-state.ts): a
   // shared link opens the same view. Defaults (name, asc, no filter) match
@@ -237,6 +250,7 @@ function StartupsTable() {
                     {c.label} {sortIndicator(sortKey === c.key, sortDir)}
                   </th>
                 ))}
+                <th className="whitespace-nowrap py-1.5 pr-3">Badges</th>
                 <th className="whitespace-nowrap py-1.5 pr-3">Delete/Suspend</th>
                 <th className="whitespace-nowrap py-1.5">Viewer</th>
               </tr>
@@ -297,6 +311,9 @@ function StartupsTable() {
                       free to override; `min-width` is the one that's
                       actually a floor, confirmed live before changing this
                       to min-w-48 rather than w-48. */}
+                  <td className="min-w-56 pr-3">
+                    <PlatformBadgeControls orgId={o.orgId} orgName={o.name} badges={badgesByOrg[o.orgId] ?? []} onChanged={loadBadges} />
+                  </td>
                   <td className="min-w-48 pr-3">
                     {moderationAvailable ? (
                       <ModerationControls targetType="org" targetId={o.orgId} name={o.name} status={o.moderationStatus} quarantineUntil={o.moderationQuarantineUntil} onChanged={load} />

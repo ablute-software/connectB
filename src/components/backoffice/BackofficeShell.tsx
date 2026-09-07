@@ -79,6 +79,8 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
   const investorIdentity = sum(count('identity'));
   const personClaims = sum(count('claims'));
   const gdpr = sum(count('gdpr'));
+  // Prompt 601 §F — tech masters in lapse awaiting a person's look.
+  const badgeLapse = sum(count('badge_lapse'));
   // Prompt 599 §1 — aligned with the board: a fused count is null (unknown),
   // never a silent partial sum, when any part is null. `community` is a real
   // number now (queue-summary.ts, same change), so in practice this only
@@ -86,7 +88,7 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
   // shows, badge-less, exactly as the board shows a dash instead of "0".
   const trustSafetyParts = [count('suspicious'), count('fraud'), count('community')];
   const trustSafety: number | null = trustSafetyParts.some((v) => v === null) ? null : sum(...trustSafetyParts);
-  const reviewTotal = newInvestors + contributions + investorIdentity + personClaims + gdpr + (trustSafety ?? 0);
+  const reviewTotal = newInvestors + contributions + investorIdentity + personClaims + gdpr + badgeLapse + (trustSafety ?? 0);
   const attentionTotal = rows ? reviewTotal + supportBadge : 0;
 
   const fromPath = searchParams.get('from') || '/pipeline';
@@ -144,6 +146,9 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
     // occupying a row). Following that: it appears the instant it has one.
     ...(gdpr ? [item('review-gdpr', gdprSlaDays !== null && gdprSlaDays <= 7 ? `GDPR — due in ${Math.max(gdprSlaDays, 0)}d` : 'GDPR',
       '/backoffice/queue?tab=gdpr', { icon: '☰', group: 1, badge: gdpr })] : []),
+    // Prompt 601 §F — appears the instant a tech master's window passes
+    // with no use; a person decides, the clock never revokes.
+    ...(badgeLapse ? [item('review-badge-lapse', 'Tech master lapses', '/backoffice/queue?tab=badge_lapse', { icon: '☰', group: 1, badge: badgeLapse })] : []),
     ...(trustSafety === null || trustSafety > 0
       ? [item('review-trust', 'Trust & safety', '/backoffice/queue?tab=trust_safety', { icon: '☰', group: 1, badge: trustSafety || undefined })]
       : []),

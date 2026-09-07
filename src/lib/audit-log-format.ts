@@ -113,6 +113,28 @@ export function describeAuditEvent(row: AuditLogRow, admin: string): string {
       const field = str(detail.field) ?? 'a field';
       return `${admin} edited private contact field ${field}${str(detail.to) ? ` → "${detail.to}"` : ' → (cleared)'}`;
     }
+    // Prompt 601 — platform badges (tech master / pioneer): rights worth
+    // money, so every grant, revocation, warning, lapse and reinstatement
+    // reads as a sentence, with the why.
+    case 'platform_badge_granted': {
+      const badge = str(detail.badge)?.replace(/_/g, ' ') ?? 'platform';
+      const why = str(detail.justification);
+      return `${admin} granted the ${badge} status to ${str(detail.orgName) ?? 'an org'}${why ? ` — "${why}"` : ''}`;
+    }
+    case 'platform_badge_revoked': {
+      const badge = str(detail.badge)?.replace(/_/g, ' ') ?? 'platform';
+      return `${admin} revoked the ${badge} status from ${str(detail.orgName) ?? 'an org'}${str(detail.reason) ? ` — "${str(detail.reason)}"` : ''}`;
+    }
+    case 'platform_badge_lapse_reviewed':
+      return `${admin} reviewed ${str(detail.orgName) ?? 'an org'}'s lapsed tech master status and kept it`;
+    case 'platform_badge_warning':
+      return `The system warned ${str(detail.orgName) ?? 'an org'}: ${detail.pct ?? '?'}% of the tech master window passed, ${detail.daysLeft ?? '?'} days left`;
+    case 'platform_badge_lapsed':
+      return `${str(detail.orgName) ?? 'An org'}'s tech master window passed with no use — in the admin queue, nothing charged`;
+    case 'platform_badge_reinstated':
+      return `${str(detail.orgName) ?? 'An org'}'s tech master status was restored by a real use (${str(detail.by) ?? 'system'})`;
+    case 'platform_badge_coupon_applied':
+      return `The system applied Stripe coupon ${str(detail.coupon) ?? '?'} to ${str(detail.orgName) ?? 'an org'}'s subscription (${str(detail.reason) ?? 'badge'})`;
     case 'private_person_linked': {
       const name = str(detail.catalogPersonName);
       const layer = typeof detail.layer === 'number' ? ` (layer ${detail.layer}${detail.firmMatch ? ', firm matches' : ', firm differs'})` : '';
