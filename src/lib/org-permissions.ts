@@ -13,7 +13,7 @@ import type { OrgRole } from './permissions';
 export type MatrixCapability =
   | 'data_room_read' | 'data_room_upload' | 'data_room_manage' | 'access_grants'
   | 'outbox_approval' | 'automations_config' | 'packs_unlock' | 'backoffice_access'
-  | 'invites' | 'org_editing';
+  | 'invites' | 'org_editing' | 'investor_decisions';
 
 export const MATRIX_CAPABILITIES: { key: MatrixCapability; label: string; note?: string }[] = [
   { key: 'data_room_read', label: 'Vault Data Room — read' },
@@ -30,6 +30,12 @@ export const MATRIX_CAPABILITIES: { key: MatrixCapability; label: string; note?:
   { key: 'backoffice_access', label: 'Back-office access', note: 'Platform-admin is still required — this toggle only restricts further, never grants.' },
   { key: 'invites', label: 'Invite teammates' },
   { key: 'org_editing', label: 'Organisation editing' },
+  // Prompt 852 §B — the founder side of a "no", in both directions: marking
+  // an investor "Not a fit for us" (startup_investor_decisions, migration
+  // 0338) and recording/editing an investor's pass and what would restart
+  // it. Both write the org's own account of a relationship, which is why
+  // they share one capability rather than getting two.
+  { key: 'investor_decisions', label: 'Mark an investor as not a fit / record a pass' },
 ];
 
 // Defaults mirror today's behaviour (permissions.ts static matrix).
@@ -44,6 +50,7 @@ export const DEFAULT_MATRIX: Record<MatrixCapability, OrgRole[]> = {
   backoffice_access: ['owner', 'admin', 'manager', 'member'],
   invites: ['owner', 'admin'],
   org_editing: ['owner', 'admin'],
+  investor_decisions: ['owner', 'admin'],
 };
 
 export type MatrixOverrides = Partial<Record<MatrixCapability, OrgRole[]>>;

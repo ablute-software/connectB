@@ -6,8 +6,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type {
   AccessGrant, AutomationRun, CompanyFact, Db, DocumentItem, Entity, EntityReopenSnapshot, Folder, FolderKind, Interaction, InteractionDocument, Nda, Person, PersonAffiliation, FundingRound, RoadmapCategory, RoadmapEvent,
-  InteractionEdit, OrgAxisClassification } from './types';
+  InteractionEdit, OrgAxisClassification, StartupInvestorDecision } from './types';
 import { seed } from './data/seed';
+import { liveDecisionByEntity, noteProblem, noteProblemMessage } from './startup-investor-decision';
 import { revisitTasksToClose } from './exit-effects';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
@@ -462,6 +463,50 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
     },
     async removeCapTableEntry(id) {
       setDb((prev) => ({ ...prev, capTableEntries: prev.capTableEntries.filter((c) => c.id !== id) }));
+      return {};
+    },
+    // Prompt 852 §A/§B — demo mode has one local user who owns everything,
+    // so there is no capability to check and no route to call; the rules that
+    // matter (the 220-char cap, one live decision per entity, reverting frees
+    // the slot) are the pure ones in startup-investor-decision.ts, shared
+    // with the real path.
+    async recordInvestorDecision({ entityId, note, reasonCategory }) {
+      const problem = noteProblem(note);
+      if (problem) return { error: noteProblemMessage(problem) ?? 'Check the note.' };
+      const now = new Date().toISOString();
+      setDb((prev) => {
+        if (liveDecisionByEntity(prev.startupInvestorDecisions).has(entityId)) return prev;
+        return {
+          ...prev,
+          startupInvestorDecisions: [...prev.startupInvestorDecisions, {
+            id: uid('sid'), org_id: prev.org.id, entity_id: entityId, decision: 'not_a_fit' as const,
+            reason_category: (reasonCategory || undefined) as StartupInvestorDecision['reason_category'],
+            note: note.trim(), decided_by: 'demo-user', decided_at: now, updated_at: now,
+          }],
+        };
+      });
+      return {};
+    },
+    async updateInvestorDecision({ decisionId, note, reasonCategory }) {
+      const problem = noteProblem(note);
+      if (problem) return { error: noteProblemMessage(problem) ?? 'Check the note.' };
+      const now = new Date().toISOString();
+      setDb((prev) => ({
+        ...prev,
+        startupInvestorDecisions: prev.startupInvestorDecisions.map((d) => d.id === decisionId
+          ? { ...d, note: note.trim(), reason_category: (reasonCategory || undefined) as StartupInvestorDecision['reason_category'], updated_at: now }
+          : d),
+      }));
+      return {};
+    },
+    async revertInvestorDecision(decisionId) {
+      const now = new Date().toISOString();
+      setDb((prev) => ({
+        ...prev,
+        startupInvestorDecisions: prev.startupInvestorDecisions.map((d) => d.id === decisionId
+          ? { ...d, reverted_at: now, reverted_by: 'demo-user', updated_at: now }
+          : d),
+      }));
       return {};
     },
     async addRoadmapMilestone(m) {

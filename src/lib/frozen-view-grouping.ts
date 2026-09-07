@@ -43,3 +43,40 @@ export function pillLabelForFrozenState(state: EntityFrozenState): string {
     case 'blocked': return 'Fraud — pending review';
   }
 }
+
+// Prompt 852 §C — a FOURTH view, and the first one that is not about being
+// frozen: "Passed". It lists both directions of "no" with an unmistakable
+// per-row label — "They passed" (an investor pass: today's status='passed',
+// written by the pass flow alongside its classification='pass' interaction)
+// and "Not a fit for us" (the founder's own decision,
+// startup_investor_decisions, migration 0338). One view, two labels — never
+// one number that hides which way the no went.
+//
+// This function exists for the same reason viewForFrozenState does: before
+// it, the mapping lived duplicated across the row filter, the counts and the
+// row pill in pipeline/page.tsx, and got corrected in only one of the three
+// twice running. Adding a fourth view by hand in three places would have
+// been the third time.
+export type PipelineView = FrozenView | 'passed' | 'none';
+
+export function pipelineViewForEntity(args: {
+  /** classifyEntityFrozenState's answer, absent when the entity is neither
+   *  dormant nor hard-filtered. */
+  frozenState?: EntityFrozenState;
+  status?: string | null;
+  /** A live (un-reverted) startup_investor_decisions row. */
+  hasLiveDecision: boolean;
+}): PipelineView {
+  // The founder's own decision outranks everything: it is the most recent
+  // statement of where the relationship stands, it is the only one of these
+  // states the founder can revert in one click, and burying it under a
+  // frozen sub-class would hide the thing they just did.
+  if (args.hasLiveDecision) return 'passed';
+  // A dormant entity carrying an old pass stays in Frozen, as it always has
+  // (closed_for_cause) — Prompt 852 §C keys the Passed view on status, not
+  // on the frozen classification, and deliberately does not move rows that
+  // Prompt 271's classification already placed.
+  if (args.frozenState) return viewForFrozenState(args.frozenState);
+  if (args.status === 'passed') return 'passed';
+  return 'none';
+}

@@ -19,7 +19,10 @@ import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
 import { useTrackPageView } from '@/lib/use-track-page-view';
 import { nextMonthlyDeliveryDate } from '@/lib/catalog-monthly-delivery';
 import { classifyEntityFrozenState, type EntityFrozenState } from '@/lib/frozen-classifier';
-import { viewForFrozenState, pillLabelForFrozenState } from '@/lib/frozen-view-grouping';
+import { pillLabelForFrozenState, pipelineViewForEntity, type PipelineView } from '@/lib/frozen-view-grouping';
+import { liveDecisionByEntity, NOT_A_FIT_LABEL, THEY_PASSED_LABEL } from '@/lib/startup-investor-decision';
+import { NotAFitAction } from '@/components/NotAFitAction';
+import { useOrgCapability } from '@/lib/use-org-capability';
 import type { NeglectOutcome } from '@/lib/neglect-evaluation';
 import { neglectAskState, type NeglectAskState, type NeglectProposalRecord } from '@/lib/neglect-history';
 import { competitorInvestmentSummary, type CompetitorInvestmentItem } from '@/lib/competitor-investment-copy';
@@ -555,7 +558,11 @@ export default function PipelinePage() {
   //     cases today, the button hides entirely rather than sitting at 🚨(0)
   //     as permanent noise (see the button rendering below).
   // Three mutually-exclusive views plus 'none', still session-local.
-  const [frozenView, setFrozenView] = useState<'none' | 'frozen' | 'stale' | 'reported'>('none');
+  // Prompt 852 §C — a fourth value. The class -> view mapping (including
+  // this one) lives in pipelineViewForEntity (frozen-view-grouping.ts), never
+  // inline here: three separate places used to derive it and two consecutive
+  // prompts corrected only one of them.
+  const [frozenView, setFrozenView] = useState<PipelineView>('none');
   const [sortKey, setSortKey] = useState<SortKey>('wave');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [addInvestorOpen, setAddInvestorOpen] = useState(false);
@@ -743,6 +750,28 @@ export default function PipelinePage() {
     return m;
   }, [db]);
 
+  // Prompt 852 §A/§C — the founder's own "not a fit for us" decisions, live
+  // ones only (a reverted row puts the entity straight back in the active
+  // list). Reverted rows stay loaded so the ⓘ can still show the history.
+  const liveDecisions = useMemo(
+    () => liveDecisionByEntity(db.startupInvestorDecisions ?? []),
+    [db.startupInvestorDecisions],
+  );
+  // Prompt 852 §B — a courtesy, never the gate: /api/company/investor-decisions
+  // checks the same capability itself on every write.
+  const canDecideInvestors = useOrgCapability('investor_decisions');
+  const entityViews = useMemo(() => {
+    const m = new Map<string, PipelineView>();
+    for (const e of db.entities) {
+      m.set(e.id, pipelineViewForEntity({
+        frozenState: entityFrozenStates.get(e.id),
+        status: e.status,
+        hasLiveDecision: liveDecisions.has(e.id),
+      }));
+    }
+    return m;
+  }, [db.entities, entityFrozenStates, liveDecisions]);
+
   const rows = useMemo(() => {
     let list = [...db.entities];
     // Prompt 257 §4 — the toggle's own base filter, applied before anything
@@ -751,14 +780,13 @@ export default function PipelinePage() {
     // class, same filters/sort/layout still apply on top.
     // Prompt 283 — the class -> view mapping itself lives in
     // viewForFrozenState (frozen-view-grouping.ts) now, not inline here.
-    list = list.filter((e) => {
-      const state = entityFrozenStates.get(e.id);
-      // No state = neither dormant nor hard-filtered: shows only in 'none'.
-      // A classified state is excluded from 'none' entirely (never just
-      // dimmed) and shown only in the one view it maps to.
-      if (!state) return frozenView === 'none';
-      return frozenView !== 'none' && viewForFrozenState(state) === frozenView;
-    });
+    // Prompt 852 §C — one function decides the membership now, for all four
+    // views including 'none': an entity shows in exactly the view
+    // pipelineViewForEntity names, and in no other. A row with a live
+    // "not a fit for us" decision therefore leaves the active list the way
+    // frozen rows do — it is not a candidate for outreach — and never
+    // disappears: it is counted and reachable under Passed.
+    list = list.filter((e) => entityViews.get(e.id) === frozenView);
     if (q) list = list.filter((e) => e.name.toLowerCase().includes(q.toLowerCase())
       || e.sectors.some((s) => s.toLowerCase().includes(q.toLowerCase())));
     if (wave.length) list = list.filter((e) => wave.includes(String(e.wave)));
@@ -782,15 +810,20 @@ export default function PipelinePage() {
         || (a.wave ?? 9) - (b.wave ?? 9) || (fitOrder[a.fit_score ?? 'low'] - fitOrder[b.fit_score ?? 'low']);
     });
     return list;
-  }, [db, q, wave, status, sectors, country, sortKey, sortDir, interestedEntityIds, activeThreadEntityIds, frozenView, entityFrozenStates]);
+  }, [db, q, wave, status, sectors, country, sortKey, sortDir, interestedEntityIds, activeThreadEntityIds, frozenView, entityViews]);
 
   const countries = Array.from(new Set(db.entities.map((e) => e.hq_country).filter(Boolean))) as string[];
   const sectorOptions = Array.from(new Set(db.entities.flatMap((e) => e.sectors))).sort();
   // Prompt 282/283 — three counts, matching the three buttons, all derived
   // from the one grouping function so they can never drift from the row
   // filter or the pill label above.
-  const viewCounts = { frozen: 0, stale: 0, reported: 0 };
-  for (const state of entityFrozenStates.values()) viewCounts[viewForFrozenState(state)]++;
+  // Prompt 852 §C — a fourth count, from the same per-entity mapping the row
+  // filter uses, so the pill label and the list can never disagree. What each
+  // part counts: `passed` is BOTH directions of "no" — an investor pass
+  // (status 'passed') and the founder's own live decision — deliberately in
+  // one bucket for the header number and split by label inside the view.
+  const viewCounts = { frozen: 0, stale: 0, reported: 0, passed: 0, none: 0 };
+  for (const view of entityViews.values()) viewCounts[view]++;
   const frozenCount = viewCounts.frozen;
   const staleCount = viewCounts.stale;
   // Named reportedCount, not blockedCount — that name is already taken by
@@ -805,7 +838,12 @@ export default function PipelinePage() {
   const listExceedsCap = rows.length > PIPELINE_ROWS_WITHOUT_SCROLL_CAP;
 
   const reportedCount = viewCounts.reported;
-  const notActivePipelineCount = frozenCount + staleCount + reportedCount;
+  const passedCount = viewCounts.passed;
+  // Prompt 852 §C — the passed set joins this sum so "Active" stops counting
+  // rows nobody is pursuing. Both directions belong here: an investor who
+  // passed and an investor the founder ruled out are equally not candidates
+  // for outreach.
+  const notActivePipelineCount = frozenCount + staleCount + reportedCount + passedCount;
 
   // Prompt 273 §3 / Prompt 282/283 — the row's Status pill shows the real
   // sub-class, not the raw 'dormant' status, but only inside the 3
@@ -1102,6 +1140,17 @@ export default function PipelinePage() {
             {frozenView === 'reported' ? '🚨 Showing reported' : `🚨 Reported (${reportedCount})`}
           </button>
         )}
+        {/* Prompt 852 §C — both directions of "no" in one view, each row
+            labelled with which way it went. Same shape as the three above;
+            hidden at 0 like Reported, and kept visible while it IS the
+            active view so toggling back off never needs a second control. */}
+        {(passedCount > 0 || frozenView === 'passed') && (
+          <button onClick={() => setFrozenView((v) => v === 'passed' ? 'none' : 'passed')}
+            title="Decided, either way — they passed, or you ruled them out."
+            className={`rounded-lg border px-2.5 py-1.5 text-sm font-medium ${frozenView === 'passed' ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+            {frozenView === 'passed' ? '✕ Showing passed' : `✕ Passed (${passedCount})`}
+          </button>
+        )}
         {/* Prompt 271 §3 / Prompt 282 — bulk ask moved to the Stale view
             (Stand by no longer has its own button), but still only ever
             acts on the stand_by rows WITHIN it, never the no_data ones now
@@ -1238,6 +1287,28 @@ export default function PipelinePage() {
                         Suspended
                       </span>
                     )}
+                    {/* Prompt 852 §C — inside the Passed view every row says
+                        WHICH WAY the "no" went. "They passed" is an investor
+                        rejection (status 'passed', written by the pass flow
+                        with its classification='pass' interaction); the
+                        founder's own decision renders its own label below,
+                        with the note and Revert behind the ⓘ. One view, two
+                        labels — never one number that hides the direction. */}
+                    {frozenView === 'passed' && !liveDecisions.has(e.id) && (
+                      <span className="ml-1.5 inline-block rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600"
+                        title="This investor passed on you.">
+                        {THEY_PASSED_LABEL}
+                      </span>
+                    )}
+                    {/* Prompt 852 §B — the action, the inline form and the
+                        recorded decision, in that one component. Offered on
+                        every row; only ever WRITTEN by a member who holds
+                        `investor_decisions`. */}
+                    <NotAFitAction
+                      entityId={e.id}
+                      decision={liveDecisions.get(e.id)}
+                      canDecide={canDecideInvestors}
+                    />
                     {/* Prompt 73 — a mutual MatchDeal match is a materially
                         different, hotter provenance than a manual add or a
                         catalog unlock (both sides already showed direct

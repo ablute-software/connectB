@@ -28,6 +28,13 @@ export type RelationshipStage =
 export type Classification =
   | 'awaiting' | 'interested' | 'meeting_request' | 'question'
   | 'pass' | 'out_of_office' | 'bounce' | 'unclear';
+// Prompt 852 §A — the interface lives with its rules (startup-investor-
+// decision.ts), and is re-exported here so `Db` and every consumer keep one
+// import site for domain types. Type-only, so the cycle with that file's own
+// `PassReasonCategory` import is erased at compile time.
+import type { StartupInvestorDecision } from './startup-investor-decision';
+export type { StartupInvestorDecision };
+
 export type PassReasonCategory =
   | 'valuation' | 'check_size' | 'geography' | 'stage_too_early'
   | 'thesis_mismatch' | 'team' | 'traction' | 'other';
@@ -1219,6 +1226,11 @@ export interface Db {
   sherlockNextSnoozes: SherlockNextSnooze[];
   entityReopenSnapshots: EntityReopenSnapshot[];
   capTableEntries: CapTableEntry[];
+  // Prompt 852 §A — the startup's OWN "not a fit for us" against an
+  // investor. A separate record from an investor's pass, never counted as
+  // one; see startup-investor-decision.ts for why that separation is
+  // structural rather than a filter every consumer must remember.
+  startupInvestorDecisions: StartupInvestorDecision[];
 }
 
 // ---------------------------------------------------------------------------
