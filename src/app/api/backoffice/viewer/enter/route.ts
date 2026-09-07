@@ -6,14 +6,23 @@
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { VIEWER_ORG_COOKIE, VIEWER_COOKIE_MAX_AGE, readViewerSession } from '@/lib/developer-viewer';
+import { normalizeViewerReason } from '@/lib/viewer-reason';
 
 export async function POST(req: Request) {
   const auth = await requirePlatformAdmin();
   if ('error' in auth) return auth.error;
   const { admin, userId } = auth;
 
-  const { orgId } = await req.json().catch(() => ({})) as { orgId?: string };
+  const { orgId, reason: rawReason } = await req.json().catch(() => ({})) as { orgId?: string; reason?: string };
   if (!orgId) return NextResponse.json({ ok: false, error: 'orgId is required.' }, { status: 400 });
+
+  // Prompt 611 §B — the reason is checked HERE, not only in the dialog. The
+  // dialog can be bypassed with one fetch; commitment 4 ("logged with the
+  // reason and the duration, and it is visible to you") cannot be kept by a
+  // client-side check. Rejecting before anything is written also means there
+  // is no such thing as a half-entered session with no reason attached.
+  const reasonCheck = normalizeViewerReason(rawReason);
+  if (!reasonCheck.ok) return NextResponse.json({ ok: false, error: reasonCheck.error }, { status: 400 });
 
   const { data: org } = await admin.from('orgs').select('id, name').eq('id', orgId).maybeSingle();
   if (!org) return NextResponse.json({ ok: false, error: 'Org not found.' }, { status: 404 });
@@ -35,7 +44,7 @@ export async function POST(req: Request) {
   const enteredAt = new Date().toISOString();
   await admin.from('admin_audit_log').insert({
     admin_user_id: userId, action: 'viewer_enter', subject_type: 'org', subject_id: orgId,
-    detail: { orgName: org.name, enteredAt },
+    detail: { orgName: org.name, enteredAt, reason: reasonCheck.reason },
   });
 
   const response = NextResponse.json({ ok: true, orgName: org.name });

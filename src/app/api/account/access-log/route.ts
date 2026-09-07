@@ -36,7 +36,12 @@ export async function GET() {
   const teamAccess = (enters ?? []).map((e) => {
     const at = new Date(e.created_at as string).getTime();
     const exit = exitTimes.find((x) => x.at >= at);
-    return { id: e.id, enteredAt: e.created_at, durationMs: exit?.durationMs ?? null, closedBy: (e.detail as { closedBy?: string } | null)?.closedBy ?? null };
+    // Prompt 611 §B — the reason is the half of commitment 4 that was
+    // missing: "logged with the reason and the time, WHERE YOU CAN SEE IT
+    // TOO". Kept nullable rather than defaulted, so the page can say the
+    // entries written before 611 have none instead of inventing one.
+    const reason = (e.detail as { reason?: string } | null)?.reason ?? null;
+    return { id: e.id, enteredAt: e.created_at, durationMs: exit?.durationMs ?? null, closedBy: (e.detail as { closedBy?: string } | null)?.closedBy ?? null, reason };
   });
 
   return NextResponse.json({
