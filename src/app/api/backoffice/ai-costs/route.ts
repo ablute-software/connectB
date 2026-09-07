@@ -49,6 +49,7 @@ function mechanismLabel(purpose: string): string {
 interface CallRow {
   route: string; purpose: string; model: string;
   cost_eur: number; org_id: string | null; created_at: string;
+  tokens_in: number | null; tokens_out: number | null;
 }
 
 export async function GET() {
@@ -64,7 +65,7 @@ export async function GET() {
   since6mo.setMonth(since6mo.getMonth() - 6);
 
   const [{ data: rows60, error }, { data: rows6mo }] = await Promise.all([
-    admin.from('ai_call_log').select('route, purpose, model, cost_eur, org_id, created_at').gte('created_at', since60.toISOString()),
+    admin.from('ai_call_log').select('route, purpose, model, cost_eur, org_id, created_at, tokens_in, tokens_out').gte('created_at', since60.toISOString()),
     admin.from('ai_call_log').select('cost_eur, org_id, created_at').gte('created_at', since6mo.toISOString()),
   ]);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
@@ -88,9 +89,20 @@ export async function GET() {
 
   const spendByOrg = new Map<string, number>();
   const mechanismSpendByOrg = new Map<string, Map<string, number>>();
+  // Prompt 569 §8 — "who costs the most" already existed (amountEur below);
+  // this adds "which features are most used", the other half of the same
+  // request. Both counters read columns ai_call_log already carries and
+  // logAiCall() already writes (tokens_in/tokens_out are null, not 0, on a
+  // call site that never passed usage — summed as 0 so an unknown token
+  // count never fabricates consumption, and requestCount is unaffected
+  // either way since it counts rows, not tokens).
+  const requestCountByOrg = new Map<string, number>();
+  const tokensByOrg = new Map<string, number>();
   for (const r of perOrg30d) {
     const oid = r.org_id as string;
     spendByOrg.set(oid, (spendByOrg.get(oid) ?? 0) + (r.cost_eur ?? 0));
+    requestCountByOrg.set(oid, (requestCountByOrg.get(oid) ?? 0) + 1);
+    tokensByOrg.set(oid, (tokensByOrg.get(oid) ?? 0) + (r.tokens_in ?? 0) + (r.tokens_out ?? 0));
     if (!mechanismSpendByOrg.has(oid)) mechanismSpendByOrg.set(oid, new Map());
     const m = mechanismSpendByOrg.get(oid)!;
     m.set(r.purpose, (m.get(r.purpose) ?? 0) + (r.cost_eur ?? 0));
@@ -112,6 +124,8 @@ export async function GET() {
         amountEur,
         pctOfTotal: totalPerOrgSpend30dEur > 0 ? (amountEur / totalPerOrgSpend30dEur) * 100 : 0,
         topMechanism: topMechanism ? mechanismLabel(topMechanism[0]) : '—',
+        requestCount: requestCountByOrg.get(orgId) ?? 0,
+        tokensTotal: tokensByOrg.get(orgId) ?? 0,
       };
     });
   const maxRankingAmount = ranking[0]?.amountEur ?? 0;

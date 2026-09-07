@@ -18,7 +18,8 @@
 // Pipeline (reuses pipeline-unlock.ts's own formula, never recalculated
 // separately) · Stage · AI drafts this month · AI reviews this month, plus
 // sortable columns, search, and a History subtab (Block C.2).
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { sortRows, sortIndicator } from '@/lib/table-sort';
 import { Card, Tabs } from '@/components/ui';
 import { PLANS, planName, normalizePlan, parsePlanRequest } from '@/lib/plans';
 import type { PlanTier } from '@/lib/types';
@@ -26,7 +27,12 @@ import { markViewerOrigin } from '@/components/DeveloperViewerFrame';
 import { ModerationControls } from '@/components/backoffice/ModerationControls';
 import { ModerationHistoryCard } from '@/components/backoffice/ModerationHistoryCard';
 import { NetworkStrikesTab } from '@/components/backoffice/NetworkStrikesTab';
+import { AccountStatusFilter } from '@/components/backoffice/AccountStatusFilter';
+import { PlatformBadgeControls, type AdminBadgeRow } from '@/components/backoffice/PlatformBadgeControls';
 import type { ModerationStatus } from '@/lib/account-moderation';
+import { matchesAccountFilter, type AccountFilter } from '@/lib/account-filter';
+import { useTableUrlState } from '@/lib/use-table-url-state';
+import { PAGE_SIZES, pageCount, rangeLabel, toggleSort as urlToggleSort, type ColumnSortType } from '@/lib/queue-table-state';
 
 const PERIOD_LABEL: Record<'monthly' | 'annual', string> = { monthly: 'Mensal', annual: 'Anual' };
 
@@ -41,6 +47,8 @@ interface OrgRow {
   // Prompt 184 §4 — informative only, never used to filter or hide a row.
   // MatchDeal is an extra tool, not a requirement to be managed here.
   matchDealStatus: 'complete' | 'incomplete' | 'not_started';
+  // Prompt 576 Fase 3 — migration 0316, read-only outside the review queues.
+  isInternal: boolean;
 }
 
 const STATUS_STYLE: Record<OrgRow['status'], string> = {
@@ -56,14 +64,20 @@ const MATCHDEAL_LABEL: Record<OrgRow['matchDealStatus'], string> = {
 
 type SortKey = 'name' | 'plan' | 'createdAt' | 'members' | 'completenessPct' | 'interactionsThisWeek' | 'lastLogin' | 'status' | 'filesInVault' | 'visiblePipelineSize' | 'stage' | 'aiDraftsThisMonth' | 'aiReviewsThisMonth' | 'matchDealStatus';
 
-function cmp(a: unknown, b: unknown): number {
-  if (a == null && b == null) return 0;
-  if (a == null) return 1;
-  if (b == null) return -1;
-  if (typeof a === 'string' && typeof b === 'string') return a.localeCompare(b);
-  if (typeof a === 'number' && typeof b === 'number') return a - b;
-  return 0;
-}
+// Prompt 576 Fase 3 — hoisted to module scope: it's a static list (never
+// depends on component state), and the URL-state hook needs the key list
+// before the table's own render does.
+// Fase 3 (row height/sort follow-up) — `type` is what toggleSort's own
+// initial-direction rule reads (queue-table-state.ts): text columns start
+// ascending, number/date start descending.
+const COLUMNS: { key: SortKey; label: string; type: ColumnSortType }[] = [
+  { key: 'name', label: 'Org', type: 'text' }, { key: 'plan', label: 'Plan', type: 'text' }, { key: 'createdAt', label: 'Registered', type: 'date' },
+  { key: 'completenessPct', label: '% Complete', type: 'number' }, { key: 'interactionsThisWeek', label: 'Logs/7d', type: 'number' },
+  { key: 'lastLogin', label: 'Last login', type: 'date' }, { key: 'status', label: 'Status', type: 'text' }, { key: 'filesInVault', label: 'Files', type: 'number' },
+  { key: 'visiblePipelineSize', label: 'Pipeline', type: 'number' }, { key: 'stage', label: 'Stage', type: 'text' },
+  { key: 'aiDraftsThisMonth', label: 'AI drafts', type: 'number' }, { key: 'aiReviewsThisMonth', label: 'AI review', type: 'number' },
+  { key: 'matchDealStatus', label: 'MatchDeal', type: 'text' },
+];
 
 function MembersCell({ orgId, count }: { orgId: string; count: number }) {
   const [open, setOpen] = useState(false);
@@ -99,9 +113,28 @@ function StartupsTable() {
   const [err, setErr] = useState('');
   const [savingId, setSavingId] = useState<string | null>(null);
   const [enteringId, setEnteringId] = useState<string | null>(null);
-  const [q, setQ] = useState('');
-  const [sortKey, setSortKey] = useState<SortKey>('name');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  // Prompt 601 §C — platform badges per org, granted/revoked inline in the
+  // Badges column. One fetch for the whole table (a handful of rows).
+  const [badgesByOrg, setBadgesByOrg] = useState<Record<string, AdminBadgeRow[]>>({});
+  const loadBadges = useCallback(() => {
+    fetch('/api/backoffice/platform-badges').then((r) => r.json()).then((body) => {
+      if (!body.ok) return;
+      const by: Record<string, AdminBadgeRow[]> = {};
+      for (const b of (body.badges ?? []) as AdminBadgeRow[]) (by[b.orgId] ??= []).push(b);
+      setBadgesByOrg(by);
+    }).catch(() => {});
+  }, []);
+  useEffect(loadBadges, [loadBadges]);
+  // Prompt 576 Fase 3 — page/sort/dir/search/status filter all live in the
+  // URL now, same shape the Queue already uses (queue-table-state.ts): a
+  // shared link opens the same view. Defaults (name, asc, no filter) match
+  // exactly what this table showed before this change when the URL carries
+  // none of these params.
+  const [tableState, setTableState] = useTableUrlState({ sortableKeys: COLUMNS.map((c) => c.key) });
+  const q = tableState.filters.q ?? '';
+  const statusFilter = (tableState.filters.status as AccountFilter | undefined) ?? 'all';
+  const sortKey = (tableState.sort as SortKey | null) ?? 'name';
+  const sortDir = tableState.sort ? tableState.dir : 'asc';
 
   async function openViewer(orgId: string) {
     setEnteringId(orgId);
@@ -141,30 +174,37 @@ function StartupsTable() {
     }
   }
 
-  function toggleSort(key: SortKey) {
-    if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    else { setSortKey(key); setSortDir('asc'); }
+  function toggleSort(key: SortKey, type: ColumnSortType) {
+    // Prompt 569 §7's rule (table-sort.ts) still does the actual comparing;
+    // Fase 3 moved which key/direction is active into the URL, reusing
+    // queue-table-state.ts's own click rule. That rule now takes the
+    // column's type: text starts ascending (Org, Plan, Stage — matching
+    // what this table always did before Fase 3's move), number/date start
+    // descending (highest/most-recent first) — never a per-table exception.
+    const { dir } = urlToggleSort(tableState, key, type);
+    setTableState({ sort: key, dir });
   }
 
-  const rows = useMemo(() => {
+  const filteredSorted = useMemo(() => {
     let list = orgs ?? [];
     if (q) list = list.filter((o) => o.name.toLowerCase().includes(q.toLowerCase()));
-    const dir = sortDir === 'asc' ? 1 : -1;
-    return [...list].sort((a, b) => cmp(a[sortKey], b[sortKey]) * dir);
-  }, [orgs, q, sortKey, sortDir]);
+    list = list.filter((o) => matchesAccountFilter(statusFilter, { moderationStatus: o.moderationStatus, isInternal: o.isInternal }));
+    return sortRows(list, sortKey, sortDir);
+  }, [orgs, q, statusFilter, sortKey, sortDir]);
+
+  const total = filteredSorted.length;
+  const totalPages = pageCount(total, tableState.pageSize);
+  const page = Math.min(tableState.page, totalPages);
+  const rows = useMemo(
+    () => filteredSorted.slice((page - 1) * tableState.pageSize, page * tableState.pageSize),
+    [filteredSorted, page, tableState.pageSize],
+  );
 
   if (err) return <p className="text-sm text-[#B00000]">{err}</p>;
   if (!orgs) return <p className="text-sm text-gray-400">Loading…</p>;
 
   const pending = orgs.filter((o) => o.planChangeRequested);
-  const columns: { key: SortKey; label: string }[] = [
-    { key: 'name', label: 'Org' }, { key: 'plan', label: 'Plan' }, { key: 'createdAt', label: 'Registered' },
-    { key: 'completenessPct', label: '% Complete' }, { key: 'interactionsThisWeek', label: 'Logs/7d' },
-    { key: 'lastLogin', label: 'Last login' }, { key: 'status', label: 'Status' }, { key: 'filesInVault', label: 'Files' },
-    { key: 'visiblePipelineSize', label: 'Pipeline' }, { key: 'stage', label: 'Stage' },
-    { key: 'aiDraftsThisMonth', label: 'AI drafts' }, { key: 'aiReviewsThisMonth', label: 'AI review' },
-    { key: 'matchDealStatus', label: 'MatchDeal' },
-  ];
+  const columns = COLUMNS;
 
   return (
     <div className="space-y-5">
@@ -193,10 +233,12 @@ function StartupsTable() {
         </Card>
       )}
 
-      <Card title={`Orgs (${rows.length}${q ? ` of ${orgs.length}` : ''})`}>
-        <div className="mb-3 flex items-center gap-2">
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name…"
+      <Card title={`Orgs (${rangeLabel({ ...tableState, page }, total)})`}>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <input value={q} onChange={(e) => setTableState({ filters: { ...tableState.filters, q: e.target.value } })} placeholder="Search by name…"
             className="w-56 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+          <AccountStatusFilter value={statusFilter}
+            onChange={(next) => setTableState({ filters: { ...tableState.filters, status: next === 'all' ? '' : next } })} />
           <p className="ml-auto text-xs text-gray-500">Counts and computed scores only — never entity/person names or pipeline content.</p>
         </div>
         <div className="overflow-x-auto">
@@ -204,10 +246,11 @@ function StartupsTable() {
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
                 {columns.map((c) => (
-                  <th key={c.key} className="cursor-pointer whitespace-nowrap py-1.5 pr-3 hover:text-gray-700" onClick={() => toggleSort(c.key)}>
-                    {c.label} {sortKey === c.key && (sortDir === 'asc' ? '▲' : '▼')}
+                  <th key={c.key} className="cursor-pointer whitespace-nowrap py-1.5 pr-3 hover:text-gray-700" onClick={() => toggleSort(c.key, c.type)}>
+                    {c.label} {sortIndicator(sortKey === c.key, sortDir)}
                   </th>
                 ))}
+                <th className="whitespace-nowrap py-1.5 pr-3">Badges</th>
                 <th className="whitespace-nowrap py-1.5 pr-3">Delete/Suspend</th>
                 <th className="whitespace-nowrap py-1.5">Viewer</th>
               </tr>
@@ -215,7 +258,15 @@ function StartupsTable() {
             <tbody>
               {rows.map((o) => (
                 <tr key={o.orgId} className="border-t border-gray-50 align-top">
-                  <td className="py-2 pr-3 font-medium">{o.name}</td>
+                  <td className="py-2 pr-3 font-medium">
+                    {o.name}
+                    {o.isInternal && (
+                      <span className="ml-1.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500"
+                        title="Internal team account — what it produces doesn't need back-office review.">
+                        Internal
+                      </span>
+                    )}
+                  </td>
                   <td className="pr-3">
                     {planManagement ? (
                       <div className="flex items-center gap-1.5">
@@ -249,9 +300,23 @@ function StartupsTable() {
                       {MATCHDEAL_LABEL[o.matchDealStatus]}
                     </span>
                   </td>
-                  <td className="pr-3">
+                  {/* Fase 3 — this column had no width of its own, so the
+                      table's other whitespace-nowrap columns squeezed it to
+                      ~86px; ModerationControls' own explanatory text then
+                      wrapped into enough lines to set the whole row's height
+                      (measured live: up to 183.5px). A plain `width`
+                      utility (tried first) does nothing here — this is an
+                      auto-layout table (no table-layout: fixed), where
+                      `width` on a cell is only ever a hint the algorithm is
+                      free to override; `min-width` is the one that's
+                      actually a floor, confirmed live before changing this
+                      to min-w-48 rather than w-48. */}
+                  <td className="min-w-56 pr-3">
+                    <PlatformBadgeControls orgId={o.orgId} orgName={o.name} badges={badgesByOrg[o.orgId] ?? []} onChanged={loadBadges} />
+                  </td>
+                  <td className="min-w-48 pr-3">
                     {moderationAvailable ? (
-                      <ModerationControls targetType="org" targetId={o.orgId} status={o.moderationStatus} quarantineUntil={o.moderationQuarantineUntil} onChanged={load} />
+                      <ModerationControls targetType="org" targetId={o.orgId} name={o.name} status={o.moderationStatus} quarantineUntil={o.moderationQuarantineUntil} onChanged={load} />
                     ) : <span className="text-xs text-gray-300">—</span>}
                   </td>
                   <td>
@@ -265,6 +330,20 @@ function StartupsTable() {
               ))}
             </tbody>
           </table>
+        </div>
+        {/* Prompt 576 Fase 3 — client-side page slicing over the already-
+            fetched list, per plan: 14 orgs today makes server pagination
+            pure overhead. Revisit once any Accounts list nears ~200 rows. */}
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+          <button disabled={page <= 1} onClick={() => setTableState({ page: page - 1 })}
+            className="rounded border border-gray-300 px-2 py-1 disabled:opacity-30">← Prev</button>
+          <span>Page {page} of {totalPages}</span>
+          <button disabled={page >= totalPages} onClick={() => setTableState({ page: page + 1 })}
+            className="rounded border border-gray-300 px-2 py-1 disabled:opacity-30">Next →</button>
+          <select value={tableState.pageSize} onChange={(e) => setTableState({ pageSize: Number(e.target.value) as typeof PAGE_SIZES[number] })}
+            className="ml-1 rounded border border-gray-300 px-1.5 py-1">
+            {PAGE_SIZES.map((s) => <option key={s} value={s}>{s} / page</option>)}
+          </select>
         </div>
         {!planManagement && (
           <p className="mt-3 text-[11px] text-gray-400">Plan management activates once migration 0028 is applied.</p>
@@ -283,6 +362,20 @@ function StartupsTable() {
 type StartupsTab = 'orgs' | 'strikes' | 'history';
 
 export default function BackofficeStartupsPage() {
+  return (
+    <Suspense fallback={<p className="text-sm text-gray-400">Loading…</p>}>
+      <BackofficeStartupsContent />
+    </Suspense>
+  );
+}
+
+// Prompt 576 Fase 3 — StartupsTable now reads useSearchParams() (via
+// useTableUrlState), which next build's prerender pass requires a Suspense
+// boundary around — the exact failure mode this project already hit once
+// (see CLAUDE.md's build-by-exit-code rule). Wrapping here, at the page's
+// own default export, is the same fix already applied to
+// backoffice/catalog/page.tsx and backoffice/layout.tsx this session.
+function BackofficeStartupsContent() {
   const [tab, setTab] = useState<StartupsTab>('orgs');
   const [orgs, setOrgs] = useState<OrgRow[] | null>(null);
 

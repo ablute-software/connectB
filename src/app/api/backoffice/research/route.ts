@@ -17,6 +17,18 @@ const NOT_CONFIGURED_MSG = 'Set ANTHROPIC_API_KEY in the environment to enable A
 
 const ENTITY_FIELDS = ['website', 'thesis', 'hq_city', 'hq_country', 'sectors', 'check_min_eur', 'check_max_eur', 'email_domain'];
 const PERSON_FIELDS = ['linkedin_url', 'role', 'background', 'hook'];
+// Prompt 594 §C — fields that describe a CURRENT AFFILIATION, not the
+// person in the abstract. Safe to fan out to every row sharing this
+// person's name AND firm; never safe to fan out to a row whose own firm
+// doesn't match the one the research actually found (the "known" context
+// below is built from exactly one row — rows[0] — so what the model finds
+// is that row's firm's story, not a generic truth about the name).
+// linkedin_url is deliberately excluded: it identifies the PERSON, not the
+// affiliation, so it's correct even on a mismatched-firm row for the same
+// real person (a genuine duplicate) — wrong only for the different concern
+// of two different people sharing a name, which this route already can't
+// tell apart and isn't what this guard is for.
+const FIRM_SPECIFIC_FIELDS = new Set(['role', 'background', 'hook']);
 
 function buildPrompt(subjectType: 'entity' | 'person', name: string, known: Record<string, unknown>) {
   const fields = subjectType === 'entity' ? ENTITY_FIELDS : PERSON_FIELDS;
@@ -127,27 +139,77 @@ export async function POST(req: Request) {
     ? { website: rows[0].website, hq_city: rows[0].hq_city, hq_country: rows[0].hq_country, sectors: rows[0].sectors, thesis: rows[0].thesis }
     : { role: rows[0].role, linkedin_url: rows[0].linkedin_url, background: rows[0].background };
 
+  // Prompt 594 §C — which firm each row belongs to, so role/background/hook
+  // (facts ABOUT an affiliation) never fan out to a row whose own firm
+  // doesn't match rows[0]'s — the exact shape that put Shilling VC's
+  // Managing-Partner story onto a person row hanging off Draycott. Also
+  // doubles as the org-name lookup for §B's honest label.
+  const orgIds = [...new Set((rows as { org_id: string }[]).map((r) => r.org_id))];
+  const { data: orgRows } = orgIds.length
+    ? await admin.from('orgs').select('id, name').in('id', orgIds)
+    : { data: [] as { id: string; name: string }[] };
+  const orgNameById = new Map((orgRows ?? []).map((o) => [o.id as string, o.name as string]));
+
+  let firmNameByRowId = new Map<string, string | null>();
+  let primaryFirmName: string | null = null;
+  if (subjectType === 'person') {
+    const entityIds = [...new Set((rows as { entity_id: string | null }[]).map((r) => r.entity_id).filter((id): id is string => !!id))];
+    const { data: entRows } = entityIds.length
+      ? await admin.from('entities').select('id, name').in('id', entityIds)
+      : { data: [] as { id: string; name: string }[] };
+    const entNameById = new Map((entRows ?? []).map((e) => [e.id as string, e.name as string]));
+    firmNameByRowId = new Map(rows.map((r) => [r.id as string, r.entity_id ? entNameById.get(r.entity_id as string) ?? null : null]));
+    primaryFirmName = firmNameByRowId.get(rows[0].id as string) ?? null;
+  }
+
   try {
     const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';
     const { proposals } = await callClaude(apiKey, model, buildPrompt(subjectType, name, known));
     if (proposals.length === 0) {
-      return NextResponse.json({ ok: true, configured: true, proposals: [], appliedToOrgs: 0, message: 'No confident findings.' });
+      return NextResponse.json({ ok: true, configured: true, proposals: [], distinctOrgCount: 0, appliedTo: [], message: 'No confident findings.' });
     }
 
-    const contributionRows = rows.flatMap((row) => proposals.map((p) => ({
-      subject_type: subjectType, subject_id: row.id, org_id: row.org_id,
-      field: p.field, value: p.value, source: 'ai', confidence: p.confidence, source_url: p.source_url,
-      note: `AI-proposed via research (§6b-3) for "${name}"`, status: 'submitted',
-    })));
-    const { error: insErr } = await admin.from('contributions').insert(contributionRows);
-    if (insErr) return NextResponse.json({ ok: false, error: insErr.message }, { status: 500 });
+    const contributionRows: Record<string, unknown>[] = [];
+    const appliedTo: { rowId: string; orgId: string; orgName: string; firmName: string | null; appliedFields: string[]; withheldFields: string[] }[] = [];
+    for (const row of rows as { id: string; org_id: string }[]) {
+      const rowFirmName = subjectType === 'person' ? firmNameByRowId.get(row.id) ?? null : null;
+      const firmMismatch = subjectType === 'person' && rowFirmName !== primaryFirmName;
+      const appliedFields: string[] = [];
+      const withheldFields: string[] = [];
+      for (const p of proposals) {
+        if (firmMismatch && FIRM_SPECIFIC_FIELDS.has(p.field)) { withheldFields.push(p.field); continue; }
+        appliedFields.push(p.field);
+        contributionRows.push({
+          subject_type: subjectType, subject_id: row.id, org_id: row.org_id,
+          field: p.field, value: p.value, source: 'ai', confidence: p.confidence, source_url: p.source_url,
+          // Prompt 572 §C.1 — same as entities/[id]/enrich: which route/model,
+          // not just "ai" with no further trace.
+          author_system: `backoffice-research:${model}`,
+          note: `AI-proposed via research (§6b-3) for "${name}"`, status: 'submitted',
+        });
+      }
+      appliedTo.push({
+        rowId: row.id, orgId: row.org_id, orgName: orgNameById.get(row.org_id) ?? '—',
+        firmName: rowFirmName, appliedFields, withheldFields,
+      });
+    }
 
+    if (contributionRows.length > 0) {
+      const { error: insErr } = await admin.from('contributions').insert(contributionRows);
+      if (insErr) return NextResponse.json({ ok: false, error: insErr.message }, { status: 500 });
+    }
+
+    const distinctOrgCount = orgIds.length;
     await logAdminAction(admin, {
       adminUserId: user.id, action: 'ai_research', subjectType, subjectId: rows[0].id,
-      detail: { name, proposalCount: proposals.length, appliedToOrgs: rows.length },
+      detail: {
+        name, proposalCount: proposals.length, distinctOrgCount, rowCount: rows.length,
+        withheldForFirmMismatch: appliedTo.filter((a) => a.withheldFields.length > 0)
+          .map((a) => ({ rowId: a.rowId, orgName: a.orgName, firmName: a.firmName, fields: a.withheldFields })),
+      },
     });
 
-    return NextResponse.json({ ok: true, configured: true, proposals, appliedToOrgs: rows.length });
+    return NextResponse.json({ ok: true, configured: true, proposals, distinctOrgCount, appliedTo });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }

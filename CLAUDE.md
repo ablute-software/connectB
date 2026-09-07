@@ -97,6 +97,59 @@ three; corrected when the fourth was added):
    described the disk, not the branch. Verify what you pushed, by reading it
    back from the remote (`git show origin/<branch>:<path>`), not what you have
    open.
+5. **A build or a test suite is green only when its EXIT CODE is 0. Never
+   report green from a `grep` over stdout.** Confirmed the hard way on
+   05/09/2026: `npm run build | grep -E "Compiled|Failed"` printed
+   "✓ Compiled successfully" and was reported green three times in a row while
+   `next build` was exiting 1. Next prints that line BEFORE prerendering, and
+   the actual failure — `useSearchParams() should be wrapped in a suspense
+   boundary`, then "Error occurred prerendering page" and "Export encountered
+   errors" — matched neither half of the pattern. `main` moved twice and
+   production sat on a stale build for twenty minutes because the instrument
+   could not express the failure.
+
+   Run it as `npm run build > /tmp/build.log 2>&1; echo "EXIT=$?"` and read the
+   number. Grep the log afterwards for detail, never instead of the code. The
+   same applies to `vitest` and `tsc`, and to anything else whose success is a
+   status rather than a string.
+
+   **The general form, because this is the third time.** Prompt 562: a `grep`
+   for `linkedin.com/in/` over raw HTML "found" links that the extractor —
+   which reads `<a>` elements via the DOM — could never see, so a real href and
+   an empty candidate list were indistinguishable. Prompt 570: a grep over
+   build output that could not match the failure line. **Before trusting a
+   measurement, ask whether the instrument is capable of showing the failure
+   you are looking for.** If it is not, it is not evidence of success; it is
+   evidence of nothing.
+
+   **`next lint`'s own exit code is part of this gate, and a worktree's green
+   `next build` is never a substitute for it.** Confirmed the hard way,
+   06/09/2026: commits `d328403`/`f6de77a` (Prompts 573/574) each passed
+   `npm run build` locally (EXIT=0, three times) yet Vercel failed every one
+   of them — "Failed to compile", `react/no-unescaped-entities` on six literal
+   apostrophes/quotes in JSX text in `queue/page.tsx`. In every worktree under
+   `.claude/worktrees/`, `next build`'s lint step hits a recurring warning —
+   `Plugin "@next/next" was conflicted between ".eslintrc.json »
+   eslint-config-next/core-web-vitals » ..." and "..\..\..\.eslintrc.json »
+   ..."` — because ESLint's ancestor-directory config search walks up past the
+   worktree root and finds the primary checkout's own `.eslintrc.json` two
+   levels above it (neither file sets `"root": true`). Inside `next build`
+   this conflict makes lint silently **skip** — the build still exits 0 — so
+   572 was the only one of the three prompts actually verified end-to-end;
+   573 and 574 sat undeployed for a day despite three separate "green" builds.
+   Bare `npx next lint` hits the *same* conflict but fails **loudly** instead
+   (`EXIT=1`, no file ever linted) — still not a usable signal, just a
+   different failure shape. The working check in a worktree is to bypass
+   ESLint's automatic config cascade entirely:
+   `npx eslint --no-eslintrc --config .eslintrc.json --ext .js,.jsx,.ts,.tsx
+   src > lint.log 2>&1; echo "EXIT=$?"` — this applies the exact same
+   ruleset (`.eslintrc.json` itself `extends "next/core-web-vitals"`) without
+   the ancestor lookup. Read the log's own summary line (`✖ N problems (E
+   errors, W warnings)`) to confirm real linting happened — a config-conflict
+   message instead of a problem count means nothing was actually linted,
+   whatever the exit code says. A `next build`'s EXIT=0 inside a worktree
+   proves the build compiled; it proves nothing about lint unless the output
+   is checked for that same conflict warning.
 
 ## Architecture — read this before changing anything
 

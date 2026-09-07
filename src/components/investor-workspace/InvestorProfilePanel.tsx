@@ -142,6 +142,10 @@ function AddFirmForm({ onLinked, onCancel }: { onLinked: () => void; onCancel: (
   const [website, setWebsite] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  // Prompt 573 §D — the route now searches the catalog before creating a
+  // new firm; a match files a claim instead and this says so, rather than
+  // silently succeeding as if a new (in fact duplicate) entry was made.
+  const [matchedName, setMatchedName] = useState<string | null>(null);
 
   async function submit() {
     if (!name.trim()) { setErr('Firm name is required.'); return; }
@@ -153,8 +157,20 @@ function AddFirmForm({ onLinked, onCancel }: { onLinked: () => void; onCancel: (
       });
       const body = await res.json();
       if (!body.ok) { setErr(body.error ?? 'Could not add firm.'); return; }
+      if (body.matchedExisting) { setMatchedName(body.entityName); return; }
       onLinked();
     } finally { setBusy(false); }
+  }
+
+  if (matchedName) {
+    return (
+      <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 p-3">
+        <p className="text-sm text-gray-700">
+          We found <span className="font-semibold">{matchedName}</span> in our catalog — we&apos;ll verify you&apos;re part of it.
+        </p>
+        <button onClick={onLinked} className="mt-2 rounded-lg bg-[#0E7490] px-2.5 py-1.5 text-xs font-medium text-white">Continue</button>
+      </div>
+    );
   }
 
   return (

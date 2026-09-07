@@ -832,6 +832,32 @@ describe('sherlockNext — next_approach (Prompt 564 §C)', () => {
     expect(step.kind).not.toBe('all_clear');
   });
 
+  // Prompt 566 — the shape this was published for, which cannot be checked
+  // live: Caramel Biscuit's own data is in production, and dev:verify runs on
+  // the demo seed. 24 delivered catalog rows, zero rows in `people` (measured
+  // in production), and contacts restored by 565's backfill. Before §C this
+  // account showed 'All clear' with 24 firms waiting.
+  it('names one of 24 delivered firms when the org has no people at all', () => {
+    // The one outbound matters and is measured, not invented: Caramel Biscuit
+    // has exactly one (2026-08-06) and 23 rows still not_contacted. That single
+    // send is what silences step 9 — it is guarded by !everSentOutbound — and
+    // with no `people` rows the rung below it had nothing to iterate. One
+    // message, and the product went quiet about 23 waiting firms.
+    const many = Array.from({ length: 24 }, (_, i) =>
+      delivered(`ent-cb-${i}`, `Firm ${i}`, i < 3 ? 1 : i < 6 ? 2 : 3,
+        i === 0 ? { status: 'contacted' } : {}));
+    const sent: Interaction = {
+      id: 'i-cb', entity_id: 'ent-cb-0', occurred_at: '2026-08-06T00:00:00Z',
+      direction: 'out', channel: 'web_form', content: 'submitted',
+    };
+    const step = sherlockNext(makeDb({ entities: many, people: [], interactions: [sent] }), NOW);
+    expect(step.kind).toBe('next_approach');
+    expect(step.kind).not.toBe('all_clear');
+    // A real firm from the pipeline, named — not a generic nudge.
+    expect(many.slice(1).map((e) => e.id)).toContain(step.entityId);
+    expect(step.label).toMatch(/Firm \d+/);
+  });
+
   it('prefers wave 1 over wave 2', () => {
     const step = sherlockNext(krohnstyDb(), NOW);
     expect(['ent-mercia', 'ent-pv', 'ent-shilling']).not.toContain(step.entityId);

@@ -18,6 +18,19 @@ export function normalizeName(name: string): string {
     .trim();
 }
 
+// Prompt 580 §C — "X (Y)" is this codebase's own convention for "known as
+// X, formerly/also Y" (this file's header names "MAZE (Mustard Seed MAZE)"
+// as the motivating example) — but normalizeName's own parenthetical-strip
+// step just discards Y, so a row named "MAZE (Mustard Seed MAZE)" and a
+// separate real row actually named "Mustard Seed MAZE" never matched each
+// other; the first only ever matched itself. Confirmed empirically before
+// writing this fix: findDuplicateClusters returned zero clusters for that
+// exact production pair. Y is extracted as its own name candidate so it is
+// checked against every OTHER row's real name, same as any alias would be.
+function extractParenthetical(name: string): string | null {
+  return name.match(/\(([^)]+)\)/)?.[1] ?? null;
+}
+
 export function normalizeDomain(url?: string | null): string | null {
   if (!url) return null;
   try {
@@ -40,12 +53,84 @@ export interface Alias {
   alias: string;
 }
 
-export interface DupCluster {
+export type MatchReason = 'domain' | 'name' | 'alias';
+
+// Prompt 580 §B.4/§B.1 — the atomic fact behind a cluster: this VALUE
+// (a domain, a normalized name, or an alias's own text) is shared by these
+// ids. A cluster is the transitive closure of these; the closure is what
+// decides "is this worth reviewing", but the raw matches are what a human
+// (or "Not duplicates") needs to act on a SPECIFIC link rather than the
+// whole group. Confirmed against the 2026-08-13 production incident: btov
+// Partners ended up with 5 wrong aliases and, from the OLD cluster shape,
+// there was no way to see that each one was really its own weak, separate
+// coincidence rather than one strong 4-way match.
+export interface DupMatch {
+  reason: MatchReason;
+  value: string;
   ids: string[];
-  reasons: ('domain' | 'name' | 'alias')[];
 }
 
-export function findDuplicateClusters(rows: CatalogRow[], aliases: Alias[]): DupCluster[] {
+export interface DupCluster {
+  ids: string[];
+  reasons: MatchReason[];
+  matches: DupMatch[];
+  // Prompt 580 §B.4 — a group this size joined at least partly by alias is
+  // exactly the shape of the incident this prompt exists because of (one
+  // catalog_id collecting several unrelated firms' names as aliases,
+  // chained transitively into what LOOKS like a single strong match).
+  suspicious: boolean;
+}
+
+// Prompt 573 §D — the single-candidate counterpart to findDuplicateClusters
+// below: "does this ONE new name/website match anything already in the
+// catalog" (investor self-registration, checked before creating a new firm)
+// needs an answer for one row, not a full-table clustering pass. Same two
+// signals (domain first, since it's the stronger one; name/parenthetical-
+// alias as a fallback), same normalizeName/normalizeDomain — just not
+// routed through union-find, because there is only ever one candidate side.
+export function findCatalogMatch(
+  candidate: { name: string; website: string | null },
+  rows: CatalogRow[],
+  aliases: Alias[] = [],
+): { id: string; reason: MatchReason } | null {
+  const candidateDomain = normalizeDomain(candidate.website);
+  if (candidateDomain) {
+    const domainHit = rows.find((r) => normalizeDomain(r.website) === candidateDomain);
+    if (domainHit) return { id: domainHit.id, reason: 'domain' };
+  }
+
+  const candidateNames = new Set([normalizeName(candidate.name), extractParenthetical(candidate.name) ? normalizeName(extractParenthetical(candidate.name)!) : null].filter((n): n is string => !!n));
+  if (candidateNames.size === 0) return null;
+
+  for (const r of rows) {
+    const rowNames = [normalizeName(r.name), extractParenthetical(r.name) ? normalizeName(extractParenthetical(r.name)!) : null].filter((n): n is string => !!n);
+    if (rowNames.some((n) => candidateNames.has(n))) return { id: r.id, reason: 'name' };
+  }
+  for (const a of aliases) {
+    if (candidateNames.has(normalizeName(a.alias))) return { id: a.catalog_id, reason: 'alias' };
+  }
+  return null;
+}
+
+// Prompt 580b §A.2 — canonical "a:b" key for a pair, lowest id first, so
+// the caller's dismissed set and this function's own lookups always agree
+// regardless of which order a pair is described in.
+export function pairKey(a: string, b: string): string {
+  return a < b ? `${a}:${b}` : `${b}:${a}`;
+}
+
+export function findDuplicateClusters(
+  rows: CatalogRow[], aliases: Alias[],
+  // Prompt 580b §A.2 — "Not the same" on a specific pair has to split the
+  // GROUP, not just get remembered for next time (the pre-580b behavior:
+  // a cluster only disappeared once EVERY pair in it was dismissed,
+  // because the union-find step itself never knew about dismissals and
+  // kept chaining every id together regardless). Passing dismissed pairs
+  // in and skipping exactly those unions is what makes "Mustard Seed MAZE
+  // != btov" actually remove btov from that group instead of just
+  // recording a note nothing reads yet.
+  dismissedPairs: Set<string> = new Set(),
+): DupCluster[] {
   const parent = new Map<string, string>();
   const find = (x: string): string => {
     if (!parent.has(x)) parent.set(x, x);
@@ -55,30 +140,55 @@ export function findDuplicateClusters(rows: CatalogRow[], aliases: Alias[]): Dup
     parent.set(x, root);
     return root;
   };
-  const union = (a: string, b: string) => { parent.set(find(a), find(b)); };
+  const union = (a: string, b: string) => {
+    if (dismissedPairs.has(pairKey(a, b))) return;
+    parent.set(find(a), find(b));
+  };
   for (const r of rows) find(r.id);
 
   const byDomain = new Map<string, string[]>();
-  const byName = new Map<string, string[]>();
+  // Prompt 580 §B.4 — name and alias values share ONE map for matching
+  // (an alias's whole job is to match a DIFFERENT row's real name — Bynd's
+  // alias "Busy Angels SCR" only means anything against another row named
+  // that), tagged per-entry so attribution can still tell them apart. An
+  // earlier draft of this fix put name and alias in separate maps to keep
+  // attribution clean and, in doing so, broke matching itself: Start
+  // Ventures' own real name and Nysnø's alias "Start Ventures" both
+  // normalize to "start", but each map held only one id under that key —
+  // one id is never a match, so the two never got unioned at all. Caught by
+  // this file's own test (a cluster the fixture requires came back empty).
+  const byValue = new Map<string, { id: string; viaAlias: boolean }[]>();
 
   for (const r of rows) {
     const d = normalizeDomain(r.website);
     if (d) byDomain.set(d, [...(byDomain.get(d) ?? []), r.id]);
     const n = normalizeName(r.name);
-    if (n) byName.set(n, [...(byName.get(n) ?? []), r.id]);
+    if (n) byValue.set(n, [...(byValue.get(n) ?? []), { id: r.id, viaAlias: false }]);
+    const paren = extractParenthetical(r.name);
+    const pn = paren ? normalizeName(paren) : null;
+    if (pn && pn !== n) byValue.set(pn, [...(byValue.get(pn) ?? []), { id: r.id, viaAlias: false }]);
   }
   for (const a of aliases) {
     const n = normalizeName(a.alias);
-    if (n) byName.set(n, [...(byName.get(n) ?? []), a.catalog_id]);
+    if (n) byValue.set(n, [...(byValue.get(n) ?? []), { id: a.catalog_id, viaAlias: true }]);
   }
 
+  // Prompt 580b §A.2 — every pair within a shared value, not "chain to the
+  // first id": groups here are tiny (2-5 members), so this stays O(1) in
+  // practice, and it is what lets union() skip exactly one dismissed edge
+  // (say, 0-1) while still connecting the group through any OTHER
+  // undismissed edge (0-2, 1-2) — chaining only to index 0 would have
+  // wrongly severed the whole group the moment its first pair was
+  // dismissed, even if a second, un-dismissed edge still ties it together.
   for (const ids of byDomain.values()) {
     const uniq = [...new Set(ids)];
-    for (let i = 1; i < uniq.length; i++) union(uniq[0], uniq[i]);
+    for (let i = 0; i < uniq.length; i++)
+      for (let j = i + 1; j < uniq.length; j++) union(uniq[i], uniq[j]);
   }
-  for (const ids of byName.values()) {
-    const uniq = [...new Set(ids)];
-    for (let i = 1; i < uniq.length; i++) union(uniq[0], uniq[i]);
+  for (const entries of byValue.values()) {
+    const uniqIds = [...new Set(entries.map((e) => e.id))];
+    for (let i = 0; i < uniqIds.length; i++)
+      for (let j = i + 1; j < uniqIds.length; j++) union(uniqIds[i], uniqIds[j]);
   }
 
   const groups = new Map<string, Set<string>>();
@@ -92,11 +202,28 @@ export function findDuplicateClusters(rows: CatalogRow[], aliases: Alias[]): Dup
   for (const idSet of groups.values()) {
     if (idSet.size < 2) continue;
     const ids = [...idSet];
-    const reasons = new Set<'domain' | 'name' | 'alias'>();
-    for (const group of byDomain.values()) if (group.some((id) => idSet.has(id)) && new Set(group).size > 1) reasons.add('domain');
-    for (const group of byName.values()) if (group.some((id) => idSet.has(id)) && new Set(group).size > 1) reasons.add('name');
-    if (aliases.some((a) => idSet.has(a.catalog_id))) reasons.add('alias');
-    clusters.push({ ids, reasons: [...reasons] });
+    const reasons = new Set<MatchReason>();
+    const matches: DupMatch[] = [];
+
+    for (const [value, rawIds] of byDomain.entries()) {
+      const uniq = [...new Set(rawIds)].filter((id) => idSet.has(id));
+      if (uniq.length < 2) continue;
+      reasons.add('domain');
+      matches.push({ reason: 'domain', value, ids: uniq });
+    }
+    for (const [value, entries] of byValue.entries()) {
+      const uniqIds = [...new Set(entries.map((e) => e.id))].filter((id) => idSet.has(id));
+      if (uniqIds.length < 2) continue;
+      // 'alias' whenever an alias was part of what tied these ids together
+      // — that's the fact a reviewer needs, not which SIDE of the pair
+      // happened to be the alias.
+      const reason: MatchReason = entries.some((e) => e.viaAlias) ? 'alias' : 'name';
+      reasons.add(reason);
+      matches.push({ reason, value, ids: uniqIds });
+    }
+
+    const suspicious = reasons.has('alias') && ids.length > 3;
+    clusters.push({ ids, reasons: [...reasons], matches, suspicious });
   }
   return clusters;
 }

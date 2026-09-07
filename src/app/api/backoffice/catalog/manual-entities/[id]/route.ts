@@ -16,7 +16,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const { admin, userId } = auth;
 
   const body = await req.json().catch(() => ({})) as {
-    dismiss?: boolean;
+    dismiss?: boolean; reason?: string;
     website?: string; hqCity?: string; hqCountry?: string;
     stageMin?: string; stageMax?: string;
     checkMinEur?: number | null; checkMaxEur?: number | null;
@@ -29,9 +29,18 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (existing.source !== 'manual') return NextResponse.json({ ok: false, error: 'Not a manually-added entity.' }, { status: 400 });
 
   if (body.dismiss) {
+    // Prompt 570 §D.6 — a reason, required by the API and not only by the
+    // form. Dismiss is the one action here that leaves no trace anywhere else:
+    // promote and merge both write a catalog row someone can look at later,
+    // while this just makes a candidate disappear from the queue. Six months
+    // on, "why is this firm not in the catalog" has no answer unless the
+    // dismissal carries one. Same discipline as the moderation ledger.
+    const reason = (body.reason ?? '').trim();
+    if (!reason) return NextResponse.json({ ok: false, error: 'A reason is required to dismiss a candidate.' }, { status: 400 });
+
     const { error } = await admin.from('entities').update({ catalog_review_status: 'dismissed' }).eq('id', params.id);
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-    await logAdminAction(admin, { adminUserId: userId, action: 'catalog_candidate_dismissed', subjectType: 'entity', subjectId: params.id, detail: {} });
+    await logAdminAction(admin, { adminUserId: userId, action: 'catalog_candidate_dismissed', subjectType: 'entity', subjectId: params.id, detail: { reason } });
     return NextResponse.json({ ok: true });
   }
 

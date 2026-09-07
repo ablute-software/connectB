@@ -24,6 +24,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (decision !== 'approved' && decision !== 'rejected') {
     return NextResponse.json({ ok: false, error: 'decision must be approved or rejected' }, { status: 400 });
   }
+  // Prompt 573 §C — "razão obrigatória" on reject.
+  if (decision === 'rejected' && !notes?.trim()) {
+    return NextResponse.json({ ok: false, error: 'A reason is required to reject.' }, { status: 400 });
+  }
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
   const { data: doc } = await admin.from('investor_verification_documents').select('id, catalog_entity_id').eq('id', params.id).maybeSingle();
@@ -40,6 +44,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       verification_status: 'verified', verified_at: reviewedAt, verified_by: user.id,
     }).eq('id', doc.catalog_entity_id);
     if (entityError) return NextResponse.json({ ok: false, error: entityError.message }, { status: 500 });
+    // Prompt 573 §B — a document is the strongest evidence this queue has;
+    // it always sets the method, even over an existing 'domain'.
+    await admin.from('matchdeal_investor_members').update({ verification_method: 'document' }).eq('catalog_entity_id', doc.catalog_entity_id);
   }
 
   await logAdminAction(admin, {

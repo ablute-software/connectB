@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "verify:migrations": "node --experimental-strip-types scripts/verify-migrations.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",

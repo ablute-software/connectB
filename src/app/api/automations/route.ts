@@ -27,6 +27,8 @@ import { catalogMonthlyDeliveryAvailable } from '@/lib/catalog-monthly-delivery-
 import { deliverMonthlyForOrg, type MonthlyDeliveryOrgRow, type MonthlyDeliveryResult } from '@/lib/catalog-monthly-delivery-server';
 import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
 import { runPioneerExpiryJob } from '@/lib/pioneer-server';
+import { platformBadgesAvailable } from '@/lib/platform-badges-capability';
+import { runTechMasterWindowSweep, type TechMasterSweepResult } from '@/lib/platform-badges-server';
 import { computeAndStoreOverviewSnapshot } from '@/lib/metrics-snapshot';
 import { recheckPendingMalwareScans, retroscanNotScannedDocuments, recheckPendingScansGeneric, recheckMatchdealPhotoScans } from '@/lib/upload-security';
 import { runInterestReminderSweep, type InterestReminderSweepResult } from '@/lib/interest-reminder-sweep';
@@ -89,6 +91,21 @@ export async function GET() {
   let pioneerBadges: { orgsGranted: number } | null = null;
   if (await pioneerBadgeAvailable()) {
     pioneerBadges = await runPioneerExpiryJob(admin, now);
+  }
+
+  // Prompt 601 §C/§F — the tech master 2-month window: 75/90/98% warnings
+  // (email to the owners + an in-app task), lapse at 100% into the admin
+  // queue (never a silent revocation, never a charge), re-entry on use; and
+  // the pioneer free→25% coupon switch when an offer period ends. Daily is
+  // the right cadence for a 61-day window.
+  let techMasterSweep: TechMasterSweepResult | null = null;
+  try {
+    if (await platformBadgesAvailable()) {
+      techMasterSweep = await runTechMasterWindowSweep(admin, now);
+      console.log(`[automations] tech master window: ${techMasterSweep.checked} checked, ${techMasterSweep.warningsSent} warned, ${techMasterSweep.lapsed} lapsed, ${techMasterSweep.reinstated} reinstated`);
+    }
+  } catch (e) {
+    console.error('[automations] tech master window sweep failed:', e);
   }
 
   // Prompt 295 §3 — guarantees at least 1 overview snapshot/day even if no
@@ -238,6 +255,7 @@ export async function GET() {
     automationRulesSweep,
     monthlyDelivery,
     pioneerBadges,
+    techMasterSweep,
     metricsSnapshot,
     malwareScanSweep,
     retroscanSweep,

@@ -8,17 +8,21 @@ export const PIONEER_REFERRAL_CODE_COUNT = 3;
 // públicos, já que são distribuídos por um Pioneer e não por um canal
 // institucional") — no counter-decision recorded, implemented as stated.
 export const PIONEER_REFERRAL_VALIDITY_MONTHS = 3;
-// §C.3 — "20% de desconto vitalício em qualquer plano pago futuro", per
-// pioneer_promessa_texto_final_20260810.md (copy file, not read directly by
-// this session — the percentage is the only number this code needs from it,
-// and is stated verbatim in the prompt itself).
-export const PIONEER_LIFETIME_DISCOUNT_PCT = 20;
+// §C.3 was "20% de desconto vitalício em qualquer plano pago futuro"
+// (pioneer_promessa_texto_final_20260810.md). Prompt 601 §B.1 (Nuno,
+// 2026-09-07) raised it: the pioneer gets free during the offer period and
+// then "25% de desconto MÍNIMO para sempre". ONE number for both the legacy
+// promo-granted pioneer and the manually granted one (platform-badges.ts
+// re-exports it), so the two paths can never disagree.
+export const PIONEER_LIFETIME_DISCOUNT_PCT = 25;
 // Deterministic Stripe coupon id — one shared coupon for every Pioneer,
-// not one per org (the discount is a flat, org-independent 20% forever),
+// not one per org (the discount is a flat, org-independent 25% forever),
 // mirroring checkout/route.ts's own `promo-${promo.id}` id scheme for
 // per-promo coupons (ensureStripeCoupon, Prompt 163 B) but keyed on the
 // campaign itself since there's no promo_codes row to key it to here.
-export const PIONEER_STRIPE_COUPON_ID = 'pioneer-badge-lifetime-20';
+// Stripe coupons are immutable, so the percentage is part of the id: the
+// old 20% coupon (if it was ever created) simply stops being referenced.
+export const PIONEER_STRIPE_COUPON_ID = `pioneer-badge-lifetime-${PIONEER_LIFETIME_DISCOUNT_PCT}`;
 
 /**
  * Whether a promo_redemptions row (whose promo_codes.is_pioneer is true)

@@ -129,9 +129,15 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
   async function submit() {
     setBusy(true);
     try {
+      // Prompt 572 §C.1 — this write went through the founder's own
+      // authenticated session (RLS-scoped) but never SET author_user_id on
+      // the row, so 729 of 734 production contributions have no author even
+      // with source='user'. auth.uid() being available to RLS doesn't
+      // populate a plain column; the row has to say so itself.
+      const { data: { user } } = await browserClient().auth.getUser();
       const { data: created } = await browserClient().from('contributions').insert({
         subject_type: subjectType, subject_id: subjectId, org_id: orgId,
-        field, value, note: note || null,
+        field, value, note: note || null, author_user_id: user?.id ?? null,
       }).select('id').single();
       setField(''); setValue(''); setNote(''); setOpen(false);
       refresh();

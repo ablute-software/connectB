@@ -44,8 +44,27 @@ async function findCandidates(admin: SupabaseClient, entityIds?: string[]) {
   const withKeyPeople = (entities ?? []).filter((e) => !!e.key_people);
   if (withKeyPeople.length === 0) return [];
 
-  const { data: peopleRows } = await admin.from('people').select('entity_id').in('entity_id', withKeyPeople.map((e) => e.id as string));
-  const entitiesWithPeople = new Set((peopleRows ?? []).map((p) => p.entity_id as string));
+  // Prompt 596 §A — this read is the whole filter: an entity is only a
+  // candidate if NOTHING here comes back for it. It was a bare .select()
+  // with no paging, so PostgREST's silent 1000-row cap truncated it —
+  // `people` holds 1782 rows, so ~780 of them were invisible and their
+  // entities looked empty. That is why the queue claimed 105 entities with
+  // "zero contacts on file" when direct SQL says the real number is 1 of
+  // 246 (verified in production before this fix): Kurma Partners, already
+  // applied and holding exactly its 8 contacts, was still being offered.
+  // Since findCandidates also runs server-side inside POST, the same cap
+  // would have let "Apply selected" duplicate contacts for ~104 entities
+  // that already had them — the exact outcome the prompt warned about.
+  // Paged until exhausted; the set is small and bounded.
+  const entitiesWithPeople = new Set<string>();
+  const targetIds = withKeyPeople.map((e) => e.id as string);
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data: page } = await admin.from('people').select('entity_id')
+      .in('entity_id', targetIds).range(from, from + PAGE - 1);
+    for (const p of page ?? []) entitiesWithPeople.add(p.entity_id as string);
+    if (!page || page.length < PAGE) break;
+  }
 
   const { data: orgs } = await admin.from('orgs').select('id, name').in('id', [...new Set(withKeyPeople.map((e) => e.org_id as string))]);
   const orgNameById = new Map((orgs ?? []).map((o) => [o.id as string, o.name as string]));
@@ -58,15 +77,43 @@ async function findCandidates(admin: SupabaseClient, entityIds?: string[]) {
         entityId: e.id as string, entityName: e.name as string,
         orgId: e.org_id as string, orgName: orgNameById.get(e.org_id as string) ?? 'Unknown org',
         parsed, needsReview: keyPeopleParseNeedsReview(parsed),
+        // Prompt 596 §C — "aplicar às cegas não devia ser possível". These
+        // are the rows that would be created, named, before anything is
+        // written. (The names themselves already reached the UI via
+        // `parsed`; this states the count as the explicit promise.)
+        willCreate: parsed.length,
       };
     });
+}
+
+// Prompt 596 §A/§C — how many entities were held back BECAUSE they already
+// have contacts. Before the paging fix this number was invisible and the
+// queue simply overstated itself (105 offered, 1 real); stating it turns a
+// silently-shrinking list into an explained one.
+async function countExcludedWithContacts(admin: SupabaseClient): Promise<number> {
+  const { data: contribRows } = await admin.from('contributions').select('subject_id')
+    .eq('subject_type', 'entity').eq('field', 'key_people').eq('status', 'verified');
+  const candidateIds = [...new Set((contribRows ?? []).map((c) => c.subject_id as string))];
+  if (candidateIds.length === 0) return 0;
+  const { data: entities } = await admin.from('entities').select('id, key_people').in('id', candidateIds);
+  const withKeyPeople = (entities ?? []).filter((e) => !!e.key_people).map((e) => e.id as string);
+  if (withKeyPeople.length === 0) return 0;
+  const have = new Set<string>();
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data: page } = await admin.from('people').select('entity_id').in('entity_id', withKeyPeople).range(from, from + PAGE - 1);
+    for (const p of page ?? []) have.add(p.entity_id as string);
+    if (!page || page.length < PAGE) break;
+  }
+  return withKeyPeople.filter((id) => have.has(id)).length;
 }
 
 export async function GET() {
   const gate = await adminGate();
   if (gate.error) return gate.error;
   const items = await findCandidates(gate.admin!);
-  return NextResponse.json({ ok: true, items });
+  const excludedWithContacts = await countExcludedWithContacts(gate.admin!);
+  return NextResponse.json({ ok: true, items, excludedWithContacts });
 }
 
 export async function POST(req: Request) {

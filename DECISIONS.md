@@ -5168,3 +5168,338 @@ every column this needed (`moderation_status`, `moderation_suspended_until`,
 `owner_suspended_at`) already existed. No `matchdeal_profiles` row was created
 or backfilled to work around §A; the point is that the pipeline no longer needs
 them.
+## Prompt 563 — the platform is not a listing in its own marketplace (04/09/2026)
+
+`orgs.discovery_excluded_reason` (migration 0311): non-null means the org is
+never listed in investor-facing discovery, whatever its matchdeal profile
+says. Set for Sherlock Deal, which carried a startup profile inside the
+product it *is*.
+
+**Why a new column instead of `orgs.is_test`,** which was the obvious first
+answer and was measured before being rejected. `is_test` is a *cohort* flag,
+not a discovery switch, and everything it does beyond discovery is
+founder-facing: the monthly investor delivery stops entirely (`/api/automations`
+filters `!is_test`, and `deliverMonthlyForOrg` carries the authoritative guard
+with a test pinning it), automation rules stop running, the org drops out of
+`catalog_outreach_supply` and loses enrichment priority, and it stops
+contributing to pipeline tracking counts. `is_test` says "this account is not
+real". Sherlock Deal is real. Marking it would have switched off paid features
+to solve a listing problem — **two different statements need two different
+columns.**
+
+Also rejected: leaving it at `is_visible = false`. That is the founder's own
+publish switch; one click undoes it. Invisible-by-accident was the thing to
+replace.
+
+The column is on `orgs`, not on the profile, because what may never be listed
+is the organisation — whatever profile it has now, and whatever profile row is
+created for it later. It stores text rather than a boolean so the row explains
+itself without anyone going to find this file.
+
+**Two mirrors, kept honest by construction.** SQL:
+`matchdeal_profile_discovery_excluded(membership_id, kind)`, deliberately the
+same shape and call sites as the existing `matchdeal_profile_org_is_closed`.
+TypeScript: `filterEligibleOrgs` in `pipeline-eligibility.ts`. Both use
+non-empty rather than non-null — caught while writing them: SQL `is not null`
+and JS truthiness disagree for exactly one value, `''`, and that divergence
+would have lived silently between the deck and the pipeline filter.
+
+Unlike `is_test`, the exclusion is **unconditional**: `is_test` is a cohort, so
+a test viewer sees test orgs, but nobody sees an excluded one. The reason it
+exists is that the org must not be a listing at all.
+
+**How the deck was edited, which is the reusable part.** `matchdeal_eligible_deck`
+is 118 lines, and retyping it into a migration to add two conditions is exactly
+the shape of change that corrupts something silently. Instead the migration
+reads the function's own `pg_get_functiondef`, asserts it finds exactly two
+closed-org checks (raising if not), appends the new condition beside each, and
+`execute`s the result — the database rewrites itself from its own text. Proof
+afterwards: strip the two new lines from the live definition and the digest of
+everything else equals the pre-migration digest (`9ba3dee3…`) exactly.
+
+## Prompt 565 — the delivery copied nothing, and the ladder was telling the truth (04/09/2026)
+
+50 catalog-delivered rows across 4 orgs reached founders with
+`submission_channel`, `email` and `key_people` all empty, while
+`catalog_entities` held all three for the same firms the entire time. Cause:
+the delivery path never copied them. `catalogContactFields` entered
+`catalog-delivery-core.ts` only on 03/09 19:17 (Prompt 544 Part C, `560d9a2`),
+so every delivery before that came out blank. Backfilled by migration 0312;
+forward path pinned by three tests in `catalog-delivery-core.test.ts` that fail
+if the spread is removed.
+
+**A correction to the report's own reasoning, kept because the method matters
+more than the conclusion.** It inferred from the data that deliveries stopped
+coming out empty somewhere between 02/09 13:22 and 20:10, and asked which
+commit did it. No commit matches that window, and the inference was wrong: the
+three later batches that look complete (Sherlock Deal 02/09 20:10 and 03/09
+21:10, Krohnsty 03/09 11:34) all carry the same `entities.updated_at` of
+2026-09-03 21:11:24 — twenty-five hours after the earliest was delivered. They
+were retro-filled by a separate backfill, not born complete. **"These rows have
+data" and "these rows were delivered with data" are different claims, and only
+a timestamp separates them.**
+
+**The Next Clue does not light up from this alone, and saying otherwise would
+be the same mistake.** Two gates remain shut for Caramel Biscuit:
+`readyToContact` reads the `people` table, and all four orgs have zero rows
+there — `entities.key_people` is free text, not people; and 564's
+`next_approach` step, which would rank on the entity-level channels this
+backfill restored, exists only on the unmerged `sherlockdeal-git-access-bek6d7`
+branch. Production has 564's DB half (`sherlock_next_snoozes_kind_check`
+already accepts `next_approach`) without its code half. The migration landing
+before the code is what made the fix look complete from the database.
+
+## Prompt 566 — 564 §C and §A code, extracted from bek6d7 without the branch (04/09/2026)
+
+`next_approach` (564 §C) and the `deriveSubmissionChannelType` fix (564 §A's
+code half) are now in `main`. §B and §D are not, deliberately.
+
+**Separability, since the prompt asked to stop rather than guess.** All four
+parts live in one commit (`9f1a86f`), but they separate cleanly in the source:
+
+- §C touches `sherlock-next.ts` (new rung, snooze key, local
+  `firstMessageCandidate` helper), `sherlock-next.test.ts` and
+  `SherlockNextButton.tsx`. Its only cross-file dependency is `effectiveMode`,
+  which already exists in `main` — so §C does NOT depend on §B's
+  `relationship.ts` changes, and `chooseFirstMessageTarget` itself is
+  untouched by the commit.
+- §A is entirely inside `deriveSubmissionChannelType`.
+- §D is the one real entanglement: its step-5 rewrite sits in the same file as
+  §C. Reverted hunk-by-hunk back to `main`'s version, its tests dropped with
+  it. §B (`relationship.ts`, `RailLogForm.tsx`) and §D's
+  `firstStepTaskTitle`/`catalog-delivery-core.ts` changes were never brought.
+
+**What the live check can and cannot show.** On the demo seed the clue lands on
+`follow_up_overdue` — a higher rung that legitimately wins there — so §C's rung
+is not reachable in `dev:verify`, and Caramel Biscuit's own data only exists in
+production, which verification may not touch. The account's shape was measured
+by SQL instead (1 outbound on 2026-08-06, 23 rows still `not_contacted`, 0 rows
+in `people`) and written as a unit test. **That one outbound is the whole bug:**
+step 9 is guarded by `!everSentOutbound`, so a single message silenced it, and
+the rung below iterated `db.people`, which a delivered catalog row has none of.
+The first draft of that test used zero interactions and failed — correctly, on
+`onboarding_first_message` — which is how the measurement got made instead of
+assumed.
+
+**Still outstanding, and reported rather than absorbed:** migration
+`0313_entities_submission_channel_type_backfill.sql` is applied in production
+but its file exists only on `bek6d7`, so `main` cannot replay it. Same class as
+0300 and `email_send_log_provider_events`. Not brought here because the prompt
+scoped this to code.
+
+## Prompt 568 — `ablute_.is_test = false` is the decision, and internal investors leave the deck (04/09/2026)
+
+**Closing the thread 563 opened.** `ablute_` is `is_test = false` deliberately.
+The team's own account is meant to behave as a real org so the entire flow can
+be validated before launch — which means every gate reading `is_test` (monthly
+delivery, automation rules, `catalog_outreach_supply`, pipeline tracking) is
+supposed to stay live for it. The 07/08 entry in this file that records marking
+it `true` describes a state that was later, correctly, reversed.
+
+Two code comments asserted the opposite and reasoned from it
+(`enrichment-campaign/status`, `domain-mismatch/status`). Checked: **neither was
+deciding wrongly.** Both conclude "do not filter by is_test", and that
+conclusion still holds — one is a sector lookup for already-delivered rows, the
+other a review queue where a test org's entity is still an entity someone typed
+a domain into. Only the reasons were rewritten. Worth noting how the false
+premise gained authority: the first comment cited two files as corroboration
+and neither says it — `catalog-sector-fit.ts` does not contain the string
+`is_test` at all.
+
+**Internal investor accounts (0314).** All seven investor profiles in
+production belong to the team, and two were `is_visible = true` — a new
+startup's deck could already show them. `matchdeal_investor_members.
+discovery_excluded_reason` now hides all six real ones. They keep full
+investor access: they swipe, match, and open Data Rooms exactly as before.
+
+Placed on the membership rather than on `matchdeal_profiles`, for 563's own
+reason: a profile is the thing that gets recreated, so a flag living there is
+forgotten the first time it is. **And the orphan decided the rest.** Profile
+`5b070ff4-…` points at a membership that does not exist; option (b) alone
+cannot mark a row that isn't there. So the function also excludes any investor
+profile whose membership fails to resolve — an investor with no owning member
+is nobody a startup can be introduced to. That covers the orphan by rule
+instead of by the accident of its `is_visible` being false, and covers any
+future row that loses its member.
+
+`matchdeal_eligible_deck` needed no change: 563 already calls
+`matchdeal_profile_discovery_excluded(p.membership_id, p.kind)` unconditionally
+in both branches. One function, both kinds, never duplicated.
+
+## Prompt 569 §0 — account deletion already existed; what was missing was saying so (04/09/2026)
+
+The back-office review reported "no option to delete startup or investor
+accounts" and authorised building a soft-delete with a mandatory reason.
+It is already built, and has been since Prompt 123 C.2:
+`POST /api/backoffice/moderation/delete` sets `moderation_status='deleted'`,
+drops no row, and **requires** a justification in the API rather than only in
+the form. `ModerationControls` is already mounted on both Startups and
+Investors. Building a second mechanism would have duplicated a working one —
+the same trap 568 avoided with `is_test`.
+
+What was actually wrong is that an **active** account rendered only "Suspend",
+so nothing on screen revealed deletion existed. The gate is deliberate —
+suspend, then a 30-day quarantine, enforced in `canDelete` and not merely by a
+disabled button — and it is unchanged. Two lines of copy now state the path,
+and the quarantine's remaining wait is written out instead of living in a
+`title` attribute that touch users and non-hoverers never see.
+
+**The general point:** "the product cannot do X" and "the product never says it
+can do X" produce the same screenshot and want opposite fixes. Read the routes
+before accepting the first reading.
+
+## Prompt 571 — moderation reaches discovery, by reading rather than dual-writing (05/09/2026)
+
+Suspending or deleting an account closed the login and nothing else. Verified
+before changing anything: `applyModerationAction` writes exactly three columns
+(`moderation_status`, `moderation_quarantine_until`,
+`moderation_suspended_until`) and never `closed_at`, `platform_suspended_at` or
+`discovery_excluded_reason`; and of the four functions deciding what a viewer
+sees, only `catalog_top_matches` mentioned moderation at all. So a suspended
+startup stayed in every investor's deck through the 30-day quarantine and past
+the delete — an investor could like an account whose founder can no longer log
+in.
+
+Two systems built at different times, neither listening to the other. Latent
+only by luck: the single suspended org happened to have `is_visible = false`,
+and nothing had ever been deleted — but 569 §0 had just made the delete path
+visible on screen, so the first real use would have produced the ghost.
+
+**Read, don't dual-write.** Having moderation also set
+`discovery_excluded_reason` would have made `undo` responsible for unsetting
+it, and would have made one column answer two questions: that column means
+"never list this account" (563/568), a permanent property, not "this account is
+suspended right now". Reading `moderation_status` where the decision is made
+leaves nothing to undo — proved with a `zz-test-` fixture through the full
+cycle: active false → suspended true → deleted true → back to active false,
+with no extra step.
+
+Both halves moved together, which is the point: `matchdeal_profile_discovery_
+excluded` (0315, both `kind` branches — including a moderated investor FIRM,
+whose members' profiles would otherwise keep being served because the
+membership still resolves and 0314's orphan rule never fires) and
+`filterEligibleOrgs`. Estojo is now out of the deck **by rule** where it was out
+by coincidence.
+
+**The generalisable part:** a state change that gates one surface is not a
+state change. Ask which other surfaces read the thing it was supposed to mean.
+
+## Prompt 570 — internal accounts, a triage board, and 749 queue items that were already in the catalog (05/09/2026)
+
+Internal team accounts (`is_internal`) never feed review queues by default;
+exact catalog matches are linked automatically and never queued.
+
+**The number that made this worth doing:** the "Added by startups" queue held
+751 items and 749 of them were firms the catalog already had — 692 sharing a
+normalised domain, 57 more a normalised name. Four out of five items were
+asking a reviewer to look at something already known. The queue is now 59, of
+which 58 are a choice between two named firms rather than a blank review.
+
+**Why the queue kept refilling**, which is the reusable part: it recomputed a
+match on every request instead of reading `catalog_review_status`. A row
+treated by a merge came straight back, because nothing about the treatment
+changed what the list was derived from. Deriving a worklist from the data
+rather than from the decisions is a queue that cannot be emptied.
+
+**Four columns in one family, and each cost a prompt this week because its
+name said what it was and never what it was not.** `is_test` looked like a
+discovery switch and also disabled monthly delivery and automations (563).
+`discovery_excluded_reason` looked like it served both sides of the market and
+the investor half lived in another table (568). `moderation_status` looked like
+it closed the account and closed only the login (571). `is_internal` therefore
+ships with its boundaries in the column comment: read only by review queues,
+does not disable automations, does not hide from discovery, does not block
+login.
+
+**A correspondence is not an event.** 749 candidates already had a
+`catalog_deliveries` row naming their catalog entry, so the link existed. It
+still went in a new column: deliveries are read by quota, by the monthly
+delivery and by the founder's pipeline, and a reconciliation job must not be
+able to hand someone an investor.
+
+**Server pagination and client-side derivation are incompatible.** Grade was
+computed in the browser over whichever rows had loaded. Correct at 751 rows in
+one response; silently wrong the moment pages existed, because "grade A first"
+becomes "grade A first among these 25" and looks identical. Moved to the
+server, over the whole set, using the same `completeness.ts`.
+
+**Never hide in silence.** A queue reading zero only because every row is
+internal says "0 · 59 hidden (internal)" and stays out of "All clear" — the
+count is the difference between "no work" and "none of it is yours". Three
+queues computed by their own tabs report null and show a dash, because not
+knowing is not zero.
+
+`?tab=` never worked: the page ignored the query string, so every direct link
+to a queue opened the first tab. Fixed as part of §B, since the board's cards
+would have inherited it.
+
+## Prompt 577 — every applied migration has a file in `main`; every file in `main` is in the ledger or in `.verify-ignore` with a reason (05/09/2026)
+
+`verify:migrations` (575) found 12 migrations production had applied with no
+file anywhere, one file (`0300`) whose functions were live but whose ledger
+row never existed, and 6 files main carried that looked unapplied but might
+be hiding under another name. Closing all three lists needed zero new
+behaviour — the only production write in the whole prompt is the one `0300`
+ledger row — and turned out to need far less invention than the count
+suggested.
+
+**11 of the 12 "no file anywhere" migrations were never missing content —
+they were missing a name match.** Checked one at a time against production
+(an index, a constraint, a function body, a trigger's live definition) before
+concluding anything: 9 of them are small pushes that a session applied
+individually against production, then folded into ONE already-committed file
+when writing it to the repo. `0302_matchdeal_investor_firm_view.sql` alone
+accounts for five ledger rows this way; `0285_investor_seat_limit.sql` and
+`0247_enqueue_enrichment_on_delivery.sql` two more between them. A ledger
+name and a file's own name are allowed to disagree by design (that's the
+whole reason the join is on a normalised name, not the number) — what wasn't
+handled yet was a ledger name matching a file OTHER than the one its own
+name would suggest. `verify-migrations.ts` now carries a `LEDGER_NAME_ALIASES`
+map for exactly that, each line commented with the production check that
+justified it, never the name alone.
+
+**The other two of the 12 could not be reconstructed, and weren't.** One
+function body (`0129b`) has been completely overwritten twice since by later
+migrations — "last definition wins" means nothing today would even read a
+reconstruction of it, and the exact text is gone from production. One data
+backfill (`wave_fit_score`) names a column that has never existed on the
+table its own name implies — `fit_score`/`wave` live on `entities`, not
+`catalog_entities` — and no file, forensic timestamp cluster, or admin audit
+row points at what it actually changed. Both are in `.verify-ignore` by
+ledger name (a new thing that file can do now — the old format could only
+silence a *file* main carried, never an applied ledger row with no file to
+name), with the specific evidence that ruled out reconstruction, not a
+guess dressed up as one.
+
+**Of the 6 "maybe renamed" files, the evidence went three different ways, and
+each got the ending its own evidence pointed to** — not the ending that
+would have made the report look cleaner. `0066` was the one clean rename
+(aliased). `0100`'s enum rename is confirmably live in production
+(`pg_enum` shows it) but never got its own ledger row at all — applied,
+just untracked, which is a real third category between "matched" and
+"never ran." `0117` is a genuine match, discovered by comparing the
+`ablute_`/Caramel Biscuit's current data shape against what its coalesce
+would produce against August-era `orgs` rows — but it binds to the
+*earlier* of two production pushes that share one ledger name, and the
+ledger's own name-keyed lookup can only ever keep one of two identical
+names. Forcing that through the alias map would have implied a precision
+(which of two rows) the mechanism doesn't have, so it's documented instead.
+`0142` and `0143` are the opposite of what their presence in `main` might
+suggest: both confirmed **never applied** — one by its own header, one by a
+later migration's header saying so about it explicitly, one by a live data
+check the migration's own unconditional UPDATE would have failed if it had
+run. A no-op file sitting in `main` unapplied is not evidence it ran; only
+checking production is.
+
+The two remaining `verify:migrations` findings — `0289` and `0292`, each
+claimed by both `main` and an unrelated unmerged branch — are untouched on
+purpose. They belong to other prompts' pending merges, not this
+reconciliation.
+
+**The generalisable part:** a name-keyed join is only as complete as the
+names agree, and names drift in exactly the situations most worth tracking —
+an iterative session against production, an old rename, a proposal whose
+header goes stale the moment production changes underneath it. The fix isn't
+a smarter matcher; it's a documented exception for every case the matcher
+structurally cannot see, each one earned by checking production rather than
+inferring from the file's own claims about itself.

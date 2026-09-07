@@ -12,9 +12,9 @@
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { gapReconciliationsAvailable, gapQuestionsAvailable } from '@/lib/document-extraction-capability';
+import { repeatedQuestionCount as computeRepeatedQuestionCount } from '@/lib/gap-engine-health';
 
 interface ReconciliationRow { status: string }
-interface QuestionRow { gap_key: string; org_id: string; disposition: string | null }
 
 export async function GET() {
   const auth = await requirePlatformAdmin();
@@ -28,9 +28,12 @@ export async function GET() {
     return NextResponse.json({ ok: false, error: 'not available yet' }, { status: 200 });
   }
 
-  const [{ data: reconciliations }, { data: questions }] = await Promise.all([
+  const [{ data: reconciliations }, resolvedByQuestionRows, repeatedQuestionCount] = await Promise.all([
     reconciliationsAvailable ? admin.from('gap_reconciliations').select('status') : Promise.resolve({ data: [] as ReconciliationRow[] }),
-    questionsAvailable ? admin.from('gap_questions').select('gap_key, org_id, disposition') : Promise.resolve({ data: [] as QuestionRow[] }),
+    questionsAvailable ? admin.from('gap_questions').select('id', { count: 'exact', head: true }) : Promise.resolve({ count: 0 }),
+    // Prompt 576 Fase 2 — shared with /api/backoffice/system-status so the
+    // System row cites this exact same count, never a second definition.
+    computeRepeatedQuestionCount(admin),
   ]);
 
   const byStatus = new Map<string, number>();
@@ -40,28 +43,14 @@ export async function GET() {
   const uncovered = byStatus.get('uncovered') ?? 0;
   const dismissed = byStatus.get('dismissed') ?? 0;
 
-  const rows = (questions ?? []) as QuestionRow[];
-  // Prompt 358 Phase 2.2 — unique(org_id, gap_key) makes a genuine repeat
-  // impossible to WRITE; this count is a live check that the invariant
-  // actually holds in the data (it always should be 0), not a metric that
-  // could legitimately be non-zero.
-  const seen = new Set<string>();
-  let repeatedQuestionCount = 0;
-  for (const r of rows) {
-    const key = `${r.org_id}:${r.gap_key}`;
-    if (seen.has(key)) repeatedQuestionCount++;
-    seen.add(key);
-  }
-  const resolvedByQuestion = rows.length;
-
   return NextResponse.json({
     ok: true,
     resolvedByReconciliation: autoLinked,
-    resolvedByQuestion,
+    resolvedByQuestion: (resolvedByQuestionRows as { count: number | null }).count ?? 0,
     reconciliationSuggestedPending: suggested,
     reconciliationUncovered: uncovered,
     reconciliationDismissed: dismissed,
-    repeatedQuestionCount,
+    repeatedQuestionCount: repeatedQuestionCount ?? 0,
     midSessionAbandonment: null,
   });
 }

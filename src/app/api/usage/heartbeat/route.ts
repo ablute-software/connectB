@@ -11,6 +11,7 @@ import { serverClient, authEnabled } from '@/lib/supabase-server';
 import { assertNotViewer, readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { usageSessionsAvailable } from '@/lib/usage-sessions-capability';
 import { resolveOwnMatchdealProfileId } from '@/lib/matchdeal-pairing';
+import { reinstateLapsedTechMasterOnUse } from '@/lib/platform-badges-server';
 
 export async function POST(req: NextRequest) {
   if (!authEnabled) return NextResponse.json({ ok: true });
@@ -73,6 +74,17 @@ export async function POST(req: NextRequest) {
       last_flush_at: now, ended_at: ended ? now : null,
       user_id: user.id, org_id: orgId, matchdeal_profile_id: matchdealProfileId,
     });
+  }
+
+  // Prompt 601 §F — "reentrada": a real use restores a lapsed tech master
+  // status within a minute, not at the next daily tick. One indexed no-op
+  // update for every org that has nothing lapsed.
+  if (orgId && activeSeconds > 0) {
+    try {
+      await reinstateLapsedTechMasterOnUse(admin, orgId, now);
+    } catch (e) {
+      console.error('[heartbeat] tech master reinstatement failed:', (e as Error).message);
+    }
   }
 
   return NextResponse.json({ ok: true });

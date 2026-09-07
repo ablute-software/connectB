@@ -102,6 +102,59 @@ export function describeAuditEvent(row: AuditLogRow, admin: string): string {
       return `${admin} converted "${str(detail.entityName) ?? 'an entity'}" to a person`;
     case 'platform_admin_grant_failed':
       return `System: platform-admin grant failed for ${str(detail.email) ?? 'a new user'}`;
+    // Prompt 599 — the person-editing and consensus events. Values are
+    // shown when they are short strings; anything else stays behind the
+    // Details toggle rather than being flattened into the sentence.
+    case 'catalog_person_field_edit': {
+      const field = str(detail.field) ?? 'a field';
+      return `${admin} edited catalog person field ${field}${str(detail.to) ? ` → "${detail.to}"` : ''}${detail.applied === false ? ' (nothing written)' : ''}`;
+    }
+    case 'private_person_field_edit': {
+      const field = str(detail.field) ?? 'a field';
+      return `${admin} edited private contact field ${field}${str(detail.to) ? ` → "${detail.to}"` : ' → (cleared)'}`;
+    }
+    // Prompt 601 — platform badges (tech master / pioneer): rights worth
+    // money, so every grant, revocation, warning, lapse and reinstatement
+    // reads as a sentence, with the why.
+    case 'platform_badge_granted': {
+      const badge = str(detail.badge)?.replace(/_/g, ' ') ?? 'platform';
+      const why = str(detail.justification);
+      return `${admin} granted the ${badge} status to ${str(detail.orgName) ?? 'an org'}${why ? ` — "${why}"` : ''}`;
+    }
+    case 'platform_badge_revoked': {
+      const badge = str(detail.badge)?.replace(/_/g, ' ') ?? 'platform';
+      return `${admin} revoked the ${badge} status from ${str(detail.orgName) ?? 'an org'}${str(detail.reason) ? ` — "${str(detail.reason)}"` : ''}`;
+    }
+    case 'platform_badge_lapse_reviewed':
+      return `${admin} reviewed ${str(detail.orgName) ?? 'an org'}'s lapsed tech master status and kept it`;
+    case 'platform_badge_warning':
+      return `The system warned ${str(detail.orgName) ?? 'an org'}: ${detail.pct ?? '?'}% of the tech master window passed, ${detail.daysLeft ?? '?'} days left`;
+    case 'platform_badge_lapsed':
+      return `${str(detail.orgName) ?? 'An org'}'s tech master window passed with no use — in the admin queue, nothing charged`;
+    case 'platform_badge_reinstated':
+      return `${str(detail.orgName) ?? 'An org'}'s tech master status was restored by a real use (${str(detail.by) ?? 'system'})`;
+    case 'platform_badge_coupon_applied':
+      return `The system applied Stripe coupon ${str(detail.coupon) ?? '?'} to ${str(detail.orgName) ?? 'an org'}'s subscription (${str(detail.reason) ?? 'badge'})`;
+    case 'private_person_linked': {
+      const name = str(detail.catalogPersonName);
+      const layer = typeof detail.layer === 'number' ? ` (layer ${detail.layer}${detail.firmMatch ? ', firm matches' : ', firm differs'})` : '';
+      return `${admin} linked a private contact to catalog person${name ? ` "${name}"` : ''}${layer}`;
+    }
+    case 'private_person_catalog_link_batch': {
+      const n = typeof detail.linked === 'number' ? detail.linked : undefined;
+      return `System: linked ${n ?? 'some'} private contact(s) to the catalog (Prompt 599 §5, layer 1 only)`;
+    }
+    case 'catalog_person_consensus_auto_verify': {
+      const field = str(detail.field) ?? 'a field';
+      const n = typeof detail.org_count === 'number' ? detail.org_count : undefined;
+      return `System: ${n ?? 'several'} startups agreed on catalog person field ${field} — auto-verified`;
+    }
+    case 'catalog_person_consensus_blocked': {
+      const field = str(detail.field) ?? 'a field';
+      const n = typeof detail.org_count === 'number' ? detail.org_count : undefined;
+      const level = str(detail.blocking_level);
+      return `System: ${n ?? 'several'} startups agree on catalog person field ${field}, but it is ${level ? level.replace(/_/g, ' ') : 'already verified'} — not applied`;
+    }
     default:
       return `${admin} performed ${row.action} on ${row.subject_type}`;
   }

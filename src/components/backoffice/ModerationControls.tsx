@@ -7,19 +7,28 @@
 // justification before anything fires.
 import { useState } from 'react';
 import type { ModerationStatus, ModerationTargetType } from '@/lib/account-moderation';
+import { moderationCascadeLines } from '@/lib/moderation-cascade-copy';
+import { AccountActionPanel, ACTION_VERB, type PanelAction } from './AccountActionPanel';
+import { Tooltip } from '@/components/ui';
 
-type Mode = 'suspend' | 'undo' | 'delete';
+// 'undo' keeps this component's own inline confirm+justification flow — it
+// is a recovery action, not a destructive one, and Fase 3's side panel
+// (AccountActionPanel) is scoped to Suspend/Delete only.
+type Mode = 'undo';
 
 interface LatestAction { justification: string; actorEmail: string; createdAt: string }
 
-export function ModerationControls({ targetType, targetId, status, quarantineUntil, onChanged }: {
+export function ModerationControls({ targetType, targetId, name, status, quarantineUntil, onChanged }: {
   targetType: ModerationTargetType;
   targetId: string;
+  /** Prompt 576 Fase 3 — the side panel needs something to put in its header. */
+  name: string;
   status: ModerationStatus;
   quarantineUntil: string | null;
   onChanged: () => void;
 }) {
   const [mode, setMode] = useState<Mode | null>(null);
+  const [panelAction, setPanelAction] = useState<PanelAction | null>(null);
   const [justification, setJustification] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -39,6 +48,23 @@ export function ModerationControls({ targetType, targetId, status, quarantineUnt
     onChanged();
   }
 
+  const panel = panelAction && (
+    <AccountActionPanel title={ACTION_VERB[panelAction]} name={name}
+      cascadeLines={moderationCascadeLines(targetType)}
+      confirmLabel={`Confirm ${ACTION_VERB[panelAction].toLowerCase()}`}
+      reasonPlaceholder="Why is this account being suspended/deleted?"
+      onConfirm={async (reason) => {
+        const res = await fetch(`/api/backoffice/moderation/${panelAction}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ targetType, targetId, justification: reason }),
+        });
+        const body = await res.json().catch(() => ({}));
+        return { ok: !!body.ok, error: body.error };
+      }}
+      onClose={() => setPanelAction(null)}
+      onDone={() => { setPanelAction(null); onChanged(); }} />
+  );
+
   async function loadLatestJustification() {
     setLatest('loading');
     const res = await fetch(`/api/backoffice/moderation/history?targetType=${targetType}&targetId=${targetId}`);
@@ -48,10 +74,11 @@ export function ModerationControls({ targetType, targetId, status, quarantineUnt
     setLatest(suspend ? { justification: suspend.justification, actorEmail: suspend.actorEmail, createdAt: suspend.createdAt } : null);
   }
 
-  if (status === 'deleted') return <span className="text-xs text-gray-400">Deleted</span>;
+  if (status === 'deleted') return <><span className="text-xs text-gray-400">Deleted</span>{panel}</>;
 
   if (mode) {
     return (
+      <>
       <div className="flex flex-col gap-1">
         <textarea value={justification} onChange={(e) => setJustification(e.target.value)} placeholder="Justification (required)"
           rows={2} className="w-48 rounded border border-gray-200 p-1 text-xs" />
@@ -64,16 +91,51 @@ export function ModerationControls({ targetType, targetId, status, quarantineUnt
           <button onClick={() => { setMode(null); setErr(''); }} className="rounded border border-gray-300 px-2 py-0.5 text-[11px]">Cancel</button>
         </div>
       </div>
+      {panel}
+      </>
     );
   }
 
   if (status === 'active') {
-    return <button onClick={() => setMode('suspend')} className="text-xs text-[#B00000] hover:underline">Suspend</button>;
+    // Prompt 569 §0 — the path to deletion is now stated, not hidden.
+    //
+    // Deleting an account has existed since Prompt 123 C.2 (soft: it sets
+    // moderation_status='deleted' and drops no row, with a justification the
+    // API requires, not just the form). But an ACTIVE account only ever
+    // rendered "Suspend", so from the screen there was no way to know deletion
+    // existed at all — which is what the back-office review read as a missing
+    // feature. The gate itself is deliberate and stays exactly as it is:
+    // suspend, then a 30-day quarantine, enforced in canDelete rather than by
+    // a disabled button. Saying so costs one line and removes the guesswork.
+    return (
+      <>
+      <div className="flex max-w-48 flex-col gap-0.5">
+        {/* Fase 3 — this explanation used to be an always-visible <span>
+            with no width of its own, inside a <td> in an auto-layout table
+            (no table-layout: fixed) whose OTHER whitespace-nowrap columns
+            squeezed it to ~86px: it wrapped into ~14 lines and set the
+            WHOLE row's height (measured live: 183.5px, confirmed by
+            zeroing this span alone). A tooltip keeps the exact same text
+            (Prompt 571's own fix for "suspend was previously invisible as
+            a path to delete") reachable on hover, without it ever
+            occupying row layout. max-w-48 on this wrapper (not width on
+            the <td> in startups/investors page.tsx — tried first, and
+            confirmed live NOT to constrain an auto-layout table cell)
+            keeps every branch below the same predictable width regardless
+            of what the table's column-width algorithm decides. */}
+        <Tooltip text="Suspending removes the account from investor discovery and pipelines while it lasts. To delete: suspend first, then delete after the 30-day quarantine.">
+          <button onClick={() => setPanelAction('suspend')} className="text-left text-xs text-[#B00000] hover:underline">Suspend</button>
+        </Tooltip>
+      </div>
+      {panel}
+      </>
+    );
   }
 
   const quarantineActive = !!quarantineUntil && new Date(quarantineUntil) > new Date();
   return (
-    <div className="flex flex-col gap-1">
+    <>
+    <div className="flex max-w-48 flex-col gap-1">
       <span className="text-[11px] text-amber-700">
         {quarantineActive ? `Quarantine until ${new Date(quarantineUntil!).toLocaleDateString()}` : 'Quarantine elapsed'}
       </span>
@@ -89,12 +151,27 @@ export function ModerationControls({ targetType, targetId, status, quarantineUnt
       )}
       <div className="flex gap-1.5">
         <button onClick={() => setMode('undo')} className="text-xs text-[#0E7490] hover:underline">Undo</button>
-        <button disabled={quarantineActive} onClick={() => setMode('delete')}
+        <button disabled={quarantineActive} onClick={() => setPanelAction('delete')}
           title={quarantineActive ? 'Wait for the 30-day quarantine to elapse' : undefined}
           className="text-xs text-[#B00000] hover:underline disabled:text-gray-300 disabled:no-underline">
           Delete
         </button>
       </div>
+      {/* Prompt 569 §0 — a disabled button with only a title attribute reads as
+          "broken" rather than "not yet": the reason was invisible on touch and
+          to anyone who does not hover. Kept visible (not a Tooltip like the
+          Suspend explanation above) on purpose — short enough that the
+          max-w-48 wrapper above keeps it to a couple of lines rather than
+          the ~14 lines the much longer Suspend text hit, and Prompt 569
+          §0's own reasoning is exactly why this one shouldn't move behind
+          a hover. */}
+      {quarantineActive && (
+        <span className="text-[10px] leading-tight text-gray-400">
+          Delete unlocks when the quarantine elapses.
+        </span>
+      )}
     </div>
+    {panel}
+    </>
   );
 }

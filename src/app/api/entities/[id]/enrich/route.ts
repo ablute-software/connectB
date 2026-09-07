@@ -128,6 +128,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const rows = proposals.map((p) => ({
       subject_type: 'entity' as const, subject_id: entity.id, org_id: entity.org_id,
       field: p.field, value: p.value, source: 'ai' as const, confidence: p.confidence, source_url: p.source_url,
+      // Prompt 572 §C.1 — source='ai' rows have no author_user_id by
+      // construction; author_system is what says WHICH route/model wrote
+      // it, instead of "author unknown" looking identical to "AI, but we
+      // don't know which".
+      author_system: `entity-enrich:${model}`,
       note: 'AI-sourced via Request more info', status: 'submitted' as const,
     }));
     const { error: insErr } = await admin.from('contributions').insert(rows);

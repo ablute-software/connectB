@@ -7,6 +7,8 @@
 // founder matches on pathname (differently for the sidebar vs. the mobile
 // nav: startsWith vs exact), investor on `tab === key` — baking either rule
 // into the primitive would mean it secretly knows about routing or state.
+import type { ReactNode } from 'react';
+
 export interface WorkspaceNavItem {
   key: string;
   label: string;
@@ -20,6 +22,11 @@ export interface WorkspaceNavItem {
   // Amber pending-count pill. Founder-only today (Tasks/About); generic so
   // the investor side can use it once it has something to count.
   badge?: number;
+  // Prompt 585 §A — the back-office dark theme's one exception to its own
+  // blue family: an aggregate total (today, only "Attention") renders its
+  // badge in --sb-danger red instead of --sb-badge blue. No effect in the
+  // light theme (still plain amber) or on any item that doesn't set it.
+  badgeDanger?: boolean;
   // Founder-only: onboarding tour anchors resolve `[data-tour-id="..."]`
   // against the whole document, so this attribute on the rendered <a> is
   // load-bearing for a tour mounted on a different page entirely, not
@@ -30,4 +37,17 @@ export interface WorkspaceNavItem {
   // Optional and unused by the investor/guest shells, which never set it —
   // their sidebars render exactly as before, with no dividers.
   group?: number;
+  // Prompt 576 §3 — an uppercase heading above this item's group, read only
+  // off the FIRST item of a new group run (subsequent items in the same run
+  // ignore it). Optional and unused by founder/investor/guest today, whose
+  // groups render unlabeled exactly as before.
+  groupLabel?: string;
+  // Opaque content at the right edge of the groupLabel row — a count badge
+  // for a group whose members are decisions (Review), a status dot for one
+  // that isn't (System). The primitive never decides what it means.
+  groupMeta?: ReactNode;
+  // Prompt 576 §3 — present in the nav but visually quiet: an "all clear"
+  // item (no pending work) stays one click away rather than disappearing,
+  // just without the emphasis a default item gets.
+  dimmed?: boolean;
 }

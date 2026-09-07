@@ -149,9 +149,20 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
 
         if (input.direction === 'out') {
           const lockUntil = new Date(Date.now() + LOCK_DAYS * 24 * 3600 * 1000).toISOString();
+          // Prompt 578 §D.2 — confirmed live before this change: logging an
+          // outbound message against a dormant (Frozen) entity saved fine
+          // but left status at 'dormant', so the relationship stayed frozen
+          // even though a fresh approach had just gone out. 'contacted' is
+          // the SAME reopen this codebase already uses for the Pipeline
+          // reawakening queue's own "Reopen" button — buildReawakenApproval
+          // (reawakening.ts) sets exactly this and nothing else, so this
+          // mirrors that precedent rather than inventing a second one.
+          // 'passed'/'invested' are deliberately untouched: those are a
+          // harder, explicit close, not something an incidental outbound
+          // log should silently undo.
           next.entities = next.entities.map((e) =>
             e.id === input.entity_id
-              ? { ...e, contact_lock_until: lockUntil, status: e.status === 'not_contacted' ? 'contacted' : e.status }
+              ? { ...e, contact_lock_until: lockUntil, status: (e.status === 'not_contacted' || e.status === 'dormant') ? 'contacted' : e.status }
               : e);
           // Prompt 65 Bloco 4 — no more blind buildFollowUpTask here. The
           // contact lock above is the real, independent guardrail (nothing
@@ -161,7 +172,18 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
           // after this returns), never a silently-created generic one the
           // founder never saw.
         } else {
-          if (input.classification && ['interested', 'meeting_request', 'question'].includes(input.classification)) {
+          const inboundTarget = next.entities.find((e) => e.id === input.entity_id);
+          if (inboundTarget?.status === 'dormant') {
+            // Prompt 578 §D.2 follow-up — same reopen as the outbound branch
+            // above, mirrored for the direction Nuno confirmed had the exact
+            // same gap: a reply against a dormant (Frozen) entity saved fine
+            // but left it frozen. Unconditional on classification, same as
+            // outbound — even a reply that isn't obviously positive still
+            // means the relationship isn't dormant/silent any more.
+            // 'passed'/'invested' stay untouched, same reasoning as outbound.
+            next.entities = next.entities.map((e) =>
+              e.id === input.entity_id ? { ...e, status: 'contacted' } : e);
+          } else if (input.classification && ['interested', 'meeting_request', 'question'].includes(input.classification)) {
             next.entities = next.entities.map((e) =>
               e.id === input.entity_id && ['not_contacted', 'contacted'].includes(e.status)
                 ? { ...e, status: 'in_conversation' } : e);

@@ -134,4 +134,42 @@ describe('filterEligibleOrgs', () => {
     ];
     expect(run(orgs, [])).toEqual(['a', 'e']);
   });
+  // Prompt 563 (merged from `main` while 850 was in flight) — the platform
+  // inside its own marketplace. Unlike is_test, this exclusion has no viewer
+  // that escapes it, and unlike the gate it is not something the founder can
+  // finish their way out of.
+  describe('discovery_excluded_reason (Prompt 563)', () => {
+    it('excludes an excluded org for a real viewer AND a test viewer', () => {
+      const platform: EligibilityOrg = { ...complete, id: 'org-platform', discovery_excluded_reason: 'is the platform itself' };
+      expect(run([platform], [], false)).toEqual([]);
+      expect(run([platform], [], true)).toEqual([]);
+    });
+
+    it('excludes it even when everything else about the account is healthy', () => {
+      const platform: EligibilityOrg = {
+        ...complete, id: 'org-platform', closed_at: null, is_test: false,
+        owner_suspended_at: null, platform_suspended_at: null,
+        moderation_status: 'active', discovery_excluded_reason: 'is the platform itself',
+      };
+      expect(run([platform], [{ membership_id: 'org-platform' }])).toEqual([]);
+    });
+
+    it('an empty string is not an exclusion — only a real reason excludes', () => {
+      expect(run([{ ...complete, id: 'org-a', discovery_excluded_reason: '' }], [])).toEqual(['org-a']);
+    });
+
+    it('absent discovery_excluded_reason leaves a complete org listable', () => {
+      expect(run([{ ...complete, id: 'org-a' }], [])).toEqual(['org-a']);
+    });
+  });
+
+  // Prompt 571 (also merged from `main`) reached the same conclusion 850 §A
+  // did — moderation must reach the pipeline — with a bare
+  // `moderation_status !== 'active'`. 850's version is kept because it also
+  // expires a time-boxed suspension (covered above); this is 571's own case,
+  // which must keep passing either way: undo needs no second step.
+  it('undo needs no second step — back to active is back in the pipeline', () => {
+    expect(run([{ ...complete, id: 'org-a', moderation_status: 'suspended' }], [])).toEqual([]);
+    expect(run([{ ...complete, id: 'org-a', moderation_status: 'active' }], [])).toEqual(['org-a']);
+  });
 });

@@ -63,8 +63,9 @@ export async function POST(req: Request) {
       }
       entityIdByKey.set(item.key, item.chosenId);
       for (const c of item.temaAConflicts) conflictRows.push({
+        // Prompt 572 §C.1 — `user` was already in scope; not threaded through.
         org_id: orgId, subject_type: 'entity', subject_id: item.chosenId, field: c.field, value: c.incoming,
-        source: 'user', status: 'submitted',
+        source: 'user', status: 'submitted', author_user_id: user.id,
         note: `History import conflict — existing: ${JSON.stringify(c.existing)} vs imported: ${JSON.stringify(c.incoming)}. Kept existing; verify and update if the import is more current.`,
       });
       // TEMA B conflicts are never a contribution — private, org-only. If the

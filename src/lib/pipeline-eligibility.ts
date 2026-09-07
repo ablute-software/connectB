@@ -74,9 +74,16 @@ export type EligibilityOrg = ProfileGateOrg & {
   // Migration 0168, dual-written by /api/company/visibility.
   owner_suspended_at?: string | null;
   platform_suspended_at?: string | null;
+  // Prompt 563, migration 0311. Non-null = never listed to investors, whatever
+  // the profile says. Same absent-means-allowed degrade as the fields above.
+  discovery_excluded_reason?: string | null;
   // Migration 0121 (status) + 0180 (the time-boxed clock). Same
   // absent-means-active degrade as every other optional column here: an
-  // environment without them has no moderation state to honour.
+  // environment without them has no moderation state to honour. Prompt 571
+  // added the status half of this on `main` while Prompt 850 was in flight;
+  // this keeps 850's version, which also honours the time-boxed clock —
+  // otherwise a 24h suspension from the Suspicious Accounts queue would never
+  // expire on this side while isLoginBlocked let the founder back in.
   moderation_status?: ModerationStatus | null;
   moderation_suspended_until?: string | null;
 };
@@ -113,6 +120,14 @@ export function filterEligibleOrgs(
       // the caller already selects the whole org row, so this needed neither
       // a second query nor its own capability probe.
       if (!viewerIsTest && org.is_test === true) return false;
+      // Prompt 563 — unconditional, unlike is_test above. A test viewer sees
+      // test orgs; nobody sees an org excluded from discovery, because the
+      // reason this exists is that the org must not be a listing at all. The
+      // case it was built for: Sherlock Deal, the platform, carrying a startup
+      // profile inside its own marketplace. Mirrors
+      // matchdeal_profile_discovery_excluded() in SQL — the deck RPC and this
+      // filter must never disagree about who is listable.
+      if (org.discovery_excluded_reason) return false;
       // The founder's own nine-field gate — the same one that unlocks their
       // Pipeline — reused, never reimplemented.
       return isProfileGateComplete(org);

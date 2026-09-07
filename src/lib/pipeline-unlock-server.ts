@@ -100,6 +100,43 @@ export async function computeVisiblePipelineSize(
   return { visible, gateComplete: input.profileGateComplete, eligiblePoolSize, catalogQuotaTarget };
 }
 
+// Prompt 579 — catalog_effective_quota()'s is_ablute_developer() bypass
+// (migration 0166) returns 999999 as an internal "unlimited" contract value.
+// It is never a real supply number: production served "999989 more matched
+// investors ready for you" to sherlockdeal.com@gmail.com the moment 0317
+// (the explicit platform_admins roster) made that account pass
+// is_ablute_developer() too, ten real deliveries into a catalog that holds
+// ~760 rows total. This is the one place quota becomes a number honest
+// enough to show or to deliver — capped at whatever catalog_top_matches
+// actually has left for this org, the SAME RPC deliverCatalogMatches
+// (catalog-delivery-core.ts) calls for a real delivery and
+// catalog_outreach_supply (migration 0303) is built on for the cross-org
+// view. Never a second eligibility rule invented here.
+export const UNLIMITED_QUOTA_SENTINEL = 999999;
+
+// The whole catalog is ~760 rows today; this is a generous, fixed ceiling on
+// "give me everything catalog_top_matches has for this org," not a page
+// size. catalog_blocked_count (migration 0166) already establishes the
+// identical pattern (count(*) from catalog_entities as its own p_limit) for
+// the same reason: the WHERE clause is what bounds the real answer — this
+// number only has to not be the thing that cuts it short.
+const ELIGIBLE_SUPPLY_SCAN_LIMIT = 5000;
+
+// Both callers need the same number: /api/pipeline-unlock (GET) displays it
+// as "N more matched investors", /api/pipeline-unlock/deliver (POST) passes
+// it to deliverCatalogMatches as p_limit. One function, so the banner can
+// never promise more than the button can deliver.
+export async function computeDeliverable(
+  admin: SupabaseClient, orgId: string, quota: number, deliveredCount: number,
+): Promise<{ deliverable: number; unlimited: boolean }> {
+  const unlimited = quota >= UNLIMITED_QUOTA_SENTINEL;
+  const { data: matches } = await admin.rpc('catalog_top_matches', { p_org_id: orgId, p_limit: ELIGIBLE_SUPPLY_SCAN_LIMIT });
+  const realEligibleSupply = matches?.length ?? 0;
+  if (unlimited) return { deliverable: realEligibleSupply, unlimited: true };
+  const remainingQuota = Math.max(0, quota - deliveredCount);
+  return { deliverable: Math.min(remainingQuota, realEligibleSupply), unlimited: false };
+}
+
 // Prompt 180 — raises orgs.catalog_quota to `target` if (and only if) it's
 // currently lower. Never lowers it — same "accumulating counter" contract
 // migration 0149 already established for this column (an org never loses

@@ -15,8 +15,8 @@ import { stripeConfigured, stripePriceMap, stripeSecret } from '@/lib/stripe-env
 import { priceIdFor } from '@/lib/billing';
 import { PLAN_TIERS } from '@/lib/plans';
 import { isRedemptionCurrentlyActive } from '@/lib/promo';
-import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
-import { PIONEER_LIFETIME_DISCOUNT_PCT, PIONEER_STRIPE_COUPON_ID } from '@/lib/pioneer';
+import { ensureBadgeCoupon, loadOrgPlatformBadges } from '@/lib/platform-badges-server';
+import { badgeCouponFor, checkoutBlockedReason, type PlatformBadgeRow } from '@/lib/platform-badges';
 import { APP_URL } from '@/lib/brand';
 import type { PlanTier } from '@/lib/types';
 
@@ -78,36 +78,18 @@ async function ensureStripeCoupon(promo: { id: string; discount_pct: number; ben
   return null;
 }
 
-// Prompt 161 §C.3 — "20% de desconto vitalício em qualquer plano pago
-// futuro", ligado a orgs.pioneer_badge (permanent) instead of an active
-// promo_redemptions row (temporary) — same create-or-reuse idempotency
-// pattern as ensureStripeCoupon above, but ONE shared coupon id for every
-// Pioneer org (pioneer.ts's PIONEER_STRIPE_COUPON_ID) rather than one per
-// promo_codes row, since this discount isn't tied to any specific code.
-async function ensurePioneerStripeCoupon(): Promise<string | null> {
-  const form = new URLSearchParams();
-  form.set('id', PIONEER_STRIPE_COUPON_ID);
-  form.set('percent_off', String(PIONEER_LIFETIME_DISCOUNT_PCT));
-  form.set('duration', 'forever');
-  const res = await fetch('https://api.stripe.com/v1/coupons', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${stripeSecret()}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: form.toString(),
-  });
-  if (res.ok) return PIONEER_STRIPE_COUPON_ID;
-  const body = await res.json().catch(() => null) as { error?: { code?: string } } | null;
-  if (body?.error?.code === 'resource_already_exists') return PIONEER_STRIPE_COUPON_ID;
-  console.error('Stripe pioneer coupon create error:', JSON.stringify(body?.error ?? {}).slice(0, 300));
-  return null;
-}
-
-async function orgHasPioneerBadge(orgId: string): Promise<boolean> {
+// Prompt 161 §C.3 gave a permanent Pioneer a lifetime discount, keyed on
+// orgs.pioneer_badge. Prompt 601 generalised it: platform-badges-server.ts
+// reads platform_badges AND folds that legacy flag into the same rows, so
+// the promo-granted pioneer and the manually granted one (and tech master)
+// all take one path below. The shared coupon id and the percentage still
+// come from pioneer.ts (25% since 601 §B.1).
+async function orgBadgeState(orgId: string): Promise<PlatformBadgeRow[]> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !service || !(await pioneerBadgeAvailable())) return false;
+  if (!url || !service) return [];
   const admin = createClient(url, service, { auth: { persistSession: false } });
-  const { data } = await admin.from('orgs').select('pioneer_badge').eq('id', orgId).maybeSingle();
-  return !!data?.pioneer_badge;
+  return loadOrgPlatformBadges(admin, orgId);
 }
 
 export async function POST(req: Request) {
@@ -138,23 +120,31 @@ export async function POST(req: Request) {
   // app showing a discount Stripe never charged. No redemption -> exactly
   // the old behavior (allow_promotion_codes for Dashboard-native codes).
   //
-  // Prompt 161 §C.3 — a permanent Pioneer badge also grants a lifetime 20%
+  // Prompt 161 §C.3 — a permanent Pioneer badge also grants a lifetime
   // discount on ANY future paid plan, independent of any active
   // promo_redemptions row (the trial itself may have long since expired —
   // that's the whole point of "permanent"). Whichever discount is BETTER
   // wins — a Pioneer who also happens to hold a still-active, higher-value
   // campaign promo is never charged worse than either alone would give them.
+  //
+  // Prompt 601 §E — platform badges take the same path. A badge that makes
+  // the plan free right now (tech master, forever; pioneer inside its offer
+  // period) blocks checkout outright: there is nothing to pay, and a
+  // subscription created now would start charging later. Otherwise the
+  // badge coupon (pioneer: 25% forever — the MINIMUM) competes with the
+  // promo and the better one wins.
   const activePromo = await bestActiveRedemptionFor(member.org_id as string, tier as PlanTier);
-  const isPioneer = await orgHasPioneerBadge(member.org_id as string);
+  const badgeRows = await orgBadgeState(member.org_id as string);
+  const blocked = checkoutBlockedReason(badgeRows, new Date());
+  if (blocked) return NextResponse.json({ ok: false, error: blocked }, { status: 200 });
+  const badgeCoupon = badgeCouponFor(badgeRows, new Date());
   let couponId: string | null = null;
-  if (activePromo && activePromo.discount_pct >= PIONEER_LIFETIME_DISCOUNT_PCT) {
+  if (activePromo && (!badgeCoupon || activePromo.discount_pct >= badgeCoupon.percentOff)) {
     couponId = await ensureStripeCoupon(activePromo);
-  } else if (isPioneer) {
-    couponId = await ensurePioneerStripeCoupon();
-  } else if (activePromo) {
-    couponId = await ensureStripeCoupon(activePromo);
+  } else if (badgeCoupon) {
+    couponId = await ensureBadgeCoupon(badgeCoupon.id, badgeCoupon.percentOff);
   }
-  if ((activePromo || isPioneer) && !couponId) {
+  if ((activePromo || badgeCoupon) && !couponId) {
     // Coupon creation failed for an unexpected reason. Proceeding without
     // it would silently charge full price to a founder the app told has a
     // discount — the exact bug this fix closes — so fail loudly instead.

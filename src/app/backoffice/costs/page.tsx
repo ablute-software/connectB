@@ -22,7 +22,7 @@ interface CostsData {
   mostExpensiveMechanism: { name: string; amountEur: number; pctOfTotal: number } | null;
   mechanisms: { name: string; amountEur: number; pct: number }[];
   trend: { month: string; avgCostEur: number }[];
-  ranking: { rank: number; orgId: string; orgName: string; amountEur: number; pctOfTotal: number; topMechanism: string; barPct: number }[];
+  ranking: { rank: number; orgId: string; orgName: string; amountEur: number; pctOfTotal: number; topMechanism: string; barPct: number; requestCount: number; tokensTotal: number }[];
   sharedCatalog30dEur: number;
 }
 
@@ -128,6 +128,8 @@ export default function AiCostsPage() {
                   <th className="pb-2">Startup</th>
                   <th className="w-56 pb-2">Total spend</th>
                   <th className="w-20 pb-2">% of total</th>
+                  <th className="w-20 pb-2">Requests</th>
+                  <th className="w-24 pb-2">Tokens</th>
                   <th className="pb-2">Top mechanism</th>
                 </tr>
               </thead>
@@ -143,6 +145,8 @@ export default function AiCostsPage() {
                       </div>
                     </td>
                     <td className="py-2.5 text-gray-500">{r.pctOfTotal.toFixed(1)}%</td>
+                    <td className="py-2.5 text-gray-500">{r.requestCount.toLocaleString('en-US')}</td>
+                    <td className="py-2.5 text-gray-500">{r.tokensTotal > 0 ? r.tokensTotal.toLocaleString('en-US') : '—'}</td>
                     <td className="py-2.5 text-gray-500">{r.topMechanism}</td>
                   </tr>
                 ))}

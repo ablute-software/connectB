@@ -15,9 +15,13 @@
 // Block C now adds "Ecosystem" as the actual 6th tab); "Operations" folds
 // into Overview's alerts area (kept) plus this page's own Audit log panel
 // (Prompt 69, kept as-is).
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui';
-import { describeAuditEvent, type AuditLogRow } from '@/lib/audit-log-format';
+// Prompt 599 §1 — the audit panel that used to live inline here is now
+// src/components/backoffice/AuditLogPanel.tsx, shared with the back-office's
+// own Audit log page (one implementation, two homes).
+import { AuditLogPanel } from '@/components/backoffice/AuditLogPanel';
 import { GrowthRevenueTab } from '@/components/backoffice/metrics/GrowthRevenueTab';
 import { ActivationRetentionTab } from '@/components/backoffice/metrics/ActivationRetentionTab';
 import { FundraisingOutcomesTab } from '@/components/backoffice/metrics/FundraisingOutcomesTab';
@@ -59,119 +63,6 @@ const ECOSYSTEM_TABS: { key: EcosystemTabKey; label: string }[] = [
   { key: 'methodology', label: 'Methodology' },
 ];
 
-type AuditRow = AuditLogRow & { adminName: string };
-
-function AuditLogRowView({ row }: { row: AuditRow }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <li className="border-b border-gray-50 py-2 last:border-0">
-      <div className="flex flex-wrap items-baseline gap-2">
-        <span className="text-xs text-gray-400">{row.created_at.slice(0, 16).replace('T', ' ')}</span>
-        <span className="text-sm text-gray-800">{describeAuditEvent(row, row.adminName)}</span>
-        <button onClick={() => setOpen(!open)} className="ml-auto text-xs text-[#0E7490] hover:underline">
-          {open ? 'Hide details' : 'Details'}
-        </button>
-      </div>
-      {open && (
-        <pre className="mt-1.5 overflow-x-auto rounded-lg bg-gray-50 p-2 text-[11px] text-gray-600">
-          {JSON.stringify({ action: row.action, subject_type: row.subject_type, subject_id: row.subject_id, detail: row.detail }, null, 2)}
-        </pre>
-      )}
-    </li>
-  );
-}
-
-function AuditLogPanel() {
-  const [expanded, setExpanded] = useState(false);
-  const [rows, setRows] = useState<AuditRow[]>([]);
-  const [admins, setAdmins] = useState<{ id: string; label: string }[]>([]);
-  const [hasMore, setHasMore] = useState(false);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
-  const [adminUserId, setAdminUserId] = useState('');
-  const [loadedOnce, setLoadedOnce] = useState(false);
-
-  function load(offset: number, append: boolean) {
-    setLoading(true); setErr('');
-    const params = new URLSearchParams({ offset: String(offset) });
-    if (from) params.set('from', from);
-    if (to) params.set('to', to);
-    if (adminUserId) params.set('adminUserId', adminUserId);
-    fetch(`/api/backoffice/audit-log?${params}`).then((r) => r.json()).then((body) => {
-      if (body.ok === false) { setErr(body.error); setLoading(false); return; }
-      setRows((prev) => append ? [...prev, ...body.rows] : body.rows);
-      setAdmins(body.admins);
-      setHasMore(body.hasMore);
-      setTotal(body.total);
-      setLoading(false);
-    }).catch(() => { setErr('Failed to load.'); setLoading(false); });
-  }
-
-  function toggle() {
-    const next = !expanded;
-    setExpanded(next);
-    if (next && !loadedOnce) { setLoadedOnce(true); load(0, false); }
-  }
-  function applyFilters() { load(0, false); }
-
-  return (
-    <Card
-      title={`Audit log — every admin action ${expanded ? '▾' : '▸'}`}
-      right={<button onClick={toggle} className="text-xs font-medium text-[#0E7490] hover:underline">{expanded ? 'Collapse' : 'Expand'}</button>}
-    >
-      {!expanded ? (
-        <p className="text-sm text-gray-400">Who did what, when — collapsed by default. Click Expand to view.</p>
-      ) : (
-        <div>
-          <div className="mb-3 flex flex-wrap items-end gap-2">
-            <label className="text-xs text-gray-500">
-              From
-              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="mt-0.5 block rounded-lg border border-gray-300 px-2 py-1 text-sm" />
-            </label>
-            <label className="text-xs text-gray-500">
-              To
-              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="mt-0.5 block rounded-lg border border-gray-300 px-2 py-1 text-sm" />
-            </label>
-            <label className="text-xs text-gray-500">
-              Admin
-              <select value={adminUserId} onChange={(e) => setAdminUserId(e.target.value)} className="mt-0.5 block rounded-lg border border-gray-300 px-2 py-1 text-sm">
-                <option value="">All admins</option>
-                {admins.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
-              </select>
-            </label>
-            <button onClick={applyFilters} disabled={loading} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
-              Apply
-            </button>
-            {(from || to || adminUserId) && (
-              <button onClick={() => { setFrom(''); setTo(''); setAdminUserId(''); load(0, false); }} className="text-xs text-gray-400 hover:underline">
-                Clear filters
-              </button>
-            )}
-          </div>
-
-          {err && <p className="text-sm text-[#B00000]">{err}</p>}
-          {!err && rows.length === 0 && !loading && <p className="text-sm text-gray-400">No admin actions match these filters.</p>}
-          {rows.length > 0 && (
-            <>
-              <p className="mb-1 text-xs text-gray-400">Showing {rows.length} of {total}</p>
-              <ul>{rows.map((r) => <AuditLogRowView key={r.id} row={r} />)}</ul>
-            </>
-          )}
-          {hasMore && (
-            <button onClick={() => load(rows.length, true)} disabled={loading}
-              className="mt-2 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40">
-              {loading ? 'Loading…' : 'Load more'}
-            </button>
-          )}
-        </div>
-      )}
-    </Card>
-  );
-}
-
 interface OverviewData {
   growth: {
     newStartups: { value: number; deltaPct: number | null };
@@ -182,11 +73,12 @@ interface OverviewData {
     activationRate7d: number | null; retention30d: number | null;
   };
   revenue: {
-    mrr: number; mrrPotential: number; discountsValue: number; netNewMrr: number;
+    mrr: number; mrrPotential: number; mrrBilled: number; discountsValue: number; netNewMrr: number;
     freeToPaidConversion: { rate: number | null; normal: number; promo: number }; monthlyRevenueChurnPct: number | null;
   };
   valueProof: { qualifiedConversations: number; medianDaysToFirstResponse: number | null };
   alerts: { failedAutomations: number; hardBounces: number; overduePipelines: number; failedPayments: number };
+  period: { current: { from: string; to: string } };
 }
 
 // Prompt 296 §2 — every Stat is clickable when it names its own history
@@ -216,7 +108,7 @@ function Stat({ label, value, hint, delta, onClick }: { label: string; value: st
 }
 
 interface Staleness { lastSnapshotAt: string | null; eventsSinceSnapshot: number; worthRefreshing: boolean }
-interface DrillDownState { title: string; series: DrillDownSeries[]; entitiesMetric?: string; period?: string }
+interface DrillDownState { title: string; series: DrillDownSeries[]; entitiesMetric?: string; period?: string; viewAllHref?: string }
 
 function fmtEurReal(n: number): string { return `€${Math.round(n).toLocaleString()}`; }
 
@@ -283,7 +175,16 @@ function OverviewTab() {
                 })} />
               <Stat label="Catalog entities added" value={data.growth.newCatalogEntities.value} delta={data.growth.newCatalogEntities.deltaPct}
                 hint="imported/enriched — not necessarily a real account"
-                onClick={() => setDrillDown({ title: 'Catalog entities added', series: [{ path: 'growth.newCatalogEntities.value', label: 'Catalog entities', color: '#7c3aed' }] })} />
+                onClick={() => setDrillDown({
+                  title: 'Catalog entities added', period,
+                  series: [{ path: 'growth.newCatalogEntities.value', label: 'Catalog entities', color: '#7c3aed' }],
+                  // Prompt 569 §3 — these are investor firms, not founder
+                  // orgs, so the "Ver quem são" list (built for orgs with a
+                  // founder dossier to open) doesn't fit them. A link into
+                  // the Catalog itself, pre-filtered to the same window,
+                  // does the same job without repurposing that mechanism.
+                  viewAllHref: `/backoffice/catalog?addedFrom=${encodeURIComponent(data.period.current.from)}&addedTo=${encodeURIComponent(data.period.current.to)}`,
+                })} />
               <Stat label="Investor accounts registered" value={data.growth.newRegisteredInvestorAccounts.value} delta={data.growth.newRegisteredInvestorAccounts.deltaPct}
                 hint="a real person actually signed in"
                 onClick={() => setDrillDown({ title: 'Investor accounts registered', series: [{ path: 'growth.newRegisteredInvestorAccounts.value', label: 'Registered accounts', color: '#2563eb' }] })} />
@@ -295,8 +196,13 @@ function OverviewTab() {
                   series: [{ path: 'growth.activeFundraisingStartups', label: 'Active round', color: '#d97706' }],
                   entitiesMetric: 'activeFundraisingStartups',
                 })} />
-              <Stat label="Relevant activity" value={data.growth.startupsWithRelevantActivity} hint="in the selected period"
-                onClick={() => setDrillDown({ title: 'Relevant activity', series: [{ path: 'growth.startupsWithRelevantActivity', label: 'Relevant activity', color: '#db2777' }] })} />
+              <Stat label="Relevant activity" value={data.growth.startupsWithRelevantActivity}
+                hint="startups with a logged interaction, an analytics event, or a catalog edit in the period — several planned signals (Smart Calendar, AI Drafts, Review/Optimization) aren't tracked yet"
+                onClick={() => setDrillDown({
+                  title: 'Relevant activity', period,
+                  series: [{ path: 'growth.startupsWithRelevantActivity', label: 'Relevant activity', color: '#db2777' }],
+                  entitiesMetric: 'startupsWithRelevantActivity',
+                })} />
               <Stat label="7-day activation rate" value={data.growth.activationRate7d != null ? `${data.growth.activationRate7d}%` : '—'}
                 onClick={() => setDrillDown({ title: '7-day activation rate', series: [{ path: 'growth.activationRate7d', label: 'Activation rate', color: '#0E7490', formatValue: (v) => `${v}%` }] })} />
               <Stat label="30-day retention" value={data.growth.retention30d != null ? `${data.growth.retention30d}%` : '—'}
@@ -308,13 +214,14 @@ function OverviewTab() {
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Revenue</h2>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <Stat
-                label="MRR — real · potencial"
-                value={`${fmtEurReal(data.revenue.mrr)} real · ${fmtEurReal(data.revenue.mrrPotential)} tabela`}
+                label="MRR — billed · at plan · list"
+                value={`${fmtEurReal(data.revenue.mrrBilled)} billed · ${fmtEurReal(data.revenue.mrr)} at plan`}
                 onClick={() => setDrillDown({
-                  title: 'MRR — real vs. potencial',
+                  title: 'MRR — billed vs. at plan vs. list price',
                   series: [
-                    { path: 'revenue.mrr', label: 'Real (efetivo)', color: '#0E7490', formatValue: fmtEurReal },
-                    { path: 'revenue.mrrPotential', label: 'Potencial (preço de tabela)', color: '#CBD5E1', formatValue: fmtEurReal },
+                    { path: 'revenue.mrrBilled', label: 'Billed (active Stripe subscription)', color: '#0E7490', formatValue: fmtEurReal },
+                    { path: 'revenue.mrr', label: 'Charged at plan (post-discount)', color: '#64748B', formatValue: fmtEurReal },
+                    { path: 'revenue.mrrPotential', label: 'List price', color: '#CBD5E1', formatValue: fmtEurReal },
                   ],
                 })}
               />
@@ -390,6 +297,7 @@ function OverviewTab() {
           series={drillDown.series}
           entitiesMetric={drillDown.entitiesMetric}
           period={drillDown.period}
+          viewAllHref={drillDown.viewAllHref}
           onClose={() => setDrillDown(null)}
         />
       )}
@@ -397,9 +305,24 @@ function OverviewTab() {
   );
 }
 
+// Prompt 599 §1 — the sidebar's "Usage" row links to /metrics?tab=usage;
+// without this the page always opened Overview and the row looked like a
+// duplicate of "Metrics". useSearchParams needs its own Suspense boundary
+// or `next build` fails at prerender (CLAUDE.md rule 5 — paid for once).
 export default function MetricsPage() {
+  return (
+    <Suspense fallback={<p className="text-sm text-gray-400">Loading…</p>}>
+      <MetricsPageContent />
+    </Suspense>
+  );
+}
+
+function MetricsPageContent() {
+  const search = useSearchParams();
+  const requestedTab = search.get('tab');
+  const initialTab: AppTab = APP_TABS.some((t) => t.key === requestedTab) ? (requestedTab as AppTab) : 'overview';
   const [floor, setFloor] = useState<Floor>('app');
-  const [appTab, setAppTab] = useState<AppTab>('overview');
+  const [appTab, setAppTab] = useState<AppTab>(initialTab);
   const [ecosystemTab, setEcosystemTab] = useState<EcosystemTabKey>('xray');
 
   return (

@@ -53,8 +53,9 @@ export async function POST(req: Request) {
       }
       entityIdByKey.set(item.key, item.chosenId);
       for (const c of item.conflicts) conflictRows.push({
+        // Prompt 572 §C.1 — `user` was already in scope; not threaded through.
         org_id: orgId, subject_type: 'entity', subject_id: item.chosenId, field: c.field, value: c.incoming,
-        source: 'user', status: 'submitted',
+        source: 'user', status: 'submitted', author_user_id: user.id,
         note: `§9b import conflict — existing: ${JSON.stringify(c.existing)} vs imported: ${JSON.stringify(c.incoming)}. Kept existing; verify and update if the import is more current.`,
       });
     } else {
@@ -111,8 +112,9 @@ export async function POST(req: Request) {
       }
       personIdByKey.set(item.key, item.chosenId);
       for (const c of item.conflicts) conflictRows.push({
+        // Prompt 572 §C.1 — same fix as the entity-conflict block above.
         org_id: orgId, subject_type: 'person', subject_id: item.chosenId, field: c.field, value: c.incoming,
-        source: 'user', status: 'submitted',
+        source: 'user', status: 'submitted', author_user_id: user.id,
         note: `§9b import conflict — existing: ${JSON.stringify(c.existing)} vs imported: ${JSON.stringify(c.incoming)}. Kept existing; verify and update if the import is more current.`,
       });
     } else {

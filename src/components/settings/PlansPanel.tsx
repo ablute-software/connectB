@@ -35,6 +35,8 @@ import { SECURE_PAYMENT_COPY } from '@/lib/billing';
 import { discountedPriceEur } from '@/lib/promo';
 import { can, type OrgRole } from '@/lib/permissions';
 import { PageTour } from '@/components/onboarding/PageTour';
+import { PlatformStatusCard } from '@/components/badges/PlatformStatusCard';
+import { PIONEER_LIFETIME_DISCOUNT_PCT } from '@/lib/pioneer';
 import type { PlanTier } from '@/lib/types';
 
 const PERIOD_LABEL: Record<BillingPeriod, string> = { monthly: 'Monthly', annual: 'Annual' };
@@ -75,6 +77,10 @@ export function PlansPanel() {
   const [promoErr, setPromoErr] = useState('');
   const [referralCodes, setReferralCodes] = useState<ReferralCode[]>([]);
   const [copiedCode, setCopiedCode] = useState('');
+  // Prompt 601 §D.1 — the tier a platform badge makes free right now (tech
+  // master: forever; pioneer: during its offer), reported by the status
+  // card so the "Your plan" price reads €0 rather than the list price.
+  const [badgeFreeTier, setBadgeFreeTier] = useState<string | null>(null);
 
   function refreshPromoStatus() {
     fetch('/api/promo/status', { cache: 'no-store' }).then((r) => r.json())
@@ -275,6 +281,11 @@ export function PlansPanel() {
         <h1 className="text-lg font-bold">Plans &amp; billing</h1>
       </div>
 
+      {/* Prompt 601 §D.1 — at the top, well visible, and in plain words:
+          "free forever while…", "at least 25% off, forever". Renders
+          nothing for an org with no platform status. */}
+      <PlatformStatusCard variant="plans" onLoaded={setBadgeFreeTier} />
+
       {notice && <div className="rounded-lg border border-cyan-100 bg-[#E8F4F8] px-3 py-2 text-xs text-[#0E7490]">{notice}</div>}
 
       {/* Side by side from md up (matches the 3-plan-card row's own
@@ -301,7 +312,7 @@ export function PlansPanel() {
               <img src="/badges/pioneer.png" alt="Pioneer" title="Pioneer — permanent badge"
                 className="h-6 w-6" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
             )}
-            {grantingPromo ? (
+            {grantingPromo || badgeFreeTier ? (
               <span className="text-sm font-semibold text-emerald-700">€0/month</span>
             ) : (
               currentRow && <span className="text-sm text-gray-500">{planPriceLabel(currentRow, period)}</span>
@@ -309,7 +320,7 @@ export function PlansPanel() {
           </div>
           {me?.pioneerBadge && (
             <p className="mt-1 text-xs font-medium text-amber-800">
-              🏅 Pioneer — permanent, survives any plan change. Lifetime 20% off any future paid plan.
+              🏅 Pioneer — permanent, survives any plan change. At least {PIONEER_LIFETIME_DISCOUNT_PCT}% off any future paid plan, forever; a better promotion wins.
             </p>
           )}
           {grantingPromo && (

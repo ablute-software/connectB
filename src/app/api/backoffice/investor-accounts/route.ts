@@ -128,6 +128,7 @@ export async function GET() {
       visiblePipelineSize: null as number | null,
       startupComparisonsLastMonth: null as number | null,
       aiAssistanceLastMonth: null as number | null,
+      isInternal: r.isInternal,
     };
   }));
 

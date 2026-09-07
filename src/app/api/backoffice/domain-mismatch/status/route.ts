@@ -11,12 +11,18 @@
 // repurposed.
 //
 // entities has no is_test column of its own (confirmed against the real
-// schema before writing this — unlike catalog_entities/orgs) and filtering
-// by orgs.is_test would be actively wrong: ablute_'s own org is flagged
-// is_test=true despite being the one org with real production data (the
-// same trap documented elsewhere in this codebase) — that filter would
-// silently drop every real ablute_ entity, exactly the data this queue
-// exists to review. Ad-hoc verification fixtures created by this
+// schema before writing this — unlike catalog_entities/orgs), and this queue
+// deliberately does not filter by orgs.is_test.
+//
+// The reason given here was wrong, corrected in Prompt 568: ablute_ is
+// is_test = FALSE, on purpose — the team's account is meant to behave as a
+// real org so the whole flow can be validated before launch. So the old
+// "filtering would drop every real ablute_ entity" argument never applied.
+//
+// Not filtering is still right, for a plainer reason: this is a review queue
+// over entities, and an entity belonging to a test org is still an entity
+// someone typed a domain into. Reviewing it costs a glance; missing a real
+// mismatch costs a wrong outreach. Ad-hoc verification fixtures created by this
 // repo's own scripts are excluded by CLAUDE.md's own naming convention
 // instead (`zz-test-` prefix), the one exclusion mechanism that actually
 // applies at the entities level.

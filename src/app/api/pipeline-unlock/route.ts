@@ -11,7 +11,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer, readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { isProfileGateComplete, missingProfileGateFields } from '@/lib/pipeline-unlock';
-import { computeVisiblePipelineSize, raiseCatalogQuotaFloor } from '@/lib/pipeline-unlock-server';
+import { computeDeliverable, computeVisiblePipelineSize, raiseCatalogQuotaFloor } from '@/lib/pipeline-unlock-server';
 import { pipelineUnlockAnchorsAvailable } from '@/lib/pipeline-unlock-capability';
 
 export async function GET(req: NextRequest) {
@@ -74,7 +74,15 @@ export async function GET(req: NextRequest) {
   // Zero for a Developer Viewer: catalog_effective_quota()'s is_org_member()
   // is evaluated against the developer, not the viewed org, and this route
   // is read-only for them anyway.
+  //
+  // Prompt 579 — "cannot disagree" above was true of the arithmetic but not
+  // of what it could produce: an is_ablute_developer() account reads quota
+  // as the 999999 sentinel (migration 0166), and quota - delivered handed
+  // that straight to the screen as "999989 more". computeDeliverable caps it
+  // at the real catalog supply left for this org and reports `unlimited`
+  // instead of ever letting the sentinel itself out as a number.
   let deliverable = 0;
+  let unlimited = false;
   if (gateComplete) {
     const [{ data: quotaData }, { count: deliveredCount }] = await Promise.all([
       sb.rpc('catalog_effective_quota', { check_org: orgId }),
@@ -82,8 +90,8 @@ export async function GET(req: NextRequest) {
         .eq('org_id', orgId).eq('quota_exempt', false),
     ]);
     const quota = typeof quotaData === 'number' ? quotaData : 0;
-    deliverable = Math.max(0, quota - (deliveredCount ?? 0));
+    ({ deliverable, unlimited } = await computeDeliverable(admin, orgId, quota, deliveredCount ?? 0));
   }
 
-  return NextResponse.json({ ok: true, gateComplete, visible, eligiblePoolSize, catalogQuotaTarget, deliverable, missing, anchorsAvailable });
+  return NextResponse.json({ ok: true, gateComplete, visible, eligiblePoolSize, catalogQuotaTarget, deliverable, unlimited, missing, anchorsAvailable });
 }

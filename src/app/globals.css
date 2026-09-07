@@ -8,6 +8,59 @@ body {
   background: #f9fafb;
 }
 
+/* Prompt 585 §A — the back-office sidebar's own dark theme, lifted verbatim
+   from the approved design (Navigation.dc.html, artifact 6d8ff659). Two hue
+   families with meaning, not decoration: blue-258/260 for the shell itself
+   (background, text, active state, section/individual badges, avatar), red
+   reserved ONLY for the aggregate "Attention" total, green ONLY for the
+   System status dot. Scoped to WorkspaceSidebar's dark variant — the
+   founder/investor/guest shells stay the light theme above, untouched. */
+:root {
+  --sb-bg: oklch(24% 0.02 260);
+  --sb-text: oklch(88% 0.01 260);
+  --sb-dim: oklch(68% 0.02 260);
+  --sb-active: oklch(32% 0.035 258);
+  --sb-border: oklch(34% 0.02 260);
+  --sb-badge: oklch(28% 0.03 258);
+  --sb-accent: oklch(52% 0.14 258);
+  --sb-danger: oklch(55% 0.19 25);
+  --sb-success: oklch(58% 0.13 150);
+  /* Prompt 593 §B — the scrollbar's own thumb tones. Neither existing
+     token fits: --sb-border (34% L) sits too close to --sb-bg (24% L) to
+     find against it, --sb-dim (68% L) is built for readable TEXT and
+     shouts next to a fill this size. Nuno's own bar: lighter than the
+     menu, with some presence, "sem exagero". */
+  --sb-scroll-thumb: oklch(44% 0.025 260);
+  --sb-scroll-thumb-hover: oklch(56% 0.03 260);
+}
+
+/* Prompt 593 §B — restyles the native scrollbar inside the dark
+   back-office sidebar (applied via .sd-dark-scrollbar, dark theme only)
+   to the same blue-258/260 family as the rest of the shell. Firefox
+   (scrollbar-width/-color) and Chromium (::-webkit-scrollbar*, the engine
+   Nuno's own Windows/Chrome uses) need separate rules — CSS has no single
+   cross-engine scrollbar syntax yet. Track transparent (never the
+   default's white — that's what read as a rendering error against
+   --sb-bg); thumb one step lighter than the shell, another step lighter
+   on hover; thin, so it reads as chrome, not content. */
+.sd-dark-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sb-scroll-thumb) transparent;
+}
+.sd-dark-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+.sd-dark-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sd-dark-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--sb-scroll-thumb);
+  border-radius: 9999px;
+}
+.sd-dark-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: var(--sb-scroll-thumb-hover);
+}
+
 /* Onboarding modal entrance (onboarding_sherlockdeal_v2.md §6): fade +
    translateY(8px) -> 0, 220ms. Exit is a plain 150ms fade, handled by the
    component unmounting after that delay rather than a separate keyframe. */
@@ -188,4 +241,20 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .pipeline-fit-sweep-card::after { animation: none; background: none; }
   .pipeline-fit-sweep-card { outline: 2px solid #0E7490; outline-offset: 1px; }
+}
+
+/* Prompt 599 §7 (576 Fase 4 Part 2, point 3) — below 1440px the review
+   queue's decision panel is an overlay that slides in from the right, not a
+   bottom sheet. The transform is on the panel itself (an `absolute` child of
+   the `fixed` overlay in ReviewQueueLayout), never on an ancestor of a fixed
+   element, so CLAUDE.md's containing-block rule is not in play. */
+@media (max-width: 1439.98px) {
+  .sd-review-panel-slide { animation: sd-review-panel-slide 180ms ease-out; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sd-review-panel-slide { animation: none; }
+}
+@keyframes sd-review-panel-slide {
+  from { transform: translateX(100%); opacity: 0.6; }
+  to { transform: translateX(0); opacity: 1; }
 }

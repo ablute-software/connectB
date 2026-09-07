@@ -544,18 +544,36 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (input.direction === 'out') {
         const lockUntil = new Date(Date.now() + LOCK_DAYS * 24 * 3600 * 1000).toISOString();
         const entity = prev.entities.find((e) => e.id === input.entity_id);
-        const newStatus: EntityStatus | undefined = entity && entity.status === 'not_contacted' ? 'contacted' : undefined;
+        // Prompt 578 §D.2 — same reopen store-demo.tsx now applies, kept in
+        // sync: a dormant (Frozen) entity used to stay dormant after a fresh
+        // outbound log. 'contacted' mirrors buildReawakenApproval's own
+        // reopen (reawakening.ts) — the Pipeline queue's "Reopen" button —
+        // rather than a second, independent reopen rule. 'passed'/'invested'
+        // stay untouched: those are an explicit close, not something an
+        // incidental log should undo.
+        const newStatus: EntityStatus | undefined =
+          entity && (entity.status === 'not_contacted' || entity.status === 'dormant') ? 'contacted' : undefined;
         entityPatch = { contact_lock_until: lockUntil, ...(newStatus ? { status: newStatus } : {}) };
         entities = entities.map((e) => e.id === input.entity_id ? { ...e, ...entityPatch } : e);
         // Prompt 65 Bloco 4 — no more blind buildFollowUpTask here; see the
         // matching comment in store-demo.tsx. The lock above is unchanged
         // (independent of task creation); the follow-up TASK now comes
         // from the engine's visible, confirmable suggestion instead.
-      } else if (input.classification && ['interested', 'meeting_request', 'question'].includes(input.classification)) {
+      } else {
         const entity = prev.entities.find((e) => e.id === input.entity_id);
-        if (entity && ['not_contacted', 'contacted'].includes(entity.status)) {
-          entityPatch = { status: 'in_conversation' };
+        if (entity?.status === 'dormant') {
+          // Prompt 578 §D.2 follow-up — same reopen as the outbound branch
+          // above, mirrored for the direction Nuno confirmed had the exact
+          // same gap: a reply against a dormant (Frozen) entity saved fine
+          // but left it frozen. Unconditional on classification, same as
+          // outbound. 'passed'/'invested' stay untouched, same reasoning.
+          entityPatch = { status: 'contacted' };
           entities = entities.map((e) => e.id === input.entity_id ? { ...e, ...entityPatch } : e);
+        } else if (input.classification && ['interested', 'meeting_request', 'question'].includes(input.classification)) {
+          if (entity && ['not_contacted', 'contacted'].includes(entity.status)) {
+            entityPatch = { status: 'in_conversation' };
+            entities = entities.map((e) => e.id === input.entity_id ? { ...e, ...entityPatch } : e);
+          }
         }
       }
 

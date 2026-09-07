@@ -39,7 +39,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { isProfileGateComplete, missingProfileGateFields } from '@/lib/pipeline-unlock';
-import { computeVisiblePipelineSize, raiseCatalogQuotaFloor } from '@/lib/pipeline-unlock-server';
+import { computeDeliverable, computeVisiblePipelineSize, raiseCatalogQuotaFloor } from '@/lib/pipeline-unlock-server';
 import { deliverCatalogMatches } from '@/lib/catalog-delivery-core';
 
 export async function POST(req: NextRequest) {
@@ -105,7 +105,16 @@ export async function POST(req: NextRequest) {
     .from('catalog_deliveries').select('catalog_id', { count: 'exact', head: true })
     .eq('org_id', orgId).eq('quota_exempt', false);
 
-  const pLimit = Math.max(0, quota - (deliveredCount ?? 0));
+  // Prompt 579 — capped at the real catalog supply left for this org, not
+  // just the quota arithmetic. An is_ablute_developer() account's quota is
+  // the 999999 sentinel (migration 0166): quota - delivered handed
+  // deliverCatalogMatches a p_limit of 999989, which only ever worked
+  // because catalog_top_matches' own WHERE clause — not this p_limit — is
+  // what actually bounds the result to real, eligible, undelivered rows
+  // (verified empirically: see pipeline-unlock-server.test.ts). Relying on
+  // that was fragile and let the same uncapped number leak into the GET
+  // route's display; this is the one computation both routes call now.
+  const { deliverable: pLimit } = await computeDeliverable(admin, orgId, quota, deliveredCount ?? 0);
   if (pLimit === 0) {
     return NextResponse.json({ ok: true, gateComplete: true, delivered: 0, quota, alreadyDelivered: deliveredCount ?? 0, deliverable: 0 });
   }

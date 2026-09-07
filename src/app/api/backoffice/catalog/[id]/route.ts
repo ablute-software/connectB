@@ -33,9 +33,19 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
   if ('error' in auth) return auth.error;
   const { admin, userId } = auth;
 
+  // Prompt 599 §3 — a person survives the firm: catalog_people.entity_id is
+  // ON DELETE SET NULL and the affiliations cascade, so nobody is deleted
+  // by side effect. Not silently, though: count who is left without a
+  // current firm and put it in the audit line and the response.
+  const { count: affiliated } = await admin.from('catalog_person_affiliations')
+    .select('id', { count: 'exact', head: true }).eq('entity_id', params.id);
+
   const { error } = await admin.from('catalog_entities').delete().eq('id', params.id);
   if (error) return NextResponse.json({ ok: false, error: `${error.message} — it may still be referenced by a submission or pack.` }, { status: 500 });
 
-  await logAdminAction(admin, { adminUserId: userId, action: 'catalog_delete', subjectType: 'catalog_entity', subjectId: params.id });
-  return NextResponse.json({ ok: true });
+  await logAdminAction(admin, {
+    adminUserId: userId, action: 'catalog_delete', subjectType: 'catalog_entity', subjectId: params.id,
+    detail: { peopleLeftWithoutFirm: affiliated ?? 0 },
+  });
+  return NextResponse.json({ ok: true, peopleLeftWithoutFirm: affiliated ?? 0 });
 }

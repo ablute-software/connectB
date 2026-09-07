@@ -6,6 +6,9 @@ import 'server-only';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { normalizePlan, PLAN_TIERS } from './plans';
 import { isRedemptionCurrentlyActive } from './promo';
+import { platformBadgesAvailable } from './platform-badges-capability';
+import { loadOrgPlatformBadges } from './platform-badges-server';
+import { freeTierFromBadges } from './platform-badges';
 import type { PlanTier } from './types';
 
 function tierRank(t: PlanTier): number {
@@ -33,9 +36,27 @@ export async function resolveUserPlan(
   // read, never written anywhere, so the boost reverts automatically the
   // moment benefit_ends_at passes — no cron, nothing to remember to clean up.
   const trialTier = await bestFreeTrialTier(orgId);
-  const effectivePlan = trialTier && tierRank(trialTier) > tierRank(storedPlan) ? trialTier : storedPlan;
+  // Prompt 601 §E — a platform badge that makes the plan free (tech master:
+  // forever; pioneer: during its offer period) grants that tier's
+  // entitlements the same read-time way the free trial does: nothing is
+  // written, so it reverts by itself when the period ends or the badge is
+  // revoked.
+  const badgeTier = await badgeFreeTier(orgId);
+  let effectivePlan = storedPlan;
+  for (const t of [trialTier, badgeTier]) {
+    if (t && tierRank(t) > tierRank(effectivePlan)) effectivePlan = t;
+  }
 
   return { orgId, plan: effectivePlan };
+}
+
+async function badgeFreeTier(orgId: string): Promise<PlanTier | null> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !service) return null;
+  if (!(await platformBadgesAvailable())) return null;
+  const admin = createClient(url, service, { auth: { persistSession: false } });
+  return freeTierFromBadges(await loadOrgPlatformBadges(admin, orgId), new Date());
 }
 
 async function bestFreeTrialTier(orgId: string): Promise<PlanTier | null> {
