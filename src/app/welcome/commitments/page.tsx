@@ -8,14 +8,22 @@
 // Reachable at any time (Settings and the footer can link here); the
 // automatic redirect after signup is behind COMMITMENTS_GATE_ENABLED until
 // the text passes legal review (lib/commitments.ts).
+//
+// Prompt 606 — the visual layer. The page is about documents, so the shape is
+// a DOCUMENT: a portrait sheet on a full field of brand teal. 4px corner, not
+// a card's 16px; deep shadow; wide margins. No padlocks, no shields, no
+// numbering, no box per promise — the three groups are separated by a rule.
+//
+// AuthShell is deliberately NOT used here, unlike login/signup: it paints its
+// own decorative backdrop (gradient + blurred shapes + frosted glass), and
+// this design needs a flat field. The route is already in shell.tsx's
+// standalone list, so it renders bare and can own the whole viewport.
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { AuthShell } from '@/components/auth/AuthShell';
-import { LogoLockup } from '@/components/Logo';
 import { BRAND_NAME } from '@/lib/brand';
 import { getCommitments, COMMITMENTS_VERSION } from '@/lib/commitments';
-import { COMMITMENTS_FOOTNOTE, CONTROLLER_NAME } from '@/content/commitments/v1';
+import { COMMITMENTS_FOOTNOTE, CONTROLLER_NAME, COMMITMENT_GROUPS } from '@/content/commitments/v1';
 
 function CommitmentsInner() {
   const sp = useSearchParams();
@@ -42,46 +50,99 @@ function CommitmentsInner() {
   const alreadyAccepted = status?.acceptedVersion === COMMITMENTS_VERSION;
 
   return (
-    <AuthShell>
-      <div className="w-full max-w-2xl rounded-2xl border border-gray-100 bg-white p-7 shadow-2xl">
-        <div className="mb-1 flex items-center gap-2 text-2xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
-          <LogoLockup size={28} accentClassName="text-[#2a7f8e]" />
-        </div>
+    <div className="commitments-field min-h-screen px-4 py-[120px] pb-[140px]">
+      {/* 660px, not the artboard's 760px (§C.1). At 760 with 72px margins the
+          measure is ~85 characters; comfortable is 65-75, and on a page built
+          to be read quickly a long line loses the eye on the return sweep.
+          660 lands at ~70. pb-32 leaves room for the fixed bar below. */}
+      <div className="commitments-sheet mx-auto w-full max-w-[660px] rounded-[4px] px-6 py-10 pb-32 sm:px-[72px] sm:pb-32 sm:pt-20">
+        <div className="commitments-wordmark text-[12px] font-bold uppercase tracking-[0.09em]">{BRAND_NAME}</div>
+
         {status && !status.gateEnabled && (
-          <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             Draft under legal review — this page is not yet shown automatically to new accounts.
           </div>
         )}
-        <h1 className="text-lg font-bold text-gray-900">Our commitments to you</h1>
-        <p className="mt-1 text-sm text-gray-500">Before you start: what {BRAND_NAME} promises about your documents and your data, in plain words. Each promise is one we can keep and show.</p>
 
-        <ol className="mt-5 space-y-4">
-          {commitments.map((c) => (
-            <li key={c.n} className="text-sm">
-              <p className="font-semibold text-gray-900">{c.n}. {c.title}</p>
-              <p className="mt-0.5 text-gray-700">{c.body}</p>
-              {c.link && <Link href={c.link.href} className="mt-0.5 inline-block text-xs text-[#0E7490] hover:underline">{c.link.label} →</Link>}
-            </li>
-          ))}
-        </ol>
+        <h1 className="commitments-title mt-[34px] text-[38px] font-[650] leading-[1.22] tracking-[-0.01em]">
+          Your information, safe here
+        </h1>
+        <p className="commitments-body mt-[22px] text-[15.5px] leading-[1.68]">
+          You&apos;re about to bring your company&apos;s documents into {BRAND_NAME}. Here is how we handle
+          them — so you can get on with raising, and not spend the week wondering.
+        </p>
 
-        <p className="mt-5 text-xs text-gray-500">{COMMITMENTS_FOOTNOTE} Data controller: {CONTROLLER_NAME}. Read the <Link href="/terms" className="underline">Terms</Link> and the <Link href="/legal/subprocessors" className="underline">list of suppliers</Link>.</p>
+        <div className="mt-11">
+          {COMMITMENT_GROUPS.map((group, gi) => {
+            const items = commitments.filter((c) => c.group === group.key);
+            if (items.length === 0) return null;
+            return (
+              <div key={group.key}>
+                {/* A rule between groups, never a container around one. */}
+                {gi > 0 && <hr className="commitments-rule my-8 h-px border-0" />}
+                <div className="commitments-grouplabel text-[11px] font-bold uppercase tracking-[0.09em] opacity-80">
+                  {group.label}
+                </div>
+                <div className="mt-4 flex flex-col gap-[15px]">
+                  {items.map((c) => (
+                    <p key={c.n} className="commitments-body text-[14.5px] leading-[1.66]">
+                      {/* No numbering: the sentence opens in the text colour at
+                          650 and continues in the secondary tone. */}
+                      <span className="commitments-strong font-[650]">{c.title.replace(/\.$/, '')}</span>
+                      {' — '}{c.body}
+                      {c.link && (
+                        <>
+                          {' '}
+                          <Link href={c.link.href} className="commitments-link underline underline-offset-2">{c.link.label} →</Link>
+                        </>
+                      )}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
 
-        <div className="mt-5 flex flex-wrap items-center gap-3">
+        {/* Roman, not italic (§C, minor): system-font italic is synthesised and
+            reads as dirty at this size. Lighter colour carries the aside. */}
+        <p className="commitments-aside mt-9 text-[14px] leading-[1.65]">
+          This isn&apos;t the small print — you&apos;ve already been through that. It&apos;s simply how we work.
+        </p>
+
+        <p className="commitments-fine mt-8 text-[12px] leading-[1.6]">
+          {COMMITMENTS_FOOTNOTE} Data controller: {CONTROLLER_NAME}. Read the{' '}
+          <Link href="/terms" className="commitments-link underline underline-offset-2">Terms</Link> and the{' '}
+          <Link href="/legal/subprocessors" className="commitments-link underline underline-offset-2">list of suppliers</Link>.
+        </p>
+        <p className="commitments-fine mt-2 text-[12px]">
+          Version {COMMITMENTS_VERSION}. Your acceptance is recorded with the version, the date and the email on the account.
+        </p>
+      </div>
+
+      {/* §C.3 — the sheet is long, so the action is pinned to the bottom over
+          the teal field rather than the page being compressed to fit. Chosen
+          over shrinking the scale because it keeps the design intact and the
+          button is reachable at any scroll position, on any laptop. */}
+      <div className="commitments-bar fixed inset-x-0 bottom-0 z-10 px-4 py-4">
+        <div className="mx-auto flex w-full max-w-[660px] flex-wrap items-center gap-3">
           {alreadyAccepted ? (
             <>
-              <span className="text-xs text-emerald-700">You accepted this version on record.</span>
-              <Link href={next} className="rounded-xl bg-[#0E7490] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0c637b]">Continue</Link>
+              <Link href={next} className="commitments-cta inline-flex items-center justify-center rounded-[7px] px-[26px] py-[14px] text-[14.5px] font-[650]">
+                Take me to my workspace
+              </Link>
+              <span className="text-xs text-white/80">You accepted this version on record.</span>
             </>
           ) : (
             <button disabled={busy || !status} onClick={accept}
-              className="rounded-xl bg-[#0E7490] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">{busy ? 'Recording…' : 'I have read this — continue'}</button>
+              className="commitments-cta inline-flex items-center justify-center rounded-[7px] px-[26px] py-[14px] text-[14.5px] font-[650] disabled:opacity-40">
+              {busy ? 'Recording…' : 'Take me to my workspace'}
+            </button>
           )}
-          {err && <span className="text-xs text-[#B00000]">{err}</span>}
+          {err && <span className="text-xs text-white">{err}</span>}
         </div>
-        <p className="mt-2 text-[11px] text-gray-400">Version {COMMITMENTS_VERSION}. Your acceptance is recorded with the version, the date and the email on the account.</p>
       </div>
-    </AuthShell>
+    </div>
   );
 }
 
