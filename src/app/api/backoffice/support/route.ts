@@ -25,7 +25,12 @@ export async function GET(req: Request) {
   if ('error' in auth) return auth.error;
   const { admin } = auth;
 
-  const { data: tickets, error } = await admin.from('support_tickets').select('*').order('created_at', { ascending: false });
+  // Prompt 605 §E — suggestions live in the same table (§A) but never in this
+  // queue. A suggestion has no SLA and is not "overdue"; leaving it here would
+  // have made every idea look like an unanswered complaint in the counts, the
+  // sort and the nav badge below. /backoffice/suggestions is the other half.
+  const { data: tickets, error } = await admin.from('support_tickets').select('*')
+    .neq('category', 'suggestion').order('created_at', { ascending: false });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   const now = Date.now();

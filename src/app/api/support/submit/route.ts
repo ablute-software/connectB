@@ -9,11 +9,21 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { supportTicketsAvailable } from '@/lib/support-capability';
+import { supportSuggestionsAvailable } from '@/lib/support-suggestions-capability';
+import { platformBadgesAvailable } from '@/lib/platform-badges-capability';
+import { loadOrgPlatformBadges } from '@/lib/platform-badges-server';
+import { canSuggest } from '@/lib/suggestions-gate';
 import { sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 import { BRAND_NAME } from '@/lib/brand';
 
-const SOURCES = ['landing', 'landing_investors', 'founder_app', 'investor_portal', 'suspended', 'blocked'] as const;
-const CATEGORIES = ['question', 'problem', 'billing', 'data_correction', 'claim_profile', 'other'] as const;
+// Prompt 605 §A — 'feedback_widget' and 'suggestion' are the two new values,
+// added by migration 0339. Everything a suggestion needs already existed on
+// this table (events history, attachment scans, rate limit); what it needed
+// was to be TELLABLE APART from a Help & Support ticket, which is what the
+// source does — see /backoffice/suggestions, which is a different query over
+// the same rows rather than a different table.
+const SOURCES = ['landing', 'landing_investors', 'founder_app', 'investor_portal', 'suspended', 'blocked', 'feedback_widget'] as const;
+const CATEGORIES = ['question', 'problem', 'billing', 'data_correction', 'claim_profile', 'other', 'suggestion'] as const;
 const RATE_LIMIT_PER_HOUR = 5;
 
 // A function, not a shared constant — a Response body can only be read
@@ -77,11 +87,36 @@ export async function POST(req: Request) {
     orgId = member?.org_id ?? null;
   }
 
+  // Prompt 605 §B — THE enforcement point for the suggestion gate. The
+  // widget asks /api/suggestions/eligibility first, but that is display
+  // truth: this is the check a hand-rolled POST has to get past. Deliberately
+  // NOT a genericOk() like the anti-spam exits above — those hide their
+  // mechanics from a bot; this one is answering a signed-in founder whose org
+  // simply isn't in the cohort, and a silent "thanks" for a suggestion that
+  // was never stored would be a lie to a real person.
+  if (category === 'suggestion') {
+    if (!(await supportSuggestionsAvailable())) {
+      return NextResponse.json({ ok: false, error: 'Suggestions are not available in this workspace yet.' }, { status: 400 });
+    }
+    const activeBadges = (user && orgId && await platformBadgesAvailable())
+      ? (await loadOrgPlatformBadges(admin, orgId)).map((b) => b.badge)
+      : [];
+    if (!canSuggest({ activeBadges })) {
+      return NextResponse.json({ ok: false, error: 'Suggestions are open to the tech master and pioneer programmes.' }, { status: 403 });
+    }
+  }
+
+  // §E — a suggestion enters its own lifecycle at 'received'; `status` keeps
+  // its problem-shaped meaning and is left at the table default, so neither
+  // queue has to read the other's vocabulary.
+  const suggestionFields = category === 'suggestion' ? { suggestion_status: 'received' } : {};
+
   let { data: ticket, error } = await admin.from('support_tickets').insert({
     source, org_id: orgId, user_id: user?.id ?? null,
     name: name.trim(), email: finalEmail, category, subject: subject.trim(),
     message: message.trim(), context: context?.trim() || null,
     area: area?.trim() || null,
+    ...suggestionFields,
   }).select('id').single();
   // Item 6 — 'suspended' as a source value needs migration 0143 (widens the
   // source check constraint) applied; until it is, an insert with

@@ -42,6 +42,12 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
   // a prior month exists) never turns this red — only a confirmed false does.
   const [systemNominal, setSystemNominal] = useState<boolean | null>(null);
   const [supportBadge, setSupportBadge] = useState(0);
+  // Prompt 605 §E — its own count, from its own queue: a suggestion nobody
+  // has looked at yet. Never folded into the support badge, because the two
+  // numbers mean different things and a founder waiting for a bug fix and a
+  // tech master waiting to hear whether their idea landed are not the same
+  // backlog.
+  const [suggestionBadge, setSuggestionBadge] = useState(0);
 
   useEffect(() => {
     fetch('/api/backoffice/queue/summary').then((r) => r.json()).then((body) => {
@@ -52,6 +58,9 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
     }).catch(() => {});
     fetch('/api/backoffice/support').then((r) => r.json()).then((body) => {
       if (body.ok) setSupportBadge(body.counts.navBadge as number);
+    }).catch(() => {});
+    fetch('/api/backoffice/suggestions').then((r) => r.json()).then((body) => {
+      if (body.ok) setSuggestionBadge(body.counts.navBadge as number);
     }).catch(() => {});
   }, []);
 
@@ -157,6 +166,10 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
     // itself lives. Review fits it best today — daily, decision-driven.
     // Same visibility rule as the queues above now that it's one nav.
     ...(supportBadge ? [item('review-support', 'Customer Support', '/backoffice/support', { icon: '☰', group: 1, badge: supportBadge })] : []),
+    // Prompt 605 §E — same visibility rule as the queues around it: present
+    // when it has something in it, absent when it doesn't. The page itself
+    // stays reachable by URL either way.
+    ...(suggestionBadge ? [item('review-suggestions', 'Suggestions', '/backoffice/suggestions', { icon: '☰', group: 1, badge: suggestionBadge })] : []),
 
     item('accounts-startups', 'Startups', '/backoffice/startups', { icon: '◉', group: 2, groupLabel: 'Accounts' }),
     item('accounts-investors', 'Investors', '/backoffice/investors', { icon: '◉', group: 2 }),
