@@ -5392,6 +5392,21 @@ a no-op on today's data either way.
 
 Prompt 563's `discovery_excluded_reason` check (migration 0311, the platform's
 own account inside its own marketplace) is on `main` and untouched by this.
+The same decision was applied to the investor side: `catalog-delivery-core.ts`
+keeps `main`'s strict `!== 'active'` too, because routing only that half
+through `isVisibleToOthers` would have recreated the rejected drift mirrored
+— a suspended STARTUP out until a developer undoes it, a suspended FIRM back
+on the clock. Both sides stay strict and would change together.
+
+**How this landed.** 850 was cherry-picked onto a fresh branch from `main`
+rather than merging its original branch, which by then also carried Prompts
+564 and 852. One file conflicted — `pipeline-eligibility.ts`, resolved by
+hand as described above; every other file 850 touches applied cleanly.
+Migration **0313** needed no rescue: Prompt 577 ("the ledger's applied-no-file
+gap closes to 0") had already reconciled it onto `main`, byte-identical to
+the copy on 850's own branch. Worth recording because the premise going in
+was that the file existed only on that branch — the ledger reconciliation had
+silently already fixed it, which is the reconciliation working as intended.
 
 **§B — the founder gets an opt-out that exists.** The visibility control was
 offered only once the state was neither `incomplete` nor `unpublished`, so a
