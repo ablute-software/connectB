@@ -50,6 +50,7 @@ function db(entities: Entity[], interactions: Interaction[]): Db {
     reawakeningProposals: [], roadmapMilestones: [], fundingRounds: [], roadmapCategories: [],
     roadmapEvents: [], rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
     interactionDocuments: [], sherlockNextSnoozes: [], entityReopenSnapshots: [], capTableEntries: [],
+    startupInvestorDecisions: [],
   } as Db;
 }
 

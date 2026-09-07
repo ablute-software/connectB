@@ -13,7 +13,8 @@ import type {
   DocumentVersion, DocumentView, Entity, EntityReopenSnapshot, EntityStatus, FitScore, Folder, FolderKind, Interaction, InvestorSubmission, MessageTemplate,
   Nda, Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, ReawakeningProposal, RelationshipStage,
   RelationshipState, RuleOverride, TaskItem, AiReview, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory, RoadmapEvent,
-  RejectionCode, InteractionEdit, InteractionDocument, OrgAxisClassification, SherlockNextSnooze } from './types';
+  RejectionCode, InteractionEdit, InteractionDocument, OrgAxisClassification, SherlockNextSnooze,
+  StartupInvestorDecision } from './types';
 import { seedRoadmapCategoriesOn, type SeedClientLike } from './roadmap-seed';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
@@ -35,6 +36,7 @@ const EMPTY_DB: Db = {
   documentVersions: [], reawakeningProposals: [], tractionMetrics: [], roadmapMilestones: [], fundingRounds: [], roadmapCategories: [],
   roadmapEvents: [], rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
   interactionDocuments: [], sherlockNextSnoozes: [], entityReopenSnapshots: [], capTableEntries: [],
+  startupInvestorDecisions: [],
 };
 
 function uuid() { return crypto.randomUUID(); }
@@ -83,6 +85,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     documentVersionsRes, reawakeningProposalsRes, companyPeopleRes, tractionMetricsRes, roadmapMilestonesRes,
     fundingRoundsRes, roadmapCategoriesRes, roadmapEventsRes, rejectionCodesRes, interactionEditsRes, orgAxisClassificationsRes,
     interactionDocumentsRes, sherlockNextSnoozesRes, entityReopenSnapshotsRes, capTableEntriesRes,
+    startupInvestorDecisionsRes,
   ] = await Promise.all([
     sb.from('orgs').select('*').eq('id', orgId).single(),
     sb.from('entities').select('*').eq('org_id', orgId),
@@ -157,6 +160,10 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     // Prompt 422 §A — cap_table_entries (0268). Same missing-table-safe
     // pattern as company_facts/ndas above.
     sb.from('cap_table_entries').select('*').eq('org_id', orgId),
+    // Prompt 852 §A — startup_investor_decisions (0338). Same missing-table-
+    // safe pattern as company_facts/ndas above. RLS is is_org_member, so the
+    // browser client reads its own org's rows and nothing else.
+    sb.from('startup_investor_decisions').select('*').eq('org_id', orgId),
   ]);
 
   if (orgRes.error) throw orgRes.error;
@@ -229,6 +236,11 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     sherlockNextSnoozes: ((sherlockNextSnoozesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<SherlockNextSnooze>(r)),
     entityReopenSnapshots: ((entityReopenSnapshotsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<EntityReopenSnapshot>(r)),
     capTableEntries: ((capTableEntriesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<CapTableEntry>(r)),
+    // Prompt 852 §A — migration 0338. Reverted rows are loaded too: the
+    // Pipeline only acts on LIVE ones (liveDecisionByEntity), and keeping the
+    // reverted history in memory is what lets a founder see that a decision
+    // was made and undone rather than that it never existed.
+    startupInvestorDecisions: ((startupInvestorDecisionsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<StartupInvestorDecision>(r)),
   };
 }
 
@@ -1013,6 +1025,57 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       }
       const cur = dbRef.current;
       commit({ ...cur, capTableEntries: cur.capTableEntries.filter((c) => c.id !== id) });
+      return {};
+    },
+    // Prompt 852 §A/§B — routed through /api/company/investor-decisions, not
+    // written from the browser client: the `investor_decisions` capability
+    // and the catalog_entity_id resolution both live server-side, and the
+    // table has no insert/update RLS policy by design. On success the row the
+    // route returns is committed locally so the Pipeline updates without a
+    // reload; a revert/edit re-reads nothing, it patches the row it knows.
+    async recordInvestorDecision({ entityId, note, reasonCategory }) {
+      const res = await fetch('/api/company/investor-decisions', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'create', entityId, note, reasonCategory: reasonCategory ?? null }),
+      });
+      const b = await res.json().catch(() => null);
+      if (!b?.ok) return { error: b?.error ?? 'Could not save.' };
+      const cur = dbRef.current;
+      const row = fromRow<StartupInvestorDecision>((b.decision ?? {}) as Record<string, unknown>);
+      commit({ ...cur, startupInvestorDecisions: [...cur.startupInvestorDecisions, row] });
+      return {};
+    },
+    async updateInvestorDecision({ decisionId, note, reasonCategory }) {
+      const res = await fetch('/api/company/investor-decisions', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'update', decisionId, note, reasonCategory: reasonCategory ?? null }),
+      });
+      const b = await res.json().catch(() => null);
+      if (!b?.ok) return { error: b?.error ?? 'Could not save.' };
+      const cur = dbRef.current;
+      const now = new Date().toISOString();
+      commit({
+        ...cur,
+        startupInvestorDecisions: cur.startupInvestorDecisions.map((d) => d.id === decisionId
+          ? { ...d, note: note.trim(), reason_category: (reasonCategory || undefined) as StartupInvestorDecision['reason_category'], updated_at: now }
+          : d),
+      });
+      return {};
+    },
+    async revertInvestorDecision(decisionId) {
+      const res = await fetch('/api/company/investor-decisions', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'revert', decisionId }),
+      });
+      const b = await res.json().catch(() => null);
+      if (!b?.ok) return { error: b?.error ?? 'Could not revert.' };
+      const cur = dbRef.current;
+      const now = new Date().toISOString();
+      commit({
+        ...cur,
+        startupInvestorDecisions: cur.startupInvestorDecisions.map((d) => d.id === decisionId
+          ? { ...d, reverted_at: now, updated_at: now } : d),
+      });
       return {};
     },
     async addRoadmapMilestone(m) {

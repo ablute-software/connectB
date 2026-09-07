@@ -420,6 +420,14 @@ export interface StoreApi {
   // Prompt 422 §B — same shape as addFundingRound/removeFundingRound above.
   addCapTableEntry: (e: Omit<CapTableEntry, 'id'>) => Promise<{ error?: string }>;
   removeCapTableEntry: (id: string) => Promise<{ error?: string }>;
+  // Prompt 852 §A/§B — the startup's own "not a fit for us". Three actions,
+  // one record: record it, edit the note, revert it. The real backend routes
+  // all three through /api/company/investor-decisions, which is where the
+  // `investor_decisions` capability is enforced; demo mode keeps them local,
+  // so `npm run dev:verify` can exercise the whole flow (CLAUDE.md rule 1).
+  recordInvestorDecision: (input: { entityId: string; note: string; reasonCategory?: string | null }) => Promise<{ error?: string }>;
+  updateInvestorDecision: (input: { decisionId: string; note: string; reasonCategory?: string | null }) => Promise<{ error?: string }>;
+  revertInvestorDecision: (decisionId: string) => Promise<{ error?: string }>;
 }
 
 export const StoreCtx = createContext<StoreApi | null>(null);
