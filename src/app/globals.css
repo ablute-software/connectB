@@ -258,3 +258,39 @@ body {
   from { transform: translateX(100%); opacity: 0.6; }
   to { transform: translateX(0); opacity: 1; }
 }
+
+/* Prompt 611 §D — the back-office wide tables: the scrollbar goes on TOP, and
+   the first column stays put.
+
+   The top bar is a real scroll container (HorizontalScroller.tsx) whose only
+   content is a spacer as wide as the table; the table's own container keeps
+   scrolling — it has to, it is what holds the content — but hides its native
+   bar, so there is exactly one visible control and it is the one at the top. */
+.bo-hscroll-bar { scrollbar-width: thin; }
+.bo-hscroll-bar::-webkit-scrollbar { height: 10px; }
+.bo-hscroll-bar::-webkit-scrollbar-track { background: rgb(243 244 246); border-radius: 9999px; }
+.bo-hscroll-bar::-webkit-scrollbar-thumb { background: rgb(203 213 225); border-radius: 9999px; }
+.bo-hscroll-bar::-webkit-scrollbar-thumb:hover { background: rgb(148 163 184); }
+
+.bo-hscroll-body { scrollbar-width: none; -ms-overflow-style: none; }
+.bo-hscroll-body::-webkit-scrollbar { display: none; }
+
+/* §D, the part that is not in the request but is what the request is about:
+   scrolling right to reach Delete/Suspend takes the row's NAME off screen, so
+   the destructive controls end up next to a row nobody can identify. Freezing
+   the name column is what actually removes that.
+
+   An opaque background is mandatory on a sticky cell — the rest of the row
+   slides underneath it, and a transparent one would show the text passing
+   through. The right-hand hairline is what tells the eye the column is pinned
+   rather than simply first. */
+.bo-sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #ffffff;
+  box-shadow: 1px 0 0 0 rgb(243 244 246);
+}
+/* Above the tbody cells, so a sticky header cell covers a sticky body cell
+   rather than the other way round when both are pinned at once. */
+thead .bo-sticky-col { z-index: 3; }

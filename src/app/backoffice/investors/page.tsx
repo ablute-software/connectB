@@ -8,6 +8,8 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import { sortRows, sortIndicator } from '@/lib/table-sort';
 import Link from 'next/link';
 import { Card, Tabs } from '@/components/ui';
+import { ViewerEntryName } from '@/components/backoffice/ViewerEntryName';
+import { HorizontalScroller } from '@/components/backoffice/HorizontalScroller';
 import type { DomainMatchVerdict } from '@/lib/investor-domain-match';
 import { ModerationControls } from '@/components/backoffice/ModerationControls';
 import { ModerationHistoryCard } from '@/components/backoffice/ModerationHistoryCard';
@@ -423,7 +425,7 @@ function InvestorAccountsTable() {
           onChange={(next) => setTableState({ filters: { ...tableState.filters, status: next === 'all' ? '' : next } })} />
         <p className="ml-auto text-xs text-gray-500">Real registered firms only — catalog stats below cover every imported entity.</p>
       </div>
-      <div className="overflow-x-auto">
+      <HorizontalScroller>
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
@@ -433,8 +435,8 @@ function InvestorAccountsTable() {
                 ['complete', '% Complete', 'number'], ['logsLast7Days', 'Logs/7d', 'number'], ['lastLogin', 'Last login', 'date'],
                 ['status', 'Status', 'text'],
               ] as [InvestorSortKey, string, ColumnSortType][]).map(([key, label, type]) => (
-                <th key={key} className="cursor-pointer whitespace-nowrap py-1.5 pr-3 hover:text-gray-700"
-                  onClick={() => toggleSort(key, type)}>
+                <th key={key} onClick={() => toggleSort(key, type)}
+                  className={`cursor-pointer whitespace-nowrap py-1.5 pr-3 hover:text-gray-700 ${key === 'name' ? 'bo-sticky-col' : ''}`}>
                   {label} {sortIndicator(sortKey === key, sortDir)}
                 </th>
               ))}
@@ -456,14 +458,20 @@ function InvestorAccountsTable() {
           <tbody>
             {rows.map((a) => (
               <tr key={a.entityId} className="border-t border-gray-50 align-top">
-                <td className="py-2 pr-3 font-medium">
-                  {a.name}
-                  {a.isInternal && (
-                    <span className="ml-1.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500"
-                      title="Internal team account — what it produces doesn't need back-office review.">
-                      Internal
-                    </span>
-                  )}
+                {/* Prompt 611 §A.4/§F — same function as the startups table,
+                    but not the same piece: an investor is not an org, so the
+                    name opens the FIRM's read-only account view rather than a
+                    workspace that does not exist. §D freezes the column for
+                    the same reason it does there. */}
+                <td className="bo-sticky-col py-2 pr-3 font-medium">
+                  <ViewerEntryName kind="investor_entity" id={a.entityId} name={a.name}>
+                    {a.isInternal && (
+                      <span className="ml-1.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500"
+                        title="Internal team account — what it produces doesn't need back-office review.">
+                        Internal
+                      </span>
+                    )}
+                  </ViewerEntryName>
                 </td>
                 <td className="pr-3">
                   <div className="flex items-center gap-1.5">
@@ -532,7 +540,7 @@ function InvestorAccountsTable() {
             ))}
           </tbody>
         </table>
-      </div>
+      </HorizontalScroller>
       {/* Prompt 576 Fase 3 — same client-side page slicing as Startups; see
           that page's own comment for the ~200-row threshold to revisit. */}
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-gray-500">

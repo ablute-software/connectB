@@ -5,13 +5,14 @@
 // audit lines: when, for how long). Records that already existed; this is
 // the window the commitments promise.
 import { useEffect, useState } from 'react';
+import { reasonForDisplay } from '@/lib/viewer-reason';
 import Link from 'next/link';
 import { Card } from '@/components/ui';
 
 interface AccessLog {
   available: boolean;
   views: { id: string; documentName: string; viewerEmail: string | null; viewedAt: string; seconds: number | null; pages: number | null }[];
-  teamAccess: { id: string; enteredAt: string; durationMs: number | null; closedBy: string | null }[];
+  teamAccess: { id: string; enteredAt: string; durationMs: number | null; closedBy: string | null; reason: string | null }[];
 }
 
 function fmt(iso: string) {
@@ -67,11 +68,18 @@ export default function AccessLogPage() {
           </Card>
           <div id="team">
             <Card title={`Sherlock team access to this workspace (${log.teamAccess.length})`}>
-              <p className="mb-2 text-xs text-gray-500">Our staff can open a read-only view of a workspace to resolve a support request or investigate a fault. Every entry is logged with the time and the duration and shown here.</p>
+              <p className="mb-2 text-xs text-gray-500">Our staff can open a read-only view of a workspace to resolve a support request or investigate a fault. Every entry is logged with the reason, the time and the duration, and shown here.</p>
               {log.teamAccess.length === 0 ? <p className="text-sm text-gray-400">Nobody from our team has entered this workspace.</p> : (
-                <ul className="space-y-1 text-sm text-gray-700">
+                <ul className="space-y-2 text-sm text-gray-700">
                   {log.teamAccess.map((t) => (
-                    <li key={t.id}>{fmt(t.enteredAt)} — {t.durationMs != null ? `for ${duration(t.durationMs, null)}` : 'duration not recorded'}</li>
+                    <li key={t.id}>
+                      <div>{fmt(t.enteredAt)} — {t.durationMs != null ? `for ${duration(t.durationMs, null)}` : 'duration not recorded'}</div>
+                      {/* Prompt 611 §B — the reason, which is what commitment 4
+                          promises and what these lines did not carry until now.
+                          Visits recorded before that say so; nothing is
+                          back-filled. */}
+                      <div className={t.reason ? 'text-xs text-gray-600' : 'text-xs italic text-gray-400'}>{reasonForDisplay(t.reason)}</div>
+                    </li>
                   ))}
                 </ul>
               )}

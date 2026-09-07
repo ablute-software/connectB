@@ -24,7 +24,8 @@ import { Card, Tabs } from '@/components/ui';
 import { PLANS, planName, normalizePlan, parsePlanRequest } from '@/lib/plans';
 import { daysUntilPurge } from '@/lib/account-security';
 import type { PlanTier } from '@/lib/types';
-import { markViewerOrigin } from '@/components/DeveloperViewerFrame';
+import { ViewerEntryName } from '@/components/backoffice/ViewerEntryName';
+import { HorizontalScroller } from '@/components/backoffice/HorizontalScroller';
 import { ModerationControls } from '@/components/backoffice/ModerationControls';
 import { ModerationHistoryCard } from '@/components/backoffice/ModerationHistoryCard';
 import { NetworkStrikesTab } from '@/components/backoffice/NetworkStrikesTab';
@@ -115,7 +116,6 @@ function StartupsTable() {
   const [moderationAvailable, setModerationAvailable] = useState(false);
   const [err, setErr] = useState('');
   const [savingId, setSavingId] = useState<string | null>(null);
-  const [enteringId, setEnteringId] = useState<string | null>(null);
   // Prompt 601 §C — platform badges per org, granted/revoked inline in the
   // Badges column. One fetch for the whole table (a handful of rows).
   const [badgesByOrg, setBadgesByOrg] = useState<Record<string, AdminBadgeRow[]>>({});
@@ -138,19 +138,6 @@ function StartupsTable() {
   const statusFilter = (tableState.filters.status as AccountFilter | undefined) ?? 'all';
   const sortKey = (tableState.sort as SortKey | null) ?? 'name';
   const sortDir = tableState.sort ? tableState.dir : 'asc';
-
-  async function openViewer(orgId: string) {
-    setEnteringId(orgId);
-    try {
-      const res = await fetch('/api/backoffice/viewer/enter', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ orgId }),
-      });
-      const body = await res.json();
-      if (!body.ok) { alert(`Could not open viewer: ${body.error}`); return; }
-      markViewerOrigin();
-      window.location.href = '/';
-    } finally { setEnteringId(null); }
-  }
 
   function load() {
     fetch('/api/backoffice/startups').then((r) => r.json()).then((body) => {
@@ -257,31 +244,37 @@ function StartupsTable() {
             onChange={(next) => setTableState({ filters: { ...tableState.filters, status: next === 'all' ? '' : next } })} />
           <p className="ml-auto text-xs text-gray-500">Counts and computed scores only — never entity/person names or pipeline content.</p>
         </div>
-        <div className="overflow-x-auto">
+        <HorizontalScroller>
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
-                {columns.map((c) => (
-                  <th key={c.key} className="cursor-pointer whitespace-nowrap py-1.5 pr-3 hover:text-gray-700" onClick={() => toggleSort(c.key, c.type)}>
+                {columns.map((c, i) => (
+                  <th key={c.key} onClick={() => toggleSort(c.key, c.type)}
+                    className={`cursor-pointer whitespace-nowrap py-1.5 pr-3 hover:text-gray-700 ${i === 0 ? 'bo-sticky-col' : ''}`}>
                     {c.label} {sortIndicator(sortKey === c.key, sortDir)}
                   </th>
                 ))}
                 <th className="whitespace-nowrap py-1.5 pr-3">Badges</th>
-                <th className="whitespace-nowrap py-1.5 pr-3">Delete/Suspend</th>
-                <th className="whitespace-nowrap py-1.5">Viewer</th>
+                {/* Prompt 611 §A.1 — the "Viewer" column is gone; entering is
+                    what clicking the org's name does now. */}
+                <th className="whitespace-nowrap py-1.5">Delete/Suspend</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((o) => (
                 <tr key={o.orgId} className="border-t border-gray-50 align-top">
-                  <td className="py-2 pr-3 font-medium">
-                    {o.name}
-                    {o.isInternal && (
-                      <span className="ml-1.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500"
-                        title="Internal team account — what it produces doesn't need back-office review.">
-                        Internal
-                      </span>
-                    )}
+                  {/* Prompt 611 §A.1/§C — the name IS the way in, and §D
+                      freezes it: scrolling right to reach Delete/Suspend used
+                      to take the row's identity off screen. */}
+                  <td className="bo-sticky-col py-2 pr-3 font-medium">
+                    <ViewerEntryName kind="org" id={o.orgId} name={o.name}>
+                      {o.isInternal && (
+                        <span className="ml-1.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500"
+                          title="Internal team account — what it produces doesn't need back-office review.">
+                          Internal
+                        </span>
+                      )}
+                    </ViewerEntryName>
                   </td>
                   <td className="pr-3">
                     {planManagement ? (
@@ -346,23 +339,23 @@ function StartupsTable() {
                   <td className="min-w-56 pr-3">
                     <PlatformBadgeControls orgId={o.orgId} orgName={o.name} badges={badgesByOrg[o.orgId] ?? []} onChanged={loadBadges} />
                   </td>
-                  <td className="min-w-48 pr-3">
+                  {/* Prompt 611 §E — the gap Nuno saw between Delete/Suspend
+                      and Viewer was this cell's min-w-48 floor sitting next to
+                      a narrow last column. Measured after removing Viewer: the
+                      floor now ends the table, so there is nothing left for it
+                      to push against and the gap is gone with the column. The
+                      floor itself stays — it is what keeps the two moderation
+                      controls from wrapping onto two lines. */}
+                  <td className="min-w-48">
                     {moderationAvailable ? (
                       <ModerationControls targetType="org" targetId={o.orgId} name={o.name} status={o.moderationStatus} quarantineUntil={o.moderationQuarantineUntil} onChanged={load} />
                     ) : <span className="text-xs text-gray-300">—</span>}
-                  </td>
-                  <td>
-                    <button onClick={() => openViewer(o.orgId)} disabled={enteringId === o.orgId}
-                      title="Open this startup's workspace read-only — logged, exit anytime"
-                      className="rounded-lg border border-orange-200 px-2 py-1 text-[11px] font-medium text-orange-700 hover:bg-orange-50 disabled:opacity-40 whitespace-nowrap">
-                      {enteringId === o.orgId ? 'Opening…' : 'Open as viewer'}
-                    </button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
+        </HorizontalScroller>
         {/* Prompt 576 Fase 3 — client-side page slicing over the already-
             fetched list, per plan: 14 orgs today makes server pagination
             pure overhead. Revisit once any Accounts list nears ~200 rows. */}

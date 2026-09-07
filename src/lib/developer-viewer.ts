@@ -23,6 +23,18 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { parseViewerCookieValue, extractCookieFromHeader, type ViewerSession } from './developer-viewer-shape';
 
 export const VIEWER_ORG_COOKIE = 'sd_viewer_org_id';
+
+// Prompt 611 §F — the investor firm viewer keeps its OWN cookie rather than
+// overloading the org one. Same value shape ("<id>:<enteredAtIso>", parsed by
+// the same helper), same 4-hour ceiling, same single purpose: carrying the
+// entry timestamp so the exit line can state a duration.
+//
+// A separate name, deliberately: every existing reader of VIEWER_ORG_COOKIE
+// treats its value as an ORG id and hands it to org-scoped queries. Putting a
+// catalog_entities id in that cookie would have made each of those readers
+// wrong in a way nothing would report — they would simply find no org and
+// fall through to the caller's own membership, silently.
+export const VIEWER_INVESTOR_COOKIE = 'sd_viewer_investor_entity_id';
 export const VIEWER_COOKIE_MAX_AGE = 4 * 60 * 60; // 4 hours — a forgotten session still ends itself
 
 export type { ViewerSession };
@@ -37,6 +49,28 @@ function rawViewerCookie(req: NextRequest | Request): string | null {
 
 export function readViewerSession(req: NextRequest | Request): ViewerSession | null {
   const raw = rawViewerCookie(req);
+  return raw ? parseViewerCookieValue(raw) : null;
+}
+
+/**
+ * Prompt 611 §F — the investor firm viewer's session, for the enter/exit
+ * pair's duration only. `orgId` on the returned shape is a catalog_entities
+ * id here; the field name is the parser's, and this is the one place that
+ * distinction is worth stating out loud.
+ *
+ * NOT wired into assertNotViewer, and that is a decision rather than an
+ * omission. The org viewer blocks writes because its cookie REDIRECTS reads
+ * and writes at another org — an admin inside it could otherwise write to a
+ * customer's data believing they were somewhere else. This cookie redirects
+ * nothing: the firm view is a back-office report that queries by an explicit
+ * id under requirePlatformAdmin. Blocking every mutation in the app while it
+ * is open would stop an operator's ordinary work and buy no safety.
+ */
+export function readInvestorViewerSession(req: NextRequest | Request): ViewerSession | null {
+  const anyReq = req as NextRequest;
+  const raw = anyReq.cookies?.get
+    ? anyReq.cookies.get(VIEWER_INVESTOR_COOKIE)?.value ?? null
+    : extractCookieFromHeader(req.headers.get('cookie') ?? '', VIEWER_INVESTOR_COOKIE);
   return raw ? parseViewerCookieValue(raw) : null;
 }
 
