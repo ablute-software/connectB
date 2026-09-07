@@ -49,7 +49,7 @@ export function pillLabelForFrozenState(state: EntityFrozenState): string {
 // per-row label — "They passed" (an investor pass: today's status='passed',
 // written by the pass flow alongside its classification='pass' interaction)
 // and "Not a fit for us" (the founder's own decision,
-// startup_investor_decisions, migration 0339). One view, two labels — never
+// startup_investor_decisions, migration 0340). One view, two labels — never
 // one number that hides which way the no went.
 //
 // This function exists for the same reason viewForFrozenState does: before

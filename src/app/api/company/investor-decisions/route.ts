@@ -1,5 +1,5 @@
 // Prompt 852 §A/§B — the ONE write path for the startup's own "not a fit for
-// us" (startup_investor_decisions, migration 0339). Create, edit the note,
+// us" (startup_investor_decisions, migration 0340). Create, edit the note,
 // revert. Everything is gated on the `investor_decisions` capability
 // (org-permissions.ts), checked with canWithMatrix exactly as
 // /api/company/matchdeal/publish checks org_editing.

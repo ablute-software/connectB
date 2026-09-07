@@ -1,6 +1,6 @@
 // Prompt 852 §F — the back-office's view of both directions of "no".
 //
-//   kind=startup — every startup_investor_decisions row (migration 0339):
+//   kind=startup — every startup_investor_decisions row (migration 0340):
 //     the STARTUP's own "not a fit for us" against an investor.
 //   kind=passes  — every investor-side pass: the classification='pass'
 //     interaction plus the entity's own reopen_trigger ("what's needed").

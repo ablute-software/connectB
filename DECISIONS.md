@@ -5459,7 +5459,7 @@ characters, editable and revertible by the founder and whoever holds
 `interactions` row with `classification='pass'`, `entities.status='passed'`,
 a pass reason, optionally a `rejection_code`. It feeds `passReasonAlert`, the
 reawakening prefilter and the Dashboard. *We said no*: a
-`startup_investor_decisions` row (migration **0339**, applied). It writes no
+`startup_investor_decisions` row (migration **0340**, applied). It writes no
 interaction, touches no status and creates no rejection code — so a founder's
 own judgement of an investor cannot inflate the alert that exists to tell them
 their PITCH is the problem, cannot read as an investor rejection, and cannot
@@ -5467,19 +5467,37 @@ appear as a prior "no" the reawakening engine argues against. Those three are
 structural, not a filter each consumer must remember: a decision simply is not
 an interaction.
 
-**Migration number.** 0339, and it was 0338 for most of this prompt — the
-FIFTH collision, and the first one where the sweep itself was not the
-problem. The sweep was clean (highest anywhere: `0337_platform_badges`, on
-`main` and in the applied ledger), 0338 was free when I took it, and
-`0338_account_security` was applied by a parallel session about twenty
-minutes later, before I applied mine. Renumbered to 0339 after re-sweeping.
-The lesson generalises past "sweep before choosing", which was already the
-rule: **re-sweep immediately before pushing, not only before writing** — the
-window between choosing a number and publishing it is exactly as dangerous
-as the window before choosing, and with several sessions running it is
-usually longer. Nothing was at risk in the database either way: the applied
-ledger records this migration under the unnumbered name
-`startup_investor_decisions`, so only the repo filename ever collided.
+**Migration number.** 0340 — and it was 0338, then 0339, before it got here.
+Two collisions on one migration, on the same day, and neither was a sweep
+failure:
+
+* **0338.** The sweep was clean (highest anywhere: `0337_platform_badges`, on
+  `main` and in the applied ledger) and 0338 was free when I took it.
+  `0338_account_security` was applied by a parallel session about twenty
+  minutes later, before I applied mine.
+* **0339.** Renumbered there, and `0339_support_suggestions` (branch
+  `prompt-605`) was applied at 14:06, an hour after mine at 13:10 — so it
+  took the number that was free when I moved into it.
+
+The rule I wrote after the first one is what caught the second: **re-sweep
+immediately before PUSHING, not only before writing.** The window between
+choosing a number and publishing it is exactly as dangerous as the window
+before choosing, and with several sessions running it is usually longer. It
+now has a track record: it found 0339 already taken at push time, before the
+file reached `main`.
+
+Nothing was ever at risk in the database. The applied ledger records this
+migration under the unnumbered name `startup_investor_decisions`, so only the
+repo filename ever collided — and the two neighbours it collided with
+(`0338_account_security`, `0339_support_suggestions`) both carry their number
+in the ledger, which is why neither of those could be the one to move.
+
+One consequence worth stating rather than leaving to be noticed: mine ran in
+production BEFORE `0339_support_suggestions` (13:10 vs 14:06) but now sorts
+after it by filename. Replay order and application order therefore disagree
+for this pair. Harmless here — the two touch unrelated tables and neither
+depends on the other — but it is the kind of thing that stops being harmless
+the day two colliding migrations touch the same object.
 
 **Naming collision, resolved by being explicit.** `EntityFrozenState`
 already has a `not_a_fit` (hard_filter_status='resolved_not_a_fit',

@@ -32,7 +32,7 @@ export const MATRIX_CAPABILITIES: { key: MatrixCapability; label: string; note?:
   { key: 'org_editing', label: 'Organisation editing' },
   // Prompt 852 §B — the founder side of a "no", in both directions: marking
   // an investor "Not a fit for us" (startup_investor_decisions, migration
-  // 0339) and recording/editing an investor's pass and what would restart
+  // 0340) and recording/editing an investor's pass and what would restart
   // it. Both write the org's own account of a relationship, which is why
   // they share one capability rather than getting two.
   { key: 'investor_decisions', label: 'Mark an investor as not a fit / record a pass' },
