@@ -16,6 +16,11 @@ const PUBLIC = ['/', '/investors', '/login', '/signup', '/auth', '/portal', '/ap
   // acceptance routes (/api/terms/status, /api/terms/accept) stay OUT of
   // this list on purpose — they only mean anything for a signed-in user.
   '/terms',
+  // Prompt 602 — the closed-account page (the owner who just closed has no
+  // session left) and the "this wasn't me" link from the owner's email (the
+  // token is the auth). Prompt 603 — the public supplier list, same
+  // reasoning as /terms.
+  '/closed', '/api/account/not-me', '/legal',
   // Prompt 114 Fase 1 — the token IS the auth for this one route now; a
   // caller here has no session yet by definition (that's the whole point).
   // Exact path only (not a prefix) — every other /api/matchdeal/pairing/*
@@ -99,11 +104,13 @@ export async function middleware(req: NextRequest) {
   // convention as every other migration-gated feature, just without the
   // usual server-only probe module since middleware can't import
   // 'server-only' code.
-  if (user && pathname !== '/suspended' && pathname !== '/blocked' && !pathname.startsWith('/api/')) {
+  // Prompt 602 §C — a fourth state, 'closed' (the owner closed the account;
+  // migration 0338), with its own page: "closed by its owner, kept until".
+  if (user && pathname !== '/suspended' && pathname !== '/blocked' && pathname !== '/closed' && !pathname.startsWith('/api/')) {
     const { data: state } = await supabase.rpc('account_access_state');
-    if (state === 'blocked' || state === 'suspended') {
+    if (state === 'blocked' || state === 'suspended' || state === 'closed') {
       const redirect = req.nextUrl.clone();
-      redirect.pathname = state === 'blocked' ? '/blocked' : '/suspended';
+      redirect.pathname = state === 'blocked' ? '/blocked' : state === 'closed' ? '/closed' : '/suspended';
       redirect.search = '';
       return NextResponse.redirect(redirect);
     }

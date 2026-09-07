@@ -116,6 +116,15 @@ export function describeAuditEvent(row: AuditLogRow, admin: string): string {
     // Prompt 601 — platform badges (tech master / pioneer): rights worth
     // money, so every grant, revocation, warning, lapse and reinstatement
     // reads as a sentence, with the why.
+    // Prompt 602 — credential and closure events.
+    case 'owner_password_reset_initiated':
+      return `${admin} (org admin) started a password reset for owner ${str(detail.ownerEmail) ?? 'unknown'} of ${str(detail.orgName) ?? 'an org'} — the owner received a one-time link; no password was seen or sent`;
+    case 'owner_password_reset_disputed':
+      return `An owner clicked "this wasn't me": ${detail.sessionsEnded ?? '?'} session(s) ended, password rotated, a fresh reset link sent`;
+    case 'org_closed_by_owner':
+      return `${str(detail.orgName) ?? 'An org'} was closed by its owner ${str(detail.ownerEmail) ?? ''} — kept until ${str(detail.purgeAfter)?.slice(0, 10) ?? '?'}, ${detail.sessionsEnded ?? '?'} session(s) ended, ${detail.emailsSent ?? '?'} member(s) emailed`;
+    case 'org_reopened':
+      return `${admin} reopened ${str(detail.orgName) ?? 'an org'} inside its retention window — "${str(detail.reason) ?? ''}"`;
     case 'platform_badge_granted': {
       const badge = str(detail.badge)?.replace(/_/g, ' ') ?? 'platform';
       const why = str(detail.justification);

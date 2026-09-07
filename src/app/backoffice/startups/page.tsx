@@ -22,6 +22,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { sortRows, sortIndicator } from '@/lib/table-sort';
 import { Card, Tabs } from '@/components/ui';
 import { PLANS, planName, normalizePlan, parsePlanRequest } from '@/lib/plans';
+import { daysUntilPurge } from '@/lib/account-security';
 import type { PlanTier } from '@/lib/types';
 import { markViewerOrigin } from '@/components/DeveloperViewerFrame';
 import { ModerationControls } from '@/components/backoffice/ModerationControls';
@@ -49,6 +50,8 @@ interface OrgRow {
   matchDealStatus: 'complete' | 'incomplete' | 'not_started';
   // Prompt 576 Fase 3 — migration 0316, read-only outside the review queues.
   isInternal: boolean;
+  // Prompt 602 §C — closure by the owner, with the retention clock.
+  closedAt: string | null; closedReason: string | null; purgeAfter: string | null;
 }
 
 const STATUS_STYLE: Record<OrgRow['status'], string> = {
@@ -158,6 +161,19 @@ function StartupsTable() {
     });
   }
   useEffect(load, []);
+
+  // Prompt 602 §C — reopen an owner-closed account inside its window.
+  async function reopen(orgId: string, name: string) {
+    const reason = window.prompt(`Reopen ${name}? State who asked and through which channel (audited):`);
+    if (!reason || reason.trim().length < 4) return;
+    setSavingId(orgId);
+    try {
+      const res = await fetch('/api/backoffice/reopen-org', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ orgId, reason }) });
+      const body = await res.json();
+      if (!body.ok) { setErr(body.error ?? 'Could not reopen.'); return; }
+      load();
+    } finally { setSavingId(null); }
+  }
 
   async function setPlan(orgId: string, tier: PlanTier) {
     setSavingId(orgId);
@@ -289,7 +305,23 @@ function StartupsTable() {
                   <td className="pr-3 text-gray-600">{o.completenessPct}%</td>
                   <td className="pr-3 text-gray-600">{o.interactionsThisWeek}</td>
                   <td className="pr-3 text-xs text-gray-400 whitespace-nowrap">{o.lastLogin ? o.lastLogin.slice(0, 10) : 'never'}</td>
-                  <td className="pr-3"><span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_STYLE[o.status]}`}>{o.status}</span></td>
+                  <td className="pr-3">
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_STYLE[o.status]}`}>{o.status}</span>
+                    {/* Prompt 602 §C — closed by the owner: the retention clock, and
+                        Reopen while it runs (on the owner's request via support). */}
+                    {o.closedAt && (
+                      <div className="mt-1 text-[11px] text-gray-600">
+                        <span className="rounded-full bg-gray-200 px-1.5 py-0.5 font-semibold text-gray-700">closed{o.closedReason === 'owner' ? ' by owner' : o.closedReason ? ` (${o.closedReason})` : ''}</span>
+                        {o.closedReason === 'owner' && (
+                          <span className="ml-1">
+                            {daysUntilPurge(o.purgeAfter, new Date()) > 0
+                              ? <>{daysUntilPurge(o.purgeAfter, new Date())}d to purge · <button onClick={() => reopen(o.orgId, o.name)} disabled={savingId === o.orgId} className="text-[#0E7490] hover:underline disabled:opacity-40">Reopen…</button></>
+                              : 'retention window ended — not reopenable from the app'}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </td>
                   <td className="pr-3 text-gray-600">{o.filesInVault}</td>
                   <td className="pr-3 text-gray-600 whitespace-nowrap">{o.visiblePipelineSize} / {o.eligiblePoolSize}</td>
                   <td className="pr-3 text-gray-600">{o.stage ?? '—'}</td>

@@ -19,6 +19,7 @@ import { InvestorInterestPopup } from '@/components/InvestorInterestPopup';
 import { DocumentRequestPopup } from '@/components/DocumentRequestPopup';
 import { useBottomNavHeight, useBottomNavRef } from '@/lib/bottom-nav-context';
 import { BRAND_NAME } from '@/lib/brand';
+import { useCommitmentsGate } from '@/lib/commitments-status';
 import { useUsageHeartbeat } from '@/lib/use-usage-heartbeat';
 import { WorkspaceSidebar } from '@/components/workspace-shell/WorkspaceSidebar';
 import { WorkspaceMobileNav } from '@/components/workspace-shell/WorkspaceMobileNav';
@@ -172,7 +173,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // (AuthShell-styled, same as login/signup) and must render standalone even
   // for a signed-in visitor who followed the landing footer link, not get
   // the founder app chrome wrapped around it.
-  const isStandaloneAuthPage = path === '/login' || path === '/signup' || path === '/forgot-password' || path === '/reset-password' || path === '/set-password' || path === '/contact' || path === '/auth/confirm' || path === '/suspended';
+  const isStandaloneAuthPage = path === '/login' || path === '/signup' || path === '/forgot-password' || path === '/reset-password' || path === '/set-password' || path === '/contact' || path === '/auth/confirm' || path === '/suspended'
+    // Prompt 602/603 — the closed-account page, the post-signup commitments
+    // page and the public legal pages bring their own layout, same as the
+    // auth pages above.
+    || path === '/closed' || path === '/welcome/commitments' || !!path?.startsWith('/legal');
   // Prompt 295 §1 — Shell mounts (and its hooks run) for EVERY route,
   // including the ones just below that early-return bare children — the
   // heartbeat must not count that time as 'crm' context (backoffice has
@@ -187,6 +192,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const isBareShellRoute = path === '/' || path === '/investors' || path === '/pair' || isStandaloneAuthPage
     || path?.startsWith('/guest') || path?.startsWith('/claim') || path?.startsWith('/invite') || path?.startsWith('/portal') || path?.startsWith('/backoffice') || path?.startsWith('/metrics');
   useUsageHeartbeat({ context: 'crm', enabled: me?.authEnabled === true && !isBareShellRoute });
+  // Prompt 603 §C — once per version, founders only, and only while the
+  // server-side gate is switched on (legal review pending).
+  useCommitmentsGate(me?.authEnabled === true && me.role === 'founder' && !isBareShellRoute, path);
   // /pair is the MatchDeal PWA (MD-08). It was missing from this list, so
   // the phone screen behind the QR code inherited the founder CRM chrome —
   // "ablute_" header, outreach caps pill, "+ Log interaction", and the

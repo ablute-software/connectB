@@ -18,6 +18,8 @@ import { ORG_ROLES, ROLE_LABELS, can, canAssignRole, canActOnMember, type OrgRol
 import { AutomationsPanel } from '@/components/AutomationsPanel';
 import { PermissionsMatrixCard } from '@/components/PermissionsMatrixCard';
 import { ImportPanel } from '@/components/settings/ImportPanel';
+import { AccountSecurityCard } from '@/components/settings/AccountSecurityCard';
+import { CloseAccountCard } from '@/components/settings/CloseAccountCard';
 import { NeedsReviewPanel } from '@/components/queue/NeedsReviewPanel';
 import { CompanyPanel } from '@/components/company/CompanyPanel';
 import { RoadmapPanel } from '@/components/company/RoadmapPanel';
@@ -336,6 +338,16 @@ function GmailConnectionCard() {
   );
 }
 
+// Prompt 602 §C — the owner-only card needs the caller's role, which the
+// security route already resolves server-side; read it once here.
+function CloseAccountCardMount({ orgName }: { orgName: string }) {
+  const [myRole, setMyRole] = useState<string | null>(null);
+  useEffect(() => {
+    fetch('/api/account/security', { cache: 'no-store' }).then((r) => r.json()).then((b) => setMyRole(b.ok ? (b.myRole ?? null) : null)).catch(() => setMyRole(null));
+  }, []);
+  return <CloseAccountCard orgName={orgName} myRole={myRole} />;
+}
+
 function TeamPanel() {
   const { db } = useStore();
   return (
@@ -343,8 +355,13 @@ function TeamPanel() {
       {authEnabled ? (
         <>
           <TeamCard orgId={db.org.id} />
+          {/* Prompt 602 — password & security (own password; the owner's
+              admin-reset switch; an admin's owner-reset action). */}
+          <AccountSecurityCard />
           <PermissionsMatrixCard />
           <Suspense fallback={null}><GmailConnectionCard /></Suspense>
+          {/* Prompt 602 §C — owner only; renders nothing for anyone else. */}
+          <CloseAccountCardMount orgName={db.org.name} />
         </>
       ) : (
         <Card title="Team"><p className="text-sm text-gray-400">Not available in this workspace yet.</p></Card>

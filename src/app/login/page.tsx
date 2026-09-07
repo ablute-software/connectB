@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { LogoLockup } from '@/components/Logo';
 import { AuthShell } from '@/components/auth/AuthShell';
+import { AccountNotice } from '@/components/auth/AccountNotice';
 import { InvestorSignInForm } from '@/components/auth/InvestorSignInForm';
 
 function LoginInner() {
@@ -59,6 +60,7 @@ function LoginInner() {
           {investorMode ? 'Sign in to your investor data room.' : 'Sign in to your investor relations workspace.'}
         </p>
 
+        <AccountNotice />
         {!authEnabled && (
           <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             Demo mode — authentication is not configured. <Link href="/pipeline" className="underline">Enter the app</Link>.

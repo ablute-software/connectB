@@ -120,6 +120,10 @@ export async function GET() {
       moderationStatus: moderationAvailable ? ((org.moderation_status as string | undefined) ?? 'active') : 'active',
       moderationQuarantineUntil: moderationAvailable ? ((org.moderation_quarantine_until as string | null | undefined) ?? null) : null,
       isInternal: !!(org.is_internal as boolean | undefined),
+      // Prompt 602 §C — "o relógio da retenção à vista no backoffice".
+      closedAt: (org.closed_at as string | null | undefined) ?? null,
+      closedReason: (org.closed_reason as string | null | undefined) ?? null,
+      purgeAfter: (org.purge_after as string | null | undefined) ?? null,
     };
   });
 
