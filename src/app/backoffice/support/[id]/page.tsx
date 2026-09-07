@@ -64,9 +64,13 @@ const STATUS_LABEL: Record<string, string> = { new: 'New', open: 'Open', waiting
 const CATEGORY_LABEL: Record<string, string> = {
   question: 'Question', problem: 'Problem/bug', billing: 'Billing',
   data_correction: 'Data correction', claim_profile: 'Profile claim', network_content_report: 'My Network report', other: 'Other',
+  // Prompt 605 — reachable here via "Full ticket" from /backoffice/suggestions;
+  // the decision itself is taken there, not on this screen.
+  suggestion: 'Suggestion',
 };
 const SOURCE_LABEL: Record<string, string> = {
   landing: 'Landing', landing_investors: 'Landing (investors)', founder_app: 'App (founder)', investor_portal: 'Portal (investor)',
+  feedback_widget: 'Tell us widget',
 };
 const KIND_LABEL: Record<string, string> = { note: 'Internal note', reply: 'Reply', status_change: 'Change', email_sent: 'Email sent' };
 
