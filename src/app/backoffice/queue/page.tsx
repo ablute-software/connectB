@@ -1117,8 +1117,11 @@ type EnrichmentRow = {
   // when one is linked. null for the unlinked majority, and then the name
   // stays plain text rather than becoming a link to nowhere.
   catalogId: string | null;
+  // Prompt 599 §2 — the private people rows grouped under this name, so an
+  // unlinked person can open its own page (/backoffice/people/[id]).
+  subjectIds: string[];
 };
-type ResearchProposal = { field: string; value: string; confidence: number; source_url: string };
+type ResearchProposal ={ field: string; value: string; confidence: number; source_url: string };
 // Prompt 594 §B/§C + 595 §E — distinctOrgCount replaces the old
 // appliedToOrgs (which counted matching ROWS and called them orgs, so two
 // person rows in one org read as "2 org(s)"); appliedTo carries the
@@ -1250,6 +1253,16 @@ function EnrichmentQueueTable({ title, subtitle, emptyLabel, queue, research, on
                           ? `/backoffice/catalog/people/${r.catalogId}?from=${encodeURIComponent('/backoffice/queue?tab=candidates')}&fromLabel=${encodeURIComponent('the quality queue')}`
                           : `/backoffice/catalog?q=${encodeURIComponent(r.name)}`}
                         className="text-[#0E7490] hover:underline"
+                      >
+                        {r.name}
+                      </Link>
+                    ) : r.subjectType === 'person' && r.subjectIds.length > 0 ? (
+                      // Prompt 599 §2 — an unlinked private contact opens its
+                      // own page (edit + link proposal) instead of dead text.
+                      <Link
+                        href={`/backoffice/people/${r.subjectIds[0]}?from=${encodeURIComponent('/backoffice/queue?tab=candidates')}&fromLabel=${encodeURIComponent('the quality queue')}`}
+                        className="text-[#0E7490] hover:underline"
+                        title={r.subjectIds.length > 1 ? `${r.subjectIds.length} startups have a contact with this name — opening the first.` : 'Private contact — not in the catalog yet.'}
                       >
                         {r.name}
                       </Link>
@@ -1454,16 +1467,18 @@ function CompareTable({ manual, catalogEntity }: { manual: ManualEntity; catalog
   );
 }
 
-// Prompt 191 §B — read-only: contacts belong to the startup's own CRM, not
-// something the backoffice edits directly (per the prompt's own note, a
-// future prompt if that's ever needed).
+// Prompt 191 §B made this read-only ("a future prompt if that's ever
+// needed"). Prompt 599 §2 is that prompt: each contact is a private `people`
+// row, and its name now opens /backoffice/people/[id] — the private-row
+// editor with its catalog-link proposal. The list itself is still read-only.
 function ManualEntityContactsPanel({ contacts }: { contacts: ManualEntityContact[] }) {
   if (contacts.length === 0) return <p className="text-xs text-gray-400">No contacts on file for this entity.</p>;
+  const from = `?from=${encodeURIComponent('/backoffice/queue?tab=new_investors')}&fromLabel=${encodeURIComponent('New investors')}`;
   return (
     <ul className="space-y-1.5 text-xs">
       {contacts.map((c) => (
         <li key={c.id} className="flex flex-wrap items-center gap-2">
-          <span className="font-medium text-gray-800">{c.fullName}</span>
+          <Link href={`/backoffice/people/${c.id}${from}`} className="font-medium text-[#0E7490] hover:underline">{c.fullName}</Link>
           {c.role && <span className="text-gray-400">{c.role}</span>}
           {c.email && <span className="text-gray-500">{c.email}</span>}
           {c.phone && <span className="text-gray-500">{c.phone}</span>}

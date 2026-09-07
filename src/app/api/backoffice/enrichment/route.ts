@@ -36,22 +36,28 @@ type Row = {
   // unlinked majority — 1299 of 1782 people rows today (595 §C) — and the
   // client then renders plain text rather than a link to nowhere.
   catalogId: string | null;
+  // Prompt 599 §2 — the private `people` row itself, for person rows. The
+  // name-grouped queue entry carries every grouped row's id so an unlinked
+  // person (no catalogId) can open its own back-office page instead of
+  // plain text; entity rows have no per-row page and carry null.
+  subjectId: string | null;
 };
 type QueueItem = {
   subjectType: 'entity' | 'person'; name: string; orgCount: number; activeCount: number;
   requestCount: number; minPercent: number; missing: string[]; demand: number; catalogId: string | null;
+  subjectIds: string[];
 };
 
 function buildQueue(rows: Row[]): QueueItem[] {
   const groups = new Map<string, {
     subjectType: 'entity' | 'person'; name: string; orgIds: Set<string>; activeOrgIds: Set<string>;
-    requestCount: number; minPercent: number; missing: Set<string>; catalogId: string | null;
+    requestCount: number; minPercent: number; missing: Set<string>; catalogId: string | null; subjectIds: Set<string>;
   }>();
   for (const r of rows) {
     const key = `${r.subjectType}:${r.name.trim().toLowerCase()}`;
     const g = groups.get(key) ?? {
       subjectType: r.subjectType, name: r.name, orgIds: new Set<string>(), activeOrgIds: new Set<string>(),
-      requestCount: 0, minPercent: 100, missing: new Set<string>(), catalogId: null,
+      requestCount: 0, minPercent: 100, missing: new Set<string>(), catalogId: null, subjectIds: new Set<string>(),
     };
     g.orgIds.add(r.orgId);
     if (r.active) g.activeOrgIds.add(r.orgId);
@@ -59,13 +65,14 @@ function buildQueue(rows: Row[]): QueueItem[] {
     g.minPercent = Math.min(g.minPercent, r.percent);
     r.missing.forEach((m) => g.missing.add(m));
     g.catalogId = g.catalogId ?? r.catalogId;
+    if (r.subjectId) g.subjectIds.add(r.subjectId);
     groups.set(key, g);
   }
   return [...groups.values()]
     .map((g) => ({
       subjectType: g.subjectType, name: g.name, orgCount: g.orgIds.size, activeCount: g.activeOrgIds.size,
       requestCount: g.requestCount, minPercent: g.minPercent, missing: [...g.missing],
-      demand: g.activeOrgIds.size + g.requestCount, catalogId: g.catalogId,
+      demand: g.activeOrgIds.size + g.requestCount, catalogId: g.catalogId, subjectIds: [...g.subjectIds],
     }))
     .sort((a, b) => b.demand - a.demand || a.minPercent - b.minPercent)
     .slice(0, 50);
@@ -129,10 +136,10 @@ export async function GET() {
     const orgId = e.org_id!;
     const catalogId = (e as Entity & { catalog_id?: string | null }).catalog_id ?? null;
     if (c.firmographic.percent < ENRICHMENT_THRESHOLD) {
-      profileRows.push({ subjectType: 'entity', name: e.name, orgId, active, percent: c.firmographic.percent, missing: c.firmographic.missing, requestCount, catalogId });
+      profileRows.push({ subjectType: 'entity', name: e.name, orgId, active, percent: c.firmographic.percent, missing: c.firmographic.missing, requestCount, catalogId, subjectId: null });
     }
     if (qualifiesForContactEnrichment(c)) {
-      contactRows.push({ subjectType: 'entity', name: e.name, orgId, active, percent: c.contact.percent, missing: c.contact.missing, requestCount, catalogId });
+      contactRows.push({ subjectType: 'entity', name: e.name, orgId, active, percent: c.contact.percent, missing: c.contact.missing, requestCount, catalogId, subjectId: null });
     }
   }
   for (const p of (people ?? []) as Person[]) {
@@ -146,6 +153,7 @@ export async function GET() {
       subjectType: 'person', name: p.full_name, orgId: p.org_id!, active: true,
       percent: c.percent, missing: c.missing, requestCount: requestCountBySubject.get(`person:${p.id}`) ?? 0,
       catalogId: p.catalog_person_id ?? null,
+      subjectId: p.id,
     });
   }
 

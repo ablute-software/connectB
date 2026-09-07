@@ -102,6 +102,37 @@ export function describeAuditEvent(row: AuditLogRow, admin: string): string {
       return `${admin} converted "${str(detail.entityName) ?? 'an entity'}" to a person`;
     case 'platform_admin_grant_failed':
       return `System: platform-admin grant failed for ${str(detail.email) ?? 'a new user'}`;
+    // Prompt 599 — the person-editing and consensus events. Values are
+    // shown when they are short strings; anything else stays behind the
+    // Details toggle rather than being flattened into the sentence.
+    case 'catalog_person_field_edit': {
+      const field = str(detail.field) ?? 'a field';
+      return `${admin} edited catalog person field ${field}${str(detail.to) ? ` → "${detail.to}"` : ''}${detail.applied === false ? ' (nothing written)' : ''}`;
+    }
+    case 'private_person_field_edit': {
+      const field = str(detail.field) ?? 'a field';
+      return `${admin} edited private contact field ${field}${str(detail.to) ? ` → "${detail.to}"` : ' → (cleared)'}`;
+    }
+    case 'private_person_linked': {
+      const name = str(detail.catalogPersonName);
+      const layer = typeof detail.layer === 'number' ? ` (layer ${detail.layer}${detail.firmMatch ? ', firm matches' : ', firm differs'})` : '';
+      return `${admin} linked a private contact to catalog person${name ? ` "${name}"` : ''}${layer}`;
+    }
+    case 'private_person_catalog_link_batch': {
+      const n = typeof detail.linked === 'number' ? detail.linked : undefined;
+      return `System: linked ${n ?? 'some'} private contact(s) to the catalog (Prompt 599 §5, layer 1 only)`;
+    }
+    case 'catalog_person_consensus_auto_verify': {
+      const field = str(detail.field) ?? 'a field';
+      const n = typeof detail.org_count === 'number' ? detail.org_count : undefined;
+      return `System: ${n ?? 'several'} startups agreed on catalog person field ${field} — auto-verified`;
+    }
+    case 'catalog_person_consensus_blocked': {
+      const field = str(detail.field) ?? 'a field';
+      const n = typeof detail.org_count === 'number' ? detail.org_count : undefined;
+      const level = str(detail.blocking_level);
+      return `System: ${n ?? 'several'} startups agree on catalog person field ${field}, but it is ${level ? level.replace(/_/g, ' ') : 'already verified'} — not applied`;
+    }
     default:
       return `${admin} performed ${row.action} on ${row.subject_type}`;
   }
