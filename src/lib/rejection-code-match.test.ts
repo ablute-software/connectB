@@ -128,3 +128,57 @@ describe('rejectionClearedRationale', () => {
     expect(text).toContain('product live in market');
   });
 });
+
+// Prompt 852 §G(c) — the geography axis had no write that re-ran the
+// detector: updateOrg only triggered on stage and sectors. These pin the
+// pure half of that fix — that the geography branch does react to
+// org.country — so the store-side trigger has something to be right about.
+describe('geography clears when the org moves into the mandate (Prompt 852 §G)', () => {
+  const code = {
+    id: 'rc-geo', entity_id: 'ent-1', axis_code: 'geography', required_level: 1,
+    level_label: 'must be in DACH', source_interaction_id: 'i-1',
+  } as RejectionCode;
+  const entity = { stage_min: undefined, stage_max: undefined, sectors: [], invests_in_geographies: ['Germany', 'Austria'] };
+
+  it('still clashes while the org is outside the mandate', () => {
+    expect(rejectionStillClashes(code, { stage: 'seed', sectors: [], country: 'Portugal' }, entity, [])).toBe(true);
+  });
+
+  it('clears once org.country is inside it', () => {
+    expect(rejectionStillClashes(code, { stage: 'seed', sectors: [], country: 'Germany' }, entity, [])).toBe(false);
+  });
+
+  it('never claims a clash when the investor recorded no geography mandate', () => {
+    expect(rejectionStillClashes(code, { stage: 'seed', sectors: [], country: 'Portugal' },
+      { ...entity, invests_in_geographies: [] }, [])).toBe(false);
+  });
+});
+
+// §G(b) — the free-text half. The writer exists (StartupAxisClassifications,
+// Prompt 251/253 Bloc C); what it produces is org_axis_classifications rows,
+// and this is what they do once they exist.
+describe('a free-text axis clears only once the startup states a level (Prompt 852 §G)', () => {
+  const code = {
+    id: 'rc-trl', entity_id: 'ent-1', axis_code: 'technology_readiness', required_level: 5,
+    level_label: 'TRL 5', source_interaction_id: 'i-1',
+  } as RejectionCode;
+  const org = { stage: 'seed' as const, sectors: [], country: 'Portugal' };
+  const entity = { stage_min: undefined, stage_max: undefined, sectors: [], invests_in_geographies: [] };
+
+  it('never clears with no classification at all — no data is not cleared', () => {
+    expect(rejectionStillClashes(code, org, entity, [])).toBe(true);
+  });
+
+  it('still clashes below the bar (Nuno’s own TRL 3 example)', () => {
+    expect(rejectionStillClashes(code, org, entity, [
+      { id: 'c1', axis_code: 'technology_readiness', level: 3, level_label: 'TRL 3', confirmed_at: '2026-09-01T00:00:00Z' } as OrgAxisClassification,
+    ])).toBe(true);
+  });
+
+  it('clears once the startup states the level the investor asked for', () => {
+    expect(rejectionStillClashes(code, org, entity, [
+      { id: 'c1', axis_code: 'technology_readiness', level: 3, level_label: 'TRL 3', confirmed_at: '2026-09-01T00:00:00Z' } as OrgAxisClassification,
+      { id: 'c2', axis_code: 'technology_readiness', level: 5, level_label: 'TRL 5', confirmed_at: '2026-09-07T00:00:00Z' } as OrgAxisClassification,
+    ])).toBe(false);
+  });
+});

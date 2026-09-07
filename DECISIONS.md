@@ -5503,3 +5503,79 @@ header goes stale the moment production changes underneath it. The fix isn't
 a smarter matcher; it's a documented exception for every case the matcher
 structurally cannot see, each one earned by checking production rather than
 inferring from the file's own claims about itself.
+
+## 07/09/2026 — Prompt 852: the startup gets to say no too
+
+A startup can record its own "not a fit for us" against an investor — a
+separate record from an investor's pass, never counted as one; both are
+visible in the back-office Insight tabs and never to an investor; the pass
+flow captures the reason and what's needed to restart, both capped at 220
+characters, editable and revertible by the founder and whoever holds
+`investor_decisions`.
+
+**The two directions, and where each lives.** *They passed*: an
+`interactions` row with `classification='pass'`, `entities.status='passed'`,
+a pass reason, optionally a `rejection_code`. It feeds `passReasonAlert`, the
+reawakening prefilter and the Dashboard. *We said no*: a
+`startup_investor_decisions` row (migration **0338**, applied). It writes no
+interaction, touches no status and creates no rejection code — so a founder's
+own judgement of an investor cannot inflate the alert that exists to tell them
+their PITCH is the problem, cannot read as an investor rejection, and cannot
+appear as a prior "no" the reawakening engine argues against. Those three are
+structural, not a filter each consumer must remember: a decision simply is not
+an interaction.
+
+**Migration number.** 0338. Swept every remote branch (highest elsewhere:
+0337 on `main`, 0327 on prompt-580, 0317 on two others) and the applied
+ledger (`0337_platform_badges`) before choosing — the rule after four
+collisions.
+
+**Naming collision, resolved by being explicit.** `EntityFrozenState`
+already has a `not_a_fit` (hard_filter_status='resolved_not_a_fit',
+migration 0195) whose row pill reads "Not a fit" — that is the PLATFORM's
+thesis-mismatch hard filter. The founder's act is always labelled **"Not a
+fit for us"**, and `pipelineViewForEntity` deliberately keeps the hard-filter
+one in Frozen.
+
+**Capability.** `investor_decisions` ("Mark an investor as not a fit / record
+a pass"), default `['owner', 'admin']`, in the existing matrix, checked with
+`canWithMatrix` on every write. The client-side hiding is a courtesy and
+fails closed; the route is the gate.
+
+**The Passed view.** A fourth toggle, listing both directions with a per-row
+label — never one number that hides which way the no went. The four-way
+mapping lives in one pure function reused by the row filter, the counts and
+the pill, for the reason `viewForFrozenState` exists at all: that mapping was
+corrected twice in consecutive prompts, each time in only one of three
+duplicated copies. `notActivePipelineCount` gains the passed set, so "Active"
+stops counting rows nobody is pursuing.
+
+**Card layout, settled.** Title 10px uppercase; text 13px on an 18px line;
+date 10px; the TEXT BLOCK — never the card — carries `max-h-[36px]
+overflow-y-auto`, exactly two lines, so a longer note scrolls inside a card
+whose height does not change. Side by side from `sm`, stacked below it.
+
+**§G, honestly.** Two of its three parts already existed, and the third is
+not what the brief expected. (a) The pass form still writes `rejection_codes`
+— unchanged. (b) The "missing writer" is not missing:
+`StartupAxisClassifications` (Prompt 251/253 Bloc C) writes
+`org_axis_classifications` and is rendered by `CompanyPanel`; the comment in
+`rejection-code-match.ts` claiming otherwise was stale and is corrected. (c)
+The detector already re-runs on four writes. What is actually true, measured
+in production today: **`rejection_codes` is EMPTY across 45 recorded passes**,
+and so is `org_axis_classifications`. The optional "+ Code this rejection by
+axis" has never been used once, and the classification card renders nothing
+until a free-text code exists — so the chain has never had an input, rather
+than never having had a writer. Two real gaps closed instead: `country` now
+triggers a re-check (the geography axis reads `orgs.country` and only `stage`
+and `sectors` triggered one, so the third axis it models had no trigger at
+all), and the brief's "run it after a Vault document lands" is deliberately
+NOT added — no input of `rejectionStillClashes` changes when a document
+lands, so the call would be a no-op dressed as a feature. Making it real
+needs an extractor, which is the AI guess the prompt itself forbids.
+
+**Also fixed in passing.** `/metrics` read `?tab=` in a `useState`
+initializer. Harmless with one sidebar row pointing at it; with three it is
+the Prompt 560 §C soft-navigation bug — an in-route navigation does not
+remount, so the tab would not have changed. Now synced in a `useEffect`,
+which runs after the router commits.

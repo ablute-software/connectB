@@ -362,7 +362,9 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
         // two axes this engine currently understands structurally; other
         // fields never move a rejection_code's clash state, so skip the
         // (cheap but pointless) re-check on every unrelated org edit.
-        if ('stage' in patch || 'sectors' in patch) return applyReactivations(next);
+        // Prompt 852 §G(c) — see the identical comment in store-supabase.tsx:
+        // the geography axis reads org.country, which never triggered a re-check.
+        if ('stage' in patch || 'sectors' in patch || 'country' in patch) return applyReactivations(next);
         return next;
       });
     },

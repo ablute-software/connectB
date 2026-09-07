@@ -843,7 +843,12 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       }).then((r) => r.json()).then((b) => { if (!b.ok) console.error('[supabase-store] updateOrg failed:', b.error); }).catch((e) => console.error('[supabase-store] updateOrg failed:', e));
       // Bloco B — the startup itself changed; 'stage'/'sectors' are the
       // two axes this engine understands structurally today.
-      if ('stage' in patch || 'sectors' in patch) applyReactivations(next);
+      // Prompt 852 §G(c) — `country` joins the trigger. rejectionStillClashes'
+      // geography branch reads org.country (against entity.invests_in_geographies),
+      // so a founder moving their HQ could clear a geography-axis rejection and
+      // nothing would ever notice: the only two fields that re-ran the detector
+      // were stage and sectors. The third axis it models had no trigger at all.
+      if ('stage' in patch || 'sectors' in patch || 'country' in patch) applyReactivations(next);
     },
 
     addCompanyPerson(p) {
