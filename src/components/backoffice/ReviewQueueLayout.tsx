@@ -10,12 +10,17 @@
 // inline-expand, not both — AddedByStartupsTab's old renderExpanded is
 // gone now that it has a panel).
 //
-// Responsive per §A.5: >=1280px the panel sits beside the list; below that
-// it becomes a bottom sheet over the list (same "escape hatch" shape as
-// every portal-rendered overlay in this codebase — see AccountActionPanel
-// for the identical backdrop-click-to-close pattern, done inline here
-// rather than via createPortal since this panel is never full-viewport on
-// the >=1280 layout it spends most of its life in).
+// Responsive — Prompt 599 §7 (576 Fase 4 Part 2, point 3) moved the cutover
+// from 1280px to 1440px, the breakpoint at which the back-office sidebar
+// collapses to its icon rail, so rail, list and panel change together
+// instead of at two different widths. >=1440px the panel sits beside the
+// list; below that the list takes the full width and opening a row slides
+// the panel in from the RIGHT as an overlay (it used to be a bottom sheet).
+// Same "escape hatch" shape as every portal-rendered overlay in this
+// codebase — see AccountActionPanel for the identical backdrop-click-to-
+// close pattern, done inline here rather than via createPortal since this
+// panel is never full-viewport on the >=1440 layout it spends most of its
+// life in.
 import { useState, type ReactNode } from 'react';
 import { QueueTable, type QueueTableProps } from './QueueTable';
 
@@ -38,7 +43,7 @@ export function ReviewQueueLayout<T>({
   const selectedRow = selectedId ? rows.find((r) => getRowId(r) === selectedId) ?? null : null;
 
   return (
-    <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
+    <div className="flex flex-col gap-4 min-[1440px]:flex-row min-[1440px]:items-start">
       <div className="min-w-0 flex-1">
         <QueueTable<T> {...queueTableProps}
           onRowClick={(row) => onSelect(getRowId(row))}
@@ -46,19 +51,22 @@ export function ReviewQueueLayout<T>({
       </div>
 
       {selectedId && (
-        // Below xl: a bottom sheet over the list. The backdrop is `fixed`
-        // and this whole block is NOT portaled — CLAUDE.md's portal rule is
-        // about an ancestor with backdrop-blur/filter/etc. silently
-        // becoming the containing block for a `fixed` descendant; nothing
-        // between this component and the page root sets any of those, and
-        // this file IS one of the two known instances (BackofficeShell's
-        // own header) — checked directly, neither backoffice/layout.tsx
-        // nor BackofficeShell apply blur/filter/transform to their content
-        // area. At >=xl the fixed backdrop is hidden and the panel lays out
-        // in normal flow instead (xl:static etc. below).
-        <div className="fixed inset-0 z-40 xl:static xl:z-auto xl:w-[420px] xl:shrink-0">
-          <div className="absolute inset-0 bg-black/30 xl:hidden" onClick={() => onSelect(null)} />
-          <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-2xl bg-white shadow-2xl xl:sticky xl:top-4 xl:inset-auto xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto xl:rounded-2xl xl:shadow-[0_4px_20px_rgba(15,23,42,0.08)]">
+        // Below 1440px: an overlay sliding in from the right over the list.
+        // The backdrop is `fixed` and this whole block is NOT portaled —
+        // CLAUDE.md's portal rule is about an ancestor with
+        // backdrop-blur/filter/etc. silently becoming the containing block
+        // for a `fixed` descendant; nothing between this component and the
+        // page root sets any of those, and this file IS one of the two known
+        // instances (BackofficeShell's own header) — checked directly,
+        // neither backoffice/layout.tsx nor BackofficeShell apply
+        // blur/filter/transform to their content area. The slide animation
+        // (globals.css, .sd-review-panel-slide) transforms the panel ITSELF
+        // — an absolute child of the fixed overlay, never an ancestor of a
+        // fixed element. At >=1440 the fixed backdrop is hidden and the
+        // panel lays out in normal flow instead (min-[1440px]:static etc.).
+        <div className="fixed inset-0 z-40 min-[1440px]:static min-[1440px]:z-auto min-[1440px]:w-[420px] min-[1440px]:shrink-0">
+          <div className="absolute inset-0 bg-black/30 min-[1440px]:hidden" onClick={() => onSelect(null)} />
+          <div className="sd-review-panel-slide absolute inset-y-0 right-0 w-full max-w-[480px] overflow-y-auto bg-white shadow-2xl min-[1440px]:sticky min-[1440px]:top-4 min-[1440px]:inset-auto min-[1440px]:max-w-none min-[1440px]:max-h-[calc(100vh-2rem)] min-[1440px]:overflow-y-auto min-[1440px]:rounded-2xl min-[1440px]:shadow-[0_4px_20px_rgba(15,23,42,0.08)]">
             <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
               <div className="min-w-0 text-sm font-semibold text-gray-900">
                 {selectedRow && panelTitle ? panelTitle(selectedRow) : 'Review'}

@@ -242,3 +242,19 @@ body {
   .pipeline-fit-sweep-card::after { animation: none; background: none; }
   .pipeline-fit-sweep-card { outline: 2px solid #0E7490; outline-offset: 1px; }
 }
+
+/* Prompt 599 §7 (576 Fase 4 Part 2, point 3) — below 1440px the review
+   queue's decision panel is an overlay that slides in from the right, not a
+   bottom sheet. The transform is on the panel itself (an `absolute` child of
+   the `fixed` overlay in ReviewQueueLayout), never on an ancestor of a fixed
+   element, so CLAUDE.md's containing-block rule is not in play. */
+@media (max-width: 1439.98px) {
+  .sd-review-panel-slide { animation: sd-review-panel-slide 180ms ease-out; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sd-review-panel-slide { animation: none; }
+}
+@keyframes sd-review-panel-slide {
+  from { transform: translateX(100%); opacity: 0.6; }
+  to { transform: translateX(0); opacity: 1; }
+}

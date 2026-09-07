@@ -77,7 +77,7 @@ export function QueueTriageBoard({
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 min-[1440px]:grid-cols-3">
         {ordered.map((r) => {
           const urgent = r.slaDueInDays !== null && r.slaDueInDays !== undefined && r.slaDueInDays < 7;
           return (
