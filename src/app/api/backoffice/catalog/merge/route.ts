@@ -160,6 +160,7 @@ export async function POST(req: Request) {
   }
 
   // Re-point every reference before deleting the losers.
+  let peopleRepointed = 0;
   for (const loser of losers) {
     await admin.from('entity_aliases').insert({ catalog_id: keepId, alias: loser.name }).select().maybeSingle();
     const { data: loserAliases } = await admin.from('entity_aliases').select('alias').eq('catalog_id', loser.id);
@@ -182,6 +183,26 @@ export async function POST(req: Request) {
     }
 
     await admin.from('investor_submissions').update({ merged_catalog_id: keepId }).eq('merged_catalog_id', loser.id);
+
+    // Prompt 599 §3 — people follow the firm. Before this, a merge deleted
+    // the losers WITH their affiliations (ON DELETE CASCADE) and nulled
+    // catalog_people.entity_id (ON DELETE SET NULL): every person at a
+    // merged duplicate silently lost their firm, and a person with no
+    // affiliation is invisible to every real reader (this file's sibling
+    // POST says exactly that). Re-point the affiliations — skipping one the
+    // keeper already has for the same person+kind, which the cascade then
+    // removes with the loser — then the convenience pointer, then the
+    // founders' own links: entities.catalog_id is SET NULL too, so a
+    // startup's linked firm would otherwise quietly unlink on merge.
+    const { data: loserAffs } = await admin.from('catalog_person_affiliations').select('id, person_id, kind').eq('entity_id', loser.id);
+    for (const aff of loserAffs ?? []) {
+      const { data: dupe } = await admin.from('catalog_person_affiliations').select('id')
+        .eq('person_id', aff.person_id).eq('entity_id', keepId).eq('kind', aff.kind).maybeSingle();
+      if (!dupe) await admin.from('catalog_person_affiliations').update({ entity_id: keepId }).eq('id', aff.id);
+    }
+    peopleRepointed += (loserAffs ?? []).length;
+    await admin.from('catalog_people').update({ entity_id: keepId }).eq('entity_id', loser.id);
+    await admin.from('entities').update({ catalog_id: keepId }).eq('catalog_id', loser.id);
   }
 
   const { error: delErr } = await admin.from('catalog_entities').delete().in('id', mergeIds);
@@ -192,6 +213,7 @@ export async function POST(req: Request) {
     detail: {
       mergedFrom: losers.map((l) => ({ id: l.id, name: l.name })), fieldsFilled: patch,
       conflictsLeftForReview: conflicts, reason: reason.trim(), invertedVerification: invertsVerification,
+      peopleRepointed,
     },
   });
 

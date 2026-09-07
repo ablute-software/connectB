@@ -155,6 +155,10 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     ok: true,
     person: {
       id: person.id, fullName: person.full_name,
+      // Prompt 599 §3 — the current-firm pointer, exposed so the dossier can
+      // say when it disagrees with the primary affiliation (31 rows did on
+      // 2026-09-07). The affiliations list, not this pointer, is the truth.
+      entityId: person.entity_id ?? null,
       linkedinUrl: person.linkedin_url, linkedinVerified: person.linkedin_verified,
       basedIn: person.based_in,
       doNotContact: person.do_not_contact, privacyNoticeSent: person.privacy_notice_sent,

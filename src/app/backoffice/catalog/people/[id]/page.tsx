@@ -22,7 +22,7 @@ interface QuarantineValue { value: unknown; realOrgCount: number; entries: Quara
 interface QuarantineField { field: string; verifiedCount: number; entries: QuarantineEntry[]; values: QuarantineValue[] }
 interface Dossier {
   person: {
-    id: string; fullName: string; linkedinUrl: string | null; linkedinVerified: boolean;
+    id: string; fullName: string; entityId: string | null; linkedinUrl: string | null; linkedinVerified: boolean;
     basedIn: string | null; doNotContact: boolean; privacyNoticeSent: boolean; hookStatus: string;
   };
   research: {
@@ -189,6 +189,11 @@ function PersonDossierContent({ id }: { id: string }) {
   if (!data) return <Card title="Person"><p className="text-sm text-gray-400">Loading…</p></Card>;
   const { person, research, affiliations, quarantine, manualLinks, activity } = data;
   const primary = affiliations.find((a) => a.isPrimary) ?? affiliations[0];
+  // Prompt 599 §3 — counts the affiliations card states plainly.
+  const currentCount = affiliations.filter((a) => a.current).length;
+  const pastCount = affiliations.length - currentCount;
+  const datedCount = affiliations.filter((a) => a.startedAt || a.endedAt).length;
+  const pointerDisagrees = !!person.entityId && !!primary && primary.entityId !== person.entityId;
 
   return (
     <div className="space-y-5">
@@ -228,22 +233,49 @@ function PersonDossierContent({ id }: { id: string }) {
         </div>
       </Card>
 
-      {/* §C.2 — Affiliations */}
+      {/* §C.2 — Affiliations. Prompt 599 §3: current AND past, with entry/
+          exit dates, read from catalog_person_affiliations — the real join
+          table. catalog_people.entity_id is only the current/primary
+          convenience pointer (nullable, ON DELETE SET NULL): a person with
+          no firm keeps its record, and this card says so instead of
+          rendering nothing. Dates are reported honestly: the columns exist
+          but 0 of 3326 rows carried one on 2026-09-07, so "no dates
+          recorded" is the true state of the data, not a rendering gap. */}
       <Card title={`Affiliations (${affiliations.length})`}>
-        {affiliations.length === 0 ? <p className="text-sm text-gray-400">None on file.</p> : (
-          <table className="w-full text-sm">
-            <thead><tr className="text-left text-[11px] uppercase tracking-wide text-gray-400"><th className="py-1">Firm</th><th>Title</th><th>Kind</th><th>Status</th></tr></thead>
-            <tbody>
-              {affiliations.map((a) => (
-                <tr key={a.entityId} className="border-t border-gray-50">
-                  <td className="py-1.5"><Link href={`/backoffice/catalog?q=${encodeURIComponent(a.entityName)}`} className="text-[#0E7490] hover:underline">{a.entityName}</Link></td>
-                  <td className="text-gray-600">{a.title ?? '—'}</td>
-                  <td className="text-gray-500">{a.kind}</td>
-                  <td className="text-gray-500">{a.isPrimary && 'primary'}{a.isPrimary && !a.current ? ', ' : ''}{!a.current && 'past'}{a.isPrimary || !a.current ? '' : 'current'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {affiliations.length === 0 ? (
+          <p className="text-sm text-gray-400">
+            None on file — this person has no current firm. The record stays: nothing deletes a person as a side effect of losing a firm.
+          </p>
+        ) : (
+          <>
+            <p className="mb-2 text-xs text-gray-500">
+              {currentCount} current · {pastCount} past · {datedCount === 0 ? 'no dates recorded' : `dates recorded for ${datedCount} of ${affiliations.length}`}
+            </p>
+            {pointerDisagrees && (
+              <p className="mb-2 rounded bg-amber-50 p-2 text-xs text-amber-800">
+                The current-firm pointer on this person (catalog_people.entity_id) points at a different firm than the primary
+                affiliation below. The affiliations are the truth shown here; the pointer is stale.
+              </p>
+            )}
+            <table className="w-full text-sm">
+              <thead><tr className="text-left text-[11px] uppercase tracking-wide text-gray-400"><th className="py-1">Firm</th><th>Title</th><th>Kind</th><th>Status</th><th>Dates</th></tr></thead>
+              <tbody>
+                {affiliations.map((a) => (
+                  <tr key={`${a.entityId}:${a.kind}`} className={`border-t border-gray-50 ${a.current ? '' : 'text-gray-400'}`}>
+                    <td className="py-1.5"><Link href={`/backoffice/catalog?q=${encodeURIComponent(a.entityName)}`} className="text-[#0E7490] hover:underline">{a.entityName}</Link></td>
+                    <td className={a.current ? 'text-gray-600' : ''}>{a.title ?? '—'}</td>
+                    <td className={a.current ? 'text-gray-500' : ''}>{a.kind}</td>
+                    <td className={a.current ? 'text-gray-500' : ''}>{a.isPrimary && 'primary'}{a.isPrimary && !a.current ? ', ' : ''}{!a.current && 'past'}{a.isPrimary || !a.current ? '' : 'current'}</td>
+                    <td className={a.current ? 'text-gray-500' : ''}>
+                      {a.startedAt || a.endedAt
+                        ? `${a.startedAt ?? '?'} → ${a.endedAt ?? (a.current ? 'present' : '?')}`
+                        : <span className="text-gray-300">no dates recorded</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
         )}
       </Card>
 
