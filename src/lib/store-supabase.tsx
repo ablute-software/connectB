@@ -160,7 +160,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     // Prompt 422 §A — cap_table_entries (0268). Same missing-table-safe
     // pattern as company_facts/ndas above.
     sb.from('cap_table_entries').select('*').eq('org_id', orgId),
-    // Prompt 852 §A — startup_investor_decisions (0338). Same missing-table-
+    // Prompt 852 §A — startup_investor_decisions (0339). Same missing-table-
     // safe pattern as company_facts/ndas above. RLS is is_org_member, so the
     // browser client reads its own org's rows and nothing else.
     sb.from('startup_investor_decisions').select('*').eq('org_id', orgId),
@@ -236,7 +236,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     sherlockNextSnoozes: ((sherlockNextSnoozesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<SherlockNextSnooze>(r)),
     entityReopenSnapshots: ((entityReopenSnapshotsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<EntityReopenSnapshot>(r)),
     capTableEntries: ((capTableEntriesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<CapTableEntry>(r)),
-    // Prompt 852 §A — migration 0338. Reverted rows are loaded too: the
+    // Prompt 852 §A — migration 0339. Reverted rows are loaded too: the
     // Pipeline only acts on LIVE ones (liveDecisionByEntity), and keeping the
     // reverted history in memory is what lets a founder see that a decision
     // was made and undone rather than that it never existed.

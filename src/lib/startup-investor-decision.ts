@@ -9,7 +9,7 @@
 //                   rejection_code. Feeds passReasonAlert ("3+ passes for
 //                   the same reason — the pitch may be the problem"), the
 //                   reawakening prefilter and the Dashboard.
-//   WE said no    — a `startup_investor_decisions` row (migration 0338).
+//   WE said no    — a `startup_investor_decisions` row (migration 0339).
 //                   "We met them before and they were not aligned"; "the
 //                   treatment was poor". Writes NO interaction, touches NO
 //                   entity status, creates NO rejection code.
