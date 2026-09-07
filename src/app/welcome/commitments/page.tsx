@@ -58,6 +58,14 @@ function CommitmentsInner() {
       <div className="commitments-sheet mx-auto w-full max-w-[660px] rounded-[4px] px-6 py-10 pb-32 sm:px-[72px] sm:pb-32 sm:pt-20">
         <div className="commitments-wordmark text-[12px] font-bold uppercase tracking-[0.09em]">{BRAND_NAME}</div>
 
+        {/* Prompt 608 §E asks whether this banner is a SECOND switch someone has
+            to remember to turn off. It is not: `status.gateEnabled` is
+            literally `commitmentsGateEnabled()` from /api/commitments/status,
+            the same value that decides the post-signup redirect. One
+            environment variable, both behaviours — there is no state in which
+            the page is live and still marked as a draft, and nothing to
+            remember on the day it ships. Keep it derived; never give the
+            banner a flag of its own. */}
         {status && !status.gateEnabled && (
           <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             Draft under legal review — this page is not yet shown automatically to new accounts.
@@ -131,7 +139,7 @@ function CommitmentsInner() {
               <Link href={next} className="commitments-cta inline-flex items-center justify-center rounded-[7px] px-[26px] py-[14px] text-[14.5px] font-[650]">
                 Take me to my workspace
               </Link>
-              <span className="text-xs text-white/80">You accepted this version on record.</span>
+              <span className="commitments-onfield text-xs opacity-80">You accepted this version on record.</span>
             </>
           ) : (
             <button disabled={busy || !status} onClick={accept}
@@ -139,7 +147,7 @@ function CommitmentsInner() {
               {busy ? 'Recording…' : 'Take me to my workspace'}
             </button>
           )}
-          {err && <span className="text-xs text-white">{err}</span>}
+          {err && <span className="commitments-onfield text-xs">{err}</span>}
         </div>
       </div>
     </div>
