@@ -79,19 +79,35 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
   const investorIdentity = sum(count('identity'));
   const personClaims = sum(count('claims'));
   const gdpr = sum(count('gdpr'));
-  const trustSafety = sum(count('suspicious'), count('fraud'), count('community'));
-  const reviewTotal = newInvestors + contributions + investorIdentity + personClaims + gdpr + trustSafety;
+  // Prompt 599 §1 — aligned with the board: a fused count is null (unknown),
+  // never a silent partial sum, when any part is null. `community` is a real
+  // number now (queue-summary.ts, same change), so in practice this only
+  // ever nulls out if its tables can't be read — and then the row still
+  // shows, badge-less, exactly as the board shows a dash instead of "0".
+  const trustSafetyParts = [count('suspicious'), count('fraud'), count('community')];
+  const trustSafety: number | null = trustSafetyParts.some((v) => v === null) ? null : sum(...trustSafetyParts);
+  const reviewTotal = newInvestors + contributions + investorIdentity + personClaims + gdpr + (trustSafety ?? 0);
   const attentionTotal = rows ? reviewTotal + supportBadge : 0;
 
   const fromPath = searchParams.get('from') || '/pipeline';
   const fromLabel = searchParams.get('fromLabel') || 'founder';
 
+  // Prompt 599 §1 — usePathname() carries no query string, so a plain
+  // startsWith(href) could never match a tab link like
+  // /backoffice/queue?tab=contributions: those rows never highlighted, and
+  // "All queues" (the bare path) lit up for every queue view instead. For
+  // the two paths whose sidebar rows differ only by ?tab=, active means
+  // path AND tab agree (a bare-path row on those paths means "no tab").
+  // Every other path keeps the original prefix match.
+  const currentTab = searchParams.get('tab');
+  const TABBED_PATHS = new Set(['/backoffice/queue', '/metrics']);
   function item(key: string, label: string, href: string, opts: Partial<WorkspaceNavItem> = {}): WorkspaceNavItem {
-    return {
-      key, label, href, icon: '·',
-      active: href === '/backoffice' ? pathname === '/backoffice' : !!pathname?.startsWith(href),
-      ...opts,
-    };
+    const [hrefPath, hrefQuery] = href.split('?');
+    const hrefTab = hrefQuery ? new URLSearchParams(hrefQuery).get('tab') : null;
+    const active = href === '/backoffice' ? pathname === '/backoffice'
+      : TABBED_PATHS.has(hrefPath) ? (pathname === hrefPath && (currentTab ?? null) === hrefTab)
+      : !!pathname?.startsWith(hrefPath);
+    return { key, label, href, icon: '·', active, ...opts };
   }
 
   const items: WorkspaceNavItem[] = [
@@ -128,7 +144,9 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
     // occupying a row). Following that: it appears the instant it has one.
     ...(gdpr ? [item('review-gdpr', gdprSlaDays !== null && gdprSlaDays <= 7 ? `GDPR — due in ${Math.max(gdprSlaDays, 0)}d` : 'GDPR',
       '/backoffice/queue?tab=gdpr', { icon: '☰', group: 1, badge: gdpr })] : []),
-    ...(trustSafety ? [item('review-trust', 'Trust & safety', '/backoffice/queue?tab=trust_safety', { icon: '☰', group: 1, badge: trustSafety })] : []),
+    ...(trustSafety === null || trustSafety > 0
+      ? [item('review-trust', 'Trust & safety', '/backoffice/queue?tab=trust_safety', { icon: '☰', group: 1, badge: trustSafety || undefined })]
+      : []),
     // Prompt 576 §2 only names Support as feeding Attention's aggregate
     // feed (Phase 2); it doesn't say where the existing ticket-list PAGE
     // itself lives. Review fits it best today — daily, decision-driven.
@@ -148,7 +166,11 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
     item('data-market', 'Market companies', '/backoffice/market-companies', { icon: '▦', group: 3 }),
 
     item('insight-metrics', 'Metrics', '/metrics', { icon: '◆', group: 4, groupLabel: 'Insight' }),
-    item('insight-usage', 'Usage', '/metrics', { icon: '◆', group: 4, dimmed: true }),
+    // Prompt 599 §1 — pointed at bare /metrics, so it opened the Overview
+    // tab and looked identical to the Metrics row above it. Usage is a
+    // real tab on that page; the page now reads ?tab= (case (a): the
+    // destination existed, the link just didn't say which part).
+    item('insight-usage', 'Usage', '/metrics?tab=usage', { icon: '◆', group: 4 }),
     item('insight-costs', 'AI costs', '/backoffice/costs', { icon: '◆', group: 4 }),
     // Prompt 572 §D — the placeholder above this comment used to say "no
     // page exists yet"; it does now (contribution-ranking route + this
@@ -164,10 +186,16 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
     }),
     item('system-email', 'Email delivery', '/backoffice/email-delivery', { icon: '●', group: 5 }),
     item('system-gap', 'Gap engine health', '/backoffice/gap-engine-health', { icon: '●', group: 5 }),
-    // Neither has a browsable page yet — same placeholder treatment as
-    // Contributions by user above, not a data change to invent one.
-    { key: 'system-migrations', label: 'Migrations / ledger', icon: '●', active: false, group: 5, dimmed: true },
-    { key: 'system-audit', label: 'Audit log', icon: '●', active: false, group: 5, dimmed: true },
+    // Prompt 599 §1 — "Audit log" was an href-less placeholder (576 Fase 1)
+    // while the data and a working panel both already existed, buried in
+    // /metrics collapsed by default. It has its own page now.
+    // "Migrations / ledger" is removed rather than kept dimmed: no page, no
+    // API, nothing to open — the prompt's rule is that an entry which
+    // promises and doesn't deliver is worse than an absence, and 598 §A
+    // just spent effort making this column shorter. The ledger lives in
+    // `npm run verify:migrations` today; a page is a separate build, not a
+    // link to invent.
+    item('system-audit', 'Audit log', '/backoffice/audit-log', { icon: '●', group: 5 }),
     // Not named in the prompt's own System list, but a real, existing,
     // completely unlinked page (confirmed: zero links anywhere in the app)
     // — giving it a home is fixing an orphan, not inventing a feature.

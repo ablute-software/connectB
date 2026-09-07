@@ -22,6 +22,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { hasDomainMismatch } from './domain-mismatch';
 import { gdprDueAt } from './gdpr';
+// Prompt 599 §1 — pure (no I/O, no 'server-only'), so it's safe in this
+// file, which the client-side board also imports.
+import { consensusVisibility } from './community-consensus';
 
 export interface QueueSummaryRow {
   key: string;
@@ -59,6 +62,7 @@ export async function getQueueSummaryRows(admin: SupabaseClient): Promise<QueueS
     identitySelfDeclared, identityDocuments, identityClaims,
     gdpr, gdprOldest, suspicious, fraud,
     entitiesForMismatch,
+    consensusRows, consensusSources,
   ] = await Promise.all([
     admin.from('contributions').select('id', { count: 'exact', head: true }).eq('status', 'submitted'),
     admin.from('contributions').select('created_at').eq('status', 'submitted').order('created_at', { ascending: true }).limit(1),
@@ -97,6 +101,18 @@ export async function getQueueSummaryRows(admin: SupabaseClient): Promise<QueueS
     admin.from('entity_fraud_flags').select('id', { count: 'exact', head: true }).eq('status', 'open'),
 
     admin.from('entities').select('id, website, email_domain'),
+
+    // Prompt 599 §1 — `community` used to be "counted when opened" (null),
+    // which made the fused Trust & safety card permanently unknown and let
+    // the sidebar badge (a plain sum treating null as 0) disagree with the
+    // board. The tab's own definition of "needs a decision" is a pure
+    // function — consensusVisibility, from its own lib — applied over the
+    // same two tables its route reads; reusing it here is the one-
+    // definition rule, not a second copy. Table absent (migration 0189
+    // not applied) -> query error -> null, same capability-gated degrade
+    // the route itself does through communityConsensusAvailable().
+    admin.from('catalog_field_consensus').select('id, score'),
+    admin.from('catalog_field_consensus_sources').select('consensus_id'),
   ]);
 
   // A row with no linked member at all (shouldn't happen given the two
@@ -140,6 +156,23 @@ export async function getQueueSummaryRows(admin: SupabaseClient): Promise<QueueS
   const mismatchCount = (entitiesForMismatch.data ?? []).filter((e) =>
     hasDomainMismatch(e.website as string | null, e.email_domain as string | null)).length;
 
+  // Prompt 599 §1 — "pending" (fewer than 2 sources) and "hidden" (score
+  // <= 0) are the two states the Contributions-by-users tab offers a manual
+  // approve/reject for; community/verified are already visible on their
+  // own and need no decision. Null only when the tables can't be read.
+  let communityCount: number | null = null;
+  if (!consensusRows.error && !consensusSources.error) {
+    const sourcesById = new Map<string, number>();
+    for (const s of consensusSources.data ?? []) {
+      const id = s.consensus_id as string;
+      sourcesById.set(id, (sourcesById.get(id) ?? 0) + 1);
+    }
+    communityCount = (consensusRows.data ?? []).filter((r) => {
+      const v = consensusVisibility(r.score as number, sourcesById.get(r.id as string) ?? 0);
+      return v === 'pending' || v === 'hidden';
+    }).length;
+  }
+
   return [
     { key: 'contributions', count: contribs.count ?? 0, oldestDays: daysSince((contribOldest.data ?? [])[0]?.created_at as string) },
     {
@@ -162,7 +195,7 @@ export async function getQueueSummaryRows(admin: SupabaseClient): Promise<QueueS
     { key: 'fraud', count: fraud.count ?? 0 },
     // Counted when opened — see the header for why they are not reimplemented.
     { key: 'key_people', count: null },
-    { key: 'community', count: null },
+    { key: 'community', count: communityCount },
     { key: 'competitor_intel', count: null },
   ];
 }

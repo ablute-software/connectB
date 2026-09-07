@@ -9,9 +9,18 @@ interface Health { configured: boolean; ok: boolean; detail: string }
 export default function ScanHealthPage() {
   const [health, setHealth] = useState<Health | null>(null);
   const [err, setErr] = useState('');
+  // Prompt 599 §1 — "não apresenta nada": the check calls VirusTotal live
+  // and can take seconds, and there was no loading state, so the page sat
+  // header-only. It also fed the route's auth/not-configured shape
+  // ({ok:false, error}) straight into setHealth, which then rendered as
+  // "No key configured" with an undefined detail — the wrong message.
+  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    fetch('/api/backoffice/scan-health').then((r) => r.json()).then(setHealth).catch(() => setErr('Could not check.'));
+    fetch('/api/backoffice/scan-health').then((r) => r.json()).then((body) => {
+      if (body && body.ok === false && typeof body.error === 'string' && !('configured' in body)) { setErr(body.error); return; }
+      setHealth(body);
+    }).catch(() => setErr('Could not check.')).finally(() => setChecking(false));
   }, []);
 
   return (
@@ -22,6 +31,7 @@ export default function ScanHealthPage() {
         with or without a configured key. This checks whether the key, if set, actually authenticates.
       </p>
 
+      {checking && <p className="mt-4 text-sm text-gray-400">Checking the scanner credential live…</p>}
       {err && <p className="mt-4 text-sm text-[#B00000]">{err}</p>}
       {health && (
         <div className={`mt-4 rounded-lg border p-4 ${health.ok ? 'border-emerald-200 bg-emerald-50' : health.configured ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-gray-50'}`}>

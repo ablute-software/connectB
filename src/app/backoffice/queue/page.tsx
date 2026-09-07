@@ -114,7 +114,10 @@ function ContributionsTab() {
     fetch('/api/backoffice/contributions').then((r) => r.json()).then((body) => {
       if (body.ok === false) { setErr(body.error); return; }
       setItems(body.contributions);
-    });
+    // Prompt 599 §1 — a rejected fetch or non-JSON response used to leave
+    // this tab on "Loading…" forever with no message, which is the closest
+    // thing in the code to the "opens nothing" Nuno reported for this link.
+    }).catch((e) => setErr((e as Error).message || 'Failed to load.'));
   }
   useEffect(refresh, []);
 
@@ -429,7 +432,7 @@ function ContributionsByUsersTab() {
     fetch('/api/backoffice/community-consensus').then((r) => r.json()).then((body) => {
       if (body.ok === false) { setErr(body.error); return; }
       setItems(body.items);
-    });
+    }).catch((e) => setErr((e as Error).message || 'Failed to load.'));
   }
   useEffect(refresh, []);
 
@@ -565,7 +568,7 @@ function ClaimsTab() {
     fetch('/api/backoffice/claims').then((r) => r.json()).then((body) => {
       if (body.ok === false) { setErr(body.error); return; }
       setItems(body.claims);
-    });
+    }).catch((e) => setErr((e as Error).message || 'Failed to load.'));
   }
   useEffect(refresh, []);
 
