@@ -37,6 +37,7 @@ import { can, type OrgRole } from '@/lib/permissions';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { PlatformStatusCard } from '@/components/badges/PlatformStatusCard';
 import { PIONEER_LIFETIME_DISCOUNT_PCT } from '@/lib/pioneer';
+import { REFERRAL_BENEFIT_MONTHS } from '@/lib/referral';
 import type { PlanTier } from '@/lib/types';
 
 const PERIOD_LABEL: Record<BillingPeriod, string> = { monthly: 'Monthly', annual: 'Annual' };
@@ -58,8 +59,12 @@ function fmtPromoDate(iso: string | null) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-// Prompt 161 §D.2 — a Pioneer org's own 3 referral codes.
-interface ReferralCode { code: string; redeemedByOrgName: string | null; redeemedAt: string | null; expired: boolean }
+// Prompt 161 §D.2 / Prompt 854 §C.3 — an org's own referral codes, Pioneer's
+// 3×100% or the platform-wide 2×10%.
+interface ReferralCode {
+  code: string; redeemedByOrgName: string | null; redeemedAt: string | null; expired: boolean;
+  discountPct: number; kind: string;
+}
 
 export function PlansPanel() {
   const { db } = useStore();
@@ -374,40 +379,41 @@ export function PlansPanel() {
         )}
       </div>
 
-      {/* Prompt 161 §D.2 — only ever visible to an org that already has the
-          badge (growth idea A3: 3 nominal referral codes per Pioneer, no
-          public page or email flow this phase — copy/paste is enough). */}
-      {me?.pioneerBadge && (
+      {/* Prompt 161 §D.2 — no public page or email flow, copy/paste is
+          enough. Prompt 854 §C.3 — no longer gated on the Pioneer badge:
+          this renders for ANY org holding referral codes, Pioneer's 3×100%
+          or the platform-wide 2×10% every redemption now earns. That one
+          change is what makes the pyramid platform-wide rather than a
+          Pioneer-only perk. */}
+      {referralCodes.length > 0 && (
         <Card title="Invite other founders">
           <p className="mb-2 text-xs text-gray-500">
-            Share these with founders you think should be on Sherlock Deal — each unlocks the same free trial you got.
+            {referralCodes[0].discountPct === 100
+              ? 'Share these with founders you think should be on Sherlock Deal — each unlocks the same free trial you got.'
+              : `Share these with founders you think should be on Sherlock Deal — each gives another founder ${referralCodes[0].discountPct}% off their first ${REFERRAL_BENEFIT_MONTHS} months, and earns them two of their own to pass on.`}
           </p>
-          {referralCodes.length === 0 ? (
-            <p className="text-xs text-gray-400">Your referral codes will appear here.</p>
-          ) : (
-            <div className="space-y-1.5">
-              {referralCodes.map((rc) => (
-                <div key={rc.code} className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm">
-                  <span className="font-mono font-semibold text-gray-800">{rc.code}</span>
-                  {rc.redeemedByOrgName ? (
-                    <span className="text-xs text-gray-400">Used by {rc.redeemedByOrgName}</span>
-                  ) : rc.expired ? (
-                    <span className="text-xs text-amber-700">Expired</span>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(rc.code).catch(() => {});
-                        setCopiedCode(rc.code);
-                        setTimeout(() => setCopiedCode((c) => (c === rc.code ? '' : c)), 1500);
-                      }}
-                      className="shrink-0 rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50">
-                      {copiedCode === rc.code ? 'Copied!' : 'Copy'}
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+          <div className="space-y-1.5">
+            {referralCodes.map((rc) => (
+              <div key={rc.code} className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm">
+                <span className="font-mono font-semibold text-gray-800">{rc.code}</span>
+                {rc.redeemedByOrgName ? (
+                  <span className="text-xs text-gray-400">Used by {rc.redeemedByOrgName}</span>
+                ) : rc.expired ? (
+                  <span className="text-xs text-amber-700">Expired</span>
+                ) : (
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(rc.code).catch(() => {});
+                      setCopiedCode(rc.code);
+                      setTimeout(() => setCopiedCode((c) => (c === rc.code ? '' : c)), 1500);
+                    }}
+                    className="shrink-0 rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50">
+                    {copiedCode === rc.code ? 'Copied!' : 'Copy'}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
         </Card>
       )}
 

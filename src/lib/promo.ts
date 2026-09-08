@@ -110,3 +110,113 @@ export function generatePromoCode(length = 8): string {
 export function normalizePromoCodeInput(raw: string): string {
   return raw.trim().toUpperCase().replace(/\s+/g, '');
 }
+
+// ---------- Prompt 854 §B.5 — the outreach table's own code generator ----------
+
+export type OutreachCategory = 'startup' | 'accelerator' | 'incubator' | 'program';
+
+// The word(s) that merely restate THIS row's own category — dropped so the
+// code spends its characters on what the target is CALLED, not on what it
+// IS (the category column already says that). THE/A/O/DE/DA/DO are always
+// candidates too, regardless of category — English and Portuguese fillers a
+// name commonly opens with ("The Beta Fund", "A Fábrica").
+const OUTREACH_CATEGORY_WORDS: Record<OutreachCategory, string[]> = {
+  startup: ['STARTUP'],
+  accelerator: ['ACELERADORA', 'ACCELERATOR'],
+  incubator: ['INCUBADORA', 'INCUBATOR'],
+  program: ['PROGRAMA', 'PROGRAM'],
+};
+const OUTREACH_UNIVERSAL_FILLERS = ['THE', 'A', 'O', 'DE', 'DA', 'DO'];
+
+// Unicode's "Combining Diacritical Marks" block — built from numeric code
+// points rather than a literal character class so the accent marks
+// themselves never have to appear (or risk being mis-transcribed) in this
+// source file.
+const COMBINING_MARK_START = 0x0300;
+const COMBINING_MARK_END = 0x036f;
+
+function stripDiacritics(s: string): string {
+  let out = '';
+  for (const ch of s) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code < COMBINING_MARK_START || code > COMBINING_MARK_END) out += ch;
+  }
+  return out;
+}
+
+function normalizeOutreachWords(name: string): string[] {
+  // NFD + strip combining marks is the standard diacritics-stripping idiom
+  // (á -> a + ´, then drop the ´) — no extra dependency needed for it.
+  const stripped = stripDiacritics(name.normalize('NFD'));
+  return stripped.toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
+}
+
+/**
+ * A working promo code for an outreach target, at most 10 characters,
+ * ending in the discount value, built from the target's name and category.
+ * Deterministic given `isTaken` (injected, never a live DB call here — the
+ * route composes this with a real uniqueness check against promo_codes).
+ */
+export function buildOutreachPromoCode(
+  name: string, category: OutreachCategory, discountPct: number,
+  isTaken: (code: string) => boolean,
+): string {
+  const suffix = String(discountPct);
+  const budget = Math.max(1, 10 - suffix.length);
+  const stopwords = new Set([...OUTREACH_CATEGORY_WORDS[category], ...OUTREACH_UNIVERSAL_FILLERS]);
+
+  let words = normalizeOutreachWords(name);
+  if (words.length === 0) words = ['X']; // a name that is entirely punctuation
+
+  // Drop a LEADING word only, and only when the list wouldn't end up empty —
+  // a one-word name that happens to BE a stopword (e.g. a target literally
+  // named "Startup") keeps its only word rather than vanishing.
+  const dropped: string[] = [];
+  if (words.length > 1 && stopwords.has(words[0])) dropped.push(words.shift()!);
+
+  let stem = words.join('').slice(0, budget);
+  const floor = Math.min(3, budget);
+  if (stem.length < floor) {
+    // Pad from whatever was dropped first (still real signal from the
+    // name), then the remaining words, so a short stem never comes out
+    // cryptic — "A" alone becomes "AAA...", not a bare "A".
+    const padSource = (dropped.join('') + words.join('')) || 'X';
+    let i = 0;
+    while (stem.length < floor) {
+      stem += padSource[i % padSource.length];
+      i++;
+    }
+    stem = stem.slice(0, budget);
+  }
+  if (!stem) stem = 'X'.slice(0, budget);
+
+  const firstCode = (stem + suffix).slice(0, 10);
+  if (!isTaken(firstCode)) return firstCode;
+
+  // Collision: replace the stem's LAST character through CODE_ALPHABET; once
+  // all 31 are taken for this stem length, shorten the stem by one and start
+  // again. Bounded, and never returns a code longer than 10 or already taken.
+  let currentStem = stem;
+  let attempts = 0;
+  const MAX_ATTEMPTS = 200;
+  while (currentStem.length > 0 && attempts < MAX_ATTEMPTS) {
+    for (const ch of CODE_ALPHABET) {
+      const candidate = (currentStem.slice(0, -1) + ch + suffix).slice(0, 10);
+      attempts++;
+      if (!isTaken(candidate)) return candidate;
+      if (attempts >= MAX_ATTEMPTS) break;
+    }
+    currentStem = currentStem.slice(0, -1);
+  }
+
+  // Give up on a readable stem entirely; a fully random one is still ≤10
+  // chars, still ends in the discount digits, and still checked for
+  // uniqueness before it's returned.
+  let fallback = (generatePromoCode(budget) + suffix).slice(0, 10);
+  let guard = 0;
+  while (isTaken(fallback) && guard < 50) {
+    fallback = (generatePromoCode(budget) + suffix).slice(0, 10);
+    guard++;
+  }
+  return fallback;
+}

@@ -1,7 +1,16 @@
-// Prompt 161 §D.2 — a Pioneer org's own 3 referral codes, for the "Invite
-// other founders" section on Plans & billing. Founder-facing but reads
+// Prompt 161 §D.2 — an org's own referral codes, for the "Invite other
+// founders" section on Plans & billing. Founder-facing but reads
 // promo_codes/promo_redemptions (platform_admin-only RLS, 0040), so this
 // goes through the service role, same as every other promo route.
+//
+// Prompt 854 §C.3 — the query itself is UNCHANGED: it already selected by
+// referral_of_org_id, so it returns whichever set an org has, Pioneer's
+// 3×100% or the platform-wide 2×10%. Only the response shape grew
+// (discountPct/kind) so the card can say what a set is actually worth.
+// pioneerBadgeAvailable() below is still the right gate to keep, unrenamed:
+// it probes whether the `referral_of_org_id` column exists at all
+// (migration 0167), which BOTH referral mechanisms depend on — it is not
+// "is this org a Pioneer".
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
@@ -12,6 +21,11 @@ interface ReferralCode {
   redeemedByOrgName: string | null;
   redeemedAt: string | null;
   expired: boolean;
+  // Prompt 854 §C.3 — added so the "Invite other founders" card can say
+  // what a code is actually worth, now that it's platform-wide and not
+  // every set is the Pioneer 100% free trial any more.
+  discountPct: number;
+  kind: string;
 }
 
 export async function GET() {
@@ -30,7 +44,7 @@ export async function GET() {
 
   const { data: promos } = await admin
     .from('promo_codes')
-    .select('id, code, redeemable_until, promo_redemptions(org_id, redeemed_at, orgs(name))')
+    .select('id, code, kind, discount_pct, redeemable_until, promo_redemptions(org_id, redeemed_at, orgs(name))')
     .eq('referral_of_org_id', member.org_id)
     .is('deleted_at', null)
     .order('created_at', { ascending: true });
@@ -44,6 +58,8 @@ export async function GET() {
       redeemedByOrgName: redemption?.orgs?.name ?? null,
       redeemedAt: redemption?.redeemed_at ?? null,
       expired: !redemption && !!p.redeemable_until && new Date(p.redeemable_until as string) < now,
+      discountPct: p.discount_pct as number,
+      kind: p.kind as string,
     };
   });
 

@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Card } from '@/components/ui';
-import { PLANS, planPriceLabel } from '@/lib/plans';
+import { PLANS, planLabelForSlug, planPriceLabel } from '@/lib/plans';
 import { PROMO_ELIGIBLE_PLANS, discountedPriceEur, generatePromoCode, normalizeDiscountForKind, type PromoKind } from '@/lib/promo';
 import type { PlanTier } from '@/lib/types';
 
@@ -25,23 +25,6 @@ type Redemption = {
 };
 
 const ELIGIBLE_PLAN_ROWS = PLANS.filter((p) => PROMO_ELIGIBLE_PLANS.includes(p.tier));
-
-// Prompt 567 — the list printed applicable_plans straight, so a row read
-// "garage, motherfunding" beside properly formatted labels like "Free trial"
-// and "Redemption window closed". Those are the internal slugs of orgs.plan;
-// the founder-facing names are "List of Suspects" and "It's the butler!", and
-// PLANS already holds them — the creation form above this list has been
-// showing them all along, which is what made the mismatch visible.
-//
-// Deliberately not planName(): planRow() resolves an unknown slug to PLANS[0],
-// so a plan that is ever removed or renamed would silently be labelled
-// "Elementary, my dear" — the free tier — instead of showing that something
-// is off. Looking the row up here and falling back to the raw slug keeps the
-// display honest, and still reads the single source of truth rather than
-// introducing a second slug-to-name table.
-function planLabelForSlug(slug: string): string {
-  return PLANS.find((p) => p.tier === slug)?.name ?? slug;
-}
 
 function fmtDate(iso: string | null) {
   if (!iso) return '—';

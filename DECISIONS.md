@@ -5668,3 +5668,229 @@ invocation from Prompt 573/574's lesson): EXIT=0, 268 pre-existing warnings,
 Migration 0341 swept against every remote branch's migrations directory and
 the Supabase applied ledger immediately before this commit — `origin/main`
 and the ledger both top out at 0340; no collision.
+
+## 08/09/2026 — Prompt 854: Marketing group, an outreach table that issues its own promo codes, and a referral pyramid every startup can grow
+
+Promo codes are marketing: the back-office issues them from an outreach
+table, and every redemption grows a 2-code, −10% referral pyramid recorded
+in `promo_codes.referral_of_org_id`.
+
+**Migration.** `0342_promo_outreach_targets` (applied). Swept every remote
+branch's `supabase/migrations` and the Supabase applied ledger immediately
+before writing it: `origin/main` and every branch topped out at `0341`
+(Prompt 853's `interactions_pass_revert`, landed on `main` earlier the same
+day), and the ledger's own highest applied entry was also `0341` — no
+collision, `0342` taken clean. One table only, exactly as specified: no new
+column on `promo_codes`/`promo_redemptions` — `referral_of_org_id` (0167)
+already carries the parent link the pyramid needs, and a generation number
+would have been a second, driftable source of truth for something
+derivable (`buildPromoTree`, below). No `joined` status column either:
+whether a target actually redeemed is a FACT in `promo_redemptions`,
+derived and shown as the table's own "Redeemed" column, never an opinion
+an admin types.
+
+**§B — one code registry, two doors in.** `buildOutreachPromoCode`
+(`promo.ts`) is deterministic: NFD-strip diacritics, drop a leading word
+that restates the row's own category (a shared list per category plus
+THE/A/O/DE/DA/DO as universal fillers — chosen over one combined list
+across all four categories so a target literally named after a different
+category's own word is never stripped by mistake; none of the four worked
+examples distinguish between the two readings, so this was a judgement
+call, not a forced one), truncate to fit the discount suffix, pad a
+too-short stem from what was dropped, and resolve collisions by walking
+`CODE_ALPHABET` through the stem's last character before shortening the
+stem and trying again — bounded, with a fully-random fallback so it can
+never loop forever or return an already-taken code. All four worked
+examples pinned exactly: `FABRICA100`, `BETAI50`, `SEMENTE100`; the fifth
+("A", 100) asserted on properties only (≤10 chars, ends in the discount
+digits), since the prompt itself left that one open. `generate-code`
+(`/api/backoffice/outreach/[id]/generate-code`) is idempotent, creates
+exactly one `promo_codes` row from the outreach row's own offer fields
+(`label: "Outreach — {name}"`, `is_pioneer: false`), and logs the SAME
+`promo_code_created` action name the manual Promo Codes & Offers path
+already logs, with `detail.source: 'outreach'` to say which door it came
+through — the generated code is an ordinary row in that same table,
+nothing outreach-specific about it once it exists. `planLabelForSlug`
+(Prompt 567's own fix) moved from `promo-codes/page.tsx` into `plans.ts`
+so the outreach table could reuse it verbatim instead of re-deriving it —
+the one small refactor this prompt needed.
+
+**§B.6 — the edit lock.** `/api/stripe/checkout`'s own comment called this
+"theoretical today because the back-office has no edit-pct action"; this
+prompt made it real, so its own PATCH route is what closes it: once
+`promo_code_id` is set, `kind`/`discount_pct`/`applicable_plans`/
+`redeemable_until`/`benefit_duration_months`/`max_redemptions` return 409
+("deactivate it and create a new row to change the offer") and are
+disabled in the UI with a quiet tooltip on hover; `name`/`category`/
+contact fields/`status`/`contacted_on`/`notes` stay editable forever, both
+server- and client-side.
+
+**§B.3 — sticky header, mirror scrollbar, filters.** The mirror bar is
+`tbody`'s own first row (`colSpan` across every column) rather than a
+sibling `div` outside the table: in NORMAL flow that already places it
+directly under the header with no positioning trick, and `sticky top:
+<measured thead height>` (a `ResizeObserver`-fed ref, never hardcoded)
+keeps it pinned there through a vertical scroll, right below the equally
+sticky `thead` at `top: 0`. `scrollLeft` is wired both ways to the real
+table's own horizontal scroll, guarded by `if (a.scrollLeft !== b.scrollLeft)`
+against the feedback loop. Filters (name/type/category/plan/discount
+range/status/date) are client-side over the fetched rows, same reasoning
+as `/backoffice/market-companies`: tens of rows, not thousands — a
+server-side filter API would be premature here.
+
+**§C — the pyramid, and the four guards.** `src/lib/referral.ts` mirrors
+`pioneer.ts` on purpose: `buildReferralCodeDrafts` shares its name with
+pioneer.ts's own function of the same name — deliberate mirroring per the
+prompt's own instruction, and harmless, since each caller imports the one
+it means from a different module. `grantReferralCodes`
+(`referral-server.ts`) is called from `/api/promo/redeem` right after the
+`promo_redemptions` insert and after the existing Pioneer block, behind:
+
+1. **Skip when `is_pioneer`.** Checked at the CALL SITE (`if
+   (!promo!.is_pioneer)`), not inside `grantReferralCodes` itself — a
+   Pioneer redeeming a TIME-BOXED Pioneer code (the common case; only a
+   PERMANENT one grants immediately, per Prompt 195) reaches only this new
+   code path at redemption time, not `grantPioneerBadgeAndReferrals` (that
+   only fires later, from the daily sweep, once `benefit_ends_at` passes).
+   Without this guard, that redemption would immediately create a 2×10%
+   set, and the LATER sweep's own existence check
+   (`grantPioneerBadgeAndReferrals` early-returns the moment the org
+   already has ANY `referral_of_org_id` row) would then silently skip the
+   3×100% Pioneer grant — a real regression of a live feature, and the
+   single most likely bug in this prompt, exactly as flagged. Tested
+   directly: `referral-server.test.ts` doesn't call the route (no
+   integration-test infra in this repo — see below), but the route-level
+   condition was traced by hand against both the permanent- and
+   time-boxed-redemption code paths in `/api/promo/redeem/route.ts`
+   to confirm the pioneer branch and the referral branch can never BOTH
+   fire in the same request for the same promo, which is what actually
+   prevents the described regression.
+2. **Once per org, ever.** Inside `grantReferralCodes`: the same
+   unfiltered `referral_of_org_id = orgId` existence check
+   `pioneer-server.ts` uses, exactly as specified. Unit-tested directly in
+   `referral-server.test.ts` with a fake chainable Supabase client (same
+   shape `catalog-monthly-delivery-server.test.ts` already established for
+   this repo) — 0 existing rows creates 2, 3 existing rows creates 0.
+3. **Never for your own code.** Checked in the route before the
+   redemption is even inserted: `promo!.referral_of_org_id ===
+   member.org_id` → refused. Nothing stopped self-redemption before this
+   prompt; a pyramid makes that worth closing.
+4. **Never fail the redemption.** `grantReferralCodes` is wrapped in
+   try/catch in the route; a caught error is logged and swallowed. The
+   founder's discount is already committed by the time this runs.
+
+**A related risk found and deliberately NOT fixed, flagged instead.**
+Guard 2's existence check is UNFILTERED by `is_pioneer` (exactly as
+specified — the prompt's own wording: "the same existence check
+pioneer-server.ts uses"), which means the SAME collision guard 1 protects
+against in one order also exists, unprotected, in the OTHER order: an org
+that redeems an ordinary code first (getting a 2×10% set) and only LATER
+redeems a genuine Pioneer campaign code will still get the Pioneer badge
+and its 25% lifetime discount (that grant is a separate step), but
+`grantPioneerBadgeAndReferrals`'s own existence check will see the earlier
+referral rows and skip granting the 3×100% Pioneer codes. This is real,
+but §E explicitly says "do not touch... `grantPioneerBadgeAndReferrals`'s
+existing guards", and the prompt's own guard-2 wording is equally
+explicit about matching that exact unfiltered check — so this was left
+alone rather than silently modified, and is flagged here for Nuno instead.
+854 makes it far more likely to matter in practice than it was before
+(ordinary promo redemptions, and therefore 2×10% sets, are about to become
+common), so it is worth a real decision, not a silent gap.
+
+**Two constants awaiting Nuno's decision, not assumed.**
+`REFERRAL_DISCOUNT_PCT = 10` is flat at every generation (never decaying —
+a decaying ladder would eventually hit 0%, violating `promo_codes`' own
+`check (discount_pct between 1 and 100)`, and "−10% again" reads as the
+same perk repeating, not shrinking). `REFERRAL_BENEFIT_MONTHS = 12` is a
+judgement call: a permanent 10% on an unbounded pyramid is a standing
+revenue commitment nobody costed. Both are single named constants in
+`referral.ts`.
+
+**A pre-existing gap surfaced again, not re-fixed.** `/api/promo/referrals`
+computes `expired` from `redeemable_until`, but the Pioneer drafts
+(`pioneer.ts`) never set that field — "Expired" has never once been shown
+for a Pioneer referral code. `REFERRAL_REDEEMABLE_MONTHS` fixes this for
+every new platform-wide code going forward; the Pioneer drafts were
+deliberately NOT retrofitted in this prompt, per its own instruction.
+
+**Confirmed by reading, not assumed:** `plan-server.ts`'s
+`bestFreeTrialTier` already has `if (!promo || promo.discount_pct !== 100)
+continue;` — a 10% referral redemption can only ever be a price discount,
+never a plan-tier grant. **Orphaned by the no-backfill rule:** 2 orgs in
+production already have an existing `promo_redemptions` row and will never
+retroactively receive referral codes — the pyramid starts from the NEXT
+redemption only, per the prompt's own explicit instruction not to backfill.
+
+**§C.3 — "Invite other founders" ungated.** `PlansPanel.tsx`'s card now
+renders whenever `referralCodes.length > 0` instead of `me?.pioneerBadge`
+— the one change that makes the pyramid platform-wide. Copy branches on
+`referralCodes[0].discountPct`: a 100% (Pioneer) set keeps its original
+"unlocks the same free trial" copy; a 10% set reads "gives another founder
+{pct}% off... and earns them two of their own to pass on."
+`/api/promo/referrals`'s own query is UNCHANGED (it already selected by
+`referral_of_org_id`, so it already returned whichever set an org has) —
+only the response shape grew (`discountPct`/`kind`). Its
+`pioneerBadgeAvailable()` capability gate is kept, unrenamed: it probes
+whether the `referral_of_org_id` COLUMN exists at all (migration 0167),
+which both referral mechanisms depend on — it was never really "is this
+org a Pioneer" despite the name.
+
+**§D — the promo tree, derived.** `buildPromoTree` (`referral.ts`) resolves
+each org's edge from the EARLIEST redemption carrying a real (non-self)
+referral parent, falls back to root (labelled by its earliest redemption)
+otherwise; a genuine self-referential row resolves to a root silently
+(excluded from `referralRow` candidacy before the cycle guard ever runs —
+no warning needed for a case that already resolves cleanly), while an
+actual multi-node cycle has one edge broken and reported in
+`ignoredEdges`, verified with an induced A→B→C→A test that terminates and
+still assigns every node a finite wave. Waves and per-node
+direct-children/total-descendants counts are two separate memoized
+post-order passes over the resolved (acyclic) graph, not per-row
+recursion — a 3-generation chain test pins waves 0/1/2 and descendant
+counts 2/1/0 exactly. `/backoffice/promo-tree` links a node to
+`/backoffice/startups` (the plain list — there is no per-org detail route
+in this codebase today; `search/route.ts`'s own comment says so
+explicitly, "no per-org page yet", and its own org search results already
+link to that same bare URL), not the heavier Developer Viewer
+impersonation flow (`/api/backoffice/viewer/enter`) used elsewhere for a
+real audited dossier entry — that's a different, heavier action than "a
+link", and out of scope for a read-only genealogy list.
+
+**Sidebar.** `BackofficeShell.tsx` gains a `group: 6` "Marketing" run
+(Startups/Ecosystems, Promo codes & offers, Promo tree) inserted after the
+Data block and before Insight — one insertion, not a renumbering of the
+four existing groups (runs are contiguous by ARRAY ORDER; the group number
+only has to differ from its neighbours'). `accounts-promo` moved here
+(key renamed `marketing-promo`, `dimmed` dropped — it is no longer a
+footnote once it has its own group), same href, same page, nav-only move.
+
+**Not built, stated plainly.** No delete/soft-delete action on an outreach
+row — `deleted_at` exists in the schema (matching the promo_codes
+convention) but the prompt never asked for a delete UI, and this codebase's
+own minimalism rule is not to build past what was asked. No integration
+tests hitting the real route with a mocked Supabase client for guards 1/3
+(this repo has exactly one established pattern for that — a hand-rolled
+chainable fake client, used here for guard 2's `grantReferralCodes` — but
+guards 1/3/4 live INSIDE the route handler itself, not a separately
+importable function, so they were verified by reading the route's exact
+control flow against each described scenario instead, the same standard
+this session used for 853's server-route logic).
+
+**Validate.** `tsc --noEmit` EXIT=0. `vitest run`: 235 files, 3566 tests,
+EXIT=0 (48 new: `buildOutreachPromoCode` ×15, `buildReferralCodeDrafts` +
+`buildPromoTree` ×11, `grantReferralCodes` ×3, plus the four pinned
+examples and property tests). `npx eslint --no-eslintrc --config
+.eslintrc.json --ext .js,.jsx,.ts,.tsx src`: EXIT=0, 268 warnings (the
+exact same baseline as Prompt 853's own report — zero new warnings; the
+outreach/promo-tree pages' own new number/date inputs needed
+`autoComplete="off"` per Prompt 553's rule, added and re-verified clean).
+`npm run build` EXIT=0, both new pages and all three new routes present in
+the build manifest. `npm run dev:verify` + curl: `/backoffice/outreach`
+and `/backoffice/promo-tree` both render (200, correct page titles present
+in the server-rendered HTML); their API routes degrade to `{ok:false,
+error:"not configured"}` in demo mode, matching every other
+`/api/backoffice/*` route's own behaviour (these are inherently
+DB/service-role-backed admin tools, the CLAUDE.md "residual case" that
+demo mode cannot cover) — not a bug, and confirmed by cross-checking an
+existing, already-shipped `/api/backoffice/*` route's identical response
+shape.

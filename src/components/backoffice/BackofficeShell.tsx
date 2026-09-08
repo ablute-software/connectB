@@ -161,7 +161,6 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
     item('accounts-startups', 'Startups', '/backoffice/startups', { icon: '◉', group: 2, groupLabel: 'Accounts' }),
     item('accounts-investors', 'Investors', '/backoffice/investors', { icon: '◉', group: 2 }),
     item('accounts-plans', 'Plan requests', '/backoffice/plan-requests', { icon: '◉', group: 2, dimmed: true }),
-    item('accounts-promo', 'Promo codes & offers', '/backoffice/promo-codes', { icon: '◉', group: 2, dimmed: true }),
 
     item('data-catalog', 'Catalog', '/backoffice/catalog', { icon: '▦', group: 3, groupLabel: 'Data' }),
     // Prompt 574 §D — real now: org_competitors grouped by market_companies,
@@ -169,6 +168,18 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
     // /api/backoffice/market-companies's own header). Not the same feature
     // as Review's "Competitor intel" tab, which tracks investor_investments.
     item('data-market', 'Market companies', '/backoffice/market-companies', { icon: '▦', group: 3 }),
+
+    // Prompt 854 §B.1 — a new group, one insertion after Data rather than a
+    // renumbering of Insight/System: runs are contiguous by ARRAY ORDER, and
+    // group only has to differ from its neighbours', so group: 6 here is
+    // fine even though 5 (System) comes later in the array.
+    item('marketing-outreach', 'Startups / Ecosystems', '/backoffice/outreach', { icon: '✦', group: 6, groupLabel: 'Marketing' }),
+    // Moved here from group 2 (Accounts) — same href, key renamed from
+    // accounts-promo, dimmed dropped: promo codes are marketing, not account
+    // administration, and it is no longer a footnote once it has its own
+    // group.
+    item('marketing-promo', 'Promo codes & offers', '/backoffice/promo-codes', { icon: '✦', group: 6 }),
+    item('marketing-tree', 'Promo tree', '/backoffice/promo-tree', { icon: '✦', group: 6 }),
 
     item('insight-metrics', 'Metrics', '/metrics', { icon: '◆', group: 4, groupLabel: 'Insight' }),
     // Prompt 599 §1 — pointed at bare /metrics, so it opened the Overview

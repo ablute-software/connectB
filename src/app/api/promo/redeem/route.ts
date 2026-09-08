@@ -11,6 +11,7 @@ import { promoEligibility, computeBenefitEndsAt, normalizePromoCodeInput, type P
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
 import { grantPioneerBadgeAndReferrals } from '@/lib/pioneer-server';
+import { grantReferralCodes } from '@/lib/referral-server';
 import type { PlanTier } from '@/lib/types';
 
 const REASON_MESSAGE: Record<string, string> = {
@@ -53,6 +54,13 @@ export async function POST(req: Request) {
   const reason = promoEligibility(promo, redemptionCount ?? 0, new Date());
   if (reason) return NextResponse.json({ ok: false, error: REASON_MESSAGE[reason] ?? 'That code can’t be used.' }, { status: 400 });
 
+  // Prompt 854 §C.2 guard 3 — nothing stopped self-redemption before the
+  // pyramid existed; a pyramid makes that worth closing, so it's checked
+  // here, before the redemption is even inserted.
+  if (promo!.referral_of_org_id && promo!.referral_of_org_id === member.org_id) {
+    return NextResponse.json({ ok: false, error: 'That’s your own referral code — share it with another founder.' }, { status: 400 });
+  }
+
   const { data: existing } = await admin
     .from('promo_redemptions').select('id')
     .eq('promo_code_id', promo!.id).eq('org_id', member.org_id).maybeSingle();
@@ -84,6 +92,23 @@ export async function POST(req: Request) {
   // through the daily sweep unchanged, same as before.
   if (promo!.is_pioneer && benefitEndsAt == null && (await pioneerBadgeAvailable())) {
     await grantPioneerBadgeAndReferrals(admin, member.org_id, (promo!.applicable_plans as PlanTier[]) ?? []);
+  }
+
+  // Prompt 854 §C.2 — the platform-wide pyramid: every redemption grants 2
+  // referral codes at −10%, guard 1 (skip Pioneer codes — those orgs are on
+  // the 3×100% path above; without this a Pioneer redeeming a time-boxed
+  // code would ALSO get 2×10% codes here, and pioneer-server.ts's daily
+  // sweep would then silently skip its own 3×100% grant, since
+  // grantPioneerBadgeAndReferrals early-returns the moment the org already
+  // has ANY referral_of_org_id row — a real regression of a live feature).
+  // Guard 4 — never let a failure here fail the redemption itself; the
+  // founder's discount is already saved.
+  if (!promo!.is_pioneer) {
+    try {
+      await grantReferralCodes(admin, member.org_id, (promo!.applicable_plans as string[]) ?? []);
+    } catch (e) {
+      console.error('grantReferralCodes failed:', e);
+    }
   }
 
   return NextResponse.json({

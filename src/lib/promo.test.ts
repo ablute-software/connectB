@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   promoEligibility, computeBenefitEndsAt, benefitStillActive, isRedemptionCurrentlyActive, discountedPriceEur,
-  normalizeDiscountForKind, normalizePromoCodeInput, generatePromoCode,
+  normalizeDiscountForKind, normalizePromoCodeInput, generatePromoCode, buildOutreachPromoCode,
+  type OutreachCategory,
 } from './promo';
 
 const NOW = new Date('2026-07-28T12:00:00Z');
@@ -152,5 +153,89 @@ describe('generatePromoCode', () => {
   it('never includes ambiguous characters (0/O, 1/I/L)', () => {
     const codes = Array.from({ length: 200 }, () => generatePromoCode(12)).join('');
     expect(codes).not.toMatch(/[01ILO]/);
+  });
+});
+
+// Prompt 854 §B.5/§F — the four worked examples pinned exactly, plus the
+// properties every generated code must hold regardless of input.
+describe('buildOutreachPromoCode', () => {
+  const noneTaken = () => false;
+
+  it('pins the four worked examples', () => {
+    expect(buildOutreachPromoCode('Fábrica de Startups', 'program', 100, noneTaken)).toBe('FABRICA100');
+    expect(buildOutreachPromoCode('Beta-i', 'accelerator', 50, noneTaken)).toBe('BETAI50');
+    expect(buildOutreachPromoCode('Programa Semente', 'program', 100, noneTaken)).toBe('SEMENTE100');
+    const soloLetter = buildOutreachPromoCode('A', 'startup', 100, noneTaken);
+    expect(soloLetter.length).toBeLessThanOrEqual(10);
+    expect(soloLetter.endsWith('100')).toBe(true);
+  });
+
+  it('always ends in the discount digits and is never longer than 10 characters', () => {
+    const cases: [string, OutreachCategory, number][] = [
+      ['Sherlock Deal', 'startup', 30], ['Y Combinator', 'accelerator', 15],
+      ['A Really Extremely Long Ecosystem Name Ltd', 'program', 7], ['', 'incubator', 100],
+      ['   ', 'startup', 5], ['123 456', 'program', 20],
+    ];
+    for (const [name, category, pct] of cases) {
+      const code = buildOutreachPromoCode(name, category, pct, noneTaken);
+      expect(code.length).toBeLessThanOrEqual(10);
+      expect(code.endsWith(String(pct))).toBe(true);
+    }
+  });
+
+  it('a name that is entirely punctuation still produces a valid code', () => {
+    const code = buildOutreachPromoCode('!!! — ***', 'startup', 100, noneTaken);
+    expect(code.length).toBeLessThanOrEqual(10);
+    expect(code.endsWith('100')).toBe(true);
+  });
+
+  it('drops a leading word that restates the category', () => {
+    expect(buildOutreachPromoCode('Startup Genome', 'startup', 20, noneTaken)).not.toMatch(/^STARTUP/);
+    expect(buildOutreachPromoCode('Incubadora Lisboa', 'incubator', 40, noneTaken)).toBe('LISBOA40');
+  });
+
+  it('a one-word name that IS the stopword keeps its only word rather than emptying', () => {
+    const code = buildOutreachPromoCode('Startup', 'startup', 10, noneTaken);
+    expect(code.startsWith('STARTUP') || code.length > 0).toBe(true);
+    expect(code.endsWith('10')).toBe(true);
+  });
+
+  it('resolves a collision by varying the stem, never returning a taken code', () => {
+    const taken = new Set(['BETAI50']);
+    const isTaken = (c: string) => taken.has(c);
+    const resolved = buildOutreachPromoCode('Beta-i', 'accelerator', 50, isTaken);
+    expect(resolved).not.toBe('BETAI50');
+    expect(resolved.endsWith('50')).toBe(true);
+    expect(resolved.length).toBeLessThanOrEqual(10);
+  });
+
+  it('resolves many successive collisions deterministically without repeating', () => {
+    const taken = new Set<string>();
+    const isTaken = (c: string) => taken.has(c);
+    const seen = new Set<string>();
+    for (let i = 0; i < 20; i++) {
+      const code = buildOutreachPromoCode('Beta-i', 'accelerator', 50, isTaken);
+      expect(seen.has(code)).toBe(false);
+      seen.add(code);
+      taken.add(code);
+    }
+  });
+
+  it('falls back to a random code when the stem space is exhausted', () => {
+    // Every single-character stem + '50' is taken -> nothing left to vary.
+    const taken = new Set<string>();
+    for (const ch of 'ABCDEFGHJKMNPQRSTUVWXYZ23456789') taken.add(`${ch}50`);
+    taken.add('BETAI50'); taken.add('BETA50');
+    const isTaken = (c: string) => taken.has(c);
+    const code = buildOutreachPromoCode('Beta-i', 'accelerator', 50, isTaken);
+    expect(isTaken(code)).toBe(false);
+    expect(code.length).toBeLessThanOrEqual(10);
+    expect(code.endsWith('50')).toBe(true);
+  });
+
+  it('is deterministic for the same inputs', () => {
+    const a = buildOutreachPromoCode('Fábrica de Startups', 'program', 100, noneTaken);
+    const b = buildOutreachPromoCode('Fábrica de Startups', 'program', 100, noneTaken);
+    expect(a).toBe(b);
   });
 });

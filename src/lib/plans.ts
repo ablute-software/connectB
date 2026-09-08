@@ -278,6 +278,17 @@ export function planName(plan: PlanTier): string {
   return planRow(plan).name;
 }
 
+// Prompt 567 — for a slug read from a raw, less-trusted source (a promo
+// code's applicable_plans, a promo_outreach_targets row) where planRow()'s
+// PLANS[0] fallback would silently mislabel an unknown value as the free
+// tier instead of surfacing that something is off. Falls back to the raw
+// slug itself, never a wrong name. Moved here from promo-codes/page.tsx
+// (Prompt 854) so the outreach table can reuse the exact same fix rather
+// than re-deriving it.
+export function planLabelForSlug(slug: string): string {
+  return PLANS.find((p) => p.tier === slug)?.name ?? slug;
+}
+
 // Maps any stored value to a valid tier. Legacy two-tier model: 'free' -> the
 // free 'idea' tier, 'paid' -> the entry paid 'garage' tier. Unknown/empty/null
 // -> 'idea' (the safe, least-privileged default).
