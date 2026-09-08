@@ -44,10 +44,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'entityId and fullName are required.' }, { status: 400 });
   }
 
+  // Prompt 616 §B.1 — Article 14(2)(f) asks where the data came from, and for
+  // a row created here the answer is known exactly: a platform admin typed it.
+  // Recorded, not inferred — this is the only kind of source we can state
+  // rather than reconstruct.
   const { data: person, error: personErr } = await admin.from('catalog_people').insert({
     full_name: body.fullName.trim(), linkedin_url: body.linkedinUrl?.trim() || null, entity_id: body.entityId,
+    source_kind: 'manual', source_confidence: 'recorded', source_recorded_at: new Date().toISOString(),
   }).select().single();
   if (personErr) return NextResponse.json({ ok: false, error: personErr.message }, { status: 500 });
+  // A suppressed person is cancelled by the trigger rather than refused, so a
+  // successful call with no row back is a suppression, not a bug.
+  if (!person) return NextResponse.json({ ok: false, error: 'That person has asked not to be listed.' }, { status: 409 });
 
   const { error: affErr } = await admin.from('catalog_person_affiliations').insert({
     person_id: person.id, entity_id: body.entityId, title: body.title?.trim() || null,
