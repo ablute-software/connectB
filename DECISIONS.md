@@ -5548,3 +5548,123 @@ initializer. Harmless with one sidebar row pointing at it; with three it is
 the Prompt 560 §C soft-navigation bug — an in-route navigation does not
 remount, so the tab would not have changed. Now synced in a `useEffect`,
 which runs after the router commits.
+
+## 08/09/2026 — Prompt 853: closing 852 — the duplicate Pass reason card, and the Revert that was still missing
+
+A pass and a "not a fit for us" are both revertible from the card that shows
+them; reverting restores the stage, keeps the history and leaves closed tasks
+closed, dated 08/09/2026.
+
+**§1 — the duplicate card.** `SherlockInsightBanner.tsx` rendered the pass
+reason twice: 852 §D's `DecisionNotesCards` version, and a second, older
+Prompt 397 §A.4.2 block directly below it with the same content in different
+markup. The second one is deleted. While in there: `lastPassInteraction`
+(and its sibling in `RelationshipSummaryCard.tsx`, which feeds the "accept
+the facts" fallback text) now excludes a reverted pass, and the `source`
+line ("from the classified reply") is set only when `classified_by` is
+actually truthy — it used to be printed unconditionally, which was false for
+every pass recorded through "No interest / over" rather than a classified
+inbound reply.
+
+**§2 — the revert.** Migration **0341** (`interactions_pass_revert`,
+applied) adds `previous_status`, `previous_stage`, `reverted_at`,
+`reverted_by` to `interactions`. Reused the pass interaction's own row
+rather than a new table — the closest existing "decision record" for a
+pass, same shape as `startup_investor_decisions`' own revert pair from 852.
+`previous_status`/`previous_stage` are captured ONLY at the one place a pass
+closes a relationship — `RelationshipSummaryCard`'s "Save as passed" —
+recorded from the real state immediately before the pass (`getStage()`, never
+guessed). A pass with no `previous_status` (predates this migration, or a
+different origin — e.g. a pass recorded through `classifyInteraction`/
+InlineClassify, deliberately out of scope: see below) offers no revert
+control; the server route refuses it with 409 rather than guessing.
+
+`/api/company/revert-pass` mirrors `/api/company/investor-decisions`
+exactly: same `investor_decisions` capability via `canWithMatrix`, same
+service-role write, same idempotent no-op on a double revert. On success it
+restores `entities.status`, upserts `relationship_state.stage` only when a
+`previous_stage` was recorded, and marks the interaction
+`reverted_at`/`reverted_by` — never deletes it, so the pass reason stays
+legible in history and in the back-office audit trail, struck through.
+Tasks the pass closed stay closed (`revertPass` never touches `tasks`); a
+founder who wants one back reopens it themselves. `reopen_trigger` is
+untouched — the founder's own note, still useful either way.
+
+**Both cards, one control.** `DecisionNotesCards.tsx` gained `onRevert?: ()
+=> void` on `DecisionNote`, rendered next to the existing ✎ — same weight,
+never a primary button. `SherlockInsightBanner.tsx` wires it for both
+`not_a_fit` (→ `revertInvestorDecision`, reused from 852 §B, unchanged) and
+`pass` (→ the new `revertPass`), gated on `useOrgCapability('investor_decisions')`
+— the same client-side courtesy `NotAFitAction.tsx` already uses, with the
+route as the real gate — and behind one `useConfirm()` step naming what
+returns: "This puts the investor back in your active pipeline[, and restores
+where things stood before the pass]."
+
+**Teaching the consumers that a pass happened, so they stop treating a
+reverted one as live.** Named directly in the prompt: `priorPassInfo`
+(reawakening.ts), `passReasonAlert` (rules.ts), and the reawakening
+mechanical prefilter. The prefilter needed no change — it reads
+`entities.status`, which the revert itself restores, so a
+reverted-and-restored entity naturally falls out of the `dormant`/`passed`
+filter; covered by a unit test rather than a diff. Beyond the named three,
+revert would have had **zero visible effect** without also fixing
+`effectiveMode` and `derivedStageFromFacts` — both read the raw last-inbound
+interaction's `classification` directly, ignoring `entities.status`
+entirely, so restoring status alone would have left the whole exit-flow
+banner and stepper still reading "closed"/"Decision" forever. Tracing
+`stageExits` (relationship.ts) surfaced a fourth, same-shaped bug on the
+same trip: `lastInboundWasPass` gates `canAdvance` and was not excluding a
+reverted pass either — without it, `entities.status` would come back but the
+stepper's "advance" exit would stay gone, the same class of bug as the other
+three. All four now check `!i.reverted_at` on the last inbound interaction.
+Two further consumers outside the named list, `OverviewPanel`'s Dashboard
+pass-reason breakdown and `ReviewPanel`'s `pipelineStats()` (which feeds the
+founder's own AI investability review — CLAUDE.md's root privacy rule
+applies to what reaches that prompt, not to whether a reverted pass should
+still count in it), got the same one-line fix for consistency: a reverted
+pass is not evidence about the pitch either, in either place. Six other
+`classification === 'pass'` readers were checked and left alone because
+they are already gated behind `mode`/`entity.status`/`ds.derived`, all of
+which the four fixes above already correct — `journeySteps`, `reopenSignal`,
+`nextBestAction`'s own `lastPass` lookup, the documents-page "passed" note,
+`classifyFrozen` (only ever reached once `effectiveMode` already said
+'parked' — unreachable for a just-reverted entity), and `aiNeedsReview`
+(operates on a new AI suggestion, not an existing interaction).
+
+**Scope decision, not asked but reasoned through.** `previous_status`/
+`previous_stage` capture is deliberately NOT added to `classifyInteraction`
+(the InlineClassify pass path) — 853 anchors throughout on "the one in the
+screenshot, written through 'No interest / over'", and the same honesty
+`DecisionNotesCards` already applies ("no card for a note never written")
+extends to "no control for a decision never recorded": a pass from that
+other path simply won't offer a revert button, rather than guessing at a
+prior state that was never captured.
+
+**§2d — the audit trail.** `/api/backoffice/decisions`'s own header comment
+already said reverted decisions are "RETURNED, not hidden" — true for
+`kind=startup`, not true for `kind=passes`: the query never selected
+`interactions.reverted_at`, so the mapped row's `revertedAt` was always
+undefined and the struck-through rendering `DecisionsTab.tsx` already had
+(built for `kind=startup`) never fired for a pass. One-line fix: add
+`reverted_at` to the select, set `revertedAt` on the mapped row. No client
+change needed.
+
+**Not done, stated plainly.** This repo has no component-test
+infrastructure (`@testing-library/react` is not a dependency, and no
+`.test.tsx` exists anywhere in `src`) — adding one for this single feature
+would be a scope expansion beyond what 853 asked for, so the revert UI
+(confirm copy, the ↺ button, capability gating) is covered by manual
+`dev:verify` + `Claude_Browser` verification, not an automated component
+test. The logic risk — the four consumers that needed to stop treating a
+reverted pass as live, plus the two Dashboard/AI-review stat fixes — is
+covered by six new `vitest` unit tests instead, which is where the actual
+behavioral risk lived.
+
+**Validate.** `tsc --noEmit` EXIT=0. `vitest run`: 233 files, 3544 tests,
+EXIT=0 (3538 before this prompt's 6 new cases). `npx eslint --no-eslintrc
+--config .eslintrc.json --ext .js,.jsx,.ts,.tsx src` (the worktree-safe
+invocation from Prompt 573/574's lesson): EXIT=0, 268 pre-existing warnings,
+0 errors, none in a file this prompt touched. `npm run build` EXIT=0.
+Migration 0341 swept against every remote branch's migrations directory and
+the Supabase applied ledger immediately before this commit — `origin/main`
+and the ledger both top out at 0340; no collision.

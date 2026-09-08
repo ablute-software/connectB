@@ -7,7 +7,7 @@ import { useStore } from '@/lib/store';
 import { useParkEntity } from '@/lib/use-park-entity';
 import { useConfirm } from '@/lib/confirm';
 import {
-  STAGE_LABEL, STAGE_ORDER, relationshipSummary, stageExits, PASS_REASON_CATEGORIES,
+  STAGE_LABEL, STAGE_ORDER, relationshipSummary, stageExits, PASS_REASON_CATEGORIES, getStage,
   type WhoseTurn, type Health, type DealMessageTouch,
 } from '@/lib/relationship';
 import { planPark, planPass, planInvested, planSnooze, advanceConfirmation, type ExitPlan } from '@/lib/exit-effects';
@@ -237,8 +237,11 @@ export function RelationshipSummaryCard({
   // cartao de pass reason precisa tambem da categoria e da data do pass (e
   // essa data, nao entity.updated_at, e que data o "Closed" no cartao de
   // datas — updated_at muda com qualquer edicao sem relacao com o fecho).
+  // Prompt 853 §1 — a reverted pass is not live any more; this feeds the
+  // "accept the facts" fallback text below, which must never resurrect a
+  // reason the founder already took back.
   const lastPassInteraction = db.interactions
-    .filter((i) => i.entity_id === entity.id && i.direction === 'in' && i.classification === 'pass')
+    .filter((i) => i.entity_id === entity.id && i.direction === 'in' && i.classification === 'pass' && !i.reverted_at)
     .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at)).at(-1);
   const lastPassReason = lastPassInteraction?.pass_reason;
   const parkedOrClosed = mode !== 'active';
@@ -573,9 +576,15 @@ export function RelationshipSummaryCard({
               disabled={!!noteProblem(passReason) || restartRemaining < 0
                 || (restartNote.trim().length > 0 && restartNote.trim().length < REOPEN_TRIGGER_MIN_LENGTH)}
               onClick={() => {
+                // Prompt 853 §2 — recorded on the interaction itself, at the
+                // one moment we actually know it: what status/stage this
+                // pass is about to overwrite. A later Revert reads these
+                // back rather than guessing — the whole reason "do not
+                // guess" is possible at all.
                 const interaction = logInteraction({
                   entity_id: entity.id, direction: 'in', channel: 'email', content: passReason.trim(),
                   classification: 'pass', pass_reason: passReason.trim(), pass_reason_category: passCat,
+                  previous_status: entity.status, previous_stage: getStage(db, entity.id),
                 });
                 setEntityStatus(entity.id, 'passed');
                 setRelationshipStage(entity.id, 'decision');

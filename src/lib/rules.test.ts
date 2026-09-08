@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildFollowUpTask, LINKEDIN_NOTE_MAX, LOCK_DAYS, lintMessage, preflight } from './rules';
+import { buildFollowUpTask, LINKEDIN_NOTE_MAX, LOCK_DAYS, lintMessage, passReasonAlert, preflight } from './rules';
 import type { Db, Entity, Interaction, Person } from './types';
 
 function makeEntity(overrides: Partial<Entity> & { id: string }): Entity {
@@ -36,6 +36,40 @@ function makeDb(entities: Entity[], people: Person[], interactions: Interaction[
 function seniorityCheck(db: Db, person: Person) {
   return preflight(db, person, null).find((c) => c.key === 'seniority')!;
 }
+
+function makePass(overrides: Partial<Interaction> & { id: string; entity_id: string }): Interaction {
+  return {
+    direction: 'in', channel: 'email', content: '...', occurred_at: '2026-06-01T00:00:00.000Z',
+    classification: 'pass', pass_reason_category: 'valuation', ...overrides,
+  };
+}
+
+// Prompt 853 §2b — a reverted pass must stop feeding "the pitch may be the
+// problem" alert, or a founder correcting a mistaken pass would still see
+// the pattern warning as if nothing changed.
+describe('passReasonAlert — reverted passes are ignored', () => {
+  it('3+ distinct entities passed for the same category: alerts', () => {
+    const db = makeDb(
+      [makeEntity({ id: 'a' }), makeEntity({ id: 'b' }), makeEntity({ id: 'c' })],
+      [],
+      [makePass({ id: 'p1', entity_id: 'a' }), makePass({ id: 'p2', entity_id: 'b' }), makePass({ id: 'p3', entity_id: 'c' })],
+    );
+    expect(passReasonAlert(db)).toEqual({ category: 'valuation', count: 3 });
+  });
+
+  it('one of the three reverted: drops below the threshold, no alert', () => {
+    const db = makeDb(
+      [makeEntity({ id: 'a' }), makeEntity({ id: 'b' }), makeEntity({ id: 'c' })],
+      [],
+      [
+        makePass({ id: 'p1', entity_id: 'a' }),
+        makePass({ id: 'p2', entity_id: 'b' }),
+        makePass({ id: 'p3', entity_id: 'c', reverted_at: '2026-06-05T00:00:00.000Z' }),
+      ],
+    );
+    expect(passReasonAlert(db)).toBeNull();
+  });
+});
 
 describe('preflight — seniority order', () => {
   // Reported case: Adara Ventures, Alberto Gomez (rank 2) about to be

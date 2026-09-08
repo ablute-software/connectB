@@ -5,7 +5,7 @@
 // StoreApi contract (locks, follow-up tasks, overrides, runs semantics).
 import React, { useEffect, useMemo, useState } from 'react';
 import type {
-  AccessGrant, AutomationRun, CompanyFact, Db, DocumentItem, Entity, EntityReopenSnapshot, Folder, FolderKind, Interaction, InteractionDocument, Nda, Person, PersonAffiliation, FundingRound, RoadmapCategory, RoadmapEvent,
+  AccessGrant, AutomationRun, CompanyFact, Db, DocumentItem, Entity, EntityReopenSnapshot, EntityStatus, Folder, FolderKind, Interaction, InteractionDocument, Nda, Person, PersonAffiliation, FundingRound, RelationshipStage, RoadmapCategory, RoadmapEvent,
   InteractionEdit, OrgAxisClassification, StartupInvestorDecision } from './types';
 import { seed } from './data/seed';
 import { liveDecisionByEntity, noteProblem, noteProblemMessage } from './startup-investor-decision';
@@ -508,6 +508,33 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
         startupInvestorDecisions: prev.startupInvestorDecisions.map((d) => d.id === decisionId
           ? { ...d, reverted_at: now, reverted_by: 'demo-user', updated_at: now }
           : d),
+      }));
+      return {};
+    },
+    // Prompt 853 §2 — the pass card's own Revert. previous_status/
+    // previous_stage were recorded on the interaction at pass-save time
+    // (RelationshipSummaryCard); a null previous_status means nothing was
+    // recorded (a pre-853 pass, or a different origin) and this is a no-op
+    // rather than a guess — the UI is expected to hide the control in that
+    // case, but the store stays honest either way. Tasks the pass closed
+    // stay closed (never touched here); reopen_trigger is untouched.
+    async revertPass(interactionId) {
+      const it = db.interactions.find((i) => i.id === interactionId);
+      if (!it || it.classification !== 'pass' || it.reverted_at) return {};
+      if (it.previous_status == null) return { error: 'Nothing recorded to restore for this pass.' };
+      const now = new Date().toISOString();
+      setDb((cur) => ({
+        ...cur,
+        interactions: cur.interactions.map((i) => i.id === interactionId
+          ? { ...i, reverted_at: now, reverted_by: 'demo-user' } : i),
+        entities: cur.entities.map((e) => e.id === it.entity_id
+          ? { ...e, status: it.previous_status as EntityStatus } : e),
+        relationshipState: it.previous_stage
+          ? (cur.relationshipState.some((r) => r.entity_id === it.entity_id)
+            ? cur.relationshipState.map((r) => r.entity_id === it.entity_id
+              ? { ...r, stage: it.previous_stage as RelationshipStage, updated_at: now } : r)
+            : [...cur.relationshipState, { entity_id: it.entity_id, stage: it.previous_stage as RelationshipStage, updated_at: now }])
+          : cur.relationshipState,
       }));
       return {};
     },

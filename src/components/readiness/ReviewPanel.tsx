@@ -290,7 +290,10 @@ export function ReviewPanel() {
   function pipelineStats() {
     const byStatus: Record<string, number> = {};
     for (const e of db.entities) byStatus[e.status] = (byStatus[e.status] ?? 0) + 1;
-    const passes = db.interactions.filter((i) => i.classification === 'pass').length;
+    // Prompt 853 §2b — a reverted pass no longer counts here either; the
+    // founder took the decision back, so the AI review should see the
+    // corrected pipeline, not stale pre-revert counts.
+    const passes = db.interactions.filter((i) => i.classification === 'pass' && !i.reverted_at).length;
     return {
       total_investors: db.entities.length, by_status: byStatus, passes,
       soft_circled_this_round_eur: softCircledThisRound(db.entities),

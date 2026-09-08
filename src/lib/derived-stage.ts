@@ -65,7 +65,11 @@ export function derivedStageFromFacts(db: Db, entityId: string): { stage: Relati
 
   // 1. Um pass classificado é terminal. Ganha a tudo o resto, inclusive a um
   //    meeting anterior: houve reunião e mesmo assim disseram que não.
-  if (lastInbound?.classification === 'pass') {
+  // Prompt 853 §2 — reverted_at is checked here too: a reverted pass is no
+  // longer a "their last reply says no" fact, and without this the stage
+  // strip would keep reading "Decision"/contradicted forever after a
+  // revert, no matter what relationship_state.stage was restored to.
+  if (lastInbound?.classification === 'pass' && !lastInbound.reverted_at) {
     return { stage: 'decision', reason: 'their last reply is classified as a pass' };
   }
 

@@ -47,6 +47,18 @@ describe('derivedStageFromFacts', () => {
     expect(r.stage).toBe('decision');
     expect(r.reason).toContain('pass');
   });
+
+  // Prompt 853 §2b — reverting the pass must make the stepper stop reading
+  // this as a closed decision, or the revert would have no visible effect.
+  it('pass revertido: nao conta como decision, cai para o facto anterior', () => {
+    const m = inter({ id: 'm', direction: 'out', channel: 'meeting', occurred_at: '2026-08-02T10:00:00.000Z' });
+    const p = inter({
+      id: 'p', classification: 'pass', occurred_at: '2026-08-05T10:00:00.000Z',
+      reverted_at: '2026-08-06T10:00:00.000Z',
+    });
+    const r = derivedStageFromFacts(db([OUT, m, p]), 'adara');
+    expect(r.stage).toBe('meeting');
+  });
 });
 
 describe('derivedStage — o caso Adara', () => {

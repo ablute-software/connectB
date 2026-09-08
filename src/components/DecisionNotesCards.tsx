@@ -44,6 +44,10 @@ export interface DecisionNote {
    *  only when the caller actually knows. */
   source?: string | null;
   onEdit?: () => void;
+  // Prompt 853 §2 — 'pass' and 'not_a_fit' are both decisions the founder can
+  // take back. Same weight as the ✎ button, not a primary action: reverting
+  // is available, never pushed.
+  onRevert?: () => void;
 }
 
 const TONE: Record<DecisionNote['kind'], { card: string; title: string; text: string; date: string; label: string }> = {
@@ -70,9 +74,17 @@ export function DecisionNoteCard({ note }: { note: DecisionNote }) {
         <span className={`${TITLE} ${tone.title}`}>
           {tone.label}{note.category ? `: ${categoryLabel(note.category)}` : ''}
         </span>
-        {note.onEdit && (
-          <button onClick={note.onEdit} title="Edit this note"
-            className="ml-auto shrink-0 text-[11px] text-gray-300 hover:text-gray-700">✎</button>
+        {(note.onEdit || note.onRevert) && (
+          <span className="ml-auto flex shrink-0 items-center gap-2">
+            {note.onEdit && (
+              <button onClick={note.onEdit} title="Edit this note"
+                className="text-[11px] text-gray-300 hover:text-gray-700">✎</button>
+            )}
+            {note.onRevert && (
+              <button onClick={note.onRevert} title="Revert this decision"
+                className="text-[11px] text-gray-300 hover:text-gray-700">↺</button>
+            )}
+          </span>
         )}
       </div>
       <p className={`${TEXT} ${tone.text}`}>{note.text}</p>

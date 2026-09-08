@@ -55,6 +55,21 @@ describe('priorPassInfo', () => {
     expect(priorPassInfo([inter({ classification: 'interested' })])).toEqual({});
     expect(priorPassInfo([])).toEqual({});
   });
+
+  // Prompt 853 §2b — a reverted pass is no longer a live "no": a reopen
+  // proposal must never cite a reason the founder already took back.
+  it('skips a reverted pass, falling back to the earlier live one', () => {
+    const its = [
+      inter({ classification: 'pass', pass_reason: 'too early', pass_reason_category: 'stage_too_early', occurred_at: '2023-01-01' }),
+      inter({ classification: 'pass', pass_reason: 'valuation too high', pass_reason_category: 'valuation', occurred_at: '2024-06-01', reverted_at: '2024-07-01' }),
+    ];
+    expect(priorPassInfo(its)).toEqual({ reason: 'too early', category: 'stage_too_early' });
+  });
+
+  it('returns {} when the only pass on record was reverted', () => {
+    const its = [inter({ classification: 'pass', pass_reason: 'valuation too high', occurred_at: '2024-06-01', reverted_at: '2024-07-01' })];
+    expect(priorPassInfo(its)).toEqual({});
+  });
 });
 
 describe('chunk (batched-call size guard)', () => {

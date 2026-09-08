@@ -287,7 +287,10 @@ export function lintMessage(
 export function passReasonAlert(db: Db): { category: string; count: number } | null {
   const byCat = new Map<string, Set<string>>();
   for (const i of db.interactions) {
-    if (i.classification === 'pass' && i.pass_reason_category) {
+    // Prompt 853 §2 — a reverted pass is no longer evidence about the
+    // pitch: the founder took the decision back, so it must stop counting
+    // toward "3+ passes for the same reason".
+    if (i.classification === 'pass' && i.pass_reason_category && !i.reverted_at) {
       const set = byCat.get(i.pass_reason_category) ?? new Set<string>();
       set.add(i.entity_id);
       byCat.set(i.pass_reason_category, set);

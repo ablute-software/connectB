@@ -23,8 +23,12 @@ export function prefilterEntities(entities: Entity[], evaluatedEntityIds: Set<st
 // interaction, not the entity). Returns the most recent pass's reason+category
 // so the proposal can cite the earlier no verbatim.
 export function priorPassInfo(interactions: Interaction[]): { reason?: string; category?: PassReasonCategory } {
+  // Prompt 853 §2 — a reverted pass is not a live "no" any more; skip it so
+  // a reactivation proposal never cites a reason the founder already took
+  // back, and so an entity whose ONLY prior pass was reverted reads as
+  // having none (falls through to the {} return below).
   const passes = interactions
-    .filter((i) => i.classification === 'pass')
+    .filter((i) => i.classification === 'pass' && !i.reverted_at)
     .sort((a, b) => (b.occurred_at ?? '').localeCompare(a.occurred_at ?? ''));
   const latest = passes[0];
   if (!latest) return {};

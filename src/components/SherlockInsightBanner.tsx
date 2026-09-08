@@ -31,6 +31,8 @@ import {
 import { useDecideInterest } from '@/lib/use-decide-interest';
 import { DecisionNotesCards, type DecisionNote } from './DecisionNotesCards';
 import { DECISION_NOTE_MAX, REOPEN_TRIGGER_MIN_LENGTH } from '@/lib/startup-investor-decision';
+import { useOrgCapability } from '@/lib/use-org-capability';
+import { useConfirm } from '@/lib/confirm';
 
 // Prompt 410 §2.3 — how long the post-decision confirmation stays up. Short
 // on purpose ("toast", Nuno's own word) — this isn't an undo window (the
@@ -113,8 +115,14 @@ export function SherlockInsightBanner({
 }) {
   const focusInterest = focus === 'interest';
   const focusOverdue = focus === 'follow_up_overdue';
-  const { db, updateEntity } = useStore();
+  const { db, updateEntity, revertInvestorDecision, revertPass } = useStore();
   const [reopenTriggerDraft, setReopenTriggerDraft] = useState<string | null>(null);
+  // Prompt 853 §2c — both the pass and the "not a fit for us" decision are
+  // revertible from the card that shows them, gated on the same capability
+  // NotAFitAction already gates its own Revert on (852 §B).
+  const canRevertDecisions = useOrgCapability('investor_decisions');
+  const confirm = useConfirm();
+  const [revertError, setRevertError] = useState<string | null>(null);
   // Prompt 410 §2.3 — this banner's own copy of "is there a pending L3
   // interest request for this entity", same source (useInterestRequests)
   // the entity page already reads independently for its own small banner
@@ -140,6 +148,22 @@ export function SherlockInsightBanner({
     window.setTimeout(() => setDecisionToast(null), DECISION_TOAST_MS);
   }
 
+  // Prompt 853 §2c — one sentence naming what returns, then the write. Both
+  // reverts share this: the confirm is the only friction, no separate undo
+  // window afterwards (the write already happened).
+  async function handleRevertNotAFit(decisionId: string) {
+    setRevertError(null);
+    if (!(await confirm({ message: 'This puts the investor back in your active pipeline. Continue?' }))) return;
+    const { error } = await revertInvestorDecision(decisionId);
+    if (error) setRevertError(error);
+  }
+  async function handleRevertPass(interactionId: string) {
+    setRevertError(null);
+    if (!(await confirm({ message: 'This puts the investor back in your active pipeline and restores where things stood before the pass. Continue?' }))) return;
+    const { error } = await revertPass(interactionId);
+    if (error) setRevertError(error);
+  }
+
   const s = relationshipSummary(db, entity.id, new Date(), dealMessageTouches);
   const action = nextBestAction(db, entity.id, new Date(), dealMessageTouches);
   const actionButton = nextBestActionButton(db, entity.id, new Date(), dealMessageTouches);
@@ -147,8 +171,11 @@ export function SherlockInsightBanner({
   const nextContactPreflight = nextContact ? preflightSummary(preflight(db, nextContact, null)) : undefined;
   const ds = derivedStage(db, entity.id);
   const parkedOrClosed = ds.mode !== 'active';
+  // Prompt 853 §2b — a reverted pass is no longer live: skip it so the card
+  // and the "they passed" logic both fall back to "no pass on record" rather
+  // than showing a reason the founder already took back.
   const lastPassInteraction = db.interactions
-    .filter((i) => i.entity_id === entity.id && i.direction === 'in' && i.classification === 'pass')
+    .filter((i) => i.entity_id === entity.id && i.direction === 'in' && i.classification === 'pass' && !i.reverted_at)
     .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at)).at(-1);
   const lastPassReason = lastPassInteraction?.pass_reason;
   // Prompt 852 §A/§D — what the two (or three) cards below the banner show.
@@ -161,12 +188,19 @@ export function SherlockInsightBanner({
     decisionNotes.push({
       kind: 'not_a_fit', category: liveOwnDecision.reason_category ?? null,
       text: liveOwnDecision.note, recordedAt: liveOwnDecision.decided_at,
+      onRevert: canRevertDecisions ? () => void handleRevertNotAFit(liveOwnDecision.id) : undefined,
     });
   }
-  if (lastPassReason) {
+  if (lastPassReason && lastPassInteraction) {
     decisionNotes.push({
-      kind: 'pass', category: lastPassInteraction?.pass_reason_category ?? null,
-      text: lastPassReason, recordedAt: lastPassInteraction?.occurred_at,
+      kind: 'pass', category: lastPassInteraction.pass_reason_category ?? null,
+      text: lastPassReason, recordedAt: lastPassInteraction.occurred_at,
+      // Prompt 853 §1 — only true when this pass really came from a
+      // classified inbound reply (classified_by is set by classifyInteraction
+      // alone, never by the pass form below). A typed "No interest / over"
+      // pass has no classified_by, so the card just prints the date.
+      source: lastPassInteraction.classified_by ? 'from the classified reply' : null,
+      onRevert: canRevertDecisions ? () => void handleRevertPass(lastPassInteraction.id) : undefined,
     });
   }
   if (entity.reopen_trigger) {
@@ -292,6 +326,9 @@ export function SherlockInsightBanner({
           worth showing, and a live "not a fit for us" decision is worth
           showing on any row at all. */}
       {decisionNotes.length > 0 && <DecisionNotesCards notes={decisionNotes} />}
+      {revertError && (
+        <p className="-mt-1 text-[11px] text-[#B00000]">{revertError}</p>
+      )}
 
       {parkedOrClosed && (
         reopenTriggerDraft === null ? (
@@ -346,27 +383,6 @@ export function SherlockInsightBanner({
             </div>
           </div>
         )
-      )}
-
-      {/* Prompt 397 §A.4.2 — pass reason keeps its own card below the
-          banner, same content as before (Prompt 240). */}
-      {parkedOrClosed && lastPassReason && (
-        <div className="-mt-1 rounded-2xl border border-[#f0d5d5] bg-[#FCF4F4] px-4 py-3.5">
-          <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.03em] text-[#7a1f1f]">
-            Pass reason
-            {lastPassInteraction?.pass_reason_category && (
-              <span className="font-normal normal-case tracking-normal text-gray-500">
-                · {lastPassInteraction.pass_reason_category.replace(/_/g, ' ')}
-              </span>
-            )}
-          </div>
-          <div className="mt-1.5 text-[13px] italic leading-relaxed text-gray-800">&ldquo;{lastPassReason}&rdquo;</div>
-          {lastPassInteraction && (
-            <div className="mt-2 text-[11px] text-gray-500">
-              Recorded {lastPassInteraction.occurred_at.slice(0, 10)}, from the classified reply.
-            </div>
-          )}
-        </div>
       )}
 
       {nextContactPreflight && !nextContactPreflight.green && (

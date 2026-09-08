@@ -562,6 +562,19 @@ export interface Interaction {
   // (§9d/§9f), regardless of what occurred_at claims.
   source?: 'manual' | 'import';
   created_at?: string;
+  // Prompt 853 §2 — migration 0341. Recorded ONLY on the pass-and-close flow
+  // (RelationshipSummaryCard's "No interest / over", which also drives
+  // "Move to Decision" -> "Passed"): entities.status/relationship_state.stage
+  // immediately before this pass overwrote them, so a later revert can
+  // restore the real prior state instead of guessing. Absent on every other
+  // interaction, including a pass recorded any other way — no revert control
+  // renders without it.
+  previous_status?: EntityStatus;
+  previous_stage?: RelationshipStage;
+  // Reverting never deletes the interaction — the pass reason stays legible
+  // in history and in the back-office "Passes / Over" tab, struck through.
+  reverted_at?: string;
+  reverted_by?: string;
 }
 
 export interface TaskItem {

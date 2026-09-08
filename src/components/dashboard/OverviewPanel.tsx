@@ -64,7 +64,9 @@ export function OverviewPanel() {
   const joinedAt = db.org.created_at ?? null;
   const [era, setEra] = useEraFilter(db.org.id);
 
-  const passes = interactionsInEra(db.interactions.filter((i) => i.classification === 'pass'), era, joinedAt);
+  // Prompt 853 §2b — a reverted pass is no longer a pass for this stat
+  // either; same correction as passReasonAlert (rules.ts).
+  const passes = interactionsInEra(db.interactions.filter((i) => i.classification === 'pass' && !i.reverted_at), era, joinedAt);
   const eraFunnel = funnelByEra(db, era, joinedAt);
   const funnel = [
     { label: 'contacted', n: eraFunnel.contacted }, { label: 'replied', n: eraFunnel.replied },

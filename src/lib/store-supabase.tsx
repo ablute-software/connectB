@@ -1083,6 +1083,40 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       });
       return {};
     },
+    // Prompt 853 §2 — routed through /api/company/revert-pass (the
+    // investor_decisions gate), not written from the browser client:
+    // interactions/entities/relationship_state have no such fine-grained
+    // enforcement otherwise (only org-membership RLS), and this is the one
+    // write among them that needs it. On success, patched locally from the
+    // interaction's OWN recorded previous_status/previous_stage — never
+    // re-derived — so the commit can never disagree with what the server
+    // just restored.
+    async revertPass(interactionId) {
+      const res = await fetch('/api/company/revert-pass', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ interactionId }),
+      });
+      const b = await res.json().catch(() => null);
+      if (!b?.ok) return { error: b?.error ?? 'Could not revert.' };
+      const cur = dbRef.current;
+      const it = cur.interactions.find((i) => i.id === interactionId);
+      if (!it) return {};
+      const now = new Date().toISOString();
+      commit({
+        ...cur,
+        interactions: cur.interactions.map((i) => i.id === interactionId
+          ? { ...i, reverted_at: now } : i),
+        entities: cur.entities.map((e) => e.id === it.entity_id
+          ? { ...e, status: it.previous_status ?? e.status } : e),
+        relationshipState: it.previous_stage
+          ? (cur.relationshipState.some((r) => r.entity_id === it.entity_id)
+            ? cur.relationshipState.map((r) => r.entity_id === it.entity_id
+              ? { ...r, stage: it.previous_stage as RelationshipStage, updated_at: now } : r)
+            : [...cur.relationshipState, { entity_id: it.entity_id, stage: it.previous_stage as RelationshipStage, updated_at: now }])
+          : cur.relationshipState,
+      });
+      return {};
+    },
     async addRoadmapMilestone(m) {
       const prev = dbRef.current;
       const sortOrder = prev.roadmapMilestones.length

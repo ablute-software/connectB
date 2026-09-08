@@ -127,7 +127,7 @@ export async function GET(req: Request) {
     // null on rows that predate that column, shown as such rather than
     // attributed to whoever happens to be looking.
     const { data, error } = await admin.from('interactions')
-      .select('id, entity_id, org_id, occurred_at, pass_reason, pass_reason_category, classified_by')
+      .select('id, entity_id, org_id, occurred_at, pass_reason, pass_reason_category, classified_by, reverted_at')
       .eq('classification', 'pass').order('occurred_at', { ascending: false });
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     const users = await resolveUsers(admin, (data ?? []).map((i) => i.classified_by as string));
@@ -144,6 +144,9 @@ export async function GET(req: Request) {
         whatsNeeded: entity?.reopen_trigger ?? null,
         founderName: user?.name ?? 'Not recorded',
         founderEmail: user?.email ?? '',
+        // Prompt 853 §2d — the revert audit trail applies to a pass row the
+        // same way it already applies to kind=startup, above.
+        revertedAt: (i.reverted_at as string | null) ?? null,
       };
     });
   }

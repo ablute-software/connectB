@@ -7,7 +7,7 @@ import { createContext, useContext } from 'react';
 import type { SeedLane } from './roadmap-seed';
 import type {
   AccessGrant, ActionType, Automation, CapTableEntry, Channel, Classification, CompanyFact, CompanyPerson, Db,
-  Direction, DocumentItem, DocVisibility, Entity, FitScore, FolderKind, Interaction, InvestorSubmission, Nda, Org, OverrideRule,
+  Direction, DocumentItem, DocVisibility, Entity, EntityStatus, FitScore, FolderKind, Interaction, InvestorSubmission, Nda, Org, OverrideRule,
   PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory, RoadmapEvent,
   RejectionCode, InteractionEdit, OrgAxisClassification } from './types';
 import type { NeglectOutcome } from './neglect-evaluation';
@@ -48,6 +48,12 @@ export type LogInput = {
   // document attachment also backfills the legacy singular `document_id`
   // column above, same as /log's own `document_id` always has.
   attachments?: { documentId?: string; folderId?: string }[];
+  // Prompt 853 §2 — set only by the pass-and-close flow
+  // (RelationshipSummaryCard's "No interest / over"), so a later revert can
+  // restore the real prior state instead of guessing. See Interaction's own
+  // comment on these two fields (types.ts).
+  previous_status?: EntityStatus;
+  previous_stage?: RelationshipStage;
 };
 
 export interface StoreApi {
@@ -428,6 +434,17 @@ export interface StoreApi {
   recordInvestorDecision: (input: { entityId: string; note: string; reasonCategory?: string | null }) => Promise<{ error?: string }>;
   updateInvestorDecision: (input: { decisionId: string; note: string; reasonCategory?: string | null }) => Promise<{ error?: string }>;
   revertInvestorDecision: (decisionId: string) => Promise<{ error?: string }>;
+  // Prompt 853 §2 — the other half of "closing 852": an investor-side pass
+  // that closes a relationship (RelationshipSummaryCard's "No interest /
+  // over") could be recorded but never taken back. Restores
+  // entities.status/relationship_state.stage to what the pass interaction's
+  // own previous_status/previous_stage recorded (migration 0341) — never a
+  // guess — and marks the interaction reverted_at so priorPassInfo/
+  // passReasonAlert stop treating it as a live "no". Tasks the pass closed
+  // stay closed; reopen_trigger is untouched. The real backend routes this
+  // through /api/company/revert-pass, same investor_decisions gate as the
+  // three actions above.
+  revertPass: (interactionId: string) => Promise<{ error?: string }>;
 }
 
 export const StoreCtx = createContext<StoreApi | null>(null);

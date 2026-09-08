@@ -368,6 +368,15 @@ describe('effectiveMode — fechado ganha a parqueado', () => {
   it('activo sem pass continua activo', () => {
     expect(effectiveMode(db(entity({ status: 'contacted' }), [], [withInbound({ classification: 'question' })]), 'e1')).toBe('active');
   });
+
+  // Prompt 853 §2b — a revert restores entities.status, but effectiveMode
+  // reads the raw last-inbound fact FIRST; without this exclusion the entity
+  // would read 'closed' forever regardless of what status was restored to.
+  it('pass revertido + status ja restaurado: active, nao closed', () => {
+    const e = entity({ status: 'contacted' });
+    const pass = withInbound({ classification: 'pass', reverted_at: '2026-08-06T10:00:00.000Z' });
+    expect(effectiveMode(db(e, [], [pass]), 'e1')).toBe('active');
+  });
 });
 
 describe('nextBestAction — a pagina inteira concorda', () => {

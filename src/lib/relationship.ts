@@ -590,7 +590,11 @@ export function stageExits(
     .filter((i) => i.entity_id === entity.id && i.direction === 'in')
     .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at))
     .at(-1);
-  const lastInboundWasPass = lastInbound?.classification === 'pass';
+  // Prompt 853 §2b — a reverted pass must not keep suppressing canAdvance
+  // below; without this a revert would restore entity.status but leave the
+  // stepper's own "advance" exit gone, the same class of bug effectiveMode/
+  // derivedStageFromFacts needed this same guard for.
+  const lastInboundWasPass = lastInbound?.classification === 'pass' && !lastInbound.reverted_at;
   const idx = STAGE_ORDER.indexOf(s.stage);
   const nextStage = STAGE_ORDER[Math.min(idx + 1, STAGE_ORDER.length - 1)];
 
@@ -667,7 +671,14 @@ export function effectiveMode(db: Db, entityId: string): EntityMode {
     .filter((i) => i.entity_id === entityId && i.direction === 'in')
     .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at))
     .at(-1);
-  return lastInbound?.classification === 'pass' ? 'closed' : base;
+  // Prompt 853 §2 — a REVERTED pass must not keep re-closing the
+  // relationship: without this, restoring entities.status (revertPass) would
+  // have no visible effect at all, because this function derives 'closed'
+  // straight from the raw interaction, ignoring status entirely. The pass
+  // button that recorded previous_status only ever fires from an ACTIVE
+  // entity (parkedOrClosed gates it), so falling through to `base` here is
+  // always correct once the pass is reverted — it was 'active' before.
+  return lastInbound?.classification === 'pass' && !lastInbound.reverted_at ? 'closed' : base;
 }
 
 // A data da próxima tarefa pendente da entidade — depois de parquear é a
