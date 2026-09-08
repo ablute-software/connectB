@@ -1,4 +1,39 @@
 -- =============================================================================
+-- PROMPT 620 §A — KEPT, DELIBERATELY, AGAINST THE INSTRUCTION. Measured first.
+--
+-- 620 §A asked for 0142 and 0143 to be deleted, on the reading that they are
+-- the two files that landed in the ledger under other names
+-- (matchdeal_test_flag_admin_functions, matchdeal_deck_symmetric_is_test).
+-- They are not. Those two are 0141 and 0144, which exist in this directory
+-- under exactly those names.
+--
+-- 0143 was deleted, and for a stronger reason than the prompt gave: its body
+-- REPLACES support_tickets_source_check with a five-value list, so applying it
+-- today would silently drop 'blocked' and 'feedback_widget'. It was not a
+-- duplicate, it was a regression waiting for someone to run it.
+--
+-- THIS file is the opposite case: its effect is NOT in production. Measured
+-- 2026-09-08, ten of fourteen startup profiles still diverge, and most have an
+-- EMPTY matchdeal_profiles.sectors against a populated orgs.sectors —
+--
+--   Sherlock Deal        orgs [Enterprise Software & SaaS, AI Data & Analytics]  profile []
+--   Estojo               orgs [AgriTech & FoodTech, ClimateTech, BlueTech]       profile []
+--   Krohnsty             orgs [Longevity AgeTech, AgriTech & FoodTech]           profile []
+--   ...and seven more
+--
+-- matchdeal_eligible_deck() matches on matchdeal_profiles.sectors, so those
+-- ten are being matched on an empty array. Deleting this file would have
+-- thrown away a pending fix for a live defect, not a duplicate.
+--
+-- It stays PROPOSED: it is a data write that changes what investors are shown,
+-- and the file's own header already says it needs Nuno's decision. Neither
+-- 0142 nor 0143 contains a revoke, a grant or an RLS policy, so §A's safety
+-- condition passed for both — but that condition was not the test that
+-- mattered here. The test that mattered was "is the effect already in
+-- production", and for this file the answer is no.
+-- =============================================================================
+
+-- =============================================================================
 -- 0142_backfill_matchdeal_startup_sectors_country.sql
 --
 -- ESTADO: PROPOSTO. NAO APLICADO. Requer decisao do Nuno antes de correr.
