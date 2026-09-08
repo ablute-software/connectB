@@ -23,6 +23,7 @@
 import { useState } from 'react';
 import { browserClient } from '@/lib/supabase';
 import { checkBioLoss } from '@/lib/team-bio-guard';
+import { assertsAbsence, scrubAbsenceClaims } from '@/lib/bio-absence-guard';
 import type { CompanyPerson, Org } from '@/lib/types';
 
 interface VaultDoc { id: string; name: string }
@@ -117,13 +118,28 @@ export function TeamAiFillPanel({ orgId, org, people, updateCompanyPerson, updat
   // that overwrites blind: Replace (the AI draft becomes the bio), Merge
   // (current + draft, both kept, founder can trim afterward via the normal
   // edit field), Keep current (this person's bio is left untouched).
+  // Prompt 621 §D — the guard runs on the WRITE, not only on generation.
+  // What reached production on 2026-09-08 was not a route returning an absence
+  // sentence: it was a PERSON clicking Replace on a draft that already
+  // contained one, three times in three seconds. The database refuses it too
+  // (migration 20260908141802); this exists so the founder gets a sentence
+  // instead of a Postgres error, and so the refusal happens before the write
+  // rather than after it.
+  function refusesAbsence(bio: string): boolean {
+    if (!assertsAbsence(bio) && scrubAbsenceClaims(bio).removed.length === 0) return false;
+    setError('That draft says information was not provided. Edit it or clear it — a bio that announces an absence reads, to an investor, as a judgement about the person.');
+    return true;
+  }
+
   function replaceBio(m: DraftMember) {
+    if (refusesAbsence(m.bio)) return;
     updateCompanyPerson(m.personId, { bio: m.bio.trim() });
     setResolvedMembers((prev) => ({ ...prev, [m.personId]: 'replaced' }));
   }
   function mergeBio(m: DraftMember) {
     const current = (currentBioByPersonId.get(m.personId) ?? '').trim();
     const merged = current ? `${current} ${m.bio.trim()}` : m.bio.trim();
+    if (refusesAbsence(merged)) return;
     updateCompanyPerson(m.personId, { bio: merged });
     setResolvedMembers((prev) => ({ ...prev, [m.personId]: 'merged' }));
   }
