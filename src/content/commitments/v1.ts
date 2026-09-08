@@ -49,8 +49,13 @@ export const COMMITMENT_GROUPS: { key: CommitmentGroup; label: string }[] = [
   { key: 'you_control', label: 'You stay in control' },
 ];
 
-/** The controller named in the Terms (v3, Provider clause). §C question 3 — confirm it is the same entity for the Privacy Policy. */
-export const CONTROLLER_NAME = 'Exotictarget, Lda';
+/**
+ * The controller named in the Terms. Prompt 624 §B — this used to be its own
+ * literal here, which is how the same fact came to be written in three places
+ * and findable in none. Re-exported rather than removed so the page's import
+ * does not change; the value now has exactly one definition.
+ */
+export { CONTROLLER_LEGAL_NAME as CONTROLLER_NAME } from '../../lib/controller';
 
 export const COMMITMENTS_V1: Commitment[] = [
   {
