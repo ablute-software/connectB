@@ -26,7 +26,7 @@ import { RoadmapPanel } from '@/components/company/RoadmapPanel';
 import { PhotosMediaCard } from '@/components/company/PhotosMediaCard';
 import { MiniPitchCard } from '@/components/company/MiniPitchCard';
 import { CompletenessBar } from '@/components/company/CompletenessBar';
-import { WORKSPACE_HEADER_HEIGHT_PX } from '@/components/workspace-shell/WorkspaceHeader';
+import { STICK_BELOW_WORKSPACE_HEADER } from '@/components/workspace-shell/WorkspaceHeader';
 import { SETTINGS_HEADER_OFFSET_PX } from '@/components/company/settings-layout';
 import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import { APP_URL } from '@/lib/brand';
@@ -538,21 +538,25 @@ function SettingsInner() {
           Tailwind generates classes by scanning source TEXT, so a
           `lg:top-[${'${x}'}px]` built at runtime produces no rule at all and fails
           silently. Same shape CompanyPanel already uses for its own offset. */}
-      <div className="lg:sticky lg:top-[var(--workspace-header-height)] lg:z-[5] lg:bg-[#F7F9FA] lg:pb-2"
-        style={{ '--workspace-header-height': `${WORKSPACE_HEADER_HEIGHT_PX}px` } as React.CSSProperties}>
-        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+      <div className="lg:sticky lg:z-[5] lg:bg-[#F7F9FA] lg:pb-2"
+        style={{ top: STICK_BELOW_WORKSPACE_HEADER } as React.CSSProperties}>
+        {/* Prompt 615 §A.1 — title, controls and the preview link on ONE row.
+            The header was taking about a third of a 1366x768 screen before any
+            content appeared; three of those rows were a title row, a card of
+            pills, and two coloured bands. */}
+        <div className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-1">
           <h1 className="text-lg font-bold">About {db.org.name || 'your company'}</h1>
+          <VisibilityToggle kind="startup" />
           {/* Prompt 306 — persistent entry point into the read-only "see how
               investors see this profile" preview. */}
           <Link href="/settings/preview"
-            className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
+            className="ml-auto rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
             👁 See how investors see this profile
           </Link>
         </div>
-        <VisibilityToggle kind="startup" />
         <Tabs items={tabs} active={effectiveTab} onChange={setTab} />
         {isCompanyTab && companyProfileAvailable && (
-          <div className="mt-2" data-tour-id="settings-completeness">
+          <div className="mt-1" data-tour-id="settings-completeness">
             <CompletenessBar pct={pct} missing={missing} orgId={db.org.id} onFlash={setFlashId} />
           </div>
         )}
