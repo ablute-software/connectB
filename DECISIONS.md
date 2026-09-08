@@ -5902,3 +5902,99 @@ DB/service-role-backed admin tools, the CLAUDE.md "residual case" that
 demo mode cannot cover) — not a bug, and confirmed by cross-checking an
 existing, already-shipped `/api/backoffice/*` route's identical response
 shape.
+
+## 08/09/2026 — Prompt 855: Startups / Ecosystems — a row can be deleted, and the promo code stops hiding behind the contact columns
+
+An outreach row is soft-deleted and never takes its promo code with it — a
+code is retired on Promo codes & offers, where it was registered, dated
+08/09/2026.
+
+**No migration needed, and why.** `promo_outreach_targets.deleted_at`
+(migration 0343) and its list query's own `.is('deleted_at', null)` filter
+already existed — the soft delete was designed in from Prompt 854, it just
+had no door. `admin_audit_log.action` is free text with no CHECK
+constraint, so `outreach_target_deleted` needed no schema change either.
+Nothing in this prompt touched the database.
+
+**§A — the route.** `DELETE` added to `src/app/api/backoffice/outreach/[id]/route.ts`,
+next to the existing `PATCH`: `requirePlatformAdmin()` first (same gate
+every sibling route uses — a non-admin gets the same rejection every other
+`/api/backoffice/*` route already gives, verified by reading: it's the
+identical `requirePlatformAdmin()` call, not a separate check that could
+drift from it); loads `id, name, promo_code_id`, 404s if missing or
+already `deleted_at`-stamped (so a double DELETE is a 404, not a second
+audit row — the row simply isn't found the second time); one soft
+`update({ deleted_at, updated_at })`, never a hard delete; one
+`logAdminAction` call. `promo_codes`/`promo_redemptions` are never
+touched — verified with a fixture, the single test that matters most in
+this prompt (see below).
+
+**§A.3 — three confirmations, proportionate to what is lost.**
+1. No code issued (`promo_code_id` null): the × becomes an inline "Delete?
+   · yes / no" on the row itself — no modal.
+2. Code issued, never redeemed: a dialog naming the code, stating plainly
+   that deleting the row never retires the code — it stays live on Promo
+   codes & offers, where it must be deactivated (or deleted) there if the
+   offer itself is being withdrawn.
+3. Code issued AND redeemed: the same dialog, plus the redeeming org
+   names, plus the exact typed-`DELETE`-to-enable-the-button convention
+   `/backoffice/promo-codes`' own soft-delete already uses — reused
+   verbatim (same portal-based dialog shape, same uppercase-tracked input,
+   same disabled-until-typed button), not re-invented.
+
+**§A.4 — the `COLUMN_COUNT`/`colSpan` arithmetic, before and after.**
+Before: `COLUMN_COUNT = 15`, 15 named `<th>` + 1 derived Redeemed `<th>`
+(not counted in the constant) = 16 rendered header cells, `colSpan`s at
+`COLUMN_COUNT + 1 = 16`. After: one leading empty `<th className="w-6">`
+for the delete control pushes `COLUMN_COUNT` to 16 (15 named + delete),
+Redeemed still uncounted, `colSpan`s still `COLUMN_COUNT + 1 = 17`.
+Counted the ACTUAL rendered header row directly rather than trusting the
+arithmetic alone (`grep -o '<th ' page.tsx | wc -l`, and separately the
+per-row `<td ` count): both come back **17**, matching `COLUMN_COUNT + 1`
+exactly — the mirror-scrollbar row and the empty-filtered-state row both
+still span the table correctly, with no ragged edge.
+
+**§B — column reorder.** Promo code moved from position 12 (after Phone)
+to position 10 (immediately after Max redemptions, before Site/Mail/Phone)
+— one `<th>`/`<td>` pair moved together, verbatim: same Generate button,
+same mono code display, same Copy affordance, same `copiedId` state. New
+left-to-right order: delete · Name · Category · Type · Discount % · Plan ·
+Redeemable until · Benefit (mo) · Max redemptions · **Promo code** · Site
+· Mail · Phone · Status · Date · Comment / reply · Redeemed — exactly the
+17-column order specified. Nothing about the data model, filters,
+`patchField`, the offer lock (854 §B.6, still keyed on
+`locked = !!t.promo_code_id`, now sitting immediately to the offer cells'
+right rather than three columns further along), `/api/backoffice/outreach`
+(GET/POST), `generate-code`, the Promo tree, the referral pyramid, or
+`promo.ts`/`referral.ts` changed — this was a reorder, not a rewrite.
+
+**The fixture test — confirmed, not assumed.** Created `zz-test-855-org`
+(is_test=true), a `zz-test-855-target` outreach row, generated its code
+(`ZZTEST85520`), redeemed it with the fixture org, then ran the EXACT same
+single `UPDATE promo_outreach_targets SET deleted_at = now() ...` the
+DELETE route itself runs. Result: `promo_codes` — `active: true,
+deleted_at: null`, row present, unchanged. `promo_redemptions` — the row
+present, unchanged. `promo_outreach_targets` — `deleted_at` set,
+`promo_code_id` still pointing at the code (per §A.2's own instruction:
+never try to reattach it). All four fixture rows deleted afterward,
+verified gone (0 remaining for each).
+
+**Validate.** `tsc --noEmit` EXIT=0. `vitest run`: 235 files, 3566 tests,
+EXIT=0 — unchanged from Prompt 854's own count, since this prompt added no
+new pure module to unit-test (a UI reorder and one route verb, both
+verified by direct reading + the fixture test above, consistent with this
+session's standard for server-route logic that has no separately
+importable function to unit-test). `npx eslint --no-eslintrc --config
+.eslintrc.json --ext .js,.jsx,.ts,.tsx src`: EXIT=0, 268 warnings — the
+exact same baseline as Prompt 854's own report, zero new. `npm run build`
+EXIT=0, `/backoffice/outreach` and all three `/api/backoffice/outreach*`
+routes present in the manifest. `npm run dev:verify`: the page renders
+(200, "Startups / Ecosystems" present in the server-rendered HTML) exactly
+as it did after Prompt 854; a live `curl -X DELETE` against the demo
+server was blocked by this session's own permission classifier as a
+destructive-looking call, so the DELETE route's demo-mode degradation
+(`requirePlatformAdmin()` returning `{ ok:false, error:'not configured' }`
+before touching the DB when Supabase env vars are absent) was confirmed by
+reading — it is the IDENTICAL `requirePlatformAdmin()` call already
+empirically verified working for GET/POST/PATCH on this same route file in
+Prompt 854's own report, not a separate code path that could differ.

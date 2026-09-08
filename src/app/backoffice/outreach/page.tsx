@@ -13,6 +13,7 @@
 // Stripe actually charges. The PATCH route enforces the same lock
 // server-side (409) — this is a courtesy, not the only gate.
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { PLANS, planLabelForSlug } from '@/lib/plans';
 import { PROMO_ELIGIBLE_PLANS, discountedPriceEur, normalizeDiscountForKind, type PromoKind } from '@/lib/promo';
 import type { PlanTier } from '@/lib/types';
@@ -77,6 +78,102 @@ function MirrorScrollRow({
         </div>
       </td>
     </tr>
+  );
+}
+
+// Prompt 855 §A.3 — three confirmation weights, proportionate to what is
+// lost. No code issued: an inline "Delete? · yes / no" on the row, no
+// modal. A code issued (never redeemed, or already redeemed): a dialog
+// that names the code and states plainly that deleting the ROW never
+// retires the CODE — that stays live on Promo codes & offers, exactly like
+// /backoffice/promo-codes' own soft-delete dialog for the same reason,
+// reused here rather than re-invented. Already redeemed adds the redeeming
+// org names and the same typed-DELETE gate that page already uses for a
+// destructive action on a live benefit.
+function DeleteControl({ target, onDeleted }: { target: Target; onDeleted: (id: string) => void }) {
+  const [mode, setMode] = useState<'idle' | 'inlineConfirm' | 'dialog'>('idle');
+  const [deleteTyped, setDeleteTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const hasCode = !!target.promo_code_id;
+  const redeemed = target.redeemed.length > 0;
+  const needsTypedConfirm = hasCode && redeemed;
+
+  function openConfirm() {
+    setErr(''); setDeleteTyped('');
+    setMode(hasCode ? 'dialog' : 'inlineConfirm');
+  }
+
+  async function doDelete() {
+    setBusy(true); setErr('');
+    try {
+      const res = await fetch(`/api/backoffice/outreach/${target.id}`, { method: 'DELETE' });
+      const body = await res.json();
+      if (!body.ok) { setErr(body.error ?? 'Could not delete.'); return; }
+      onDeleted(target.id);
+    } catch {
+      setErr('Could not delete — check your connection.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (mode === 'inlineConfirm') {
+    return (
+      <span className="flex flex-col whitespace-nowrap text-[10px]">
+        <span className="flex items-center gap-1">
+          Delete?
+          <button disabled={busy} onClick={doDelete} className="font-semibold text-[#B00000] hover:underline">yes</button>
+          /
+          <button disabled={busy} onClick={() => setMode('idle')} className="text-gray-400 hover:underline">no</button>
+        </span>
+        {err && <span className="text-[#B00000]">{err}</span>}
+      </span>
+    );
+  }
+
+  return (
+    <>
+      <button onClick={openConfirm} aria-label="Delete row" title="Delete row"
+        className="text-gray-300 hover:text-[#B00000]">×</button>
+      {mode === 'dialog' && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setMode('idle')}>
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-[440px] rounded-2xl bg-white p-6 shadow-2xl">
+            <h2 className="mb-2 text-lg font-semibold text-gray-900">Delete {target.name}?</h2>
+            <p className="text-sm leading-relaxed text-gray-600">
+              A promo code (<span className="font-mono font-semibold text-gray-800">{target.promo_code}</span>) was
+              already issued for this row. Deleting the row never touches the code — it stays live on{' '}
+              <a href="/backoffice/promo-codes" className="text-[#0E7490] hover:underline">Promo codes &amp; offers</a>,
+              where it must be deactivated (or deleted) if the offer itself is being withdrawn.
+              {redeemed && (
+                <> It has already been redeemed by{' '}
+                  <b>{target.redeemed.map((r) => r.orgName).join(', ')}</b> — deleting this row does not change
+                  what they pay.
+                </>
+              )}
+            </p>
+            {needsTypedConfirm && (
+              <>
+                <p className="mt-3 text-xs font-medium text-gray-500">Type DELETE to confirm.</p>
+                <input value={deleteTyped} onChange={(e) => setDeleteTyped(e.target.value)} placeholder="DELETE"
+                  autoComplete="off" autoFocus
+                  className="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm uppercase tracking-wide" />
+              </>
+            )}
+            {err && <p className="mt-2 text-xs text-[#B00000]">{err}</p>}
+            <div className="mt-4 flex gap-2">
+              <button onClick={doDelete} disabled={busy || (needsTypedConfirm && deleteTyped !== 'DELETE')}
+                className="rounded-lg bg-[#B00000] px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-[#900000] disabled:cursor-not-allowed disabled:opacity-40">
+                {busy ? 'Deleting…' : 'Delete row'}
+              </button>
+              <button onClick={() => setMode('idle')} className="rounded-lg border border-gray-200 px-3.5 py-1.5 text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 
@@ -265,6 +362,13 @@ export default function OutreachPage() {
     }
   }
 
+  // Prompt 855 §A.3 — drop it from local state rather than a full refetch;
+  // the server-side soft delete is the source of truth, this is just the UI
+  // catching up to what already happened.
+  function handleDeleted(id: string) {
+    setTargets((cur) => (cur ?? []).filter((t) => t.id !== id));
+  }
+
   async function generateCode(target: Target) {
     setGeneratingId(target.id);
     try {
@@ -297,7 +401,10 @@ export default function OutreachPage() {
     setDiscountMin(''); setDiscountMax(''); setStatusFilter(''); setDateFrom(''); setDateTo('');
   }
 
-  const COLUMN_COUNT = 15;
+  // Prompt 855 §A.4 — +1 for the new leading delete column. The derived
+  // Redeemed column is still the one NOT counted here (colSpan below adds
+  // its own +1 for that, unchanged) — 17 rendered <th> cells in total.
+  const COLUMN_COUNT = 16;
 
   return (
     <div className="space-y-4">
@@ -389,6 +496,7 @@ export default function OutreachPage() {
               <table ref={tableRef} className="w-full min-w-[1900px] text-xs">
                 <thead ref={theadRef} className="sticky top-0 z-20 bg-white">
                   <tr className="border-b border-gray-200 text-left text-[10.5px] font-bold uppercase tracking-wide text-gray-400">
+                    <th className="w-6 px-1 py-2" aria-hidden />
                     <th className="px-2 py-2">Name</th>
                     <th className="px-2 py-2">Category</th>
                     <th className="px-2 py-2">Type</th>
@@ -397,10 +505,10 @@ export default function OutreachPage() {
                     <th className="px-2 py-2">Redeemable until</th>
                     <th className="px-2 py-2">Benefit (mo)</th>
                     <th className="px-2 py-2">Max redemptions</th>
+                    <th className="px-2 py-2">Promo code</th>
                     <th className="px-2 py-2">Site</th>
                     <th className="px-2 py-2">Mail</th>
                     <th className="px-2 py-2">Phone</th>
-                    <th className="px-2 py-2">Promo code</th>
                     <th className="px-2 py-2">Status</th>
                     <th className="px-2 py-2">Date</th>
                     <th className="px-2 py-2">Comment / reply</th>
@@ -419,6 +527,9 @@ export default function OutreachPage() {
                     const effectivePct = normalizeDiscountForKind(t.kind, t.discount_pct);
                     return (
                       <tr key={t.id} className="align-top">
+                        <td className="w-6 px-1 py-1.5">
+                          <DeleteControl target={t} onDeleted={handleDeleted} />
+                        </td>
                         <td className="px-2 py-1.5">
                           {saving && <span className="mr-1 inline-block h-2 w-2 animate-pulse rounded-full bg-[#0E7490]" title="Saving…" />}
                           <input defaultValue={t.name} onBlur={(e) => e.target.value.trim() && e.target.value !== t.name && patchField(t.id, { name: e.target.value.trim() })}
@@ -479,21 +590,6 @@ export default function OutreachPage() {
                             placeholder="∞" className="w-14 rounded border border-transparent px-1 py-0.5 hover:border-gray-200 disabled:text-gray-400" />
                         </td>
                         <td className="px-2 py-1.5">
-                          <input defaultValue={t.website ?? ''} autoComplete="off"
-                            onBlur={(e) => e.target.value !== (t.website ?? '') && patchField(t.id, { website: e.target.value || null })}
-                            className="w-28 rounded border border-transparent px-1 py-0.5 hover:border-gray-200" />
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <input defaultValue={t.email ?? ''} autoComplete="off"
-                            onBlur={(e) => e.target.value !== (t.email ?? '') && patchField(t.id, { email: e.target.value || null })}
-                            className="w-32 rounded border border-transparent px-1 py-0.5 hover:border-gray-200" />
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <input defaultValue={t.phone ?? ''} autoComplete="off"
-                            onBlur={(e) => e.target.value !== (t.phone ?? '') && patchField(t.id, { phone: e.target.value || null })}
-                            className="w-24 rounded border border-transparent px-1 py-0.5 hover:border-gray-200" />
-                        </td>
-                        <td className="px-2 py-1.5">
                           {t.promo_code ? (
                             <span className="flex items-center gap-1">
                               <span className="font-mono font-semibold text-gray-800">{t.promo_code}</span>
@@ -508,6 +604,21 @@ export default function OutreachPage() {
                               {generatingId === t.id ? 'Generating…' : 'Generate'}
                             </button>
                           )}
+                        </td>
+                        <td className="px-2 py-1.5">
+                          <input defaultValue={t.website ?? ''} autoComplete="off"
+                            onBlur={(e) => e.target.value !== (t.website ?? '') && patchField(t.id, { website: e.target.value || null })}
+                            className="w-28 rounded border border-transparent px-1 py-0.5 hover:border-gray-200" />
+                        </td>
+                        <td className="px-2 py-1.5">
+                          <input defaultValue={t.email ?? ''} autoComplete="off"
+                            onBlur={(e) => e.target.value !== (t.email ?? '') && patchField(t.id, { email: e.target.value || null })}
+                            className="w-32 rounded border border-transparent px-1 py-0.5 hover:border-gray-200" />
+                        </td>
+                        <td className="px-2 py-1.5">
+                          <input defaultValue={t.phone ?? ''} autoComplete="off"
+                            onBlur={(e) => e.target.value !== (t.phone ?? '') && patchField(t.id, { phone: e.target.value || null })}
+                            className="w-24 rounded border border-transparent px-1 py-0.5 hover:border-gray-200" />
                         </td>
                         <td className="px-2 py-1.5">
                           <select value={t.status} onChange={(e) => patchField(t.id, { status: e.target.value })}

@@ -5,8 +5,12 @@
 // enforce the lock: once promo_code_id is set, the offer fields become
 // read-only, both here (409) and in the UI (page.tsx disables the inputs).
 // name/contact fields/status/contacted_on/notes stay editable forever.
+//
+// Prompt 855 §A adds DELETE — the soft delete promo_outreach_targets was
+// designed for (deleted_at, 0343) but had no door until now.
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
+import { logAdminAction } from '@/lib/audit';
 import type { OutreachCategory } from '@/lib/promo';
 
 const CATEGORIES: OutreachCategory[] = ['startup', 'accelerator', 'incubator', 'program'];
@@ -61,4 +65,39 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   return NextResponse.json({ ok: true, target: updated });
+}
+
+// Prompt 855 §A — soft delete only, same convention as promo_codes.deleted_at
+// and access_grants.revoked_at elsewhere in this schema. Never touches
+// promo_codes or promo_redemptions: a code generated from this row may
+// already be in a founder's hands, or already redeemed and granting a
+// discount right now — revoking it as a side effect of tidying this list
+// would silently change what someone pays. The offer is retired where
+// offers are retired (Deactivate/Delete on Promo codes & offers), never
+// here. The row keeps its promo_code_id after deletion, so the unique
+// partial index on promo_code_id still holds and the code stays
+// attributable to the target it was issued for; a re-added target gets its
+// OWN new code, never reattaches the old one.
+export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+  const auth = await requirePlatformAdmin();
+  if ('error' in auth) return auth.error;
+  const { admin, userId } = auth;
+
+  const { data: target, error: fetchErr } = await admin
+    .from('promo_outreach_targets').select('id, name, promo_code_id')
+    .eq('id', params.id).is('deleted_at', null).maybeSingle();
+  if (fetchErr) return NextResponse.json({ ok: false, error: fetchErr.message }, { status: 500 });
+  if (!target) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
+
+  const now = new Date().toISOString();
+  const { error } = await admin
+    .from('promo_outreach_targets').update({ deleted_at: now, updated_at: now }).eq('id', params.id);
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+  await logAdminAction(admin, {
+    adminUserId: userId, action: 'outreach_target_deleted', subjectType: 'outreach_target', subjectId: target.id,
+    detail: { name: target.name, promo_code_id: target.promo_code_id },
+  });
+
+  return NextResponse.json({ ok: true });
 }
