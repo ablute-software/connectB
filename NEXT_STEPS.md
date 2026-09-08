@@ -41,6 +41,8 @@ The "1299 unlinked people" figure was never a linking backlog. One rule
 
 LinkedIn readable through the catalog after linking: **22** rows. Visible pipeline-side: **0** — §1, first row.
 
+> **Prompt 618 §A — "readable" here means readable BY A PERSON, never by us.** Measured 2026-09-08: `linkedin.com/in/<handle>/` answers a server 301 then 404, so the stored URLs are an identity anchor for research, a link a human clicks, and the stable suppression key of 616 §B.4 — not a source we can fetch. Nothing should be planned on the assumption that these 1 883 URLs can be read; see DECISIONS.md, "The LinkedIn URL is an identifier, never a source".
+
 ## 4. The pending-decision queue (needs Nuno)
 
 1. **Key people → "Apply selected"**: validate the 596 fix on a small selection before any batch (596 §A: the queue was 105× wrong from PostgREST's silent 1000-row cap).

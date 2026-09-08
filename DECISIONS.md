@@ -5998,3 +5998,54 @@ before touching the DB when Supabase env vars are absent) was confirmed by
 reading — it is the IDENTICAL `requirePlatformAdmin()` call already
 empirically verified working for GET/POST/PATCH on this same route file in
 Prompt 854's own report, not a separate code path that could differ.
+---
+
+## The LinkedIn URL is an identifier, never a source (Prompt 618 §A, 08/09/2026)
+
+**The rule.** `catalog_people.linkedin_url` and `company_people.linkedin_url`
+are an IDENTITY ANCHOR, a link for a human to click, and the stable key that
+makes suppression survive deleting a row. They are not a source of data, and
+nothing in this codebase may be written on the assumption that we can read
+them. Prompt 600's "LinkedIn door" is not a door.
+
+**Measured, on the exact URL that was on file** (`company_people` for org
+`48a7c481…`, 2026-09-08):
+
+```
+https://www.linkedin.com/in/nunomarujo/  →  301  →  .../in/nunomarujo
+.../in/nunomarujo                        →  404
+```
+
+LinkedIn answers an unauthenticated datacentre fetch with 404. There is no
+version of "read the column properly" that makes the page readable, so Prompt
+613 §C.1's instruction — "o `linkedin_url` entra de facto na pesquisa" — was
+not satisfiable as written, and saying so was the fix. What changed instead is
+the ROLE of the value: it now reaches the model as the thing that says WHICH
+person, for a web search that can reach public pages LinkedIn's own server
+will not serve us.
+
+**A second, separable defect found on the way**, and it is the one that would
+have kept biting: `redirect: 'manual'` is correct and load-bearing against
+SSRF, but the fetcher then read `!res.ok` as failure — and a 301 is not ok.
+The canonical profile link LinkedIn hands you when you copy it ENDS IN A
+SLASH, so the commonest stored form was guaranteed to be discarded before the
+login-wall check ever ran. Same-host redirects are now followed by hand, with
+the allowlist re-checked at every hop.
+
+**What this settles.** The question was whether the catalogue's 1 883 stored
+LinkedIn URLs were wasted work. They were not: they were misclassified. Three
+real uses remain, and all three are live —
+
+1. identity anchor for research (613 §C);
+2. a link a human clicks (581 §C.5);
+3. `linkedin_url_normalized` as the stable suppression key, which is what
+   makes Article 14 objection survive re-collection (616 §B.4).
+
+**The general form, because this is the fourth time this codebase has learned
+it.** A fetch path that swallows every failure with `continue` cannot tell you
+it has never worked. This one had never returned a single snippet, and the
+symptom that surfaced was not "LinkedIn is unreachable" but a bio that said
+"No additional information was provided in the materials" — a false statement
+about the founder's own materials, shown to the founder. Before trusting a
+source, measure that it answers; before shipping a silent fallback, ask what
+it will look like from the outside when the source never answers at all.
