@@ -319,6 +319,8 @@ export interface CompanyPerson {
   email?: string;
   bio?: string;
   photo_url?: string;
+  /** Prompt 613 §F — null/absent until someone answers. Never defaulted. */
+  commitment?: TeamCommitment | null;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -634,6 +636,12 @@ export interface TaskItem {
 // (compromisso pago); a ordem numérica é a da hierarquia acordada, não uma
 // escala "maior = melhor".
 export type EvidenceClass = 1 | 2 | 3 | 4 | 5;
+// Prompt 613 §F — how much of themselves a person gives this company.
+// NULLABLE everywhere and never defaulted: assuming full-time would be
+// inventing a fact about a real person, and it is the one fact on this table
+// an investor is certain to test.
+export type TeamCommitment = 'full_time' | 'part_time';
+
 export type ClaimCategory =
   | 'problema' | 'solucao' | 'prova_tecnica' | 'validacao_externa'
   | 'tracao_gtm' | 'equipa' | 'mercado_timing' | 'funding' | 'ask';

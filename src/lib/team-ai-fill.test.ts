@@ -12,9 +12,17 @@ describe('rawTeamFillToResult', () => {
       members: [{ person_name: 'Nuno Marujo', bio: 'Founder with a healthtech background.' }],
       team_synergy: 'Strong technical and commercial complementarity.',
     }, ROSTER);
+    // Prompt 613 §D — a draft now carries the three narrative parts as well as
+    // the flat bio, and §C.3 adds the per-person question. Both are null/empty
+    // here because this fixture is a pre-613 response shape, which still has
+    // to parse.
     expect(out).toEqual({
-      members: [{ personId: 'p1', personName: 'Nuno Marujo', bio: 'Founder with a healthtech background.' }],
+      members: [{
+        personId: 'p1', personName: 'Nuno Marujo', bio: 'Founder with a healthtech background.',
+        positioning: null, proofPoints: [], connection: null, question: null,
+      }],
       teamSynergy: 'Strong technical and commercial complementarity.',
+      questions: [],
     });
   });
 
@@ -37,9 +45,9 @@ describe('rawTeamFillToResult', () => {
   });
 
   it('never throws on malformed/absent input', () => {
-    expect(rawTeamFillToResult(null, ROSTER)).toEqual({ members: [], teamSynergy: null });
-    expect(rawTeamFillToResult({}, ROSTER)).toEqual({ members: [], teamSynergy: null });
-    expect(rawTeamFillToResult('not an object', ROSTER)).toEqual({ members: [], teamSynergy: null });
+    expect(rawTeamFillToResult(null, ROSTER)).toEqual({ members: [], teamSynergy: null, questions: [] });
+    expect(rawTeamFillToResult({}, ROSTER)).toEqual({ members: [], teamSynergy: null, questions: [] });
+    expect(rawTeamFillToResult('not an object', ROSTER)).toEqual({ members: [], teamSynergy: null, questions: [] });
   });
 });
 

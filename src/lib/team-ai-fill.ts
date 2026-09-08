@@ -7,10 +7,41 @@
 // exactly the same "never invent a person" guardrail investor-facing
 // extraction already applies to programs/named_entities.
 import { removeFactSentencesFromBio, stripUnverifiedHqClaims, detectFoundedYearConflict, capConfidenceOnConflict } from './team-bio-guard';
+import { scrubAbsenceClaims, fallbackQuestion } from './bio-absence-guard';
 
 export interface RosterMember { id: string; fullName: string; title: string | null; currentBio?: string | null }
-export interface TeamBioDraft { personId: string; personName: string; bio: string }
-export interface TeamFillResult { members: TeamBioDraft[]; teamSynergy: string | null }
+
+// Prompt 613 §D — the shape of what Sherlock produces about a person changes
+// from a CV to a position. Nuno's own words for the problem: many founders
+// "não sabem como se vender ou têm incapacidade de se apresentarem não como
+// candidatos a trabalho por conta de outrem, mas como
+// empreendedores-empresários-especialistas". The bio that shipped was exactly
+// that failure — third-person institutional register, posts in chronological
+// order. An investor does not read CVs, they read bets.
+//
+// Three parts, and the middle one carries its own sources: a positioning
+// line, two or three proof points with where each came from, and a line
+// saying why this person, in this company, now.
+//
+// The line, and it is commercial rather than moral: strengthen the FRAMING,
+// never invent the FACT. An inflated bio does not die on the screen, it dies
+// in diligence, and the founder loses the round because of it. The same
+// facts, told as an operator instead of as a candidate.
+export interface TeamBioNarrative {
+  positioning: string | null;
+  proofPoints: { statement: string; source: string | null }[];
+  connection: string | null;
+}
+export interface TeamBioDraft extends TeamBioNarrative {
+  personId: string;
+  personName: string;
+  bio: string;
+  /** §C.3 — where material is missing, ONE question, never an assertion of absence. */
+  question: string | null;
+}
+/** §C.3 — one question, about one person, that a founder answers in a sentence. */
+export interface TeamMemberQuestion { personId: string; personName: string; question: string }
+export interface TeamFillResult { members: TeamBioDraft[]; teamSynergy: string | null; questions: TeamMemberQuestion[] }
 
 export const TEAM_FILL_TOOL_SCHEMA = {
   type: 'object',
@@ -22,9 +53,27 @@ export const TEAM_FILL_TOOL_SCHEMA = {
         type: 'object',
         properties: {
           person_name: { type: 'string', description: 'Must match one of the team member names given to you exactly.' },
-          bio: { type: 'string', description: 'A factual 2-3 sentence bio, only from what the provided material actually says.' },
+          bio: { type: 'string', description: 'A factual 2-3 sentence bio, only from what the provided material actually says. Leave empty rather than writing that no information was available.' },
+          // Prompt 613 §D — the three parts. Optional in the schema so an
+          // older/─degraded response still parses into a bio; the UI shows the
+          // parts when they are there and the flat bio when they are not.
+          positioning: { type: 'string', description: 'ONE line: what this person IS, in the business this company is. An operator, not a job candidate. Never a list of past titles.' },
+          proof_points: {
+            type: 'array',
+            description: 'Two or three points that earn the positioning line, each taken from material actually provided, each saying where it came from.',
+            items: {
+              type: 'object',
+              properties: {
+                statement: { type: 'string' },
+                source: { type: 'string', description: 'Where this came from: the document name, or the LinkedIn profile, or the founder.' },
+              },
+              required: ['statement'],
+            },
+          },
+          connection: { type: 'string', description: 'ONE line: why THIS person, in THIS company, now.' },
+          question: { type: 'string', description: 'If material is missing for one of the parts, the SINGLE question to ask the founder. Never assert that information was not provided — ask for it.' },
         },
-        required: ['person_name', 'bio'],
+        required: ['person_name'],
       },
     },
     team_synergy: {
@@ -85,26 +134,88 @@ function isHttpUrl(s: unknown): s is string {
   }
 }
 
-interface RawMember { person_name?: unknown; bio?: unknown }
+interface RawProofPoint { statement?: unknown; source?: unknown }
+interface RawMember {
+  person_name?: unknown; bio?: unknown;
+  positioning?: unknown; proof_points?: unknown; connection?: unknown; question?: unknown;
+}
+
+function cleanLine(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const scrubbed = scrubAbsenceClaims(v).text;
+  return scrubbed || null;
+}
+
+function parseProofPoints(raw: unknown): { statement: string; source: string | null }[] {
+  if (!Array.isArray(raw)) return [];
+  const out: { statement: string; source: string | null }[] = [];
+  for (const p of raw as RawProofPoint[]) {
+    if (!p || typeof p.statement !== 'string') continue;
+    const statement = scrubAbsenceClaims(p.statement).text;
+    if (!statement) continue;
+    out.push({ statement, source: typeof p.source === 'string' && p.source.trim() ? p.source.trim() : null });
+  }
+  return out.slice(0, 3);
+}
 
 function parseMembers(raw: unknown, roster: RosterMember[]): TeamBioDraft[] {
   const byNormalizedName = new Map(roster.map((m) => [normalizeName(m.fullName), m]));
   if (!Array.isArray(raw)) return [];
   const out: TeamBioDraft[] = [];
   for (const m of raw as RawMember[]) {
-    if (!m || typeof m.person_name !== 'string' || typeof m.bio !== 'string' || !m.bio.trim()) continue;
+    if (!m || typeof m.person_name !== 'string') continue;
     const match = byNormalizedName.get(normalizeName(m.person_name));
     if (!match) continue; // never a person outside the founder's own roster
-    out.push({ personId: match.id, personName: match.fullName, bio: m.bio.trim() });
+
+    // Prompt 613 §C.3 — every free-text field goes through the absence guard
+    // before it can reach a screen. The model is instructed not to write
+    // these sentences; the instruction is not the enforcement.
+    const bio = typeof m.bio === 'string' ? scrubAbsenceClaims(m.bio).text : '';
+    const positioning = cleanLine(m.positioning);
+    const proofPoints = parseProofPoints(m.proof_points);
+    const connection = cleanLine(m.connection);
+    const modelQuestion = typeof m.question === 'string' && m.question.trim() ? m.question.trim() : null;
+
+    const hasSomething = !!bio || !!positioning || proofPoints.length > 0 || !!connection;
+    // An entry with NOTHING usable stays out of `members` on purpose, and the
+    // reason is concrete rather than tidy: the review panel's "Replace" writes
+    // the draft straight over the saved bio, so an empty draft in this list is
+    // a one-click way to erase a bio the founder already had. It becomes a
+    // QUESTION instead (§C.3: "o Sherlock pergunta, não afirma") — see
+    // parseQuestions below.
+    if (!hasSomething) continue;
+
+    out.push({ personId: match.id, personName: match.fullName, bio, positioning, proofPoints, connection, question: modelQuestion });
+  }
+  return out;
+}
+
+// The other half of the same pass: everyone the model returned but had
+// nothing usable to say about. Never an assertion that the materials were
+// empty — one question, and the founder can answer it in a sentence.
+function parseQuestions(raw: unknown, roster: RosterMember[], drafted: Set<string>): TeamMemberQuestion[] {
+  const byNormalizedName = new Map(roster.map((m) => [normalizeName(m.fullName), m]));
+  if (!Array.isArray(raw)) return [];
+  const out: TeamMemberQuestion[] = [];
+  const seen = new Set<string>();
+  for (const m of raw as RawMember[]) {
+    if (!m || typeof m.person_name !== 'string') continue;
+    const match = byNormalizedName.get(normalizeName(m.person_name));
+    if (!match || drafted.has(match.id) || seen.has(match.id)) continue;
+    const modelQuestion = typeof m.question === 'string' && m.question.trim() ? m.question.trim() : null;
+    seen.add(match.id);
+    out.push({ personId: match.id, personName: match.fullName, question: modelQuestion ?? fallbackQuestion(match.fullName, match.title) });
   }
   return out;
 }
 
 export function rawTeamFillToResult(raw: unknown, roster: RosterMember[]): TeamFillResult {
   const r = (raw && typeof raw === 'object' ? raw : {}) as { members?: unknown; team_synergy?: unknown };
+  const members = parseMembers(r.members, roster);
   return {
-    members: parseMembers(r.members, roster),
+    members,
     teamSynergy: typeof r.team_synergy === 'string' && r.team_synergy.trim() ? r.team_synergy.trim() : null,
+    questions: parseQuestions(r.members, roster, new Set(members.map((m) => m.personId))),
   };
 }
 
@@ -160,5 +271,5 @@ export function rawTeamResearchToResult(raw: unknown, roster: RosterMember[], or
     return { ...m, bio: afterHq.bio };
   });
 
-  return { members, teamSynergy: base.teamSynergy, facts, conflicts };
+  return { members, teamSynergy: base.teamSynergy, questions: base.questions, facts, conflicts };
 }

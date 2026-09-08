@@ -9,10 +9,36 @@ import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { CompletenessField } from './CompletenessField';
 import type { CompletenessField as Field } from '@/lib/companyCompleteness';
-import type { CompanyPerson } from '@/lib/types';
+import type { CompanyPerson, TeamCommitment } from '@/lib/types';
+import { normalizeLinkedInUrl } from '@/lib/linkedin-url';
 import { TeamAiFillPanel } from './TeamAiFillPanel';
 
-const BLANK = { full_name: '', title: '', is_founder: false, linkedin_url: '', email: '', bio: '', photo_url: '' };
+const BLANK = { full_name: '', title: '', is_founder: false, linkedin_url: '', email: '', bio: '', photo_url: '', commitment: '' };
+
+// Prompt 613 §F — three states, and the empty one is a real answer meaning
+// "nobody has said". Defaulting to full-time would invent a fact about a
+// person, and it is the one fact on this card an investor is certain to test.
+const COMMITMENT_OPTIONS: { value: '' | TeamCommitment; label: string }[] = [
+  { value: '', label: 'Commitment — not said' },
+  { value: 'full_time', label: 'Full-time' },
+  { value: 'part_time', label: 'Part-time' },
+];
+const COMMITMENT_LABEL: Record<TeamCommitment, string> = { full_time: 'Full-time', part_time: 'Part-time' };
+
+// §C.2 — said at the moment of typing, not discovered later by a silent
+// reader that treats the row as empty. A backslash instead of /in/ sat in
+// production doing exactly that, on a real founder row.
+function LinkedInHint({ value }: { value: string }) {
+  if (!value.trim()) return null;
+  const result = normalizeLinkedInUrl(value);
+  if (result.ok) return null;
+  return <p className="text-xs text-amber-600">{result.reason} It will not be saved as typed.</p>;
+}
+
+function linkedInToStore(raw: string): string | undefined {
+  const r = normalizeLinkedInUrl(raw);
+  return r.ok ? r.url : undefined;
+}
 
 export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolean; missing: Field[]; flashId: string | null }) {
   const { db, updateOrg, addCompanyPerson, updateCompanyPerson, removeCompanyPerson } = useStore();
@@ -31,7 +57,10 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
     if (!draft.full_name.trim()) return;
     addCompanyPerson({
       full_name: draft.full_name.trim(), title: draft.title.trim() || undefined, is_founder: draft.is_founder,
-      linkedin_url: draft.linkedin_url.trim() || undefined, email: draft.email.trim() || undefined, bio: draft.bio.trim() || undefined,
+      // §C.2 — normalised or not stored. `linkedin.com\nunomarujo` was a real
+      // row in production, and every reader in the app treated it as absent.
+      linkedin_url: linkedInToStore(draft.linkedin_url), email: draft.email.trim() || undefined, bio: draft.bio.trim() || undefined,
+      commitment: draft.commitment ? (draft.commitment as TeamCommitment) : null,
       photo_url: draft.photo_url.trim() || undefined,
     });
     setDraft(BLANK); setAdding(false);
@@ -41,13 +70,15 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
     setEditDraft({
       full_name: p.full_name, title: p.title ?? '', is_founder: p.is_founder,
       linkedin_url: p.linkedin_url ?? '', email: p.email ?? '', bio: p.bio ?? '', photo_url: p.photo_url ?? '',
+      commitment: p.commitment ?? '',
     });
     setEditingId(p.id);
   }
   function saveEdit(id: string) {
     updateCompanyPerson(id, {
       full_name: editDraft.full_name.trim(), title: editDraft.title.trim() || undefined, is_founder: editDraft.is_founder,
-      linkedin_url: editDraft.linkedin_url.trim() || undefined, email: editDraft.email.trim() || undefined, bio: editDraft.bio.trim() || undefined,
+      linkedin_url: linkedInToStore(editDraft.linkedin_url), email: editDraft.email.trim() || undefined, bio: editDraft.bio.trim() || undefined,
+      commitment: editDraft.commitment ? (editDraft.commitment as TeamCommitment) : null,
       photo_url: editDraft.photo_url.trim() || undefined,
     });
     setEditingId(null);
@@ -58,6 +89,14 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
       <input autoComplete="off" value={v.full_name} onChange={(e) => set({ ...v, full_name: e.target.value })} placeholder="Full name *" className="rounded border border-gray-300 px-2 py-1 text-sm" />
       <input autoComplete="off" value={v.title} onChange={(e) => set({ ...v, title: e.target.value })} placeholder="Title / role" className="rounded border border-gray-300 px-2 py-1 text-sm" />
       <input autoComplete="off" value={v.linkedin_url} onChange={(e) => set({ ...v, linkedin_url: e.target.value })} placeholder="LinkedIn URL" className="rounded border border-gray-300 px-2 py-1 text-sm" />
+      {/* §F — beside Founder, as asked. */}
+      <select value={v.commitment} onChange={(e) => set({ ...v, commitment: e.target.value })}
+        className="rounded border border-gray-300 px-2 py-1 text-sm">
+        {COMMITMENT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      {/* §C.2 — said at the moment of typing, not discovered later by a
+          silent reader that treats the row as empty. */}
+      <LinkedInHint value={v.linkedin_url} />
       <input autoComplete="off" value={v.email} onChange={(e) => set({ ...v, email: e.target.value })} type="email" placeholder="Email (optional)" className="rounded border border-gray-300 px-2 py-1 text-sm" />
       <input autoComplete="off" value={v.photo_url} onChange={(e) => set({ ...v, photo_url: e.target.value })} placeholder="Photo URL (optional — shown on MatchDeal)" className="col-span-2 rounded border border-gray-300 px-2 py-1 text-sm" />
       <label className="col-span-2 flex items-center gap-1.5 text-xs text-gray-600">
@@ -93,6 +132,11 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
                         <span className="font-medium text-gray-900">{p.full_name}</span>
                         {p.is_founder && <span className="ml-1.5 rounded-full bg-[#E8F4F8] px-1.5 py-0.5 text-[9px] font-semibold text-[#0E7490]">FOUNDER</span>}
                         {p.title && <div className="text-xs text-gray-500">{p.title}</div>}
+                        {p.commitment && (
+                          <span className="mt-0.5 inline-block rounded-full bg-gray-100 px-1.5 py-0.5 text-[9px] font-semibold text-gray-600">
+                            {COMMITMENT_LABEL[p.commitment]}
+                          </span>
+                        )}
                         {p.bio && <div className="text-xs text-gray-400">{p.bio}</div>}
                         {p.linkedin_url && <a href={p.linkedin_url} target="_blank" rel="noreferrer" className="text-xs text-cyan-700 hover:underline">LinkedIn</a>}
                       </div>

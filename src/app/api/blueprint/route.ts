@@ -32,14 +32,23 @@ async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: 
 // (G3c) — ambos do próprio perfil da org, nada derivado pela plataforma.
 async function gapContext(admin: SupabaseClient, orgId: string) {
   const [{ data: people }, { data: org }, hasVaultDocuments] = await Promise.all([
-    admin.from('company_people').select('full_name, is_founder').eq('org_id', orgId),
+    // Prompt 613 §B — title and commitment come too: the gap rules now read
+    // the roster the founder filled in, instead of counting names inside team
+    // claims and telling him he has none.
+    admin.from('company_people').select('id, full_name, title, is_founder, commitment').eq('org_id', orgId),
     admin.from('orgs').select('stage, sectors').eq('id', orgId).maybeSingle(),
     hasAnyVaultDocument(admin, orgId),
   ]);
   const orgRow = (org ?? null) as { stage?: string | null; sectors?: string[] | null } | null;
+  const rows = (people ?? []) as { id: string; full_name: string; title?: string | null; is_founder?: boolean; commitment?: 'full_time' | 'part_time' | null }[];
   return {
-    founders: ((people ?? []) as { full_name: string; is_founder?: boolean }[])
-      .filter((p) => p.is_founder).map((p) => ({ name: p.full_name })),
+    founders: rows.filter((p) => p.is_founder).map((p) => ({ name: p.full_name })),
+    // The whole roster, founders and not: a Head of Product who is not a
+    // founder still answers "who owns product".
+    roster: rows.map((p) => ({
+      id: p.id, fullName: p.full_name, title: p.title ?? null,
+      isFounder: !!p.is_founder, commitment: p.commitment ?? null,
+    })),
     stage: orgRow?.stage ?? null,
     sector: (orgRow?.sectors ?? [])[0] ?? null,
     now: new Date(),
