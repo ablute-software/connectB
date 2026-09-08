@@ -5675,12 +5675,20 @@ Promo codes are marketing: the back-office issues them from an outreach
 table, and every redemption grows a 2-code, −10% referral pyramid recorded
 in `promo_codes.referral_of_org_id`.
 
-**Migration.** `0342_promo_outreach_targets` (applied). Swept every remote
-branch's `supabase/migrations` and the Supabase applied ledger immediately
-before writing it: `origin/main` and every branch topped out at `0341`
-(Prompt 853's `interactions_pass_revert`, landed on `main` earlier the same
-day), and the ledger's own highest applied entry was also `0341` — no
-collision, `0342` taken clean. One table only, exactly as specified: no new
+**Migration, renumbered once — the seventh collision this session.**
+Written and applied as `0342_promo_outreach_targets`: at that moment
+`origin/main` and every branch topped out at `0341` (Prompt 853's
+`interactions_pass_revert`, landed on `main` earlier the same day), and the
+ledger's own highest applied entry was also `0341` — clean. Re-swept the
+ledger immediately before pushing, per the rule this session's earlier
+collisions established, and it caught a NEW one: `0342_team_commitment_
+and_role_coverage`, applied by a parallel session nine minutes after mine
+(10:20 vs 10:11 UTC) with no branch pushed yet for a sweep to have found
+it. Renamed the file to `0343` (`git mv`, no re-`apply_migration` needed —
+the DB ledger keys on the migration's own applied timestamp/name, not the
+local filename) and updated every code reference. `0343` is free
+everywhere: no branch, and the ledger tops out at the collision itself.
+One table only, exactly as specified: no new
 column on `promo_codes`/`promo_redemptions` — `referral_of_org_id` (0167)
 already carries the parent link the pyramid needs, and a generation number
 would have been a second, driftable source of truth for something

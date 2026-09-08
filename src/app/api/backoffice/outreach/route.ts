@@ -22,7 +22,7 @@ export async function GET() {
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   // The derived "Redeemed" column — a fact from promo_redemptions, never an
-  // opinion typed into the row (migration 0342's own header comment). One
+  // opinion typed into the row (migration 0343's own header comment). One
   // batched query rather than N, same reasoning as promo-codes' own list.
   const codeIds = (rows ?? []).map((r) => r.promo_code_id).filter((id): id is string => !!id);
   const redemptionsByCode = new Map<string, { orgId: string; orgName: string }[]>();
