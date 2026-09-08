@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "verify:migrations": "node --experimental-strip-types scripts/verify-migrations.ts"
+    "verify:migrations": "node --experimental-strip-types scripts/verify-migrations.ts",
+    "verify:migration-order": "node scripts/check-migration-order.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",
