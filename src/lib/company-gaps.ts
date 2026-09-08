@@ -9,6 +9,8 @@
 // os liga ao fluxo interativo; aqui só templateFor(gap) os preenche.
 import type { CompanyClaim, ClaimCategory } from './types';
 import { isWastedStrongClaim, measureSpecificity, extractNamedEntity } from './company-claims';
+import { claimCategoryLabel } from './claim-category-labels';
+import { analyseTeamComposition, type TeamMember } from './team-composition';
 
 export type GapRule = 'G1' | 'G2' | 'G3' | 'G3b' | 'G3c' | 'G4' | 'G5' | 'G6' | 'G7' | 'G8';
 export type GapSeverity = 'critical' | 'high' | 'medium';
@@ -34,6 +36,15 @@ export interface GapContext {
   // Founders/equipa core conhecidos (org.team / company_people) — o que o
   // G3b usa para medir assimetria POR NOME.
   founders: { name: string }[];
+  // Prompt 613 §B — o ROSTER que o fundador preencheu, com títulos. G3 e G3c
+  // liam nomes DENTRO de claims de equipa e ignoravam esta tabela, e por isso
+  // diziam "only 0 named person(s)" e "no one leads the technical side" a uma
+  // org com três founders na company_people e um deles titulado CTO. Uma
+  // verificação que pede ao fundador o que ele já deu é pior do que não
+  // existir: ensina-o a ignorar o painel, e as frases verdadeiras ao lado
+  // deixam de ser lidas. Opcional para não partir chamadores que não o têm —
+  // ausente significa "não sei", nunca "está vazio".
+  roster?: TeamMember[];
   sector?: string | null;
   stage?: string | null;
   now: Date;
@@ -55,7 +66,11 @@ export function ruleG1(claims: CompanyClaim[]): Gap[] {
   if (tracao.some((c) => c.evidenceClass === 1)) return [];
   return [{
     rule: 'G1', severity: 'critical',
-    message: 'No paid traction: nothing in tracao_gtm shows money at risk (paying customer, paid pilot, purchase order).',
+    // Prompt 613 §A — was "nothing in tracao_gtm shows money at risk", with
+    // the internal ClaimCategory key interpolated straight into a sentence on
+    // the founder's screen. The key is not a table, a column or a word; the
+    // founder went looking for it and there was nothing to find.
+    message: `No paid traction: nothing in ${claimCategoryLabel('tracao_gtm')} shows money at risk (paying customer, paid pilot, purchase order).`,
     relatedClaimIds: tracao.map((c) => c.id),
   }];
 }
@@ -76,12 +91,17 @@ export function ruleG2(claims: CompanyClaim[]): Gap[] {
 // medidor do bloco 1 (measureSpecificity.hasNamedEntity), não um regex novo.
 const COMPLEMENTARITY = /\b(complement|pairs|combines?|together|between them|complementar)\b/i;
 
-export function ruleG3(claims: CompanyClaim[]): Gap[] {
+export function ruleG3(claims: CompanyClaim[], context?: GapContext): Gap[] {
   const equipa = claims.filter((c) => c.category === 'equipa');
   const named = equipa.filter((c) => measureSpecificity(c.statement).signals.hasNamedEntity);
   const hasComplementarity = equipa.some((c) => COMPLEMENTARITY.test(c.statement));
   const problems: string[] = [];
-  if (named.length < 2) problems.push(`only ${named.length} named person(s)`);
+  // Prompt 613 §B — the roster counts, and it counts FIRST. A founder who
+  // filled in the Team tab has named those people; saying "only 0 named
+  // person(s)" back to them is the platform failing to read its own table.
+  const rosterNamed = context?.roster?.length ?? 0;
+  const namedCount = Math.max(named.length, rosterNamed);
+  if (namedCount < 2) problems.push(`only ${namedCount} named person(s)`);
   if (!hasComplementarity) problems.push('nothing explains why THIS team wins together');
   if (problems.length === 0) return [];
   return [{
@@ -140,8 +160,22 @@ export function ruleG3c(claims: CompanyClaim[], context: GapContext): Gap[] {
   const required = ['technical'];
   if (context.stage && STAGE_NEEDS_FINANCE.test(context.stage)) required.push('financial');
 
+  // Prompt 613 §B — the roster's TITLES answer "who leads this" directly, and
+  // are the source the founder actually filled in. Checked before the claims,
+  // which stay as a second source rather than the only one: this rule told an
+  // org with a founder titled CTO that nobody led the technical side.
+  const rosterCovered = new Set<string>();
+  if (context.roster?.length) {
+    for (const c of analyseTeamComposition(context.roster, { stage: context.stage, sectors: [context.sector ?? null] })) {
+      if (c.state !== 'absent') {
+        if (c.role.key === 'technical') rosterCovered.add('technical');
+        if (c.role.key === 'finance') rosterCovered.add('financial');
+      }
+    }
+  }
+
   const candidates = claims.filter((c) => c.category === 'equipa' || c.category === 'prova_tecnica');
-  return required.filter((fn) => !candidates.some((c) =>
+  return required.filter((fn) => !rosterCovered.has(fn)).filter((fn) => !candidates.some((c) =>
     FUNCTION_PATTERNS[fn].test(c.statement) && measureSpecificity(c.statement).signals.hasNamedEntity,
   )).map((fn) => ({
     rule: 'G3c' as const, severity: 'high' as const,
@@ -661,7 +695,7 @@ export function detectGaps(claims: CompanyClaim[], context: GapContext): Gap[] {
   return [
     ...ruleG1(claims),
     ...ruleG2(claims),
-    ...ruleG3(claims),
+    ...ruleG3(claims, context),
     ...ruleG3b(claims, context),
     ...ruleG3c(claims, context),
     ...ruleG4(claims, context),

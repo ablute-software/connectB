@@ -26,6 +26,7 @@ import { RoadmapPanel } from '@/components/company/RoadmapPanel';
 import { PhotosMediaCard } from '@/components/company/PhotosMediaCard';
 import { MiniPitchCard } from '@/components/company/MiniPitchCard';
 import { CompletenessBar } from '@/components/company/CompletenessBar';
+import { WORKSPACE_HEADER_HEIGHT_PX } from '@/components/workspace-shell/WorkspaceHeader';
 import { SETTINGS_HEADER_OFFSET_PX } from '@/components/company/settings-layout';
 import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import { APP_URL } from '@/lib/brand';
@@ -520,7 +521,25 @@ function SettingsInner() {
           rendered height). `position: sticky` in normal page flow, not a
           `position: fixed` overlay — CLAUDE.md's createPortal rule for
           full-viewport overlays doesn't apply here. */}
-      <div className="lg:sticky lg:top-0 lg:z-20 lg:bg-[#F7F9FA] lg:pb-2">
+      {/* Prompt 613 §H — was `lg:top-0 lg:z-20`, on the claim that this is
+          "the topmost sticky element". It is not: the workspace header is
+          also `sticky top-0`, sits above this in the DOM, and carries z-10 —
+          so this block occupied the same 73px band AND won the stacking
+          contest, which is the content-scrolling-over-the-bar Nuno reported.
+          Measured before changing it: header 0-73, this block 33-130,
+          overlapping, z-20 against z-10.
+
+          Two changes, and both are needed. Sticking below the header stops
+          the overlap; going under its z-index stops this block painting over
+          it on the way past. Lowering the z-index alone would have hidden
+          this tab bar behind the header for the whole page.
+
+          The offset travels as a CSS variable, not as an interpolated class:
+          Tailwind generates classes by scanning source TEXT, so a
+          `lg:top-[${'${x}'}px]` built at runtime produces no rule at all and fails
+          silently. Same shape CompanyPanel already uses for its own offset. */}
+      <div className="lg:sticky lg:top-[var(--workspace-header-height)] lg:z-[5] lg:bg-[#F7F9FA] lg:pb-2"
+        style={{ '--workspace-header-height': `${WORKSPACE_HEADER_HEIGHT_PX}px` } as React.CSSProperties}>
         <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
           <h1 className="text-lg font-bold">About {db.org.name || 'your company'}</h1>
           {/* Prompt 306 — persistent entry point into the read-only "see how

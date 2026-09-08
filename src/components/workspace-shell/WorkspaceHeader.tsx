@@ -7,6 +7,13 @@
 import type { ReactNode } from 'react';
 import { MatchDealButton } from './MatchDealButton';
 
+// Prompt 613 §H — the rendered height of this bar, measured live (1280px
+// viewport, 2026-09-08: 73px). A page that sticks something of its own to the
+// top has to stick it BELOW this, and needs a number to do that with; without
+// one, each page guesses, which is how the About sub-header came to sit at
+// top:0 in the same band as this one.
+export const WORKSPACE_HEADER_HEIGHT_PX = 73;
+
 export function WorkspaceHeader({ left, right, matchDeal, desktopAlign = 'between' }: {
   left?: ReactNode;
   right: ReactNode;

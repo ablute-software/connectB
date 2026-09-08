@@ -83,7 +83,7 @@ async function gapContext(admin: SupabaseClient, orgId: string) {
     // Prompt 308 Part A — title/bio/linkedin_url added (previously only
     // full_name/is_founder), so a team-gap draft can read what Settings→Team
     // already has on file instead of only ever seeing accepted claims.
-    admin.from('company_people').select('full_name, title, is_founder, bio, linkedin_url').eq('org_id', orgId),
+    admin.from('company_people').select('id, full_name, title, is_founder, bio, linkedin_url, commitment').eq('org_id', orgId),
     admin.from('orgs').select('stage, sectors').eq('id', orgId).maybeSingle(),
     // Prompt 311 §A — detectGaps (via ruleG4) needs this too, same direct
     // read as /api/blueprint's own gapContext, never a materialized claim.
@@ -93,6 +93,14 @@ async function gapContext(admin: SupabaseClient, orgId: string) {
   const orgRow = (org ?? null) as { stage?: string | null; sectors?: string[] | null } | null;
   return {
     founders: rows.filter((p) => p.is_founder).map((p) => ({ name: p.full_name })),
+    // Prompt 613 §B — same roster the /api/blueprint context now carries, so
+    // both callers of detectGaps read the same table and cannot disagree
+    // about whether this company has named anyone.
+    roster: rows.map((p) => ({
+      id: (p as unknown as { id: string }).id, fullName: p.full_name, title: p.title ?? null,
+      isFounder: !!p.is_founder,
+      commitment: (p as unknown as { commitment?: 'full_time' | 'part_time' | null }).commitment ?? null,
+    })),
     people: rows,
     stage: orgRow?.stage ?? null, sector: (orgRow?.sectors ?? [])[0] ?? null, now: new Date(),
     hasVaultDocuments,

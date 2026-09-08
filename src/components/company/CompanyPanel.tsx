@@ -36,6 +36,7 @@ import { BadgesCard } from './BadgesCard';
 // verified awards (BadgesCard): its own card, above, never sent to investors.
 import { PlatformStatusCard } from '@/components/badges/PlatformStatusCard';
 import { StartupTeamCard } from './StartupTeamCard';
+import { TeamCompositionCard } from './TeamCompositionCard';
 import { RoundCard } from './RoundCard';
 import { PreviousFundingCard } from '@/components/PreviousFundingCard';
 import { CapTableCard } from './CapTableCard';
@@ -209,6 +210,10 @@ export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashI
         {active === 'team' && (
           <div id="settings-team" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
             <StartupTeamCard canEdit={canEdit} missing={missing} flashId={flashId} />
+            {/* Prompt 613 §E — directly under the roster, because it is a
+                reading OF the roster: which functions this business needs and
+                which of them the people above actually cover. */}
+            <TeamCompositionCard canEdit={canEdit} />
           </div>
         )}
 

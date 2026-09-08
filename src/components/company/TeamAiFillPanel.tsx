@@ -26,7 +26,22 @@ import { checkBioLoss } from '@/lib/team-bio-guard';
 import type { CompanyPerson, Org } from '@/lib/types';
 
 interface VaultDoc { id: string; name: string }
-interface DraftMember { personId: string; personName: string; bio: string }
+// Prompt 613 §D — the draft is a position now, not a curriculum: one
+// positioning line, two or three proof points that earn it (each saying where
+// it came from), and one line on why this person here now. The flat `bio`
+// stays because that is still the column the founder saves into.
+interface ProofPoint { statement: string; source: string | null }
+interface DraftMember {
+  personId: string; personName: string; bio: string;
+  positioning?: string | null; proofPoints?: ProofPoint[]; connection?: string | null; question?: string | null;
+}
+// §C.3 — a person Sherlock had nothing usable about comes back as a QUESTION.
+// It is never a bio draft: the Replace button below writes the draft straight
+// over the saved bio, so an empty draft here would be a one-click way to
+// erase one.
+interface MemberQuestion { personId: string; personName: string; question: string }
+// §C — a profile we could not open is a fact the founder is entitled to see.
+interface LinkedInOutcome { personId: string; fullName: string; url: string; read: boolean }
 interface FactProposal { personId: string; personName: string; statement: string; confidence: number; sourceUrl: string }
 interface FactConflict { personId: string; personName: string; statement: string; sourceUrl: string; field: 'founded_year'; webValue: number; appValue: number }
 
@@ -50,6 +65,8 @@ export function TeamAiFillPanel({ orgId, org, people, updateCompanyPerson, updat
   // becomes a confirmation once clicked instead of staying live forever.
   const [resolvedMembers, setResolvedMembers] = useState<Record<string, 'replaced' | 'merged' | 'kept'>>({});
   const [savedSynergy, setSavedSynergy] = useState(false);
+  const [questions, setQuestions] = useState<MemberQuestion[]>([]);
+  const [linkedIn, setLinkedIn] = useState<LinkedInOutcome[]>([]);
 
   const currentBioByPersonId = new Map(people.map((p) => [p.id, p.bio ?? '']));
 
@@ -67,7 +84,7 @@ export function TeamAiFillPanel({ orgId, org, people, updateCompanyPerson, updat
 
   async function generate() {
     if (mode === 'watson' && selectedDocIds.length === 0) { setError('Pick at least one document.'); return; }
-    setBusy(true); setError(''); setDraftMembers(null); setFacts([]); setApprovedFacts(new Set()); setConflicts([]); setResolvedMembers({}); setResolvedConflicts(new Set());
+    setBusy(true); setError(''); setDraftMembers(null); setFacts([]); setApprovedFacts(new Set()); setConflicts([]); setResolvedMembers({}); setResolvedConflicts(new Set()); setQuestions([]); setLinkedIn([]);
     try {
       const res = await fetch(mode === 'watson' ? '/api/company/team-watson-fill' : '/api/company/team-sherlock-research', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ documentIds: selectedDocIds }),
@@ -77,6 +94,8 @@ export function TeamAiFillPanel({ orgId, org, people, updateCompanyPerson, updat
       setDraftMembers(body.members ?? []);
       setSynergy(body.teamSynergy ?? '');
       setFacts(body.facts ?? []);
+      setQuestions(body.questions ?? []);
+      setLinkedIn(body.linkedIn ?? []);
       setConflicts(body.conflicts ?? []);
     } catch {
       setError('Could not generate — try again.');
@@ -187,6 +206,28 @@ export function TeamAiFillPanel({ orgId, org, people, updateCompanyPerson, updat
         </>
       )}
 
+      {draftMembers && (linkedIn.some((l) => !l.read) || questions.length > 0) && (
+        <div className="mb-3 space-y-2">
+          {/* §C — measured on 2026-09-08: LinkedIn answers an unauthenticated
+              server with 301 then 404, so a profile URL on file is not a page
+              we can read. Saying that is the honest version of the sentence
+              that used to be written instead ("no additional information was
+              provided"), which was not even true — the material existed and
+              the fetch had failed. */}
+          {linkedIn.filter((l) => !l.read).map((l) => (
+            <p key={l.personId} className="rounded bg-gray-50 px-2 py-1 text-[11px] text-gray-600">
+              LinkedIn would not open {l.fullName}&apos;s profile to us ({l.url}) — it only serves signed-in browsers.
+              It was still used to make sure the web search found the right person.
+            </p>
+          ))}
+          {questions.map((q) => (
+            <p key={q.personId} className="rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+              <b>{q.personName}:</b> {q.question}
+            </p>
+          ))}
+        </div>
+      )}
+
       {draftMembers && (
         <div className="space-y-3">
           <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">AI-generated draft — review before saving</p>
@@ -199,6 +240,33 @@ export function TeamAiFillPanel({ orgId, org, people, updateCompanyPerson, updat
             return (
               <div key={m.personId} className="rounded-lg border border-gray-200 bg-white p-2.5">
                 <p className="text-xs font-semibold text-gray-900">{m.personName}</p>
+
+                {/* §D — the three parts, above the editable bio. Read-only:
+                    they are the reasoning behind the draft, and the bio is
+                    what actually gets saved. Each proof point carries where it
+                    came from, which is the thing we have and a general-purpose
+                    chatbot does not: the documents are in the Vault. */}
+                {(m.positioning || (m.proofPoints?.length ?? 0) > 0 || m.connection) && (
+                  <div className="mt-1.5 rounded border border-cyan-100 bg-cyan-50/40 p-2 text-[11px]">
+                    {m.positioning && <p className="font-medium text-gray-800">{m.positioning}</p>}
+                    {(m.proofPoints?.length ?? 0) > 0 && (
+                      <ul className="mt-1 space-y-0.5">
+                        {m.proofPoints!.map((pp, i) => (
+                          <li key={i} className="text-gray-600">
+                            • {pp.statement}
+                            {pp.source && <span className="text-gray-400"> — {pp.source}</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {m.connection && <p className="mt-1 italic text-gray-600">{m.connection}</p>}
+                  </div>
+                )}
+                {m.question && (
+                  <p className="mt-1.5 rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+                    Sherlock asks: {m.question}
+                  </p>
+                )}
 
                 {currentBio && (
                   <div className="mt-1 rounded bg-gray-50 p-1.5 text-[11px] text-gray-500">
