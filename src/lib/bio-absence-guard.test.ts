@@ -112,3 +112,41 @@ describe('the parser turns an empty draft into a question, not a bio (Prompt 613
     expect(out.members[0].proofPoints).toHaveLength(3);
   });
 });
+
+// Prompt 621 §D — the database now refuses the same sentences (migration
+// 20260908143000). These are the EXACT twelve strings the Postgres pattern was
+// validated against before it was applied; running them through the
+// TypeScript guard too is what keeps the two from drifting apart, which is the
+// failure mode of having the same rule in two languages.
+describe('the TypeScript guard agrees with the database guard (Prompt 621 §D)', () => {
+  const MUST_BLOCK = [
+    'Sherlock serves as CEO of the company. No additional information was provided in the materials.',
+    'No further details were available.',
+    'Nothing else was found about this person.',
+    'The materials provided do not contain information about her background.',
+    'There is insufficient information to write a bio.',
+    'Unable to verify his role.',
+    'Could not find anything about this person.',
+  ];
+  const MUST_PASS = [
+    'She led the no-code platform team at Feedzai for four years.',
+    'He holds an MBA from USC and a degree in Design from UNIPVC.',
+    'Previously a Board Member at INVICTUS, S.A., managing investments from 2004 to 2012.',
+    'No formal training — self-taught, and shipped the first release alone.',
+    'Built the data pipeline that found the first ten customers.',
+  ];
+
+  it('blocks every sentence the database blocks', () => {
+    for (const bio of MUST_BLOCK) {
+      const removedSomething = scrubAbsenceClaims(bio).removed.length > 0;
+      expect({ bio, blocked: removedSomething }).toEqual({ bio, blocked: true });
+    }
+  });
+
+  it('lets through every sentence the database lets through', () => {
+    for (const bio of MUST_PASS) {
+      const removedSomething = scrubAbsenceClaims(bio).removed.length > 0;
+      expect({ bio, blocked: removedSomething }).toEqual({ bio, blocked: false });
+    }
+  });
+});
