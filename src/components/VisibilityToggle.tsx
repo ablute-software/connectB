@@ -127,7 +127,11 @@ export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
     : null;
 
   return (
-    <div id="visibility-toggle" className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2">
+    // Prompt 615 §A.2 — the card around these controls is gone. They are three
+    // pills and a button; a bordered white box around them bought nothing and
+    // cost a row of vertical space in a header that was eating a third of the
+    // screen before any content appeared.
+    <div id="visibility-toggle" className="flex flex-wrap items-center gap-2">
       {status.platformSuspended ? (
         <>
           <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-800">Suspended by the platform</span>
@@ -188,9 +192,18 @@ export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
           of the three states this startup is in. It replaces the two
           MatchDeal-shaped blocks below for kind='startup'; the investor
           side keeps its own suspended note. */}
+      {/* Prompt 615 §C.1 — this stays, and it stays because of what it says,
+          not because of how it looked. It is the only sentence on this screen
+          that answers the question the founder actually has — is this working?
+          — and the count behind it is real (two distinct firms in
+          investor_pipeline_admissions, confirmed). Deleting it to save 40px
+          was the worst trade available here. What goes is the coloured band:
+          it is now a line in secondary text, and the tone survives as the
+          text colour so the "not yet" case still reads differently from the
+          "you are findable" one. */}
       {investorCopy && !status.platformSuspended && (
-        <div className={`mt-1 w-full rounded-lg px-3 py-2 text-xs ${
-          investorCopy.tone === 'ok' ? 'bg-green-50 text-green-800' : 'bg-amber-50 text-amber-800'}`}>
+        <div className={`mt-1 w-full text-xs ${
+          investorCopy.tone === 'ok' ? 'text-emerald-700' : 'text-amber-700'}`}>
           {investorCopy.detail}
           {status.investorVisibility === 'incomplete' && gateMissing.length > 0 && (
             <>
@@ -218,9 +231,14 @@ export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
           half of the loop founders were stuck in. Prompt 850 §B — this is
           now purely about the MatchDeal card, and says so: it no longer
           claims to be what makes investors able to find you. */}
+      {/* Prompt 615 §C.2 — an explanation, not a state, and only true while the
+          card is unpublished; after that it is permanent noise. It was already
+          conditional on `unpublished`, so what changes is its weight: a quiet
+          line under the button it explains, instead of a full-width band with
+          a background. */}
       {state === 'unpublished' && !status.suspended && (
-        <div className="mt-1 w-full rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
-          Your card isn&apos;t on MatchDeal yet. That&apos;s the swipe app — separate from the investor pipelines above, and optional.
+        <div className="mt-0.5 w-full text-[11px] text-gray-400">
+          Your card isn&apos;t on MatchDeal yet — that&apos;s the swipe app, separate from the investor pipelines and optional.
         </div>
       )}
 

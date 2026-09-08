@@ -42,7 +42,10 @@ export function CompletenessBar({ pct, missing, orgId, onFlash }: {
   }
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+    // Prompt 615 §A.3 — the card is gone: the line and the bar, no border, no
+    // shadow, no generous padding. `relative overflow-hidden` stays because
+    // the shimmer below is absolutely positioned inside it.
+    <div className="relative overflow-hidden">
       <style>{`
         @keyframes sd-shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
         @keyframes sd-star-pop { 0% { opacity: 0; transform: translateY(6px) scale(.6); } 30% { opacity: 1; transform: translateY(-4px) scale(1); } 100% { opacity: 0; transform: translateY(-18px) scale(.8); } }
