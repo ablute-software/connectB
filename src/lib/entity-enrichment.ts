@@ -33,6 +33,13 @@ export const AI_SEARCH_FIELDS = [
 // is ever allowed to write onto an entity. Unknown field names are always
 // rejected (isKnownEntityField) — this is the single list that decides that,
 // for every writer.
+// Prompt 635 §3.2 — WHICH LIST OWNS WHAT. This list decides what may be
+// written onto the founder's PRIVATE entity row. Whether a field may reach
+// the shared CATALOGUE is decided in the database, by
+// catalog_entity_field_column() (migration 20260909203000); person fields by
+// contribution-promotion.ts's PERSON_WRITABLE_FIELDS; Prompt 266's
+// COMMUNITY_ELIGIBLE_FIELDS is the panel's display filter only. Four lists,
+// three purposes — change the owner, then the mirrors.
 export const ENTITY_ENRICHMENT_FIELDS = [
   ...AI_SEARCH_FIELDS,
   'address', 'postal_code', 'key_people', 'general_partner_emails',

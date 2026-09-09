@@ -23,6 +23,9 @@ import type { Entity } from './types';
 
 // Mirrors /api/backoffice/research's PERSON_FIELDS — the only Person columns
 // enrichment/contributions are ever allowed to write.
+// Prompt 635 §3.2 — owner of what a contribution may write onto a PRIVATE
+// people row. The catalogue side for people is catalog_person_apply_field
+// (migration 0322/0328). Entity lists: see entity-enrichment.ts.
 const PERSON_WRITABLE_FIELDS = ['linkedin_url', 'role', 'background', 'hook'] as const;
 type PersonWritableField = typeof PERSON_WRITABLE_FIELDS[number];
 function isPersonWritableField(field: string): field is PersonWritableField {

@@ -22,6 +22,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (Object.keys(patch).length === 0) return NextResponse.json({ ok: false, error: 'Nothing to update.' }, { status: 400 });
 
   const { error } = await admin.from('catalog_entities').update(patch).eq('id', params.id);
+  // Prompt 635 §1.2 — see entities/[id]/route.ts: an admin's write is stamped
+  // verified_by_admin so no later consensus can outrank it.
+  if (!error) await admin.rpc('catalog_entity_stamp_admin_verified', { p_catalog_id: params.id, p_fields: Object.keys(patch) });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   await logAdminAction(admin, { adminUserId: userId, action: 'catalog_update', subjectType: 'catalog_entity', subjectId: params.id, detail: patch });

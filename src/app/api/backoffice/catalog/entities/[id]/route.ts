@@ -100,6 +100,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const { error: updateErr } = await admin.from('catalog_entities').update(patch).eq('id', id);
   if (updateErr) return NextResponse.json({ ok: false, error: updateErr.message }, { status: 500 });
 
+  // Prompt 635 §1.2 — an admin's edit is direct truth and must be STAMPED
+  // as such. Without a recorded level this value would rank as an ordinary
+  // catalogue value (2), and the date rule in catalog_entity_apply_field
+  // would let a later three-startup consensus with newer evidence overwrite
+  // it. The RPC ignores any key that is not a catalogue fact field
+  // (verification_status, sectors_normalized, …), so the whole patch goes.
+  await admin.rpc('catalog_entity_stamp_admin_verified', { p_catalog_id: id, p_fields: Object.keys(patch) });
+
   await logAdminAction(admin, {
     adminUserId: userId, action: 'catalog_entity_dossier_edit',
     subjectType: 'catalog_entity', subjectId: id, detail: { fields: changes },

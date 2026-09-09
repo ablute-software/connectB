@@ -94,6 +94,14 @@ function isAcceptedObjectiveSource(entity, sourceUrl, entityIdPrefix) {
 // Mirrors entity-enrichment.ts ENTITY_ENRICHMENT_FIELDS (now includes 'name',
 // but 'name' is always forced to rule 8 below regardless of kind/confidence
 // — see the dedicated check).
+// Prompt 635 §3.1/§3.2 — THIS SCRIPT CANNOT RUN: it queries
+// public.entity_field_status, which no longer exists (PGRST205, measured
+// 2026-09-09), and nothing schedules it. It is the source of the 88% human
+// rejection rate (64 "sem proveniência", 52 "campo fora do allowlist"), run by
+// hand. The lists below are MIRRORS: the owners are entity-enrichment.ts
+// (private entity writes) and catalog_entity_field_column() in the database
+// (catalogue eligibility). Prompt 635 §3.1: delete this script when 631 §4's
+// automatic approval lands; do not repair it.
 const ENTITY_WRITABLE_FIELDS = new Set([
   'website', 'email_domain', 'hq_city', 'hq_country', 'invests_in_geographies',
   'sectors', 'stage_min', 'stage_max', 'check_min_eur', 'check_max_eur', 'thesis', 'email', 'phone',
