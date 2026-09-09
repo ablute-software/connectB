@@ -93,6 +93,8 @@ import { DOMParser } from 'https://deno.land/x/deno_dom@v0.1.45/deno-dom-wasm.ts
 // Prompt 634 — the Article 9 net and the kill-word check, kept in their own
 // file so src/lib/special-category-guard.test.ts tests the deployed code.
 import { hookContainsKillWord, stripSpecialCategoryFields } from './special-category.ts';
+// Prompt 638 §3.2 — rule (a) of the hook bar, checked by code before the write.
+import { hookIsAboutTheFund } from './hook-rules.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -1347,6 +1349,19 @@ async function recordKillWordRejection(personId: string, path: 'bio' | 'web', ho
   }
 }
 
+// Prompt 638 §3.2 — the third net. A hook that names the fund and never the
+// person is the fund's thesis, and the thesis has its own column.
+async function recordFundNotPersonRejection(personId: string, path: 'bio' | 'web', hook: string, entityMention: string) {
+  try {
+    await supabase.from('admin_audit_log').insert({
+      admin_user_id: null, action: 'hook_about_fund_not_person', subject_type: 'catalog_person', subject_id: personId,
+      detail: { path, entity_mention: entityMention, hook: hook.slice(0, 300) },
+    });
+  } catch (e) {
+    console.error('[fund-not-person] audit insert failed', e);
+  }
+}
+
 async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry, batchId: string) {
   const { data: person, error: personErr } = await supabase.from('catalog_people').select('id, full_name, entity_id, linkedin_url').eq('id', job.target_id).single();
   if (personErr || !person) throw new Error(`person_not_found: ${personErr?.message ?? job.target_id}`);
@@ -1357,6 +1372,14 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
   const { data: affiliation } = await supabase.from('catalog_person_affiliations').select('title').eq('person_id', person.id).eq('is_primary', true).maybeSingle();
   const { data: existingResearch } = await supabase.from('catalog_people_research').select('bio_raw').eq('person_id', person.id).maybeSingle();
   const bioRaw = existingResearch?.bio_raw ?? null;
+  // Prompt 638 §3.1 — a job the bio_only sweep enqueued stops after the bio
+  // path, and stops SOFT: the person stays eligible for the mixed sweep.
+  const bioOnly = job.mode === 'bio_only';
+  // Prompt 638 §2 / §3.3 — what the run did goes on the job row, so the next
+  // decision is measured on the population and not on the survivors.
+  const guardRejections: string[] = [];
+  let bioConfidenceRaw: number | null = null;
+  let bioHookSupported: boolean | null = null;
 
   // Prompt 583 §B.3 — pre-verification with no model call at all: nothing
   // for a search to search FOR (no LinkedIn, no firm website — layer 1
@@ -1414,10 +1437,16 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
         intro_path: parsed.intro_path ?? null, watch_outs: parsed.watch_outs ?? null,
       });
       await recordFieldRejections(person.id, 'bio', guarded.rejected);
+      for (const r of guarded.rejected) guardRejections.push(`special_category:${r.field}`);
       const killWords: string[] = parsed.kill_words ?? [];
       const killHit = hookContainsKillWord(guarded.kept.hook, killWords);
-      if (killHit) await recordKillWordRejection(person.id, 'bio', guarded.kept.hook!, killHit);
-      const hook = killHit ? null : guarded.kept.hook;
+      if (killHit) { await recordKillWordRejection(person.id, 'bio', guarded.kept.hook!, killHit); guardRejections.push('kill_word'); }
+      // Prompt 638 §3.2 — names the fund, never the person: not a hook.
+      const fundOnly = killHit ? null : hookIsAboutTheFund(guarded.kept.hook, entity?.name ?? null, person.full_name);
+      if (fundOnly) { await recordFundNotPersonRejection(person.id, 'bio', guarded.kept.hook!, fundOnly.entityMention); guardRejections.push('fund_not_person'); }
+      const hook = (killHit || fundOnly) ? null : guarded.kept.hook;
+      bioConfidenceRaw = typeof parsed.confidence === 'number' ? parsed.confidence : null;
+      bioHookSupported = hookSupported;
       bioResult = {
         hook,
         background: guarded.kept.background,
@@ -1443,7 +1472,31 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
       hook_status: 'researched', enrichment_status: 'enriched',
       enriched_at: new Date().toISOString(), enrichment_stale_after: addDays(new Date(), 90).toISOString(),
     }).eq('id', person.id);
-    return { status: 'done', reason: null, hookWritten: true, hookSource: 'bio', usedWebFallback: false };
+    return {
+      status: 'done', reason: null, hookWritten: true, hookSource: 'bio', usedWebFallback: false,
+      outcome: { path: 'bio', mode: job.mode ?? 'mixed', bio_confidence: bioConfidenceRaw, bio_hook_supported: bioHookSupported, guard_rejections: guardRejections, hook_written: true, hook_source: 'bio' },
+    };
+  }
+
+  // Prompt 638 §3.1 — bio_only stops here. NOT none_found: none_found plus the
+  // sweep's 90-day clause would shut the door on a person the web path might
+  // still serve (the Indico problem, self-inflicted). hook_status is left
+  // exactly as it was, the job closes done with a reason the mixed sweep
+  // knows how to read, and the bio-grounded fields that did come out are
+  // kept — they cost €0.003 and are true whether or not a hook was found.
+  if (bioOnly) {
+    if (bioResult) {
+      const keep: Record<string, unknown> = { person_id: person.id, updated_at: new Date().toISOString() };
+      if (bioResult.background) keep.background = bioResult.background;
+      if (bioResult.introPath) keep.intro_path = bioResult.introPath;
+      if (bioResult.watchOuts) keep.watch_outs = bioResult.watchOuts;
+      if (bioResult.killWords.length) keep.kill_words = bioResult.killWords;
+      if (Object.keys(keep).length > 2) await supabase.from('catalog_people_research').upsert(keep, { onConflict: 'person_id' });
+    }
+    return {
+      status: 'done', reason: bioRaw ? 'bio_inconclusive' : 'bio_only_no_bio', hookWritten: false, hookSource: null, usedWebFallback: false,
+      outcome: { path: 'bio_only_stop', mode: 'bio_only', bio_confidence: bioConfidenceRaw, bio_hook_supported: bioHookSupported, guard_rejections: guardRejections, hook_written: false, hook_source: null },
+    };
   }
 
   const sourceUrls = new Set<string>();
@@ -1613,9 +1666,14 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
     intro_path: result.intro_path ?? null, watch_outs: result.watch_outs ?? null,
   });
   await recordFieldRejections(person.id, 'web', guardedWeb.rejected);
+  for (const r of guardedWeb.rejected) guardRejections.push(`special_category:${r.field}`);
   const webKillHit = hookContainsKillWord(guardedWeb.kept.hook, result.kill_words ?? []);
-  if (webKillHit) await recordKillWordRejection(person.id, 'web', guardedWeb.kept.hook!, webKillHit);
-  result.hook = webKillHit ? null : guardedWeb.kept.hook;
+  if (webKillHit) { await recordKillWordRejection(person.id, 'web', guardedWeb.kept.hook!, webKillHit); guardRejections.push('kill_word'); }
+  // Prompt 638 §3.2 — the Alpana shape: "<Fund> focuses on…" with the person
+  // nowhere in the sentence. Rejected before the write, audited per field.
+  const webFundOnly = webKillHit ? null : hookIsAboutTheFund(guardedWeb.kept.hook, entity?.name ?? null, person.full_name);
+  if (webFundOnly) { await recordFundNotPersonRejection(person.id, 'web', guardedWeb.kept.hook!, webFundOnly.entityMention); guardRejections.push('fund_not_person'); }
+  result.hook = (webKillHit || webFundOnly) ? null : guardedWeb.kept.hook;
   result.background = guardedWeb.kept.background;
   result.intro_path = guardedWeb.kept.intro_path;
   result.watch_outs = guardedWeb.kept.watch_outs;
@@ -1694,6 +1752,11 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
     sourcesFound: sourceUrls.size,
     sourcesRead: readSources.length,
     reusedExistingSources: !isFreshSearch,
+    outcome: {
+      path: 'web', mode: job.mode ?? 'mixed', bio_confidence: bioConfidenceRaw, bio_hook_supported: bioHookSupported,
+      guard_rejections: guardRejections, hook_written: hasReadSource && !!result.hook, hook_source: hasReadSource && result.hook ? 'web' : null,
+      sources_found: sourceUrls.size, sources_read: readSources.length, reused_existing_sources: !isFreshSearch,
+    },
   };
 }
 
@@ -1803,7 +1866,7 @@ Deno.serve(async (req) => {
   // mesmos candidatos). Corridas a serio mantem o tecto de maxJobs.
   let candidatesQuery = supabase
     .from('enrichment_jobs')
-    .select('id, target_type, target_id, layer, attempts')
+    .select('id, target_type, target_id, layer, attempts, mode')
     .eq('status', 'queued')
     .order('priority', { ascending: true })
     .order('created_at', { ascending: true })
@@ -1822,7 +1885,7 @@ Deno.serve(async (req) => {
           .update({ status: 'running', started_at: new Date().toISOString() })
           .eq('id', candidate.id)
           .eq('status', 'queued')
-          .select('id, target_type, target_id, layer, attempts')
+          .select('id, target_type, target_id, layer, attempts, mode')
           .single();
     if (claim.error || !claim.data) continue; // outra invocacao ja a reivindicou
 
@@ -1842,7 +1905,9 @@ Deno.serve(async (req) => {
 
     const jobTarget = { targetType: job.target_type as string, targetId: job.target_id as string };
     if (outcome.status === 'done') {
-      await flushTelemetry(job.id, telemetry, { status: 'done', finished_at: new Date().toISOString() }, jobTarget);
+      // Prompt 638 §3.1/§3.3 — a done job may carry a reason (bio_inconclusive)
+      // and always carries what it did, so cost is measured per useful hook.
+      await flushTelemetry(job.id, telemetry, { status: 'done', finished_at: new Date().toISOString(), last_error: outcome.reason ?? null, outcome: outcome.outcome ?? null }, jobTarget);
     } else if (outcome.status === 'skipped') {
       // Nunca entra no ciclo de repeticoes — nao incrementa attempts.
       await flushTelemetry(job.id, telemetry, { status: 'skipped', last_error: outcome.reason, finished_at: new Date().toISOString() }, jobTarget);
