@@ -90,6 +90,9 @@
 // deno-lint-ignore-file no-explicit-any
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import { DOMParser } from 'https://deno.land/x/deno_dom@v0.1.45/deno-dom-wasm.ts';
+// Prompt 634 — the Article 9 net and the kill-word check, kept in their own
+// file so src/lib/special-category-guard.test.ts tests the deployed code.
+import { hookContainsKillWord, stripSpecialCategoryFields } from './special-category.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -770,8 +773,10 @@ const RECORD_RESEARCH_TOOL = {
       },
       intro_path: { type: ['string', 'null'] },
       watch_outs: { type: ['string', 'null'] },
-      kill_words: { type: 'array', items: { type: 'string' } },
-      background: { type: ['string', 'null'] },
+      kill_words: { type: 'array', items: { type: 'string' }, description: 'Phrases that make this person disengage. The hook above must not contain any of them.' },
+      // Prompt 634 §3.2 — same rule in the schema AND the system prompt,
+      // the pattern the hook bar already uses.
+      background: { type: ['string', 'null'], description: 'Professional background only. Never record health conditions, religion, ethnicity, political or union affiliation, or sexual orientation of the person, even when the source states them and even when the person made them public. Investment focus areas are not personal attributes: "invests in diabetes care" is allowed, "was diagnosed with diabetes" is not. Leave the field empty rather than record it.' },
       email_guess: { type: ['string', 'null'] },
       email_guess_confidence: { type: ['string', 'null'], enum: ['high', 'medium', 'low', null] },
     },
@@ -797,7 +802,7 @@ const EXTRACT_HOOK_FROM_BIO_TOOL = {
         description: 'Same bar as always: (a) specific to THIS person, not a generic fact about the fund; (b) recent or still current; (c) relevant to an investment approach. Leave null rather than force a weak one.',
       },
       hook_evidence_quote: { type: ['string', 'null'], description: 'the exact phrase from the bio that supports the hook, copied verbatim — required whenever hook is non-null' },
-      background: { type: ['string', 'null'] },
+      background: { type: ['string', 'null'], description: 'Professional background only. Never record health conditions, religion, ethnicity, political or union affiliation, or sexual orientation of the person, even when the source states them and even when the person made them public. Investment focus areas are not personal attributes: "invests in diabetes care" is allowed, "was diagnosed with diabetes" is not. Leave the field empty rather than record it.' },
       intro_path: { type: ['string', 'null'] },
       watch_outs: { type: ['string', 'null'] },
       kill_words: { type: 'array', items: { type: 'string' } },
@@ -1316,6 +1321,32 @@ function bioHookIsSupported(hookEvidenceQuote: string | null | undefined, bioRaw
   return bioRawNormalized.includes(normalizeForMatch(hookEvidenceQuote));
 }
 
+// Prompt 634 — every rejection is a row, never a silent null. The snippet
+// goes to the admin-only audit log so the net can be tuned against what it
+// actually caught; it never goes anywhere a founder reads.
+async function recordFieldRejections(personId: string, path: 'bio' | 'web', rejected: { field: string; term: string; marker: string; snippet: string }[]) {
+  for (const r of rejected) {
+    try {
+      await supabase.from('admin_audit_log').insert({
+        admin_user_id: null, action: 'special_category_field_rejected', subject_type: 'catalog_person', subject_id: personId,
+        detail: { path, field: r.field, term: r.term, marker: r.marker, snippet: r.snippet.slice(0, 200) },
+      });
+    } catch (e) {
+      console.error('[special-category] audit insert failed', e);
+    }
+  }
+}
+async function recordKillWordRejection(personId: string, path: 'bio' | 'web', hook: string, killWord: string) {
+  try {
+    await supabase.from('admin_audit_log').insert({
+      admin_user_id: null, action: 'hook_contains_kill_word', subject_type: 'catalog_person', subject_id: personId,
+      detail: { path, kill_word: killWord, hook: hook.slice(0, 300) },
+    });
+  } catch (e) {
+    console.error('[kill-word] audit insert failed', e);
+  }
+}
+
 async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry, batchId: string) {
   const { data: person, error: personErr } = await supabase.from('catalog_people').select('id, full_name, entity_id, linkedin_url').eq('id', job.target_id).single();
   if (personErr || !person) throw new Error(`person_not_found: ${personErr?.message ?? job.target_id}`);
@@ -1360,7 +1391,10 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
       model: LAYER2_MODEL,
       system: 'Extract a hook and supporting facts from this person\'s biography — no web research, only what the bio itself says. '
         + 'Write every text field in English regardless of the bio\'s own language. '
-        + 'hook_evidence_quote must be copied EXACTLY from the bio given whenever hook is non-null.',
+        + 'hook_evidence_quote must be copied EXACTLY from the bio given whenever hook is non-null. '
+        // Prompt 634 §3.2
+        + 'Never record health conditions, religion, ethnicity, political or union affiliation, or sexual orientation of the person, even when the source states them and even when the person made them public. Investment focus areas are not personal attributes: "invests in diabetes care" is allowed, "was diagnosed with diabetes" is not. Leave the field empty rather than record it. '
+        + 'The hook must not contain any phrase you list in kill_words.',
       messages: [{ role: 'user', content: `Person: ${personContext}\n\nBio:\n${bioRaw}\n\nExtract a hook and supporting facts, based only on this bio.` }],
       tools: [EXTRACT_HOOK_FROM_BIO_TOOL],
       toolChoice: { type: 'tool', name: 'extract_hook_from_bio' },
@@ -1371,13 +1405,26 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
     if (parsed) {
       const bioRawNormalized = normalizeForMatch(bioRaw);
       const hookSupported = bioHookIsSupported(parsed.hook_evidence_quote, bioRawNormalized);
+      // Prompt 634 §3.1 — the net, field by field; §3.3 — a hook that
+      // contains one of its own kill words is not a hook. Either strips the
+      // hook to null, which zeroes confidence and sends the person down the
+      // web path exactly as an unconfident bio hook always has.
+      const guarded = stripSpecialCategoryFields({
+        hook: hookSupported ? parsed.hook : null, background: parsed.background ?? null,
+        intro_path: parsed.intro_path ?? null, watch_outs: parsed.watch_outs ?? null,
+      });
+      await recordFieldRejections(person.id, 'bio', guarded.rejected);
+      const killWords: string[] = parsed.kill_words ?? [];
+      const killHit = hookContainsKillWord(guarded.kept.hook, killWords);
+      if (killHit) await recordKillWordRejection(person.id, 'bio', guarded.kept.hook!, killHit);
+      const hook = killHit ? null : guarded.kept.hook;
       bioResult = {
-        hook: hookSupported ? parsed.hook : null,
-        background: parsed.background ?? null,
-        introPath: parsed.intro_path ?? null,
-        watchOuts: parsed.watch_outs ?? null,
-        killWords: parsed.kill_words ?? [],
-        confidence: (typeof parsed.confidence === 'number' && parsed.hook && hookSupported) ? parsed.confidence : 0,
+        hook,
+        background: guarded.kept.background,
+        introPath: guarded.kept.intro_path,
+        watchOuts: guarded.kept.watch_outs,
+        killWords,
+        confidence: (typeof parsed.confidence === 'number' && hook && hookSupported) ? parsed.confidence : 0,
       };
     }
   }
@@ -1530,7 +1577,12 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
     // continua a ser um facto correcto, so nao serve de linha de abertura.
     system: 'Sintetiza apenas com base no texto das fontes lidas abaixo. Se nao conseguiste ler nenhuma fonte com substancia suficiente, deixa os campos a null em vez de inventar ou de usar so titulos/resumos de pesquisa. '
       + 'Write every text field (hook, intro_path, watch_outs, background, kill_words) in English, regardless of the language of the sources you read — the sources may be in Portuguese, Romanian, German, or any other language, but your output must always be English. '
-      + 'The hook field has a stricter bar than the other fields: only write it if it is (a) specific to THIS person, not a generic fact about the fund, (b) recent or still current, not an old story with no relevance today, and (c) relevant to an investment approach — her thesis, a deal or public statement about the sector, a declared investment interest. Biographical trivia — where the fund\'s name came from, family stories, opinions outside the investment domain — does NOT qualify, even if it came from a source you read: leave hook null in that case, but you may still write background (background is purely factual, it has no relevance bar).',
+      + 'The hook field has a stricter bar than the other fields: only write it if it is (a) specific to THIS person, not a generic fact about the fund, (b) recent or still current, not an old story with no relevance today, and (c) relevant to an investment approach — her thesis, a deal or public statement about the sector, a declared investment interest. Biographical trivia — where the fund\'s name came from, family stories, opinions outside the investment domain — does NOT qualify, even if it came from a source you read: leave hook null in that case, but you may still write background (background is purely factual, it has no relevance bar). '
+      // Prompt 634 §3.2 — the first web run wrote "Born with diabetes" as the
+      // opening line of a person's profile. Article 9. Said here and in the
+      // schema, like the hook bar.
+      + 'Never record health conditions, religion, ethnicity, political or union affiliation, or sexual orientation of the person, even when the source states them and even when the person made them public. Investment focus areas are not personal attributes: "invests in diabetes care" is allowed, "was diagnosed with diabetes" is not. Leave the field empty rather than record it. '
+      + 'The hook must not contain any phrase you list in kill_words.',
     messages: [
       {
         role: 'user',
@@ -1550,6 +1602,23 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
 
   const result = extractToolInput(synthesis, 'record_research');
   if (!result) throw new Error('synthesis_validation_failed: no tool_use block returned');
+
+  // Prompt 634 §3.1 — reject the FIELD, not the job: a background naming a
+  // condition is dropped, a clean hook survives. §3.3 — a hook containing
+  // one of the same response's kill_words is discarded, so the row lands as
+  // none_found rather than opening with the phrase the model itself said
+  // would close the door. Both are audited per field, never per row.
+  const guardedWeb = stripSpecialCategoryFields({
+    hook: result.hook ?? null, background: result.background ?? null,
+    intro_path: result.intro_path ?? null, watch_outs: result.watch_outs ?? null,
+  });
+  await recordFieldRejections(person.id, 'web', guardedWeb.rejected);
+  const webKillHit = hookContainsKillWord(guardedWeb.kept.hook, result.kill_words ?? []);
+  if (webKillHit) await recordKillWordRejection(person.id, 'web', guardedWeb.kept.hook!, webKillHit);
+  result.hook = webKillHit ? null : guardedWeb.kept.hook;
+  result.background = guardedWeb.kept.background;
+  result.intro_path = guardedWeb.kept.intro_path;
+  result.watch_outs = guardedWeb.kept.watch_outs;
 
   const hasReadSource = readSources.length > 0;
 
