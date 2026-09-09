@@ -411,21 +411,44 @@ async function discoverTeamPageUrlViaSitemap(baseUrl: string): Promise<string | 
   // fetchPage() rejects a non-HTML content-type — sitemap.xml is served
   // as XML, so this reads the body directly rather than reusing fetchPage.
   let xml: string;
+  // Prompt 627 §6.3 — where the sitemap ACTUALLY came from, which is not
+  // always where we asked. Relative <loc> entries have to resolve against
+  // the document that contains them, and a sitemap that redirected to
+  // another host carries that host's paths, not ours.
+  let sitemapFinalUrl = sitemapUrl;
   try {
     const res = await fetch(sitemapUrl, { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(10000) });
     if (!res.ok) return null;
+    if (res.url) sitemapFinalUrl = res.url;
     xml = await res.text();
   } catch {
     return null;
   }
   const locs = [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => m[1]);
-  const candidates = locs.filter((loc) => TEAM_PAGE_PATTERN.test(loc));
-  if (candidates.length === 0) return null;
+  // Prompt 627 §6.3 — a <loc> is NOT required to be absolute, and this is
+  // the one discovery path that was handing its result straight to fetch()
+  // without resolving it. firstfellow.com's sitemap lists `/team`, `/family`,
+  // `/contact` — bare paths — so the job died on `Invalid URL: '/team'`
+  // (3 jobs, still failing 2026-09-09) while a perfectly good team page sat
+  // one `new URL()` away. Every other discovery path here already resolved;
+  // this one just never did.
+  const resolved: string[] = [];
+  for (const loc of locs) {
+    if (!TEAM_PAGE_PATTERN.test(loc)) continue;
+    try {
+      const u = new URL(loc, sitemapFinalUrl);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') continue;
+      resolved.push(u.toString());
+    } catch {
+      // A <loc> we cannot make sense of is not an error worth failing on.
+    }
+  }
+  if (resolved.length === 0) return null;
   // Shortest path wins — /team beats /team/jane-doe/bio, the same
   // "prefer the index page, not a deep sub-page" intuition the nav-link
   // scorer expresses via its href-length penalty.
-  candidates.sort((a, b) => a.length - b.length);
-  return candidates[0];
+  resolved.sort((a, b) => a.length - b.length);
+  return resolved[0];
 }
 
 // Recurso barato quando discoverTeamPageUrl nao encontra nada (menu
@@ -862,18 +885,56 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
   // was already working around (a JS-rendered menu the nav-link scan
   // can't see into). Falls through to the nav-link scan when the sitemap
   // is absent or has nothing matching — very common, not an error.
-  let teamUrl = await discoverTeamPageUrlViaSitemap(homepageUrl);
-  telemetry.webCalls += 1;
-  if (!teamUrl) teamUrl = discoverTeamPageUrl(homepage.html, homepageUrl);
-  let teamPage: { ok: true; html: string } | null = null;
+  // Prompt 627 §6.3 — ONE BAD CANDIDATE USED TO END THE ENTITY. The sitemap
+  // and nav-link strategies each produce a guess; if that guess failed to
+  // fetch, the function returned `failed` and the remaining strategies —
+  // fixed paths, the /en/ variant — never ran, even though the whole reason
+  // they exist is that the earlier guesses are unreliable.
+  //
+  // Dutch Founders Fund is the case that shows why this matters and why the
+  // fix is here rather than in our URL building: dutchfoundersfund.com
+  // answers /sitemap.xml with `301 → https://www.dff.venturessitemap.xml`
+  // and /team with `301 → https://www.dff.venturesteam`. THEIR redirect rule
+  // concatenates without a slash. We cannot fix a remote server's 301, and
+  // no amount of `new URL()` on our side changes what it returns — but a
+  // dead guess should cost one wasted fetch, not the whole fund. 7 jobs have
+  // been failing on that one host since 8 August.
+  type TeamHit = { url: string; page: { ok: true; html: string }; text: string };
+  const attempted = new Set<string>();
+  // Kept so a rejected candidate still explains itself. Before this change a
+  // JS-only shell or an empty page ended the job with its own reason; now the
+  // cascade continues past it, and without this the outcome would flatten to
+  // a bare `team_page_not_found` and the 5 `team_page_empty` jobs on record
+  // would stop being distinguishable from the 150 genuine misses.
+  let lastReject: string | null = null;
 
-  if (teamUrl) {
-    if (!(await isAllowedByRobots(teamUrl))) return { status: 'skipped', reason: 'robots_disallowed' };
-    const fetched = await fetchPageWithBlockRetry(teamUrl);
+  // Returns the hit rather than assigning to an outer variable: assignment
+  // inside a closure defeats TypeScript's narrowing, and the later code
+  // depends on knowing this is non-null.
+  const tryCandidate = async (candidate: string | null, withBlockRetry: boolean): Promise<TeamHit | null> => {
+    if (!candidate || attempted.has(candidate)) return null;
+    attempted.add(candidate);
+    if (!(await isAllowedByRobots(candidate))) return null;
+    const fetched = withBlockRetry ? await fetchPageWithBlockRetry(candidate) : await fetchPage(candidate);
     telemetry.webCalls += 1;
-    if (!fetched.ok) return { status: fetched.blocked ? 'blocked' : 'failed', reason: fetched.reason };
-    teamPage = fetched;
-  } else {
+    if (!fetched.ok) return null;
+    // The quality gates that used to live after the cascade now decide
+    // whether a candidate COUNTS, which is what lets the next strategy run:
+    // a JS-only shell at /about is a reason to keep looking, not a verdict
+    // on the fund.
+    const text = htmlToText(fetched.html);
+    if (looksLikeJsOnlyShell(fetched.html, text.length)) { lastReject = 'js_only_site'; return null; }
+    if (text.length < 50) { lastReject = 'team_page_empty'; return null; }
+    return { url: candidate, page: fetched, text };
+  };
+
+  const sitemapCandidate = await discoverTeamPageUrlViaSitemap(homepageUrl);
+  telemetry.webCalls += 1;
+  let hit = await tryCandidate(sitemapCandidate, true);
+
+  if (!hit) hit = await tryCandidate(discoverTeamPageUrl(homepage.html, homepageUrl), true);
+
+  if (!hit) {
     // Recurso barato: a descoberta por link falhou. Caso real medido antes
     // da corrida paga — kimaventures.com/team existe e tem gente (Xavier
     // Niel, Jerémie Berrebi, Michel Sassano, Vincent Jacobs), mas o menu e
@@ -888,16 +949,8 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
       } catch {
         continue;
       }
-      if (!(await isAllowedByRobots(candidateUrl))) continue;
-      const candidatePage = await fetchPage(candidateUrl);
-      telemetry.webCalls += 1;
-      if (!candidatePage.ok) continue;
-      const candidateText = htmlToText(candidatePage.html);
-      if (looksLikeJsOnlyShell(candidatePage.html, candidateText.length)) continue;
-      if (candidateText.length < 50) continue;
-      teamUrl = candidateUrl;
-      teamPage = candidatePage;
-      break;
+      hit = await tryCandidate(candidateUrl, false);
+      if (hit) break;
     }
   }
 
@@ -910,7 +963,7 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
   // path is passed as base) — repeating it here would just re-fetch the
   // identical URL for an identical result, so only the nav-link scan is
   // worth running again, against the /en/ homepage specifically.
-  if (!teamUrl || !teamPage) {
+  if (!hit) {
     let enHomepageUrl: string | null = null;
     try {
       enHomepageUrl = new URL('/en/', homepageUrl).toString();
@@ -920,25 +973,31 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
     if (enHomepageUrl && enHomepageUrl !== homepageUrl && (await isAllowedByRobots(enHomepageUrl))) {
       const enHomepage = await fetchPage(enHomepageUrl);
       telemetry.webCalls += 1;
-      if (enHomepage.ok) {
-        const enTeamUrl = discoverTeamPageUrl(enHomepage.html, enHomepageUrl);
-        if (enTeamUrl && (await isAllowedByRobots(enTeamUrl))) {
-          const enFetched = await fetchPage(enTeamUrl);
-          telemetry.webCalls += 1;
-          if (enFetched.ok) {
-            teamUrl = enTeamUrl;
-            teamPage = enFetched;
-          }
-        }
-      }
+      if (enHomepage.ok) hit = await tryCandidate(discoverTeamPageUrl(enHomepage.html, enHomepageUrl), false);
     }
   }
 
-  if (!teamUrl || !teamPage) return { status: 'skipped', reason: 'team_page_not_found' };
+  // Prompt 627 §6.1 — RECORD THE ANSWER, INCLUDING WHEN THE ANSWER IS "NONE".
+  // The word `team_page_url` did not appear once in this file: the cascade
+  // above ran sitemap + nav-link + six fixed paths + an /en/ variant, used
+  // what it found, and threw it away — 0 of 762 rows had it stored. The
+  // dossier route (api/backoffice/catalog/people/[id]) then re-derived the
+  // same URL on its own 30-day TTL, because as far as it could tell nobody
+  // had ever looked. Writing null WITH a timestamp is the same cache's way
+  // of saying "checked, nothing there", so the not-found path records too —
+  // otherwise the 150 entities that legitimately have no reachable team page
+  // pay for the full cascade again on every future run.
+  if (!dryRun) {
+    await supabase.from('catalog_entities')
+      .update({ team_page_url: hit?.url ?? null, team_page_checked_at: new Date().toISOString() })
+      .eq('id', entity.id);
+  }
 
-  const teamText = htmlToText(teamPage.html);
-  if (looksLikeJsOnlyShell(teamPage.html, teamText.length)) return { status: 'skipped', reason: 'js_only_site' };
-  if (teamText.length < 50) return { status: 'skipped', reason: 'team_page_empty' };
+  if (!hit) return { status: 'skipped', reason: lastReject ?? 'team_page_not_found' };
+
+  const teamUrl = hit.url;
+  const teamPage = hit.page;
+  const teamText = hit.text;
 
   if (dryRun) {
     return {
