@@ -17,7 +17,21 @@
 import { useEffect, useState } from 'react';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { AddInfoButton, PrivateBadge } from '@/components/ui';
-import { ENTITY_ENRICHMENT_FIELD_LABELS, isKnownEntityField } from '@/lib/entity-enrichment';
+import { ENTITY_ENRICHMENT_FIELD_LABELS, ENTITY_ENRICHMENT_FIELDS, isKnownEntityField } from '@/lib/entity-enrichment';
+
+// Prompt 631 §1.2 — the fields a contribution can actually reach. Free text
+// was the cause of half the rejections: 52 human rows filed as "campo fora
+// do allowlist" with names like "Recepcionist", "portuguese site", a whole
+// news headline, or "Website" with a capital W. A founder had no way to
+// know the list existed, so the only field names they could possibly type
+// were wrong ones. `name` is excluded on purpose (it is the matching key,
+// never a fill); the person list mirrors contribution-promotion.ts.
+const ENTITY_CONTRIBUTABLE_FIELDS = (ENTITY_ENRICHMENT_FIELDS as readonly string[]).filter((f) => f !== 'name');
+const PERSON_CONTRIBUTABLE_FIELDS: { field: string; label: string }[] = [
+  { field: 'role', label: 'Role / title' }, { field: 'linkedin_url', label: 'LinkedIn URL' },
+  { field: 'background', label: 'Background' }, { field: 'hook', label: 'Hook' },
+];
+const OTHER_FIELD = '__private_note__';
 
 // Prompt 262 — free-text fields typed into "+ Add info" (co-investor,
 // portfolio highlight, ...) aren't in ENTITY_ENRICHMENT_FIELDS at all —
@@ -103,6 +117,12 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
   const [field, setField] = useState('');
   const [value, setValue] = useState('');
   const [note, setNote] = useState('');
+  // Prompt 631 §1.1 — provenance is required. 64 of the 122 rejected human
+  // contributions were rejected as "sem proveniência", and the form never
+  // asked. A URL is the normal case; "phone call, 20/05/2025" is a valid
+  // source too — what is not valid is empty.
+  const [sourceRef, setSourceRef] = useState('');
+  const [privateNoteSaved, setPrivateNoteSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [conflictPopover, setConflictPopover] = useState<Contribution | null>(null);
   const [resolving, setResolving] = useState(false);
@@ -129,6 +149,23 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
   async function submit() {
     setBusy(true);
     try {
+      // Prompt 631 §1.2/§1.3 — "Other" is legitimate as a NOTE; what is not
+      // legitimate is offering it dressed as a structured contribution and
+      // rejecting it three days later. It goes to the org's own private
+      // notes on the record, with the source kept beside it, and never
+      // enters the review queue.
+      if (field === OTHER_FIELD) {
+        if (subjectType !== 'entity') return;
+        const { data: current } = await browserClient().from('entities').select('notes').eq('id', subjectId).maybeSingle();
+        const stamp = new Date().toISOString().slice(0, 10);
+        const line = `[${stamp}] ${value}${sourceRef ? ` (source: ${sourceRef})` : ''}${note ? ` — ${note}` : ''}`;
+        const merged = current?.notes ? `${current.notes}\n${line}` : line;
+        await browserClient().from('entities').update({ notes: merged }).eq('id', subjectId);
+        onApplyValue?.('notes', merged);
+        setField(''); setValue(''); setNote(''); setSourceRef(''); setOpen(false);
+        setPrivateNoteSaved(true);
+        return;
+      }
       // Prompt 572 §C.1 — this write went through the founder's own
       // authenticated session (RLS-scoped) but never SET author_user_id on
       // the row, so 729 of 734 production contributions have no author even
@@ -138,8 +175,11 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
       const { data: created } = await browserClient().from('contributions').insert({
         subject_type: subjectType, subject_id: subjectId, org_id: orgId,
         field, value, note: note || null, author_user_id: user?.id ?? null,
+        // §1.1 — stored where every reviewer and every automatic rule already
+        // looks for provenance. Not always a URL, and that is fine.
+        source_url: sourceRef.trim(),
       }).select('id').single();
-      setField(''); setValue(''); setNote(''); setOpen(false);
+      setField(''); setValue(''); setNote(''); setSourceRef(''); setOpen(false);
       refresh();
       // Prompt 266 — best-effort, fire-and-forget: does this ALSO now agree
       // with another org's contribution for the same catalog investor?
@@ -212,17 +252,44 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
         <PrivateBadge />
         {!open && <button onClick={() => setOpen(true)} className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs text-gray-500 hover:bg-gray-50">+ Add info</button>}
       </div>
+      {privateNoteSaved && !open && (
+        <p className="mt-1 text-[11px] text-gray-500">Saved as a private note on this record.</p>
+      )}
       {open && (
         <div className="mt-2 space-y-1.5 rounded-lg border border-gray-200 bg-gray-50 p-2.5">
-          <input value={field} onChange={(e) => setField(e.target.value)} placeholder="Field (e.g. co-investor, portfolio highlight)"
-            className="w-full rounded border border-gray-300 px-2 py-1 text-xs" />
-          <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="Value"
-            className="w-full rounded border border-gray-300 px-2 py-1 text-xs" />
-          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional — how do you know this?)"
-            className="w-full rounded border border-gray-300 px-2 py-1 text-xs" />
+          {/* Prompt 631 §1.2 — a selector, not a free-text field name. What is
+              offered is exactly what can be accepted, so "this will be rejected"
+              is something the form cannot produce any more. */}
+          <select value={field} onChange={(e) => setField(e.target.value)}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs">
+            <option value="">What is this about?</option>
+            {subjectType === 'entity'
+              ? ENTITY_CONTRIBUTABLE_FIELDS.map((f) => <option key={f} value={f}>{fieldLabel(f)}</option>)
+              : PERSON_CONTRIBUTABLE_FIELDS.map((f) => <option key={f.field} value={f.field}>{f.label}</option>)}
+            {subjectType === 'entity' && <option value={OTHER_FIELD}>Other — keep as a private note</option>}
+          </select>
+          {field === OTHER_FIELD && (
+            <p className="text-[11px] text-gray-500">
+              This will not enter the catalogue or the review queue. It is saved on this record, visible only to your team.
+            </p>
+          )}
+          <input value={value} onChange={(e) => setValue(e.target.value)} placeholder={field === OTHER_FIELD ? 'The note' : 'Value'}
+            autoComplete="off" className="w-full rounded border border-gray-300 px-2 py-1 text-xs" />
+          {/* Prompt 631 §1.1 — required for anything that can reach the
+              catalogue. Optional for a private note. */}
+          <input value={sourceRef} onChange={(e) => setSourceRef(e.target.value)}
+            placeholder={field === OTHER_FIELD ? 'Source (optional)' : 'Source — a URL, or e.g. "phone call, 20/05/2025"'}
+            autoComplete="off" className="w-full rounded border border-gray-300 px-2 py-1 text-xs" />
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)"
+            autoComplete="off" className="w-full rounded border border-gray-300 px-2 py-1 text-xs" />
+          {field && field !== OTHER_FIELD && !sourceRef.trim() && value && (
+            <p className="text-[11px] text-amber-700">A source is required — without one this would be rejected at review, so the form does not send it.</p>
+          )}
           <div className="flex gap-2">
-            <button disabled={busy || !field || !value} onClick={submit}
-              className="rounded bg-[#0E7490] px-2 py-1 text-xs font-medium text-white disabled:opacity-40">Submit</button>
+            <button disabled={busy || !field || !value.trim() || (field !== OTHER_FIELD && !sourceRef.trim())} onClick={submit}
+              className="rounded bg-[#0E7490] px-2 py-1 text-xs font-medium text-white disabled:opacity-40">
+              {field === OTHER_FIELD ? 'Save note' : 'Submit'}
+            </button>
             <button onClick={() => setOpen(false)} className="rounded border border-gray-300 px-2 py-1 text-xs">Cancel</button>
           </div>
         </div>
