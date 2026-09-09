@@ -1,0 +1,36 @@
+ID_Investidor,Nome_ficheiro,catalog_entity_id,nome_no_catalogo,nota
+INV001,Point Nine,6ffbf484-56b4-4132-b2af-3b84bb6d21bd,Point Nine Capital,
+INV002,Seedcamp,a9ad0726-07c8-4a3a-808e-aab7256ff62e,Seedcamp,
+INV003,JME Ventures,abcaafd8-6737-440c-a0e4-5bc528f3ceb8,JME Ventures,
+INV004,Picus Capital,bd5b288c-7775-4c53-81bd-6e8537f005cc,Picus Capital,
+INV005,Speedinvest,7d6906ba-dceb-416e-a515-89df058b0c25,Speedinvest Health (⚠ ver nota),
+INV006,Index Ventures,a672ee3f-3684-4024-8b1e-0b88f40db211,Index Ventures,
+INV007,Atomico,45345e6e-459a-4cef-894d-e6f055a53cfe,Atomico,
+INV008,Balderton Capital,8fc3f167-a6d5-4dc1-8054-8cc1e8c84955,Balderton Capital,
+INV009,Cherry Ventures,bf17944b-d344-4333-b108-5f5c26fb13a1,Cherry Ventures,
+INV010,Creandum,f1398f3c-48bf-4dcf-a4c0-ea299ea00374,Creandum,
+INV011,Northzone,6ae60053-408a-4425-bc73-907acd7da406,Northzone,
+INV012,Project A,435c6291-288a-45c5-ab15-4afe310948a0,Project A Ventures,
+INV013,Dawn Capital,3e747170-2b9b-4cc2-a1c0-25913ff6eb40,Dawn Capital,
+INV014,Octopus Ventures,d0962348-5ce9-4809-a348-104e764a9b73,Octopus Ventures,
+INV015,Notion Capital,c13b6517-af8a-4fc4-b759-0103507e8f41,Notion Capital,
+INV016,Nauta Capital,521d2b65-e572-4c89-aad1-9cab7b3cff3d,Nauta Capital,
+INV017,K Fund,26a49baf-7ae2-491c-9285-89a0f0b5c832,K Fund,
+INV018,Samaipata,db8c9441-cb8e-4625-a8df-82409700e774,Samaipata,
+INV019,Portugal Ventures,7cddf0fb-2ee6-49f0-9379-ba6cd8777e22,Portugal Ventures,
+INV020,Indico Capital Partners,fbde8b3e-1b4c-498e-bcee-6da27fd6424b,Indico Capital Partners,
+INV021,Shilling,11111111-0000-4000-a000-000000000006,Shilling VC (catalog_status=demo ⚠),
+INV022,Armilar Venture Partners,e797379b-3b06-4711-8d20-12f4558b7a0f,Armilar Venture Partners,
+INV023,Hoxton Ventures,48e7eac6-7581-44c9-90cf-fcd55c42d57e,Hoxton Ventures,
+INV024,Kindred Capital,beeabdc1-4eb9-421a-965f-8adcb4fe9c90,Kindred Capital,
+INV025,Connect Ventures,061e685b-f35d-42ab-acea-b8fde23b2d60,Connect Ventures,
+INV026,Heartcore Capital,fba14c8e-3adf-4bed-b7c9-0dfb19fba9d1,Heartcore Capital,
+INV027,Partech,082376fd-1f9c-4c58-bb19-c30f1224c43b,Partech,
+INV028,Korys,78a6eec2-97a5-40af-a472-5a9f37a82948,Korys,lote 2
+INV029,H14,19b2b90d-d176-4872-a682-47cc9d4cb8e2,H14,lote 2
+INV030,Fink Family Office,NOVA,— criar —,lote 2 · website é URL de LinkedIn — não usar como website
+INV031,DIG Ventures,NOVA,— criar —,lote 2
+INV032,Smedvig Ventures,NOVA,— criar —,lote 2
+INV033,Episode 1,ed086f45-68cc-4587-a2d8-eafa1e6ca79e,Episode 1 Ventures,lote 2
+INV034,Concept Ventures,e6464ba3-f8fa-435e-9b4b-6d2c690c6fa5,Concept Ventures,lote 2
+INV035,Empirical Ventures,NOVA,— criar —,lote 2
