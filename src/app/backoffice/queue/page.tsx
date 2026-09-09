@@ -23,6 +23,7 @@ import { ReviewQueueLayout, ReviewFacts, ReviewActionFooter } from '@/components
 import { BadgeLapseTab } from '@/components/backoffice/BadgeLapseTab';
 import type { UnifiedIdentityRow } from '@/lib/investor-identity-row';
 import type { MxLookupResult } from '@/lib/investor-domain-mx';
+import { GDPR_KIND_LABEL, type GdprKind } from '@/lib/gdpr';
 
 // Prompt 190 — 'candidates' ("Catalog candidates") added next to
 // Contributions per Nuno's explicit decision: "Added by startups" (Prompt
@@ -637,15 +638,68 @@ function ClaimsTab() {
 
 type GdprRequest = {
   id: string; person_id: string | null; claimant_name: string | null; claimant_email: string;
-  kind: 'rectify' | 'erase'; details: string | null; status: 'pending' | 'resolved' | 'rejected';
+  kind: GdprKind; details: string | null; status: 'pending' | 'resolved' | 'rejected';
   created_at: string; resolved_at: string | null;
-  daysLeft: number; overdue: boolean; dueLabel: string;
+  // Prompt 626 §D — the deadline as stored, and the extension as recorded.
+  due_at: string; extended_until: string | null; extension_reason: string | null;
+  extension_notified_at: string | null; source: string; claimant_profile: string | null;
+  daysLeft: number; overdue: boolean; dueLabel: string; dueAt: string; extended: boolean;
   namedPerson: { id: string; name: string; orgName: string; entityName: string | null } | null;
   requesterEmailMatchesRecord: boolean | null;
   resolvedByEmail: string | null; reviewer_notes: string | null; resolution_method: string | null;
   removal_summary: { people_rows: number; orgs_affected: number; erased_at?: string } | null;
   matches: { personId: string; name: string; orgName: string }[];
 };
+
+const GDPR_KIND_TONE: Record<GdprKind, string> = {
+  access: 'bg-cyan-100 text-cyan-800',
+  rectify: 'bg-cyan-100 text-cyan-800',
+  object: 'bg-amber-100 text-amber-900',
+  erase: 'bg-red-100 text-red-800',
+};
+
+const CLAIMANT_PROFILE_LABEL: Record<string, string> = {
+  catalog_person: 'someone who works at an investment firm',
+  product_user: 'a user, or known to one',
+  other: 'not sure which',
+};
+
+/**
+ * Prompt 626 §D — the extension, as the Regulation frames it rather than as a
+ * date field. It cannot be granted without a reason, and the reason exists to
+ * be SENT: the control says so, because the row it writes asserts that the
+ * person was told today, and the database refuses it once the first month has
+ * passed.
+ */
+function ExtendControl({ row, busy, reason, setReason, onExtend }: {
+  row: GdprRequest; busy: boolean; reason: string; setReason: (v: string) => void; onExtend: () => void;
+}) {
+  if (row.extended_until) {
+    return (
+      <p className="rounded-lg bg-amber-50 px-2.5 py-2 text-[11px] text-amber-900">
+        Extended to <b>{new Date(row.extended_until).toLocaleDateString()}</b> — told
+        {' '}{row.extension_notified_at ? new Date(row.extension_notified_at).toLocaleDateString() : '(unrecorded)'}:
+        {' '}&ldquo;{row.extension_reason}&rdquo;
+      </p>
+    );
+  }
+  return (
+    <details className="rounded-lg border border-gray-200 px-2.5 py-2">
+      <summary className="cursor-pointer text-[11px] text-gray-500">Need longer? Extend under Article 12(3)</summary>
+      <p className="mt-1.5 text-[11px] text-gray-500">
+        Two further months. Only valid if you tell the person <b>before {new Date(row.due_at).toLocaleDateString()}</b>,
+        with this reason — write it as they will read it, then send it.
+      </p>
+      <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2}
+        placeholder="Why this one needs longer, in words the person will receive"
+        className="mt-1.5 w-full rounded-lg border border-gray-300 p-2 text-xs" />
+      <button type="button" disabled={busy || !reason.trim()} onClick={onExtend}
+        className="mt-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-900 disabled:opacity-40">
+        I have told them — record the extension
+      </button>
+    </details>
+  );
+}
 
 function GdprTab() {
   const showResolvedParam = useSearchParams().get('resolved') === 'show';
@@ -655,6 +709,7 @@ function GdprTab() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionErr, setActionErr] = useState<Record<string, string>>({});
   const [rectifyNotes, setRectifyNotes] = useState('');
+  const [extendReason, setExtendReason] = useState('');
 
   function refresh() {
     fetch('/api/backoffice/gdpr').then((r) => r.json()).then((body) => {
@@ -664,13 +719,13 @@ function GdprTab() {
   }
   useEffect(refresh, []);
 
-  async function act(row: GdprRequest, action: 'rectify' | 'erase' | 'reject', payload: Record<string, string>) {
+  async function act(row: GdprRequest, action: 'rectify' | 'erase' | 'reject' | 'extend', payload: Record<string, string>) {
     setBusyId(row.id);
     const res = await fetch(`/api/backoffice/gdpr/${row.id}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const body = await res.json();
     setBusyId(null);
     if (body.ok === false) { setActionErr((prev) => ({ ...prev, [row.id]: body.error })); return; }
-    setSelectedId(null); setRectifyNotes('');
+    setSelectedId(null); setRectifyNotes(''); setExtendReason('');
     refresh();
   }
 
@@ -681,7 +736,7 @@ function GdprTab() {
 
   const columns: QueueColumn<GdprRequest>[] = [
     { key: 'kind', label: 'Kind', render: (r) => (
-        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${r.kind === 'erase' ? 'bg-red-100 text-red-800' : 'bg-cyan-100 text-cyan-800'}`}>{r.kind}</span>
+        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${GDPR_KIND_TONE[r.kind]}`}>{r.kind}</span>
     ) },
     { key: 'claimant', label: 'Requester', render: (r) => (
         <div><div className="font-medium">{r.claimant_name || r.claimant_email}</div><div className="text-xs font-normal text-gray-400">{r.claimant_email}</div></div>
@@ -689,7 +744,12 @@ function GdprTab() {
     { key: 'when', label: 'Submitted', sortable: true, render: (r) => <span className="text-gray-500">{new Date(r.created_at).toLocaleDateString()}</span> },
     { key: 'due', label: 'Due', render: (r) => r.status !== 'pending'
         ? <span className="text-xs text-gray-300">—</span>
-        : <span className={r.overdue || r.daysLeft <= 7 ? 'font-semibold text-[#B00000]' : r.daysLeft <= 14 ? 'font-semibold text-amber-600' : 'text-gray-400'}>{r.dueLabel}</span> },
+        : (
+          <span className={r.overdue || r.daysLeft <= 7 ? 'font-semibold text-[#B00000]' : r.daysLeft <= 14 ? 'font-semibold text-amber-600' : 'text-gray-400'}>
+            {r.dueLabel}
+            <span className="ml-1 block text-[10px] font-normal text-gray-400">{new Date(r.dueAt).toLocaleDateString()}</span>
+          </span>
+        ) },
     { key: 'status', label: '', render: (r) => r.status !== 'pending'
         ? <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${r.status === 'resolved' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{r.status}</span>
         : null },
@@ -699,9 +759,12 @@ function GdprTab() {
     <div className="space-y-4">
       <Card title={`GDPR / RGPD requests (${pending.length})`} tint={overdueCount > 0 ? 'red' : undefined}>
         <p className="mb-3 text-xs text-gray-500">
-          The only queue with a legal deadline — 30 days from submission, nearest first. &quot;Erase&quot; nulls PII on
-          every matched people row across every org (never deletes the row — every other table that references it
-          stays valid); the correction for Rectify happens in the founder&apos;s own People record.
+          The only queue with a legal deadline — <b>one calendar month</b> from submission (Article 12(3)), nearest
+          first. Extendable by two further months, but only while there is still time to tell the person inside the
+          first month, and only with a reason they are given. &quot;Erase&quot; nulls PII on every matched people row
+          across every org and writes the suppression entry that keeps them out of the next enrichment run (never
+          deletes the row — every other table that references it stays valid); the correction for Rectify happens in
+          the founder&apos;s own People record. Access and Object are answered by hand, then marked resolved here.
         </p>
         <ReviewQueueLayout<GdprRequest>
           columns={columns}
@@ -716,8 +779,8 @@ function GdprTab() {
             <div className="space-y-4">
               {actionErr[row.id] && <p className="text-xs text-[#B00000]">{actionErr[row.id]}</p>}
               <ReviewFacts
-                what={<>{row.kind === 'erase' ? 'Erase' : 'Rectify'} request{row.details && <> — {row.details}</>}</>}
-                whoFrom={<>{row.claimant_name || '(no name given)'} · {row.claimant_email} · submitted {new Date(row.created_at).toLocaleDateString()}</>}
+                what={<>{GDPR_KIND_LABEL[row.kind]}{row.details ? <> — {row.details}</> : row.kind === 'object' ? <> — no reason given, and none is required (Article 21(2))</> : null}</>}
+                whoFrom={<>{row.claimant_name || '(no name given)'} · {row.claimant_email} · submitted {new Date(row.created_at).toLocaleDateString()} · says they are {CLAIMANT_PROFILE_LABEL[row.claimant_profile ?? ''] ?? 'unspecified'}</>}
                 proof={
                   <>
                     {row.namedPerson ? (
@@ -747,10 +810,10 @@ function GdprTab() {
                     </div>
                   )}
                 </dl>
-              ) : row.kind === 'rectify' ? (
+              ) : row.kind !== 'erase' ? (
                 <>
                   <textarea value={rectifyNotes} onChange={(e) => setRectifyNotes(e.target.value)} rows={2}
-                    placeholder="What was corrected, and where (optional)"
+                    placeholder={row.kind === 'access' ? 'What was sent, and when (optional)' : row.kind === 'object' ? 'What was stopped, and where (optional)' : 'What was corrected, and where (optional)'}
                     className="w-full rounded-lg border border-gray-300 p-2 text-xs" />
                   <ReviewActionFooter
                     busy={busyId === row.id}
@@ -758,6 +821,8 @@ function GdprTab() {
                     approveLabel="Mark resolved"
                     onReject={(reason) => act(row, 'reject', { reason })}
                   />
+                  <ExtendControl row={row} busy={busyId === row.id} reason={extendReason} setReason={setExtendReason}
+                    onExtend={() => act(row, 'extend', { reason: extendReason })} />
                 </>
               ) : (
                 // Erase gets the red-toned slot (ReviewActionFooter's
@@ -765,13 +830,17 @@ function GdprTab() {
                 // action in this whole panel; rejecting the REQUEST itself
                 // (declining to act) is the lower-stakes one and sits on
                 // the neutral onDismiss slot instead.
-                <ReviewActionFooter
-                  busy={busyId === row.id}
-                  onReject={(reason) => act(row, 'erase', { reason })}
-                  rejectLabel="Erase"
-                  onDismiss={(reason) => act(row, 'reject', { reason })}
-                  dismissLabel="Reject request"
-                />
+                <>
+                  <ReviewActionFooter
+                    busy={busyId === row.id}
+                    onReject={(reason) => act(row, 'erase', { reason })}
+                    rejectLabel="Erase"
+                    onDismiss={(reason) => act(row, 'reject', { reason })}
+                    dismissLabel="Reject request"
+                  />
+                  <ExtendControl row={row} busy={busyId === row.id} reason={extendReason} setReason={setExtendReason}
+                    onExtend={() => act(row, 'extend', { reason: extendReason })} />
+                </>
               )}
             </div>
           )}

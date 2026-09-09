@@ -245,6 +245,16 @@ export function EntityPeoplePanel({ entityId, onShowsKeyPeopleFallback, onPerson
           })}
         </ul>
       )}
+      {/* Prompt 616 §B.2 / 626 §C — "de qualquer sítio onde os dados de uma
+          pessoa do catálogo apareçam a um cliente". This panel is that place:
+          the people listed here are in the catalogue, most of them never told
+          us anything, and this is where a founder reads about them. The notice
+          is one click away from the data it describes rather than only from
+          the marketing footer. */}
+      <p className="mt-3 border-t border-gray-100 pt-2 text-[11px] text-gray-400">
+        These are professional details gathered from public sources.{' '}
+        <Link href="/legal/privacy-notice" className="underline hover:text-gray-600">How we hold them, and how a person can have them changed or removed</Link>.
+      </p>
     </Card>
   );
 }

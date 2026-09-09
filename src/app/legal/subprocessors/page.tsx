@@ -55,7 +55,7 @@ export default function SubprocessorsPage() {
           </table>
         </div>
         <p className="mt-5 text-xs text-gray-500">
-          Questions about a supplier, or a data-rights request: <Link href="/privacy-request" className="underline">data-rights request</Link> · <Link href="/terms" className="underline">Terms &amp; Conditions</Link> (clause 8.3).
+          Questions about a supplier, or a data-rights request: <Link href="/privacy-request" className="underline">data-rights request</Link> · <Link href="/legal/privacy-notice" className="underline">How we hold professional contact information</Link> · <Link href="/terms" className="underline">Terms &amp; Conditions</Link> (clause 8.3).
         </p>
       </div>
     </div>

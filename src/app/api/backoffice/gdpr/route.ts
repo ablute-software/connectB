@@ -7,6 +7,12 @@
 // Attention and queue-summary.ts — one function, not three copies), and
 // resolved rows now carry who/when/how/what-was-removed instead of just a
 // status flag.
+//
+// Prompt 626 §D — the deadline is now a column, not a derivation, and a
+// recorded extension is read alongside it. Sorting by daysLeft is what makes
+// that matter: a request with a granted extension has genuinely more time, and
+// before this it sorted as if it did not — pushing a truly urgent request
+// below it.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient, resolveRole } from '@/lib/supabase-server';
@@ -26,7 +32,7 @@ export async function GET() {
   const admin = createClient(url, service, { auth: { persistSession: false } });
   const { data: requests, error } = await admin
     .from('gdpr_requests')
-    .select('id, person_id, claimant_name, claimant_email, claimant_user_id, kind, details, status, created_at, resolved_at, resolved_by, reviewer_notes, resolution_method, removal_summary')
+    .select('id, person_id, claimant_name, claimant_email, claimant_user_id, kind, details, status, created_at, due_at, extended_until, extension_reason, extension_notified_at, source, claimant_profile, resolved_at, resolved_by, reviewer_notes, resolution_method, removal_summary')
     .order('created_at', { ascending: true });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
@@ -61,9 +67,10 @@ export async function GET() {
 
   const enriched = requests.map((r) => {
     const named = r.person_id ? namedPersonById.get(r.person_id) : undefined;
-    const due = gdprDueAt(r.created_at);
+    const due = gdprDueAt(r.created_at, Date.now(), r.extended_until);
     return {
       ...r, daysLeft: due.daysLeft, overdue: due.overdue, dueLabel: due.label,
+      dueAt: due.dueAt, extended: due.extended,
       namedPerson: named ? { id: named.id, name: named.full_name, orgName: orgName.get(named.org_id) ?? '(unknown org)', entityName: entityName.get(named.entity_id) ?? null } : null,
       // §A.2 — "se o e-mail do requerente bate com o da pessoa... é a única
       // prova de identidade que temos". null when there's no named record

@@ -36,7 +36,7 @@ export async function GET() {
     queueRows,
     systemSignals,
   ] = await Promise.all([
-    admin.from('gdpr_requests').select('id, claimant_email, kind, created_at').eq('status', 'pending').order('created_at', { ascending: true }),
+    admin.from('gdpr_requests').select('id, claimant_email, kind, created_at, extended_until').eq('status', 'pending').order('created_at', { ascending: true }),
     admin.from('support_tickets').select('id, created_at, status, first_response_at, last_activity_at, name, subject').eq('status', 'new').order('created_at', { ascending: true })
       .then(async (newOnes) => {
         const { data: open } = await admin.from('support_tickets').select('id, created_at, status, first_response_at, last_activity_at, name, subject').eq('status', 'open');
@@ -55,12 +55,18 @@ export async function GET() {
   // GDPR — always first when present, per its own hard legal deadline.
   // Not folded into the general sort below on purpose.
   if ((gdprPending ?? []).length > 0) {
-    const oldest = gdprPending![0];
-    const due = gdprDueAt(oldest.created_at);
+    // Prompt 626 §D — the oldest request is no longer necessarily the most
+    // urgent one: a request with a granted extension genuinely has longer, and
+    // reporting it as the front of the queue would hide a newer one that does
+    // not. What matters is the nearest DEADLINE, so that is what is picked.
+    const withDue = gdprPending!.map((r) => ({ row: r, due: gdprDueAt(r.created_at, Date.now(), r.extended_until) }));
+    withDue.sort((a, b) => a.due.daysLeft - b.due.daysLeft);
+    const oldest = withDue[0].row;
+    const due = withDue[0].due;
     rows.push({
       tag: 'GDPR', title: `${gdprPending!.length} GDPR request(s) pending`,
-      context: `Oldest: ${oldest.kind} — ${oldest.claimant_email}`,
-      ageLabel: `oldest: ${due.label}`, href: '/backoffice/queue?tab=gdpr', buttonLabel: 'Review', urgent: due.overdue || due.daysLeft <= 7,
+      context: `Nearest deadline: ${oldest.kind} — ${oldest.claimant_email}`,
+      ageLabel: `nearest: ${due.label}`, href: '/backoffice/queue?tab=gdpr', buttonLabel: 'Review', urgent: due.overdue || due.daysLeft <= 7,
     });
   }
 

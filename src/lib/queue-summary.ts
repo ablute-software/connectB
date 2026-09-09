@@ -97,7 +97,7 @@ export async function getQueueSummaryRows(admin: SupabaseClient): Promise<QueueS
     admin.from('investor_entity_claims').select('id, created_at').eq('status', 'pending'),
 
     admin.from('gdpr_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-    admin.from('gdpr_requests').select('created_at').eq('status', 'pending').order('created_at', { ascending: true }).limit(1),
+    admin.from('gdpr_requests').select('created_at, extended_until').eq('status', 'pending'),
     admin.from('suspicious_account_flags').select('id', { count: 'exact', head: true }).eq('status', 'open'),
     admin.from('entity_fraud_flags').select('id', { count: 'exact', head: true }).eq('status', 'open'),
 
@@ -152,12 +152,17 @@ export async function getQueueSummaryRows(admin: SupabaseClient): Promise<QueueS
     ...identityClaimRows,
   ].map((r) => r.created_at).filter(Boolean).sort()[0];
 
-  // GDPR is the only queue with a deadline today: 30 days from the request.
-  // Prompt 574 §A.1 — gdprDueAt is the one shared function now; queue-summary,
+  // GDPR is the only queue with a deadline today: one calendar month from the
+  // request (Article 12(3)), extendable to three where the person was told.
+  // Prompt 574 §A.1 — gdprDueAt is the one shared function; queue-summary,
   // Attention, and the Queue page's own GdprTab all read the SAME calculation.
-  const gdprOldestAt = (gdprOldest.data ?? [])[0]?.created_at as string | undefined;
+  // Prompt 626 §D — and the row that matters is the nearest DEADLINE, not the
+  // oldest request, which stopped being the same thing once extensions existed.
+  const gdprPendingRows = (gdprOldest.data ?? []) as { created_at: string; extended_until: string | null }[];
+  const gdprDues = gdprPendingRows.map((r) => gdprDueAt(r.created_at, Date.now(), r.extended_until));
+  const gdprOldestAt = gdprPendingRows.map((r) => r.created_at).sort()[0];
   const gdprAge = daysSince(gdprOldestAt);
-  const slaDueInDays = gdprOldestAt ? gdprDueAt(gdprOldestAt).daysLeft : null;
+  const slaDueInDays = gdprDues.length ? Math.min(...gdprDues.map((d) => d.daysLeft)) : null;
 
   const mismatchCount = (entitiesForMismatch.data ?? []).filter((e) =>
     hasDomainMismatch(e.website as string | null, e.email_domain as string | null)).length;

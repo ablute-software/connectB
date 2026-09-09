@@ -166,6 +166,13 @@ export default function CatalogPersonPage() {
               </ul>
             )}
           </Card>
+          {/* Prompt 616 §B.2 / 626 §C — this page IS a catalogue person's
+              record, shown to a customer. If the notice belongs anywhere in
+              the product, it belongs here. */}
+          <p className="text-[11px] text-gray-400">
+            Professional details gathered from public sources.{' '}
+            <Link href="/legal/privacy-notice" className="underline hover:text-gray-600">How we hold them, and how a person can have them changed or removed</Link>.
+          </p>
         </>
       )}
     </div>

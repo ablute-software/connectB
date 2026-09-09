@@ -353,6 +353,14 @@ export default async function InvestorLandingPage() {
             <Link href="/contact?from=investors">Contact</Link>
             <Link href="/login?as=investor">Sign in</Link>
           </div>
+          {/* Same reasoning as the Startup landing footer: this is the page
+              an investor who was told "you are in their catalogue" lands on. */}
+          <div className={s.fl}>
+            <Link href="/legal/privacy-notice">Privacy notice</Link>
+            <Link href="/privacy-request">Data-rights request</Link>
+            <Link href="/legal/subprocessors">Suppliers</Link>
+            <Link href="/terms">Terms</Link>
+          </div>
           <p className={s.cp}>© {new Date().getFullYear()} {BRAND_NAME} · Investor relations, investigated.</p>
         </div>
       </footer>
