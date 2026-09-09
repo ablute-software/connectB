@@ -1,0 +1,24 @@
+-- Prompt 636 §1, measured one hour after 234000 — the premise was wrong.
+--
+-- The bio_only queue was sized on ~€0.003 a person: one haiku call over a
+-- bio already on file, no web. That figure is what the bio PATH costs. It is
+-- not what a bio-eligible PERSON costs, because the worker's own confidence
+-- gate (583 §B.1a, threshold 0.6) sends a low-confidence bio result down the
+-- web path, and the queue has no way to say "bio only, stop there" — a job
+-- row carries no mode, both queues insert the same row. First five jobs from
+-- the 300 enqueued by hand at 20:38 UTC: four fell through to the web
+-- (€0.065–€0.095 each, 7–8 web calls), one stayed on the bio (€0.0024).
+-- €0.063 average, 20× the estimate. 300 a night would burn to the €5 daily
+-- cap every day and, since the worker drains FIFO and the bio sweep runs
+-- ten minutes before the mixed one, the mixed queue would never run.
+--
+-- The 294 still queued were set to 'skipped' by hand at 20:49 UTC with the
+-- reason in last_error — 'skipped' is not in the sweep's 90-day exclusion,
+-- so they are eligible again the moment a queue is allowed to take them.
+-- The function keeps its p_path argument; only the nightly schedule for the
+-- bio_only path goes, until the worker honours a per-job bio-only mode
+-- (bio confidence below threshold → done with no hook, never the web).
+-- The mixed sweep at 03:45 stays: 50 × ~€0.078 is the number 636 itself
+-- put on it, and that arithmetic was right.
+
+select cron.unschedule('enrichment_cold_person_bio_sweep');
