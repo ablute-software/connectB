@@ -698,6 +698,12 @@ const EXTRACT_TEAM_TOOL = {
           sectors: { type: 'array', items: { type: 'string' } },
           submission_channel: { type: ['string', 'null'], description: 'email ou URL de submissao de pitches — so se aparecer literalmente no texto da pagina' },
           submission_channel_type: { type: ['string', 'null'] },
+          // Prompt 627 §2.5 — 106 entidades sem pais nenhum, e 40 delas
+          // verificadas. A mesma disciplina literal do submission_channel:
+          // so se o pais aparecer ESCRITO na pagina (rodape, morada, pagina
+          // de contactos). Nunca deduzido do TLD do dominio — .com nao diz
+          // nada e .vc diz menos ainda — e nunca do nome do fundo.
+          hq_country: { type: ['string', 'null'], description: 'pais da sede, so se aparecer literalmente escrito no texto da pagina (rodape, morada, contactos). Nome do pais ou codigo ISO-2. NUNCA deduzido do dominio, do TLD, do nome do fundo ou da lingua da pagina — se nao estiver escrito, null' },
         },
       },
       people: {
@@ -859,7 +865,7 @@ async function isEmailVerifiedColumnAvailable(): Promise<boolean> {
 async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry, batchId: string) {
   const { data: entity, error: entityErr } = await supabase
     .from('catalog_entities')
-    .select('id, name, website, is_test')
+    .select('id, name, website, is_test, hq_country')
     .eq('id', job.target_id)
     .single();
   if (entityErr || !entity) throw new Error(`entity_not_found: ${entityErr?.message ?? job.target_id}`);
@@ -1048,6 +1054,26 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
   if (submissionChannel) {
     fundPatch.submission_channel = submissionChannel;
     if (parsed.fund?.submission_channel_type) fundPatch.submission_channel_type = parsed.fund.submission_channel_type;
+  }
+
+  // Prompt 627 §2.5 — country, under the same literal rule as the submission
+  // channel, and only when the column is still empty: a value already stored
+  // was either curated by hand or came from a better source than a footer.
+  //
+  // NORMALISED BY THE DATABASE, NOT HERE. Migration 20260909053000 put the
+  // country map in ONE place (normalize_country_code) precisely so it cannot
+  // drift, and §2.1 is explicit that a second copy is the failure mode. A
+  // literal map in this file would be that second copy. It is also no longer
+  // optional: catalog_entities now carries a CHECK that hq_country matches
+  // ^[A-Z]{2}$, so writing the string "Germany" straight from the page would
+  // throw and fail the whole job. One RPC per entity that found a country —
+  // rare, and free next to the model call above.
+  const rawCountry = isLiterallyOnPage(parsed.fund?.hq_country, teamText) ? parsed.fund.hq_country : null;
+  if (rawCountry && !entity.hq_country) {
+    const { data: normalisedCountry } = await supabase.rpc('normalize_country_code', { p: rawCountry });
+    // An unrecognised country normalises to null, and null is the honest
+    // answer — better than a code we guessed from a word we did not know.
+    if (normalisedCountry) fundPatch.hq_country = normalisedCountry;
   }
   if (Object.keys(fundPatch).length) {
     await supabase.from('catalog_entities').update(fundPatch).eq('id', entity.id);
