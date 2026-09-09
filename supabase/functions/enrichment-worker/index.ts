@@ -1435,7 +1435,7 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
       model: LAYER2_MODEL,
       system: SEARCH_SYSTEM_PROMPT,
       messages: searchMessages,
-      tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: WEB_FALLBACK_SEARCH_MAX_USES, blocked_domains: ['linkedin.com'] }],
+      tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: WEB_FALLBACK_SEARCH_MAX_USES, blocked_domains: ['linkedin.com'], allowed_callers: ['direct'] }],
       timeoutMs: 120000,
     });
     addUsage(telemetry, LAYER2_MODEL, searchResponse.usage);
@@ -1450,7 +1450,7 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
         model: LAYER2_MODEL,
         system: SEARCH_SYSTEM_PROMPT,
         messages: searchMessages,
-        tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: WEB_FALLBACK_SEARCH_MAX_USES, blocked_domains: ['linkedin.com'] }],
+        tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: WEB_FALLBACK_SEARCH_MAX_USES, blocked_domains: ['linkedin.com'], allowed_callers: ['direct'] }],
         timeoutMs: 120000,
       });
       addUsage(telemetry, LAYER2_MODEL, searchResponse.usage);
