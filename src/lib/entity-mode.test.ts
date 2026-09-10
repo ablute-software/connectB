@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { entityMode, effectiveMode, nextBestAction, nextBestActionButton, nextContactPerson, nextPendingTaskDue, needsReopenTrigger } from './relationship';
-import type { Db, Entity, Interaction, Person, TaskItem } from './types';
+import { entityMode, effectiveMode, nextBestAction, nextBestActionButton, nextContactPerson, nextPendingTaskDue, needsReopenTrigger, dataRoomFirstContactTipApplies } from './relationship';
+import type { Db, DocumentItem, Entity, Interaction, Person, TaskItem } from './types';
 
 // Prompt 205 §E — o caso confirmado por screenshot em "Test idividual":
 // depois de escolher Frozen, o pill dizia "dormant" e a mesma página dizia
@@ -437,5 +437,30 @@ describe('nextBestActionButton (396 §7)', () => {
     const e = entity({ status: 'not_contacted' });
     const p = person();
     expect(nextBestActionButton(db(e, [], [], [], [], [p]), 'e1', NOW)).toBeUndefined();
+  });
+});
+
+// Prompt 882 Part D — live, recomputed, no persistence: gone the instant a
+// document exists, and the mirror image of the "no entity about to be
+// first-contacted" case (a fully-contacted pipeline with an empty data
+// room has nothing urgent to flag here).
+describe('dataRoomFirstContactTipApplies', () => {
+  function withDocs(e: Entity, documents: DocumentItem[]): Db {
+    return { ...db(e), documents } as unknown as Db;
+  }
+
+  it('not_contacted entity + zero documents: applies', () => {
+    const e = entity({ status: 'not_contacted' });
+    expect(dataRoomFirstContactTipApplies(withDocs(e, []))).toBe(true);
+  });
+
+  it('not_contacted entity + at least one document: does not apply', () => {
+    const e = entity({ status: 'not_contacted' });
+    expect(dataRoomFirstContactTipApplies(withDocs(e, [{ id: 'd1' } as DocumentItem]))).toBe(false);
+  });
+
+  it('no not_contacted entity anywhere + zero documents: does not apply', () => {
+    const e = entity({ status: 'contacted' });
+    expect(dataRoomFirstContactTipApplies(withDocs(e, []))).toBe(false);
   });
 });

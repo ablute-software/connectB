@@ -99,6 +99,10 @@ export interface Org {
   // visible: the concrete "why click Interested" one_liner alone didn't give.
   intro_problem?: string;
   intro_solution?: string;
+  // Prompt 882 Part A — set once, the first time this org takes a real
+  // action inside Readiness & Train (never merely opening the tab). Used
+  // to gate PreContactReadinessNudge: non-null means "stop showing it".
+  readiness_train_first_used_at?: string;
   // Packs credits (spec, not yet wired to a real crediting mechanic or
   // billing model — see DECISIONS.md "Packs — future pricing spec").
   // Type-only stub for now: no DB column, no migration, no logic reads or

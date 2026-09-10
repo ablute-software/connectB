@@ -49,6 +49,7 @@ import { REVIEW_QUOTA, REVIEW_OPTIMIZATION_PREVIEW_COPY } from '@/lib/plans';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
+import { markReadinessTrainFirstUsed } from '@/lib/readiness-usage';
 import type { SwotData } from '@/lib/types';
 
 interface Report extends SwotData {
@@ -227,6 +228,8 @@ export async function POST(req: Request) {
       report: { ...report, investor_safe: investorSafe }, created_by: user.id,
     }).select().single();
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+    await markReadinessTrainFirstUsed(admin, orgId);
 
     return NextResponse.json({ ok: true, run: row });
   } catch (e) {

@@ -22,6 +22,7 @@ import { detectGaps, templateFor, gapKey, rankGaps, impactWhy } from '@/lib/comp
 import { gapReconciliationsAvailable } from '@/lib/document-extraction-capability';
 import { runReconciliationForOrg, readReconcilableDocuments } from '@/lib/reconciliation';
 import { FAST_ROUTE_LOCK_WAIT_MS } from '@/lib/reconciliation-lock';
+import { markReadinessTrainFirstUsed } from '@/lib/readiness-usage';
 
 async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
   const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
@@ -226,6 +227,11 @@ export async function POST(req: Request) {
     const { error } = await admin.from('company_claims').insert(rows);
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
+
+  // Prompt 882 Part A — Blueprint's own "did something": a real analysis
+  // ran (ingested the company's knowledge into claims/gaps), whether or not
+  // it proposed anything new this time.
+  await markReadinessTrainFirstUsed(admin, orgId);
 
   return NextResponse.json({ ok: true, proposed: atoms.length, analysisId });
 }

@@ -36,6 +36,7 @@ import { PathfinderCard } from '@/components/PathfinderCard';
 import { entityCompleteness, qualifiesForContactEnrichment } from '@/lib/completeness';
 import { isPersonCandidate, isUnverifiedStub, relatedContacts, relationshipSummary } from '@/lib/relationship';
 import { SherlockInsightBanner } from '@/components/SherlockInsightBanner';
+import { PreContactReadinessNudge } from '@/components/PreContactReadinessNudge';
 import { computeAlignment } from '@/lib/company-canon-logic';
 import { browserClient } from '@/lib/supabase';
 import { EntityClassificationEditor } from '@/components/EntityClassificationEditor';
@@ -545,20 +546,23 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      {/* Prompt 397 §A.3 — the journey+state+actions card. */}
-      <RelationshipSummaryCard entity={entity}
-        onClassifyRequest={classifyOnHistory}
-        onViewInHistory={focusHistory}
-        dealMessageTouches={dealMessageTouches} />
-
-      {/* Prompt 397 §A.4 — the advice banner, full-width, between the
-          journey card and the rest of the page. */}
+      {/* Prompt 882 — moved above RelationshipSummaryCard: for a first-time,
+          lost user, "what do I do next" should win top billing over the
+          stepper/summary card. Every conditional warning above (hard
+          filter, lock, alignment, pending interest) still outranks it —
+          only its position relative to the summary card changed. */}
       <SherlockInsightBanner entity={entity} dealMessageTouches={dealMessageTouches}
         onClassifyRequest={classifyOnHistory}
         canMessage={canMessagePanel}
         focus={focusParam}
         onSwitchToMessage={() => setPanelMode('message')}
         onSwitchToLog={(personId) => { setLogPrefill((p) => ({ personId, nonce: p.nonce + 1 })); setPanelMode('log'); }} />
+
+      {/* Prompt 397 §A.3 — the journey+state+actions card. */}
+      <RelationshipSummaryCard entity={entity}
+        onClassifyRequest={classifyOnHistory}
+        onViewInHistory={focusHistory}
+        dealMessageTouches={dealMessageTouches} />
 
       {/* Prompt 397 §B.1 — below the banner: left = Zone B's 4 tabs
           (unchanged), right = the conversation panel (History/Log/Message).
@@ -1057,8 +1061,15 @@ export default function EntityPage({ params }: { params: { id: string } }) {
                   onSaved={() => setPanelMode('history')} />
               )}
               {panelMode === 'message' && messaging.canMessage && messaging.investorCatalogEntityId && (
-                <MessageThreadCore entityId={entity.id} investorCatalogEntityId={messaging.investorCatalogEntityId}
-                  initialBody={ndaDraft ?? undefined} />
+                <>
+                  {/* Prompt 882 Part B — same recurring nudge as the banner's
+                      copy, anchored here too since a not-yet-contacted
+                      entity can already be message-eligible (an investor who
+                      claimed their profile before any founder outreach). */}
+                  <PreContactReadinessNudge entityId={entity.id} />
+                  <MessageThreadCore entityId={entity.id} investorCatalogEntityId={messaging.investorCatalogEntityId}
+                    initialBody={ndaDraft ?? undefined} />
+                </>
               )}
             </div>
           </div>

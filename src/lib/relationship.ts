@@ -403,6 +403,20 @@ export function nextBestActionButton(db: Db, entityId: string, now = new Date(),
   return person ? { kind: 'follow_up', personId: person.id } : undefined;
 }
 
+// Prompt 882 Part D — Data Room tip: live, recomputed, nothing persisted,
+// same "nothing to say → nothing renders" discipline as
+// SherlockInsightBanner's own `if (!action) return null` and Pipeline's
+// readiness-strip.ts. Fires when the org has zero documents in the Vault
+// AND at least one entity is genuinely about to be first-contacted — using
+// the DERIVED stage (getStage), same correction Prompt 880 made for the
+// People & Team note, so a stale raw entities.status can't show the tip
+// after a founder has already advanced an entity past not_contacted via
+// relationship_state.
+export function dataRoomFirstContactTipApplies(db: Db): boolean {
+  if (db.documents.length > 0) return false;
+  return db.entities.some((e) => getStage(db, e.id) === 'not_contacted');
+}
+
 // The recommended "tipo de compromisso" for a next-step task on this
 // (entity, person) — priority order matches the outreach-discipline rules
 // already enforced elsewhere, not a new judgment call:

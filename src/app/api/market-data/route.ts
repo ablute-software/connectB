@@ -20,6 +20,7 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { orgMarketDataAvailable, marketResearchItemsAvailable } from '@/lib/market-data-capability';
 import { documentExtractionsAvailable } from '@/lib/document-extraction-capability';
 import { checkMarketDataGate } from '@/lib/market-data-gate';
+import { markReadinessTrainFirstUsed } from '@/lib/readiness-usage';
 
 async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
   const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
@@ -286,6 +287,10 @@ export async function POST(req: Request) {
     updated_at: new Date().toISOString(),
   }, { onConflict: 'org_id' });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+  // Prompt 882 Part A — Market data's other "did something": the founder
+  // typed and saved their own market figures, not just viewed the tab.
+  await markReadinessTrainFirstUsed(admin, orgId);
 
   return NextResponse.json({ ok: true });
 }
