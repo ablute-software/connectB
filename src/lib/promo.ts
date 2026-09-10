@@ -111,6 +111,35 @@ export function normalizePromoCodeInput(raw: string): string {
   return raw.trim().toUpperCase().replace(/\s+/g, '');
 }
 
+// ---------- Prompt 876 §B — email-locked redemption ----------
+// Pure so the case-insensitive comparison (Supabase auth emails aren't
+// guaranteed to be stored in one case) is unit-testable without a real
+// session — the route supplies both sides, this only decides.
+export function emailLockBlocksRedemption(lockedEmail: string | null | undefined, userEmail: string | null | undefined): boolean {
+  if (!lockedEmail) return false; // no lock on this code
+  return lockedEmail.toLowerCase() !== (userEmail ?? '').toLowerCase();
+}
+
+// ---------- Prompt 876 §D — the outreach table's "Arquivo" sub-tab ----------
+// Derived, never stored — same "joined status is a fact, not an opinion"
+// discipline migration 0343's own header comment establishes for the
+// existing `redeemed` column, applied here to a second derived fact.
+// An outreach target with no code at all (promo_code_id null) is never
+// archived: "expired/exhausted" only means something once a code exists.
+// A code past its redemption deadline that was NEVER redeemed is archived
+// (it lapsed unused); one already redeemed is not — it already served its
+// purpose, expiry afterward doesn't undo that.
+export function isOutreachArchived(
+  code: Pick<PromoCode, 'redeemable_until' | 'max_redemptions'> | null,
+  redemptionCount: number,
+  now: Date,
+): boolean {
+  if (!code) return false;
+  const pastValidityUnused = code.redeemable_until != null && new Date(code.redeemable_until) < now && redemptionCount === 0;
+  const exhausted = code.max_redemptions != null && redemptionCount >= code.max_redemptions;
+  return pastValidityUnused || exhausted;
+}
+
 // ---------- Prompt 854 §B.5 — the outreach table's own code generator ----------
 
 // Prompt 875 — 'vc' added: Nuno's four Marketing Overview categories
