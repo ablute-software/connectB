@@ -6249,3 +6249,88 @@ targets) were deleted afterward: `promo_outreach_targets`/`promo_codes`/
 so leaving them would have permanently shown fake rows on the real outreach
 table and on Prompt 875's Marketing Overview dashboard — the same class of
 gap that prompt's own report already flagged and fixed for `billing_invoices`.
+
+---
+
+## Prompt 877 — Ficha do cliente: one customer list, two schemas, three flagged gaps
+
+`/backoffice/ficha-cliente` (list) and `/backoffice/ficha-cliente/[kind]/[id]`
+(detail), reading a new `GET /api/backoffice/ficha-cliente` (list) and
+`GET /api/backoffice/ficha-cliente/[kind]/[id]` (detail). One customer
+concept spanning `orgs` (startups) and `catalog_entities` (investor firms),
+discriminated by `kind: 'org' | 'investor_entity'` — the exact vocabulary
+`ViewerEntryName.tsx` already uses for this same two-schema situation,
+reused rather than reinvented. "Registered investor account" is the same
+definition `/api/backoffice/investor-accounts` already established (an
+active `matchdeal_investor_members` seat, via `investorOrgRows()` +
+`isRegisteredInvestorAccount()`), not a second narrower one.
+
+**`investor_billing.created_at` (migration `20260910104000`) has no
+backfill, and there was nothing to backfill from.** `investor_billing` has
+ZERO rows in production (confirmed by direct count before writing the
+migration) — no firm has ever had a Stripe subscription recorded there, so
+every future row carries a real `created_at` from the moment it's created.
+This also means `investor_billing.created_at` is currently unused as a
+signup-date source in practice: every registered investor row's signup date
+today comes from its earliest active seat instead (`investor_billing.created_at`
+is only the fallback for a firm with billing history but no active seat on
+record — a state that shouldn't currently exist). Confirmed against real
+data: 3 non-test registered investor firms exist today (Invest green, Test
+idividual, Test investor — the two "Test…"-named ones are NOT `is_test`-flagged
+in the database and so appear as real customers, consistent with how
+`investors/page.tsx` itself already treats them; not a gap this prompt
+introduced), all with an active-seat signup date and zero `investor_billing`
+rows.
+
+**The VC → portfolio-company promo-code cross-reference is not buildable, as
+the prompt itself allowed for.** Checked both schema paths that could
+plausibly carry it: `investor_investments`/`market_companies` (0201) link a
+VC to a third-party research library table that its own migration comment
+states explicitly has no `org_id`; `org_competitors` (0246) links the
+OPPOSITE direction (a startup declaring a third-party company as a
+competitor). Neither connects a VC's `catalog_entity_id` to the `org_id`s of
+startups in its portfolio that are also our own paying customers. The
+detail page renders this section as "Not buildable — …" with the reason
+stated, never an empty or guessed list.
+
+**The promo-code section on a startup's detail page shows less than the
+prompt describes, because Prompt 876 is not merged.** The prompt's own
+language ("that target's attachments, and recipient-email lock state")
+describes fields that live only on `promo_outreach_targets.recipient_email`
+and the new `promo_outreach_attachments` table — both added by Prompt 876
+(migration `20260910100000`, branch `claude/prompt-876-outreach-form-attachments`),
+which is pushed but still unmerged into `main` as of this prompt. 877 was
+built on top of 875/`main`, not on top of 876, so those columns/tables
+genuinely don't exist on this branch's schema. The detail page shows
+everything the CURRENT schema (`promo_outreach_targets` as of migration
+0343) actually has for a redeemed code: the outreach target's name,
+category, status, and the code's own discount/label/dates. Once 876 lands,
+extending this section with attachments and the recipient-email lock is an
+addition to the same block, not a rewrite — flagged here rather than
+silently narrowed or silently blocked on 876 landing first.
+
+**The overdue-first-and-red behavior could not be visually verified against
+a real overdue account, because none currently exists.** Production has
+exactly one real, non-internal startup customer (Wisify Tech Solutions, free
+`idea` plan, no `next_payment_due_at` at all) and three real registered
+investor firms, none with a `investor_billing` row — so `isOverdue` is
+`false` for every real row today. Verified instead via `customer-filter.test.ts`'s
+own `isCustomerOverdue`/`isCustomerArchived` unit tests (14 cases, including
+the overdue-with-a-past-due-date-and-unpaid-status case) and by reading the
+route's SQL back against production to confirm the shape matches — not a
+substitute for seeing a red row render, stated plainly rather than claimed
+as full end-to-end coverage. `zz-test` fixtures were deliberately not used
+for this: the list route excludes `is_test` rows on purpose (this is a real
+customer list, not an admin ops table, mirroring `marketing-overview`'s own
+`is_test` exclusion from Prompt 875), so a `zz-test-*` org would never
+appear in it regardless of how it's set up.
+
+**A three-bucket payment taxonomy (paid/unpaid/promo) has no "free tier"
+state, so a free `idea`-plan org with no billing history at all shows as
+"Unpaid."** This matches the prompt's own three buckets literally and isn't
+a bug, but it's worth naming: Wisify Tech Solutions (the one real startup
+customer today, on the free plan) renders an amber "Unpaid" badge despite
+owing nothing. It does NOT get the red overdue treatment — that's gated on
+`next_payment_due_at` being in the past, which is null for a free-tier org —
+so the practical effect is small, but the badge itself reads more alarming
+than the underlying state.

@@ -19,6 +19,7 @@
 // separately) · Stage · AI drafts this month · AI reviews this month, plus
 // sortable columns, search, and a History subtab (Block C.2).
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { sortRows, sortIndicator } from '@/lib/table-sort';
 import { Card, Tabs } from '@/components/ui';
 import { PLANS, planName, normalizePlan, parsePlanRequest } from '@/lib/plans';
@@ -275,6 +276,10 @@ function StartupsTable() {
                         </span>
                       )}
                     </ViewerEntryName>
+                    {/* Prompt 877 §113 — a second, non-impersonating way in:
+                        the customer/billing record, not the live workspace. */}
+                    <Link href={`/backoffice/ficha-cliente/org/${o.orgId}`} title="Ficha do cliente"
+                      className="ml-1.5 text-gray-400 hover:text-[#0E7490]">▦</Link>
                   </td>
                   <td className="pr-3">
                     {planManagement ? (
