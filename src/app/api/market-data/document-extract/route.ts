@@ -40,6 +40,7 @@ import { writeMarketFact, type ObservationInput, type RetrievalMethod, type Evid
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { logAiCall, computeCostEur } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
+import { markReadinessTrainFirstUsed } from '@/lib/readiness-usage';
 
 // Prompt 467 v3 §5 (Nuno's review) — this is a HEURISTIC, not a real
 // signal like retrievalMethodByDocId below (that one reads an actual,
@@ -657,6 +658,11 @@ export async function POST(req: Request) {
   // client-driven replacement, which calls /api/data-room/extract-document
   // once per document and actually awaits it.
 
+
+  // Prompt 882 Part A — Market data's own "did something": the founder
+  // picked real documents and ran a read over them, whether this specific
+  // pass was served fresh or from the signature cache.
+  await markReadinessTrainFirstUsed(admin, orgId);
 
   return NextResponse.json({
     ok: true, items: items ?? [], skipped, costEur, cached: alreadyRanForThisSignature,

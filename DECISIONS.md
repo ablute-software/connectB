@@ -6512,3 +6512,152 @@ end of the sentence. Screenshots sent to the user directly.
 
 Branch `claude/prompt-880-sherlock-banner-scope`, build/tsc/vitest/eslint
 all green by exit code on the branch head before push.
+
+---
+
+## Prompt 882 — guide with discipline: a skippable Readiness & Train nudge before first contact, and extending "nothing to say → nothing renders" beyond the entity page
+
+Two of Nuno's five asks were already built (confirmed by reading
+`origin/main` before touching anything, not rebuilt): `nextBestAction()`/
+`nextBestActionButton()` already drive `SherlockInsightBanner`'s advice
+text and a real button per branch ("Log the first interaction", "Reply
+now", inline Approve/Deny on pending interest, "Classify N replies"), and
+the banner's button already switches the entity page's rail straight to
+`RailLogForm`, pre-filled, with `onSaved` flipping the rail to History
+where the store commits the interaction locally before the network call
+resolves. Left untouched beyond the one polish item below.
+
+**Polish item**: `SherlockInsightBanner` now renders directly after the
+header block and before `RelationshipSummaryCard` on the entity page
+(`src/app/entities/[id]/page.tsx`) — for a first-time, lost user, "what do
+I do next" should win top billing over the stepper. Every conditional
+warning that genuinely outranks it (hard-filter, lock, alignment, pending
+interest) is unchanged and still renders above both.
+
+**Part A — `orgs.readiness_train_first_used_at`.** New column
+(`supabase/migrations/20260910140000_readiness_train_first_used_at.sql`),
+set exactly once via a guarded `update orgs set ... where id = $org and
+readiness_train_first_used_at is null` — factored into one shared helper,
+`markReadinessTrainFirstUsed()` (`src/lib/readiness-usage.ts`), so all
+call sites share the identical guard and the identical "never fail the
+real action this rides on" swallow-errors behaviour. Hooked at every
+sub-tab of Readiness & Train that has a genuine "did something" moment,
+not merely a tab open:
+- **Review** — `/api/review/investability` POST, after the `review_runs`
+  insert (the pre-existing hook from earlier in this session, refactored
+  onto the shared helper).
+- **Train** — `/api/coaching/feedback` POST, after the `coaching_runs`
+  insert (a practice session actually graded).
+- **Pitch Blueprint** — `/api/blueprint` POST, after `runAnalysis()`'s own
+  ingestion (fires whether or not it proposed anything new this pass —
+  the founder still ran a real analysis).
+- **Market data** — hooked at BOTH of its two genuine actions:
+  `/api/market-data/document-extract` POST ("Read my documents", pulling
+  market data from picked Vault files) and `/api/market-data` POST
+  (saving the founder's own typed market figures).
+- **Action plan** — deliberately left OUT. Read on `ai_reviews`/company
+  claims/the Data Room checklist, entirely derived; it has no save or
+  generate action of its own (claim accept/reject there routes through
+  Blueprint's own `/api/blueprint/claim`, already covered by the
+  Blueprint hook firing first; the Vault "upload corrected version"
+  control belongs to the Vault feature, not to "used Readiness & Train").
+- **Sherlock Prep** — not in Nuno's own named list for this prompt (only
+  Review, Blueprint, Market data, Action plan, Train were named); left
+  untouched rather than guessing at a trigger the prompt didn't ask for.
+
+**Part B — `PreContactReadinessNudge.tsx`.** Deliberately NOT built on the
+onboarding engine (`src/lib/onboarding/engine.ts`, `content.ts`,
+`OnboardingProvider.tsx`, `onboarding_state`) — that engine is "show once,
+dismiss, persist, never again," and Nuno's own wording ("esta dica só deve
+aparecer até a startup usar pela primeira vez a ferramenta") means the
+opposite: it must keep recurring every time the situation applies until
+the org has genuinely used the tool. So this is a small, self-contained
+component computing its own condition fresh on every render — `entity
+stage === 'not_contacted' && touchCount === 0 && !org.readiness_train_first_used_at`
+— reading `useStore()` directly, same "live, recomputed, nothing
+persisted" shape as `SherlockInsightBanner`'s `if (!action) return null`
+and Pipeline's `readiness-strip.ts` `hasAnythingToShow()`. "Skip" is local
+`useState` only — never a write to `onboarding_state` or any other
+persisted flag; only the org actually using Readiness & Train (Part A's
+timestamp) makes it stop appearing, everywhere, permanently. Visual
+language borrowed from `CoachMark.tsx`'s bubble styling, not its dismiss
+mechanism. Anchored in two places: inside `SherlockInsightBanner` (right
+below the main teal box, next to "Log the first interaction"), and above
+`MessageThreadCore` on the entity page's Message tab (a not-yet-contacted
+entity can already be message-eligible — an investor who claimed their
+profile before any founder outreach).
+
+**Part C — the mandatory/dismissible taxonomy, as asked, documented rather
+than rebuilt** (this codebase already has the shape; it just wasn't
+written down as a rule):
+- **Mandatory** = `preflight()`'s own checks (`src/lib/rules.ts`,
+  consumed via `preflightSummary()` in `src/lib/relationship.ts`). These
+  already block "ready" status and are named individually in
+  `nextBestAction`'s "Not ready yet — pre-flight found N issues" branch.
+  Mandatory today by construction — you cannot get a green pre-flight
+  without addressing them. Nothing new to build here.
+- **Dismissible** = everything else: the onboarding engine's coachmarks/
+  modals (`seen`-gated, permanent once dismissed), and every live/
+  recomputed nudge — Part B's Readiness tip, Pipeline's readiness strip,
+  and Part D's Data Room tip below. All of these must stay skippable and
+  must never block navigation or the ability to act.
+
+Any future tip must be classified as one or the other before it ships: if
+it isn't an existing `preflight()` check, it's dismissible, full stop.
+
+**Part D — Data Room tip + audit of Today/company profile/catalog.** Built
+the one fully-specified example: `dataRoomFirstContactTipApplies(db)`
+(`src/lib/relationship.ts`) — `db.documents.length === 0` AND at least one
+entity has the DERIVED stage (`getStage()`, same correction as Prompt
+880's People & Team note) `'not_contacted'`. Rendered on
+`src/app/documents/page.tsx`'s Documents & Vault Data Room tab: "No
+documents in your data room yet — investors will ask for these once you
+reach out." linking to the Documents panel. Live, recomputed, no
+persistence — gone the instant a document exists. Unit-tested in
+`entity-mode.test.ts` (three cases: applies, gone once a document exists,
+gone when no entity is `not_contacted`).
+
+Audit of Today, company profile, and catalog (report only, per the
+prompt's own instruction — nothing built beyond this without a follow-up
+decision from Nuno):
+- **Today** (`TodayPanel.tsx`): no live/recomputed contextual-tip layer
+  today, only static per-section empty copy. Real gap: an empty pipeline
+  (`db.entities.length === 0`) looks identical to "fully caught up" —
+  proposed condition `db.entities.length === 0`, copy "Your pipeline is
+  empty — add investors from the catalog or Pipeline to start seeing next
+  actions here."
+- **Company profile** (`/settings`, `CompanyPanel.tsx`): already has a
+  real, objective gap engine — `calcCompanyCompleteness()`
+  (`src/lib/companyCompleteness.ts`) — covering Identity/Team/Round.
+  Cap table sits outside it entirely and is the one objectively-checkable
+  sibling gap (Previous funding/Traction have no "should always be
+  non-empty" truth). Proposed condition `org.round_raising !== false &&
+  capTableEntries.length === 0`, copy "No cap table entered yet —
+  investors will ask for your ownership structure once you're raising."
+- **Catalog**: there is no founder-facing catalog browsing page left to
+  audit — `/packs` now redirects to `/pipeline` (pack browsing/unlocking
+  was dropped, per that route's own comment), and the only surviving
+  catalog UI (the "Suggest an investor" modal, the frosted catalog-
+  delivery panel) already lives on Pipeline, already covered by
+  Pipeline's `readiness-strip.ts`. Plain "nothing to flag" — the audit's
+  own accepted, correct answer.
+
+Neither the Today nor the company-profile tip is built — reported per the
+prompt's own instruction, awaiting Nuno's decision on which (if either) to
+build next.
+
+**Verified**: full `tsc`/`vitest`/`eslint`/`build` green by exit code
+(3678 tests, 245 files). Against production (`wkjcaoqdvhykrfacsylr`): a
+disposable `zz-test-882-readiness-nudge` org confirmed the guarded update
+fires exactly once (same timestamp before/after a second call with the
+column already non-null), then deleted. Screenshotted end-to-end in
+`dev:verify` demo mode against a `zz-test-882-entity` fixture (cloned from
+the seed's Bynd VC, zero interactions, zero documents, injected via
+`localStorage`, never touching real data): banner-then-nudge-then-stepper
+order confirmed; Skip collapses the nudge for that view only; a reload
+brings it back; the Data Room tip shows with zero documents; setting
+`org.readiness_train_first_used_at` makes the nudge disappear everywhere,
+permanently, confirmed both in the full flow and in an isolated repro.
+Screenshots sent to the user directly.
+
+Branch `claude/prompt-882-guided-discipline`.

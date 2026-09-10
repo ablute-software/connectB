@@ -33,6 +33,7 @@ import { DecisionNotesCards, type DecisionNote } from './DecisionNotesCards';
 import { DECISION_NOTE_MAX, REOPEN_TRIGGER_MIN_LENGTH } from '@/lib/startup-investor-decision';
 import { useOrgCapability } from '@/lib/use-org-capability';
 import { useConfirm } from '@/lib/confirm';
+import { PreContactReadinessNudge } from './PreContactReadinessNudge';
 
 // Prompt 410 §2.3 — how long the post-decision confirmation stays up. Short
 // on purpose ("toast", Nuno's own word) — this isn't an undo window (the
@@ -310,6 +311,11 @@ export function SherlockInsightBanner({
           )}
         </div>
       </div>
+
+      {/* Prompt 882 Part B — recurs every render until the org has actually
+          used Readiness & Train once; see PreContactReadinessNudge's own
+          header for why this isn't the onboarding engine. */}
+      <PreContactReadinessNudge entityId={entity.id} />
 
       {/* Prompt 410 §2.3 — the decision toast. Lives outside the button
           branches above (which swap to the next best action as soon as
