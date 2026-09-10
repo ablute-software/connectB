@@ -4,6 +4,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { normalizeDomain, normalizeName } from './catalog-dedupe';
 import { domainMatchesEntity } from './investor-domain-match';
+import { deriveContactOutcomeLink } from './contact-outcomes';
 
 // Prompt 210 §A.4 — um anexo resolvido na LEITURA, e nao um id nu.
 //
@@ -128,7 +129,65 @@ export async function postMessage(
   if (error) return { error };
   const readField = opts.senderSide === 'investor' ? 'investor_last_read_at' : 'founder_last_read_at';
   await admin.from('deal_threads').update({ last_message_at: now, [readField]: now }).eq('id', opts.threadId);
+
+  // Prompt 585 §F.9 — measurement, best-effort: the send above already
+  // succeeded, so a hiccup here must never surface as a failed send.
+  try {
+    await recordContactOutcomeEvent(admin, opts.threadId, opts.senderSide, now);
+  } catch (e) {
+    console.error('[contact-outcomes] failed to record', e);
+  }
+
   return { error: null };
+}
+
+// §F.9 — the one real hook point for both directions. A founder send
+// opens a new outreach event; the next investor reply on the SAME thread
+// closes the most recently opened still-open one (deal_threads is one
+// continuous thread per org/fund pair, not per message, so "which reply
+// answers which send" is approximated as "the next reply after the last
+// open send" — the same approximation any simple reply-tracking system
+// makes without per-message threading).
+const HOOK_USE_LOOKBACK_MS = 60 * 60 * 1000; // 1 hour — "just used it to draft this" window
+
+async function recordContactOutcomeEvent(
+  admin: SupabaseClient, threadId: string, senderSide: 'investor' | 'founder', now: string,
+) {
+  if (senderSide === 'investor') {
+    const { data: open } = await admin.from('contact_outcomes')
+      .select('id').eq('thread_id', threadId).is('replied_at', null)
+      .order('sent_at', { ascending: false }).limit(1).maybeSingle();
+    if (open) await admin.from('contact_outcomes').update({ replied_at: now }).eq('id', open.id);
+    return;
+  }
+
+  const { data: thread } = await admin.from('deal_threads')
+    .select('startup_org_id, investor_catalog_entity_id').eq('id', threadId).maybeSingle();
+  if (!thread) return;
+
+  // Was a hook suggestion for this org/fund used (§F.8's "Use in draft")
+  // recently, on the platform_message channel, and not already claimed by
+  // an earlier outcome? Best-effort inference, not a flag threaded through
+  // the composer's own send call — see DECISIONS.md for why.
+  const cutoff = new Date(Date.now() - HOOK_USE_LOOKBACK_MS).toISOString();
+  const { data: usedHookRow } = await admin.from('hook_suggestions')
+    .select('id, target_kind, target_id')
+    .eq('org_id', thread.startup_org_id).eq('entity_id', thread.investor_catalog_entity_id)
+    .eq('channel', 'platform_message').not('used_at', 'is', null).gte('used_at', cutoff)
+    .order('used_at', { ascending: false }).limit(1).maybeSingle();
+  const usedHook = usedHookRow ? { id: usedHookRow.id as string, targetKind: usedHookRow.target_kind as 'person' | 'entity', targetId: usedHookRow.target_id as string } : null;
+
+  let alreadyLinked = false;
+  if (usedHook) {
+    const { data: existingLink } = await admin.from('contact_outcomes').select('id').eq('hook_suggestion_id', usedHook.id).limit(1).maybeSingle();
+    alreadyLinked = !!existingLink;
+  }
+  const { hookSuggestionId, personId } = deriveContactOutcomeLink(usedHook, alreadyLinked);
+
+  await admin.from('contact_outcomes').insert({
+    org_id: thread.startup_org_id, entity_id: thread.investor_catalog_entity_id, person_id: personId,
+    channel: 'platform_message', hook_suggestion_id: hookSuggestionId, thread_id: threadId, sent_at: now,
+  });
 }
 
 export async function markThreadRead(admin: SupabaseClient, threadId: string, side: 'investor' | 'founder') {

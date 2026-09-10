@@ -222,6 +222,9 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
     // page), read-only, separate from the Review queue's own decide-facts
     // page it links back to.
     item('insight-contrib-by-user', 'Contributions by user', '/backoffice/contributions', { icon: '◆', group: 4 }),
+    // Prompt 585 §G.3 — "No-link verdicts" + "Contact outcomes", one page,
+    // same shelf as AI costs (a measurement panel, not raw catalog data).
+    item('insight-contact-outcomes', 'Contact outcomes', '/backoffice/contact-outcomes', { icon: '◆', group: 4 }),
 
     // Prompt 576 Fase 2 — the unified 4-signal list (§7's format), one
     // level above the four individual detail pages it links out to.

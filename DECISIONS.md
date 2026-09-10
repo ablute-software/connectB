@@ -7316,3 +7316,107 @@ priority ordering (deferred, see above).
 Branch `claude/prompt-585-people-evidence-hooks`. Migration 0348 is the
 final one applied so far; next free number per `verify:migrations` is
 0349 (resweep again before any further migration in this branch).
+
+## Prompt 585 Phase 5 — contact-outcome measurement (§F.9, §G.3)
+
+Migration `0349_contact_outcomes.sql`, applied to production. This is
+§H's last numbered phase; the GDPR-erase extension (§I) is separate from
+the phase list and still pending — see the end of this entry.
+
+**`reason_if_none`** (new nullable column on `hook_suggestions`) — a
+disclosed Phase 4 gap closed here: §F.5's own field list for that table
+never mentioned it, but §G.3 explicitly asks for a "No-link verdicts"
+list that SHOWS it per row, which is unbuildable without somewhere to
+read it from. `/api/hooks/suggest` now persists it (the model's own
+`reason_if_none` on a real "none" verdict, or the literal string
+`'validation'` when our own validator rejected both attempts).
+
+**`contact_outcomes`** — §F.9's own column list plus one necessary
+addition: `thread_id` (references `deal_threads`). The prompt's literal
+list doesn't include it, but without it there is no way to know which
+sent message a reply answers — `deal_threads` is one continuous thread
+per (org, fund) pair, not per message, so a `thread_id` is the only real
+correlation key available.
+
+**The single write point, found by research before writing any code:**
+`postMessage()` in `src/lib/deal-messages.ts` — the one function every
+message send already flows through, in both directions (`/api/founder
+/messages` and its `[threadId]` reply variant call it with
+`senderSide: 'founder'`; `/api/portal/messages`, the investor side, with
+`senderSide: 'investor'`). Extended, not duplicated: a founder send opens
+a new `contact_outcomes` row; an investor reply on the same thread closes
+the most recently opened still-open one. Wrapped in try/catch — a
+measurement hiccup must never surface as a failed message send, since the
+real send already succeeded by the time this runs.
+
+**Hook linkage is inferred, not tracked as an explicit flag.** The
+composer (`DealThreadView`/`MessageThreadCore`) doesn't currently thread
+a "this text came from a hook suggestion" flag through to the actual send
+call — building that would mean touching the composer's own state and
+send path, which predates this prompt and isn't itself part of it. What
+the code does instead: at a founder send, look up whether a
+`platform_message`-channel hook was `used_at` (§F.8's "Use in draft",
+already marks this) for the same org/fund within the last hour and not
+already linked to a prior outcome — if so, link it (and, for a
+person-target hook, set `person_id` from it). The decision logic itself
+(`deriveContactOutcomeLink`, `src/lib/contact-outcomes.ts`) is pulled out
+as a small pure, unit-tested function; the surrounding query I/O is
+plain and was verified live instead (see below) since mocking a
+`SupabaseClient`'s chained query builder for four different queries
+would have tested the mock, not the logic.
+
+**`replied_at` can only ever be filled for `channel='platform_message'`.**
+The app has no observable signal for a reply to an email/LinkedIn/form
+outreach — those rows simply never get a `replied_at`, which is the
+honest state of the data, not a bug (same principle as Phase 1/2/3's
+"reuse only what's real").
+
+**Back-office** — one page, `/backoffice/contact-outcomes` (added to the
+existing "Insight" nav group, same shelf as "AI costs" — no new group,
+matching the established convention that a measurement panel joins the
+existing shelf rather than inventing one), with two sections exactly as
+§G.3 asks: an aggregate response-rate card (overall / with a hook used /
+without, plus a breakdown by hook verdict) and the row list above it;
+"No-link verdicts" (org, target, fund, channel, `reason_if_none`, date)
+below it — every `hook_suggestions` row with `verdict='none'`, for human
+review. No automated action is taken on these rows from the back-office
+side — §F.6's own position-only penalty (Phase 4) already handles the
+one automated consequence a "none" verdict has, and it stays scoped to
+that org's own `catalog_person_priority`, never the entity's score.
+
+**Verified:** `tsc`/`vitest`/`eslint`/`build` all green by exit code
+(3,733 tests, 252 files — 4 new: `deriveContactOutcomeLink`, 0
+regressions). `npm run verify:migrations` clean. zz-test DB verification
+— since `postMessage()` is a real function requiring a live
+`SupabaseClient`, not something to invoke from raw SQL, this replicated
+its exact query sequence by hand against a zz-test fixture (org, catalog
+entity, person, `deal_threads` row, a hook_suggestion with `used_at`
+set): a founder-send simulation correctly found the recently-used hook
+and inserted a `contact_outcomes` row with `person_id` derived from the
+hook's own target; an investor-reply simulation correctly closed the
+open outcome (`replied_at` set); a second founder-send simulation
+correctly found the hook already claimed by the first outcome (proving
+no double-link), matching `deriveContactOutcomeLink`'s own unit-tested
+behavior exactly. Fixture destroyed after.
+
+**Not done — §I, the GDPR-erase extension, is NOT part of this phase's
+own scope per §H's phase list, but is the one piece of the whole prompt
+still outstanding now that all 5 numbered phases are shipped.** It needs
+to extend the real `erase_gdpr_person()` function (confirmed earlier in
+this branch's own research to be
+`20260908_article14_catalog_erase_suppression_and_delivery_gate.sql`,
+NOT a migration numbered "870" as the prompt's own text names it) to
+also: null `catalog_evidence.url`/`excerpt`/`title` and delete its tags
+for an erased person's evidence; invalidate (`invalidated_at` +
+`hook_text` to null, per §I's own text — the evidence-removal trigger
+built in Phase 4 already does the invalidation half, but never nulls
+`hook_text`, since that trigger fires for ANY evidence removal, not only
+a GDPR erase) every `hook_suggestions` row citing that evidence; delete
+the erased person's `catalog_person_priority` rows; and leave
+`contact_outcomes` holding only ids (already true — it never stored a
+name or any other PII-shaped field to begin with). Flagged here plainly
+rather than silently left for someone to discover missing.
+
+Branch `claude/prompt-585-people-evidence-hooks`. Migration 0349 is the
+final one applied so far; next free number per `verify:migrations` is
+0350 (resweep again before any further migration in this branch).

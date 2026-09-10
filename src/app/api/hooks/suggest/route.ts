@@ -236,7 +236,7 @@ export async function POST(req: Request) {
     verdict: parsed.verdict, hook_text: parsed.verdict === 'none' ? null : parsed.hookText,
     claims: parsed.claims.map((c) => ({ text: c.text, evidence_ids: c.evidenceIds })),
     evidence_ids: citedEvidenceIds, input_hash: inputHash, model, cost_eur: totalCostEur || null,
-    created_by: userId,
+    created_by: userId, reason_if_none: parsed.verdict === 'none' ? (parsed.reasonIfNone ?? 'validation') : null,
   }).select('*').single();
   if (insertErr || !inserted) return NextResponse.json({ ok: false, error: insertErr?.message ?? 'Could not save.' }, { status: 500 });
 
