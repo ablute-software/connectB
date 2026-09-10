@@ -5,11 +5,26 @@
 // discipline).
 //
 // Privacy: this module's OUTPUT (investor names, conversation state,
-// access state) is 100% founder-side by construction — it exists to
-// render a card on the founder's own /documents page and must never reach
+// access state) is 100% founder-side by construction — it must never reach
 // an investor-facing surface. CLAUDE.md's root rule: contact counts and
-// outreach pace are derived data about the founder, no toggle. Enforced
-// by never calling this from anything but documents/page.tsx.
+// outreach pace are derived data about the founder, no toggle.
+//
+// Prompt 882 — the "in active conversation but no data room access" advice
+// left the Vault (documents) and now also renders in the Pipeline summary
+// and the investor dossier (entities/[id]). All three are founder-only
+// surfaces (the investor-facing surface is /portal, which never imports
+// this). The NDA-posture advice stays on the Vault, where document-sharing
+// posture belongs. vaultAccessAdviceFromDb centralises the db → input
+// mapping so the three callers cannot drift.
+import type { Db } from './types';
+
+// Prompt 882 — "A", "A and B", "A, B, and C". Shared by every surface that
+// lists the entities this advice names.
+export function joinNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? '';
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
+}
 
 export interface VaultAccessAdviceInput {
   entities: { id: string; name: string }[];
@@ -68,4 +83,23 @@ export function vaultAccessAdvice(input: VaultAccessAdviceInput, now: Date = new
   const hasNoNdaProtectedDocuments = input.grants.length > 0 && !input.grants.some((g) => g.nda_required);
 
   return { inConversationWithoutAccess, hasNoNdaProtectedDocuments };
+}
+
+// Prompt 882 — the one place the store is mapped into the advice input, so
+// the Vault, the Pipeline summary and the dossier read identical advice.
+// Grants are filtered to ACTIVE (not revoked, not expired) — the same set
+// documents/page.tsx's visibleGrants uses; a lapsed grant is neither access
+// nor NDA coverage. A revoked/expired-only entity therefore still reads as
+// "in conversation without access", which is correct.
+export function vaultAccessAdviceFromDb(db: Db, now: Date = new Date()): VaultAccessAdvice {
+  const activeGrants = db.grants.filter((g) => !g.revoked_at && (!g.expires_at || new Date(g.expires_at) > now));
+  return vaultAccessAdvice({
+    entities: db.entities.map((e) => ({ id: e.id, name: e.name })),
+    interactions: db.interactions.map((i) => ({ entity_id: i.entity_id, at: i.occurred_at, direction: i.direction })),
+    grants: activeGrants.map((g) => ({
+      person_id: g.person_id ?? null, email: g.grantee_email ?? null,
+      folder_id: g.folder_id ?? null, document_id: g.document_id ?? null, nda_required: g.nda_required,
+    })),
+    people: db.people.map((p) => ({ id: p.id, entity_id: p.entity_id, email: p.email_verified ?? p.email_guess ?? null })),
+  }, now);
 }

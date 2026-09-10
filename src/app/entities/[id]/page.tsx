@@ -34,6 +34,7 @@ import { CompetitorInvestmentCard } from '@/components/CompetitorInvestmentCard'
 import { PathfinderCard } from '@/components/PathfinderCard';
 import { entityCompleteness, qualifiesForContactEnrichment } from '@/lib/completeness';
 import { isPersonCandidate, isUnverifiedStub, relatedContacts, relationshipSummary } from '@/lib/relationship';
+import { vaultAccessAdviceFromDb } from '@/lib/vault-access-advice';
 import { SherlockInsightBanner } from '@/components/SherlockInsightBanner';
 import { computeAlignment } from '@/lib/company-canon-logic';
 import { browserClient } from '@/lib/supabase';
@@ -311,6 +312,15 @@ export default function EntityPage({ params }: { params: { id: string } }) {
     return () => { cancelled = true; };
   }, [id, entitySource]);
 
+  // Prompt 882 — the "in active conversation, no data room access" advice
+  // moved here (the investor's own dossier) and to the Pipeline summary; it
+  // left the Vault. Declared above the `if (!entity)` early return so hook
+  // order is stable, and keyed off `id` (always defined). Founder-side only.
+  const noDataRoomAccess = useMemo(
+    () => vaultAccessAdviceFromDb(db).inConversationWithoutAccess.some((e) => e.entityId === id),
+    [db, id],
+  );
+
   if (!entity) {
     if (loading || refetching || !attemptedRefetch) return <div className="text-gray-500">Loading…</div>;
     return (
@@ -535,6 +545,16 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         onClassifyRequest={classifyOnHistory}
         onViewInHistory={focusHistory}
         dealMessageTouches={dealMessageTouches} />
+
+      {/* Prompt 882 — moved here from the Vault: this investor is already in
+          conversation but has no data room access, shown alongside the rest
+          of the relationship history. Founder-side only. */}
+      {noDataRoomAccess && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          You&apos;re in active conversation with {entity.name} — they still have no data room access. Investors already talking to
+          you usually expect a deeper look; <Link href="/documents" className="font-medium underline hover:no-underline">share the folders that answer their questions</Link>.
+        </div>
+      )}
 
       {/* Prompt 397 §A.4 — the advice banner, full-width, between the
           journey card and the rest of the page. */}

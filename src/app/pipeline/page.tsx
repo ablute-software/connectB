@@ -10,6 +10,7 @@ import pipelineMobile from './pipeline-mobile.module.css';
 import { LoadingState } from '@/components/workspace-shell/LoadingState';
 import { RelationshipCompactLine } from '@/components/RelationshipSummaryCard';
 import { hasAnythingToShow, isReachable, readinessChips, type ReadinessBreakdown } from '@/lib/readiness-strip';
+import { joinNames, vaultAccessAdviceFromDb } from '@/lib/vault-access-advice';
 import { ReawakeningQueue } from '@/components/ReawakeningQueue';
 import { AddInvestorModal } from '@/components/AddInvestorModal';
 import { followUpTaskDisplayTitle, getStage, isPersonCandidate, isUnverifiedStub, relationshipSummary } from '@/lib/relationship';
@@ -801,6 +802,11 @@ export default function PipelinePage() {
     return s;
   }, [readinessByEntity]);
 
+  // Prompt 882 — investors in active conversation with no data room access.
+  // This advice used to live only on the Vault; Nuno moved it here (the
+  // pipeline summary) and to the dossier. Founder-side, never investor-facing.
+  const vaultAccessSummary = useMemo(() => vaultAccessAdviceFromDb(db).inConversationWithoutAccess, [db]);
+
   const rows = useMemo(() => {
     let list = [...db.entities];
     // Prompt 257 §4 — the toggle's own base filter, applied before anything
@@ -1138,6 +1144,16 @@ export default function PipelinePage() {
                 </Link>
               );
             })}
+          </div>
+        )}
+        {/* Prompt 882 — a discreet amber indication, not a blocking alert:
+            investors already talking to you who still have no data room
+            access. Lives in the pipeline summary (Nuno's placement) and on
+            each investor's dossier; it left the Vault. */}
+        {vaultAccessSummary.length > 0 && (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-800">
+            <span className="font-medium">In conversation, no data room access yet:</span>{' '}
+            {joinNames(vaultAccessSummary.map((e) => e.name))}. They usually expect a deeper look — <Link href="/documents" className="underline hover:no-underline">share the folders that answer their questions</Link>.
           </div>
         )}
         </div>
