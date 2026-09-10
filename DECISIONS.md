@@ -7165,3 +7165,154 @@ tables/systems this prompt adds across its phases.
 Branch `claude/prompt-585-people-evidence-hooks`. Migration 0347 is the
 final one applied so far; next free number per `verify:migrations` is
 0348 (resweep again before any further migration in this branch).
+
+## Prompt 585 Phase 4 — the AI hook-suggestion service (§F.1-§F.8)
+
+Migration `0348_hook_suggestions.sql`, applied to production. Scope is
+§F.1 through §F.8 only, per §H's own phase boundary — §F.9 (contact-
+outcome measurement, `contact_outcomes`) is Phase 5. No quota enforcement
+(§F.7): Nuno's own explicit earlier answer, "não aplicar limites para
+já", carried through unchanged.
+
+**Route** `POST /api/hooks/suggest` — org-member-facing (the founder
+drafts their own outreach; this is not a back-office feature), same
+`requireOrgMember` pattern as Phase 3's propose-evidence route. Guards
+before any model cost, in order: entity delivered to the org; for a
+person target, a current affiliation with that entity, not
+`do_not_contact`, and eligible per the same gate
+`catalog_recompute_person_priority` uses (`seniority_rank <= 3`, or `= 4`
+with a qualifying `catalog_topic_signal`); `input_hash` (a sha256 of the
+assembled pack's own prompt text — if the pack is byte-identical, so is
+the hash) already on file → return it, zero new model calls.
+
+**`buildHookPack`** (`src/lib/hook-pack.ts`, pure, unit-tested) only uses
+fields confirmed to exist on the live schema — two adjustments from the
+prompt's own text, both because the field it asks for doesn't exist:
+- **No "own thesis" field exists on `orgs`.** `intro_problem`/
+  `intro_solution` (Prompt 325) stand in for it — the closest real
+  equivalent, not a fabricated summary.
+- **No `traction_summary` string column exists.** Real traction is
+  `org_traction_metrics` (one row per label/value pair, e.g. "MRR" /
+  "€12k") — read and rendered as a list, not invented as one string.
+- `catalog_entities` has no "geographies" column (only `hq_country`) —
+  the pack uses what's real and drops what isn't, same principle as
+  Phase 2/3's "reuse only what's real."
+- "Relationship" (§F.2) is deliberately minimal: `hasPriorContact`
+  (any `interactions` row for the org's own private pipeline entity) +
+  `lastPassReason` (from `interactions.pass_reason`, the founder's own
+  pipeline). NOT built: a full reconstruction of message-exchange
+  history — the field the prompt names ("mensagens trocadas") would
+  need real design work on what to summarize and how, not a token dump
+  of a thread; disclosed scope trim, not a silent drop.
+- Rule 6 ("hook da entidade nunca usa evidência pessoal... só
+  profissional e pública") is enforced INSIDE `buildHookPack` itself,
+  defensively, even though the route should only ever pass entity-only
+  evidence (`person_id is null`, which by construction can never be
+  `is_personal`) — a unit test asserts an entity-target pack drops
+  `is_personal` evidence even if a caller mistakenly included it.
+
+**Validation** (`src/lib/hook-validate.ts`, pure, unit-tested,
+zero model calls of its own, per §F.4's own rule): every claim's
+evidence ids must exist in the pack; an entity-target claim citing
+`is_personal` evidence is rejected; kill words are a case-insensitive
+substring check; the char limit is enforced per channel (form 400,
+everything else 900). **"No sentence outside the claims" is a
+pragmatic word-overlap heuristic** (≥2 shared substantive words between
+a sentence and some claim's own text), not linguistic entailment — the
+honest ceiling of what's checkable without a second model call, which
+§F.4 explicitly rules out ("nenhuma IA no ranking, no motor, na
+página" — validation is code, not judgment). One retry on failure (the
+validation errors appended to a follow-up prompt); a second failure
+persists `verdict='none'`, `hook_text=null` — never unvalidated text
+shown, per §F.4's own last line.
+
+**Persistence** `hook_suggestions` (table above): a partial unique index
+on `(org_id, target_kind, target_id, entity_id, channel, input_hash)
+where invalidated_at is null` gives the "same input_hash → 0 new calls"
+behavior for free at the DB layer, while still letting a regenerate
+after invalidation create a fresh row — verified live (zz-test fixture):
+inserting a second row with the same key while the first was still
+active correctly raised `23505`; inserting it again immediately AFTER
+invalidating the first succeeded. `cost_eur` is computed with the
+existing `computeCostEur` helper (`ai-cost-log.ts`), summed across the
+one or two model calls a request makes. **`ai_call_log_id` is left
+null** — `logAiCall` doesn't return the inserted row's id (a small,
+disclosed gap; the cost is still fully captured in `ai_call_log` itself
+via `purpose='hook:suggest'`, `target_type='hook_suggestions'`, just not
+FK-linked from this side).
+
+**Invalidation trigger** (`hook_suggestions_invalidate_on_evidence_removed`,
+fires on `catalog_evidence` transitioning into `rejected`/`erased`) —
+verified live: a zz-test hook citing one evidence row flipped to
+`invalidated_at`/`invalidated_reason='evidence_removed'` the instant that
+evidence was rejected, `hook_text` left intact (only GDPR erase, §I,
+nulls it — not built this phase, tracked separately).
+
+**§F.6 — the `no_link_verdicts` feedback loop.** On a final `verdict='none'`
+for a person target, the route merges an incremented `no_link_verdicts`
+count into that `catalog_person_priority` row's own `components` jsonb —
+write-only this phase. **NOT threaded into the live `rank_position`
+ordering** — `catalog_recompute_person_priority` (Phase 2) doesn't read
+it, so a string of "none" verdicts doesn't yet move anyone down the
+list. Same category of disclosed gap as Phase 2's own deferred live-
+trigger recompute: doing it properly means deciding exactly how many
+"none"s and how large a penalty, which is a product call, not
+something to bolt on under this prompt's own time pressure. The back-
+office "No-link verdicts" review list (§G.3) is Phase 5, unbuilt here.
+
+**UI — `HookSuggestionCard`** (`src/components/HookSuggestionCard.tsx`),
+one component, three entry points exactly as §F.8 asks:
+1. **Person page** (`/catalog-people/[id]`) header — only rendered when
+   this org has actually delivered one of the person's current
+   affiliations (no entity context, no button). "Use in draft" has no
+   local composer to fill, so it navigates to
+   `/entities/{orgEntityId}?hookDraft={text}` — reusing the EXACT
+   pattern the entity page's own `?ndaDraft` param already established
+   (confirmed by reading `DealThreadView.tsx`/`MessageThreadCore.tsx`
+   before writing this), rather than inventing a second mechanism.
+2. **`WhoToContactCard`** (§E block, `/entities/[id]`) — the person path
+   offers "Suggest hook for {Name}", the fallback path offers "Suggest
+   hook for {entity name}".
+3. **Message compositor** (`/entities/[id]`, `panelMode === 'message'`) —
+   the thread itself is per-fund, not per-person, in this app, so this
+   entry point offers a hook for the fund. "Use in draft" here (and from
+   the other two) goes through a small `hookPrefill` state with its own
+   nonce, forcing `MessageThreadCore` to remount via `key={nonce}` —
+   confirmed necessary before writing this: `DealThreadView`'s
+   `initialBody` prop only seeds React's initial state once and is not
+   reactive to later prop changes, the same shape `RailLogForm`'s own
+   `prefillNonce` already works around elsewhere in this codebase.
+
+Every card shows the verdict chip, the claims with clickable evidence-
+source chips, Copy, Use in draft (never shown for an invalidated
+suggestion), Regenerate, and the fixed footer line the prompt itself
+specifies ("Suggestion built only from the sources shown. Edit before
+sending."). **No send route exists anywhere under `/api/hooks/` —
+confirmed by grep, per the Verify section's own instruction**: only
+`suggest` (generates) and `[id]/used` (marks used) exist.
+
+**Verified:** `tsc`/`vitest`/`eslint`/`build` all green by exit code
+(3,729 tests, 251 files — 20 new: `buildHookPack` ×6, `buildHookSystemPrompt`
+×2, `parseHookOutput`/`validateHookOutput` ×12). `npm run verify:migrations`
+clean. zz-test DB verification: the full `hook_suggestions` row lifecycle,
+the evidence-removal invalidation trigger, and the dedup/regenerate unique-
+index behavior (all above, fixtures created and destroyed after).
+
+**Not verified — environmental gap, same as Phase 1's evidence-tagging
+route:** this session has no `ANTHROPIC_API_KEY`, so the route's actual
+model call, the retry-on-validation-failure path, and the §F.7-adjacent
+"5 real hook cost samples" the prompt's own Reportar section asks for
+could not be run. The system prompt and output tool schema are real and
+committed (`buildHookSystemPrompt`, `HOOK_TOOL_SCHEMA` in
+`src/lib/hook-validate.ts`) — ready for a session with the key, or for
+Nuno, to exercise for real.
+
+**Not done yet, tracked separately:** Phase 5 (`contact_outcomes` §F.9,
+back-office "No-link verdicts"/"Contact outcomes" panels §G.3), the
+GDPR-erase extension (§I) covering `hook_suggestions` (and the two
+earlier phases' new tables), and threading `no_link_verdicts` into live
+priority ordering (deferred, see above).
+
+Branch `claude/prompt-585-people-evidence-hooks`. Migration 0348 is the
+final one applied so far; next free number per `verify:migrations` is
+0349 (resweep again before any further migration in this branch).

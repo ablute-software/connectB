@@ -38,6 +38,7 @@ import { isPersonCandidate, isUnverifiedStub, relatedContacts, relationshipSumma
 import { SherlockInsightBanner } from '@/components/SherlockInsightBanner';
 import { PreContactReadinessNudge } from '@/components/PreContactReadinessNudge';
 import { WhoToContactCard } from '@/components/WhoToContactCard';
+import { HookSuggestionCard } from '@/components/HookSuggestionCard';
 import { computeAlignment } from '@/lib/company-canon-logic';
 import { browserClient } from '@/lib/supabase';
 import { EntityClassificationEditor } from '@/components/EntityClassificationEditor';
@@ -212,6 +213,26 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   useEffect(() => {
     if (ndaDraft && messaging.canMessage) setPanelMode('message');
   }, [ndaDraft, messaging.canMessage]);
+
+  // Prompt 585 §F.8 — a hook suggested elsewhere (the person page, which
+  // has no composer of its own) arrives the same way ?ndaDraft does: as
+  // text in the URL, read once. hookPrefill's own nonce forces
+  // MessageThreadCore to remount even when the message panel is already
+  // open (initialBody only seeds React's initial state — it isn't
+  // reactive on its own, confirmed before writing this).
+  const hookDraft = searchParams.get('hookDraft');
+  const [hookPrefill, setHookPrefill] = useState<{ text: string; nonce: number } | null>(null);
+  useEffect(() => {
+    if (hookDraft && messaging.canMessage) {
+      setPanelMode('message');
+      setHookPrefill((p) => ({ text: hookDraft, nonce: (p?.nonce ?? 0) + 1 }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hookDraft, messaging.canMessage]);
+  function useHookInDraft(text: string) {
+    setPanelMode('message');
+    setHookPrefill((p) => ({ text, nonce: (p?.nonce ?? 0) + 1 }));
+  }
 
   // Prompt 400 §A.3 — the panel's own deep-link params, same pattern as
   // ?ndaDraft just above: read once on mount, no page of their own. The
@@ -568,7 +589,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
       {/* Prompt 585 §E — Sherlock's own read on who to approach here and
           why, ahead of the tabs: the founder should see this before
           scrolling to the Team list. */}
-      <WhoToContactCard entity={entity} />
+      <WhoToContactCard entity={entity} onUseHookInDraft={useHookInDraft} />
 
       {/* Prompt 397 §B.1 — below the banner: left = Zone B's 4 tabs
           (unchanged), right = the conversation panel (History/Log/Message).
@@ -1073,8 +1094,13 @@ export default function EntityPage({ params }: { params: { id: string } }) {
                       entity can already be message-eligible (an investor who
                       claimed their profile before any founder outreach). */}
                   <PreContactReadinessNudge entityId={entity.id} />
-                  <MessageThreadCore entityId={entity.id} investorCatalogEntityId={messaging.investorCatalogEntityId}
-                    initialBody={ndaDraft ?? undefined} />
+                  {/* Prompt 585 §F.8 — the compositor's own entry point.
+                      The thread is per-fund, not per-person, so this
+                      offers a hook for the fund itself. */}
+                  <HookSuggestionCard targetKind="entity" targetId={messaging.investorCatalogEntityId} entityId={messaging.investorCatalogEntityId}
+                    channel="platform_message" label={`Suggest hook for ${entity.name}`} onUseInDraft={useHookInDraft} />
+                  <MessageThreadCore key={hookPrefill?.nonce ?? 0} entityId={entity.id} investorCatalogEntityId={messaging.investorCatalogEntityId}
+                    initialBody={hookPrefill?.text ?? ndaDraft ?? undefined} />
                 </>
               )}
             </div>

@@ -32,6 +32,8 @@ import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { seniorityRankLabel } from '@/lib/seniority-rank-label';
 import { FOUNDER_EVIDENCE_KINDS, validateEvidenceProposal } from '@/lib/catalog-evidence-propose';
+import { HookSuggestionCard } from '@/components/HookSuggestionCard';
+import type { HookChannel } from '@/lib/hook-pack';
 
 type Affiliation = {
   id: string;
@@ -86,7 +88,7 @@ type PageState =
       // affiliation (if any) this org has actually delivered, "reuse only
       // what's real": submission_channel_type from the org's own private
       // entities row, accepts_cold_contact via the narrow RPC Phase 2 built.
-      contactEntity: { orgEntityId: string; name: string; submissionChannelType: string } | null;
+      contactEntity: { orgEntityId: string; catalogEntityId: string; name: string; submissionChannelType: string } | null;
       contactContext: ContactContext | null;
     };
 
@@ -192,7 +194,7 @@ export default function CatalogPersonPage() {
       // founder hasn't unlocked). First one is fine: multiple delivered
       // affiliations for one person is a rare edge case, not worth a
       // picker on a page whose job is "who is this and why".
-      let contactEntity: { orgEntityId: string; name: string; submissionChannelType: string } | null = null;
+      let contactEntity: { orgEntityId: string; catalogEntityId: string; name: string; submissionChannelType: string } | null = null;
       let contactContext: ContactContext | null = null;
       const deliveredAffiliation = affiliations.find((a) => orgEntityIdByCatalogId.has(a.entity_id));
       if (deliveredAffiliation) {
@@ -200,7 +202,7 @@ export default function CatalogPersonPage() {
         const fund = Array.isArray(deliveredAffiliation.catalog_entities) ? deliveredAffiliation.catalog_entities[0] : deliveredAffiliation.catalog_entities;
         const { data: orgEntity } = await sb.from('entities').select('submission_channel_type').eq('id', orgEntityId).maybeSingle();
         if (cancelled) return;
-        contactEntity = { orgEntityId, name: fund?.name ?? 'this firm', submissionChannelType: orgEntity?.submission_channel_type ?? 'unknown' };
+        contactEntity = { orgEntityId, catalogEntityId: deliveredAffiliation.entity_id, name: fund?.name ?? 'this firm', submissionChannelType: orgEntity?.submission_channel_type ?? 'unknown' };
         const { data: contextRaw } = await sb.rpc('catalog_entity_contact_context', { p_org_id: db.org.id, p_catalog_id: deliveredAffiliation.entity_id });
         if (cancelled) return;
         const ctx = contextRaw as { accepts_cold_contact?: boolean | null } | null;
@@ -276,6 +278,21 @@ export default function CatalogPersonPage() {
                 )}
                 {rankLabel && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">{rankLabel}</span>}
               </div>
+              {/* Prompt 585 §F.8 — one of the hook service's three entry
+                  points. Only offered when this org has actually
+                  delivered one of this person's current affiliations
+                  (same "in your pipeline" barrier the propose-evidence
+                  route enforces) — no entity context, no pack to build. */}
+              {s.contactEntity && (
+                <div className="mt-2">
+                  <HookSuggestionCard
+                    targetKind="person" targetId={s.person.id} entityId={s.contactEntity.catalogEntityId}
+                    channel={s.person.linkedin_verified ? 'linkedin' : (s.contactEntity.submissionChannelType === 'form' ? 'form' : 'email') as HookChannel}
+                    label={`Suggest hook for ${s.person.full_name}`}
+                    onUseInDraft={(text) => router.push(`/entities/${s.contactEntity!.orgEntityId}?hookDraft=${encodeURIComponent(text)}`)}
+                  />
+                </div>
+              )}
             </div>
 
             {/* §D — "Porquê esta pessoa": the topic-signal verdict + up to
