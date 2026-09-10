@@ -39,8 +39,19 @@ export interface CatalogDeliveryResult {
   error?: string;
 }
 
+export interface DeliverCatalogOptions {
+  // Prompt 879 (path 3) — a backfill/complement delivery, not the founder's
+  // own monthly draw. quotaExempt keeps it off the org's quota (it is our fix
+  // for a gap we left, not their consumption, and it also sidesteps the quota
+  // trigger for an org already at its ceiling); skipEnrichmentEnqueue honours
+  // the 645 spend freeze by never queuing paid enrichment work.
+  quotaExempt?: boolean;
+  skipEnrichmentEnqueue?: boolean;
+}
+
 export async function deliverCatalogMatches(
   admin: SupabaseClient, orgId: string, pLimit: number, viaPack: string | null,
+  opts: DeliverCatalogOptions = {},
 ): Promise<CatalogDeliveryResult> {
   if (pLimit <= 0) return { delivered: 0, deliveredIds: [] };
 
@@ -145,7 +156,7 @@ export async function deliverCatalogMatches(
   // here because this call site is where the decision that a delivery
   // consumes quota is actually made.
   const { error: deliveryErr } = await admin.from('catalog_deliveries').insert(deliveredIds.map((cid, i) => ({
-    org_id: orgId, catalog_id: cid, entity_id: newEntities[i]?.id, via_pack: viaPack, quota_exempt: false,
+    org_id: orgId, catalog_id: cid, entity_id: newEntities[i]?.id, via_pack: viaPack, quota_exempt: opts.quotaExempt ?? false,
   })));
   if (deliveryErr) {
     // The entities exist and the founder can see them; the accounting row
@@ -154,7 +165,10 @@ export async function deliverCatalogMatches(
     return { delivered: newEntities.length, deliveredIds, error: deliveryErr.message };
   }
 
-  await enqueueEnrichment(admin, orgId, deliveredIds);
+  // Prompt 879 (path 3) — a complement under the 645 freeze must not queue
+  // paid work. Every existing caller omits opts, so the enqueue still runs
+  // for the monthly cron and the founder deliver route exactly as before.
+  if (!opts.skipEnrichmentEnqueue) await enqueueEnrichment(admin, orgId, deliveredIds);
   return { delivered: newEntities.length, deliveredIds };
 }
 
