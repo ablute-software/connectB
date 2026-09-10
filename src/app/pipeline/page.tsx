@@ -1,6 +1,7 @@
 'use client';
 // Pipeline (home) — dense sortable/filterable entity table
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
@@ -12,7 +13,12 @@ import { RelationshipCompactLine } from '@/components/RelationshipSummaryCard';
 import { hasAnythingToShow, readinessChips, type ReadinessBreakdown } from '@/lib/readiness-strip';
 import { ReawakeningQueue } from '@/components/ReawakeningQueue';
 import { AddInvestorModal } from '@/components/AddInvestorModal';
-import { followUpTaskDisplayTitle, isPersonCandidate, isUnverifiedStub, relationshipSummary } from '@/lib/relationship';
+import { followUpTaskDisplayTitle, getStage, isPersonCandidate, isUnverifiedStub, relationshipSummary } from '@/lib/relationship';
+import { useConfirmWithFields } from '@/lib/confirm';
+import { useParkEntity } from '@/lib/use-park-entity';
+import { dropDialog, planDrop, planUndo, UNDO_WINDOW_MS, type DropTarget } from '@/lib/pipeline-drop';
+import { PipelineDropTarget } from '@/components/pipeline/PipelineDropTarget';
+import { usePipelineRowDrag, useReducedMotion } from '@/components/pipeline/usePipelineRowDrag';
 import { CoachMark } from '@/components/onboarding/CoachMark';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
@@ -513,7 +519,7 @@ function sortValue(db: Db, key: SortKey, e: Entity): unknown {
 
 export default function PipelinePage() {
   useTrackPageView('/pipeline');
-  const { db, loading, markEntityVerified, askSherlock } = useStore();
+  const { db, loading, markEntityVerified, askSherlock, setEntityStatus, setRelationshipStage, logSystemNote } = useStore();
   // Prompt 271 §3 / Prompt 272 / Prompt 513 §2 — this state is now ONLY
   // "a request is in flight for these entities". The verdict itself used
   // to live here too, which was the whole bug: 'hold_for_hook' and
@@ -865,6 +871,65 @@ export default function PipelinePage() {
     const state = entityFrozenStates.get(e.id);
     return state ? pillLabelForFrozenState(state) : undefined;
   }
+
+  // Prompt 647 — drag a row onto ❄ Frozen / ✕ Passed. What a drop MEANS is
+  // decided in pipeline-drop.ts (pure, tested); the gesture itself is
+  // usePipelineRowDrag (DOM only); this page composes the two and draws.
+  // Only the active list is draggable: a frozen or passed row has nowhere to
+  // go from here, and the dossier menu keeps the keyboard path (§1.8).
+  const reducedMotion = useReducedMotion();
+  const confirmWithFields = useConfirmWithFields();
+  const { applyPlan: applyExitPlan } = useParkEntity();
+  // §1.6 — the row keeps its place while it collapses (250ms) even though the
+  // store has already moved it out of the active list: re-inserted at its old
+  // index for exactly that long, then gone.
+  const [leavingRow, setLeavingRow] = useState<{ entity: Entity; index: number } | null>(null);
+  const [dropPulse, setDropPulse] = useState<DropTarget | null>(null);
+  const [dropToast, setDropToast] = useState<{ message: string; undo?: () => void } | null>(null);
+  const dropToastTimer = useRef<number | null>(null);
+  const showDropToast = useCallback((message: string, undo?: () => void) => {
+    if (dropToastTimer.current) window.clearTimeout(dropToastTimer.current);
+    setDropToast({ message, undo });
+    dropToastTimer.current = window.setTimeout(() => setDropToast(null), undo ? UNDO_WINDOW_MS : 3000);
+  }, []);
+  useEffect(() => () => { if (dropToastTimer.current) window.clearTimeout(dropToastTimer.current); }, []);
+
+  const handleDrop = useCallback(async (entity: Entity, target: DropTarget): Promise<boolean> => {
+    const now = new Date();
+    // §2 — the question comes AFTER the shadow has fallen in, and nothing is
+    // written before the answer. Cancel returns the shadow to the row.
+    const values = await confirmWithFields(dropDialog(target, entity, db.tasks, now));
+    if (!values) return false;
+    const commit = planDrop(target, entity, db.tasks, now, values);
+    const previous = { status: entity.status, stage: getStage(db, entity.id) };
+    setLeavingRow({ entity, index: rows.findIndex((r) => r.id === entity.id) });
+    // Same order as useParkEntity.parkEntity: the note first so the history
+    // reads in the order things happened, then the status, then the plan.
+    logSystemNote(entity.id, commit.note);
+    setEntityStatus(entity.id, commit.status, commit.dormantReason);
+    if (commit.stage) setRelationshipStage(entity.id, commit.stage);
+    applyExitPlan(entity.id, commit.plan);
+    setDropPulse(target);
+    window.setTimeout(() => setDropPulse(null), 800);
+    window.setTimeout(() => setLeavingRow(null), reducedMotion ? 0 : 250);
+    showDropToast(commit.toast, () => {
+      const undo = planUndo(target, previous, new Date());
+      // Leaving 'dormant' closes the revisit task in the store itself (205 §B).
+      setEntityStatus(entity.id, undo.status);
+      if (undo.stage) setRelationshipStage(entity.id, undo.stage);
+      logSystemNote(entity.id, undo.note);
+      showDropToast('↩ Undone — back where it was.');
+    });
+    return true;
+  }, [db, rows, confirmWithFields, logSystemNote, setEntityStatus, setRelationshipStage, applyExitPlan, reducedMotion, showDropToast]);
+
+  const drag = usePipelineRowDrag({ enabled: !loading && frozenView === 'none', reducedMotion, onDrop: handleDrop });
+  const displayRows = useMemo(() => {
+    if (!leavingRow || rows.some((r) => r.id === leavingRow.entity.id)) return rows;
+    const list = [...rows];
+    list.splice(Math.min(Math.max(leavingRow.index, 0), list.length), 0, leavingRow.entity);
+    return list;
+  }, [rows, leavingRow]);
   const personCandidates = db.entities.filter((e) => isPersonCandidate(db, e));
   const noEntities = db.entities.length === 0;
   const noneClassified = !noEntities && db.entities.every((e) => e.wave == null);
@@ -1137,11 +1202,15 @@ export default function PipelinePage() {
             "Frozen" is the name kept (see frozen-view-grouping.ts's own
             header for why). No granularity lost: the row pill still shows
             "Stale"/"Never contacted" for what used to be the Stale rows. */}
-        <button onClick={() => setFrozenView((v) => v === 'frozen' ? 'none' : 'frozen')}
-          title="Not moving right now — either an impasse, or fell through the cracks."
-          className={`ml-auto rounded-lg border px-2.5 py-1.5 text-sm font-medium ${frozenView === 'frozen' ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
-          {frozenView === 'frozen' ? '❄ Showing frozen' : `❄ Frozen (${frozenCount})`}
-        </button>
+        {/* Prompt 647 — the same toggle, now also a drop target with a vault
+            door: a row dragged over it opens the face and shows the count
+            behind; dropping it asks before writing (handleDrop above). */}
+        <PipelineDropTarget target="frozen" className="ml-auto"
+          label={frozenView === 'frozen' ? '❄ Showing frozen' : `❄ Frozen (${frozenCount})`}
+          title="Not moving right now — either an impasse, or fell through the cracks. Drag a row here to freeze it."
+          count={frozenCount} active={frozenView === 'frozen'}
+          onClick={() => setFrozenView((v) => v === 'frozen' ? 'none' : 'frozen')}
+          armed={drag.active} open={drag.over === 'frozen'} pulse={dropPulse === 'frozen'} reducedMotion={reducedMotion} />
         {(reportedCount > 0 || frozenView === 'reported') && (
           <button onClick={() => setFrozenView((v) => v === 'reported' ? 'none' : 'reported')}
             title="Not real investors — flagged with evidence (fraud report)."
@@ -1153,12 +1222,15 @@ export default function PipelinePage() {
             labelled with which way it went. Same shape as the three above;
             hidden at 0 like Reported, and kept visible while it IS the
             active view so toggling back off never needs a second control. */}
-        {(passedCount > 0 || frozenView === 'passed') && (
-          <button onClick={() => setFrozenView((v) => v === 'passed' ? 'none' : 'passed')}
-            title="Decided, either way — they passed, or you ruled them out."
-            className={`rounded-lg border px-2.5 py-1.5 text-sm font-medium ${frozenView === 'passed' ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
-            {frozenView === 'passed' ? '✕ Showing passed' : `✕ Passed (${passedCount})`}
-          </button>
+        {/* Prompt 647 — also shown while a row is being dragged, even at 0:
+            a door has to exist to be dropped on. */}
+        {(passedCount > 0 || frozenView === 'passed' || drag.active) && (
+          <PipelineDropTarget target="passed"
+            label={frozenView === 'passed' ? '✕ Showing passed' : `✕ Passed (${passedCount})`}
+            title="Decided, either way — they passed, or you ruled them out. Drag a row here to mark it passed."
+            count={passedCount} active={frozenView === 'passed'}
+            onClick={() => setFrozenView((v) => v === 'passed' ? 'none' : 'passed')}
+            armed={drag.active} open={drag.over === 'passed'} pulse={dropPulse === 'passed'} reducedMotion={reducedMotion} />
         )}
         {/* Prompt 271 §3 / Prompt 282 — bulk ask moved to the Stale view
             (Stand by no longer has its own button), but still only ever
@@ -1255,8 +1327,10 @@ export default function PipelinePage() {
               })}
             </tr>
           </thead>
-          <tbody>
-            {rows.map((e, i) => {
+          {/* Prompt 647 — rows are draggable in the active view; the class
+              only switches off the long-press callout on touch (§1.1). */}
+          <tbody className={drag.enabled ? 'pipeline-drag-rows' : undefined}>
+            {displayRows.map((e, i) => {
               const task = nextAction(db, e);
               const overdue = task?.due_at && new Date(task.due_at) < new Date();
               const hf = e.hard_filter_status === 'open';
@@ -1279,7 +1353,9 @@ export default function PipelinePage() {
               const zebra = i % 2 === 1 ? 'bg-gray-50/60' : 'bg-white';
               return (
                 <tr key={e.id}
-                  className={`border-b border-gray-100 align-top hover:bg-[#E8F4F8]/60 ${zebra} ${suspended ? 'opacity-50' : ''} ${hf ? 'border-l-2 border-l-[#B00000]' : ''}`}>
+                  onPointerDown={drag.enabled ? (ev) => drag.onRowPointerDown(ev, e) : undefined}
+                  onDragStart={drag.enabled ? (ev) => ev.preventDefault() : undefined}
+                  className={`border-b border-gray-100 align-top hover:bg-[#E8F4F8]/60 ${zebra} ${suspended ? 'opacity-50' : ''} ${hf ? 'border-l-2 border-l-[#B00000]' : ''} ${drag.enabled ? 'cursor-grab' : ''} ${drag.originId === e.id ? 'pipeline-drag-origin' : ''} ${leavingRow?.entity.id === e.id ? 'pipeline-row-collapse' : ''}`}>
                   <td data-col="name" data-label="Entity" className="break-words px-2 py-1.5 font-medium">
                     <Link href={`/entities/${e.id}`} className="text-gray-900 hover:text-[#0E7490]">
                       {e.name} {hf && <span title={e.hard_filter} className="text-[#B00000]">⚑</span>}
@@ -1526,6 +1602,22 @@ export default function PipelinePage() {
       })()}
 
       {addInvestorOpen && <AddInvestorModal onClose={() => setAddInvestorOpen(false)} />}
+      {/* Prompt 647 §1.6 — the toast after a confirmed drop, with Undo for
+          eight seconds. Portalled to body like every fixed overlay here
+          (CLAUDE.md's containing-block rule). */}
+      {dropToast && typeof document !== 'undefined' && createPortal(
+        <div role="status" aria-live="polite"
+          className="fixed bottom-5 left-1/2 z-50 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-800 shadow-lg">
+          <span>{dropToast.message}</span>
+          {dropToast.undo && (
+            <button type="button" onClick={dropToast.undo}
+              className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs font-semibold text-[#0E7490] hover:bg-[#E8F4F8]">
+              Undo
+            </button>
+          )}
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

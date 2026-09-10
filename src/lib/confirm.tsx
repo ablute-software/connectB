@@ -11,8 +11,25 @@
 //   if (await confirm({ message: '...' })) { ... }
 // A chained second confirm (documents/page.tsx's delete-folder flow) falls
 // out naturally: `await confirm(...)` twice in sequence, no special casing.
+//
+// Prompt 647 §2 — the same dialog can carry a field or two (a revisit date,
+// an optional reason) and hand their values back: useConfirmWithFields()
+// resolves the values, or null on Cancel. One dialog, not a second modal
+// for the one flow that needs an input; useConfirm() is unchanged for every
+// existing caller.
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+
+export interface ConfirmField {
+  key: string;
+  label: string;
+  type: 'date' | 'text';
+  defaultValue?: string;
+  placeholder?: string;
+  min?: string;
+}
+
+export type ConfirmValues = Record<string, string>;
 
 export interface ConfirmOptions {
   title?: string;
@@ -23,32 +40,43 @@ export interface ConfirmOptions {
   // rely on the browser's own default confirm() styling to signal "this is
   // the dangerous one." Same normal-vs-destructive distinction, just styled.
   destructive?: boolean;
+  fields?: ConfirmField[];
 }
 
 interface PendingConfirm extends ConfirmOptions {
-  resolve: (value: boolean) => void;
+  resolve: (values: ConfirmValues | null) => void;
 }
 
-const ConfirmContext = createContext<((opts: ConfirmOptions) => Promise<boolean>) | null>(null);
+type ConfirmFn = (opts: ConfirmOptions) => Promise<ConfirmValues | null>;
+
+const ConfirmContext = createContext<ConfirmFn | null>(null);
+
+function defaultsOf(fields: ConfirmField[] | undefined): ConfirmValues {
+  const out: ConfirmValues = {};
+  for (const f of fields ?? []) out[f.key] = f.defaultValue ?? '';
+  return out;
+}
 
 export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const [pending, setPending] = useState<PendingConfirm | null>(null);
+  const [values, setValues] = useState<ConfirmValues>({});
   // Guards against a resolve() firing twice (e.g. Escape then a click both
   // landing) — a Promise can only settle once anyway, but this also stops a
   // second dialog render from a stray extra call.
   const settledRef = useRef(false);
 
-  const confirm = useCallback((opts: ConfirmOptions): Promise<boolean> => {
-    return new Promise<boolean>((resolve) => {
+  const confirm = useCallback((opts: ConfirmOptions): Promise<ConfirmValues | null> => {
+    return new Promise<ConfirmValues | null>((resolve) => {
       settledRef.current = false;
+      setValues(defaultsOf(opts.fields));
       setPending({ ...opts, resolve });
     });
   }, []);
 
-  function settle(value: boolean) {
+  function settle(ok: boolean) {
     if (settledRef.current || !pending) return;
     settledRef.current = true;
-    pending.resolve(value);
+    pending.resolve(ok ? values : null);
     setPending(null);
   }
 
@@ -59,7 +87,22 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => settle(false)}>
           <div role="alertdialog" aria-modal="true" className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
             {pending.title && <h2 className="text-sm font-bold text-gray-900">{pending.title}</h2>}
-            <p className={`text-sm text-gray-700 ${pending.title ? 'mt-1' : ''}`}>{pending.message}</p>
+            <p className={`whitespace-pre-line text-sm text-gray-700 ${pending.title ? 'mt-1' : ''}`}>{pending.message}</p>
+            {pending.fields?.map((f) => (
+              <label key={f.key} className="mt-3 block text-xs font-medium text-gray-600">
+                {f.label}
+                <input
+                  type={f.type}
+                  value={values[f.key] ?? ''}
+                  min={f.min}
+                  placeholder={f.placeholder}
+                  autoComplete="off"
+                  onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); settle(true); } }}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm font-normal text-gray-900"
+                />
+              </label>
+            ))}
             <div className="mt-4 flex justify-end gap-2">
               <button onClick={() => settle(false)} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50">
                 {pending.cancelLabel ?? 'Cancel'}
@@ -77,14 +120,23 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+function fallbackConfirm(opts: ConfirmOptions): Promise<ConfirmValues | null> {
+  // Fallback if ever rendered outside ConfirmProvider (shouldn't happen —
+  // it's mounted at the app root — but degrading to the native confirm
+  // is safer than silently returning false for every destructive action
+  // a caller might otherwise never notice was skipped).
+  console.error('[useConfirm] used outside ConfirmProvider — falling back to window.confirm');
+  const ok = typeof window !== 'undefined' ? window.confirm(opts.message) : false;
+  return Promise.resolve(ok ? defaultsOf(opts.fields) : null);
+}
+
 export function useConfirm(): (opts: ConfirmOptions) => Promise<boolean> {
   const confirm = useContext(ConfirmContext);
-  return useMemo(() => confirm ?? (async (opts: ConfirmOptions) => {
-    // Fallback if ever rendered outside ConfirmProvider (shouldn't happen —
-    // it's mounted at the app root — but degrading to the native confirm
-    // is safer than silently returning false for every destructive action
-    // a caller might otherwise never notice was skipped).
-    console.error('[useConfirm] used outside ConfirmProvider — falling back to window.confirm');
-    return typeof window !== 'undefined' ? window.confirm(opts.message) : false;
-  }), [confirm]);
+  return useMemo(() => async (opts: ConfirmOptions) => (await (confirm ?? fallbackConfirm)(opts)) !== null, [confirm]);
+}
+
+/** Prompt 647 §2 — the same dialog, with its fields' values on Confirm and null on Cancel. */
+export function useConfirmWithFields(): ConfirmFn {
+  const confirm = useContext(ConfirmContext);
+  return useMemo(() => confirm ?? fallbackConfirm, [confirm]);
 }

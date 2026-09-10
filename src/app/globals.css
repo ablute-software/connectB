@@ -390,3 +390,45 @@ body {
 /* Above the tbody cells, so a sticky header cell covers a sticky body cell
    rather than the other way round when both are pinned at once. */
 thead .bo-sticky-col { z-index: 3; }
+
+/* Prompt 647 — dragging a Pipeline row onto ❄ Frozen / ✕ Passed.
+   The origin row stays put and reads STRONGER while its shadow travels (a
+   2px accent outline, background one tone up); the targets pulse once so it
+   is clear where a row may be dropped; a confirmed drop collapses the row
+   (250ms) and pulses the count with a "+1". The vault door itself is inline
+   (PipelineDropTarget.tsx) because its angle depends on state. Every
+   animation here is switched off under prefers-reduced-motion (§1.7). */
+body.pipeline-dragging { user-select: none; -webkit-user-select: none; cursor: grabbing; }
+body.pipeline-dragging a, body.pipeline-dragging button { cursor: grabbing; }
+tr.pipeline-drag-origin, tr.pipeline-drag-origin:hover {
+  background-color: #d9eef4;
+  outline: 2px solid #0E7490;
+  outline-offset: -2px;
+}
+tbody.pipeline-drag-rows > tr { -webkit-touch-callout: none; }
+@keyframes pipeline-drop-target-ready {
+  0% { box-shadow: 0 0 0 0 rgba(14, 116, 144, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(14, 116, 144, 0.28); }
+  100% { box-shadow: 0 0 0 0 rgba(14, 116, 144, 0); }
+}
+.pipeline-drop-armed { border-color: #0E7490 !important; animation: pipeline-drop-target-ready 700ms ease-out 1; }
+@keyframes pipeline-row-collapse {
+  from { opacity: 1; transform: scaleY(1); }
+  to { opacity: 0; transform: scaleY(0); }
+}
+tr.pipeline-row-collapse > td { animation: pipeline-row-collapse 250ms ease-in forwards; transform-origin: top; }
+@keyframes pipeline-count-pulse {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+.pipeline-count-pulse { animation: pipeline-count-pulse 400ms ease-out 1; }
+@keyframes pipeline-plus-one {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-14px); }
+}
+.pipeline-plus-one { animation: pipeline-plus-one 700ms ease-out forwards; }
+@media (prefers-reduced-motion: reduce) {
+  .pipeline-drop-armed, tr.pipeline-row-collapse > td, .pipeline-count-pulse, .pipeline-plus-one { animation: none; }
+  tr.pipeline-row-collapse > td { opacity: 0; }
+}
