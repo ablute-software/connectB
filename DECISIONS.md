@@ -6334,3 +6334,120 @@ owing nothing. It does NOT get the red overdue treatment — that's gated on
 `next_payment_due_at` being in the past, which is null for a free-tier org —
 so the practical effect is small, but the badge itself reads more alarming
 than the underlying state.
+
+---
+
+## Prompt 878 — 243 misdated interactions, a truncated test name, an amount field's `step`, and a real editor that never reached Nuno
+
+**§0 — the 243 interactions were not a single bug, and roughly half their
+real dates were sitting in plain sight.** All 243 shared `occurred_at` in
+2018–2019 and `created_at` in the same ~2h30 window on 22 Jul — a single
+bulk import (the structured-import commit route,
+`src/app/api/import/structured/commit/route.ts:150`:
+`occurred_at: r.occurred_at ?? new Date().toISOString()`, which only
+defaults when the CSV field is nullish, not when it's unparseable).
+Breaking the 243 down by exact `occurred_at` value found 107 rows sharing
+the literal value `2018-01-01` — a single day accounting for 44% of the
+"2018/2019" set, with the next most common value at 15 rows. That is not a
+plausible historical clustering; it is a default. Sampling those 107 rows'
+`content` showed why: roughly half start with an embedded date in Portuguese
+prose (`"25 de agosto de 2022 / Paulo Gaspar / ..."`, `"4 de junho de
+2024 / ..."`) spanning real years from 2018 through late 2025 — the true
+date was typed INTO the content field, never parsed out into `occurred_at`
+at all. A regex (`^(\d{1,2}) de (\w+) de (\d{4})`) recovered 52 of the 107
+this way, real dates now written back to `occurred_at`. The remaining 55
+have no recoverable date in `content` at all (bare times like `"17:46"`, or
+scraped contact/funding info with no date prefix) — those got the
+prompt's own explicitly-sanctioned fallback, `occurred_at = created_at`
+(2026-07-22, the real import date), rather than staying at a fabricated
+2018-01-01. The other 136 of the original 243 (varied real-looking dates,
+narrative content like `"Telefonei / Falei com cristina que me disse..."`)
+were left untouched — they read as genuine historical outreach log entries,
+not import artifacts, and blanket-overwriting them to `created_at` would
+have destroyed real history to fix a problem they don't have.
+
+Audited every consumer of `interactions.occurred_at` (`rules.ts`'s
+`outboundCounts`/follow-up cutoff, `journey.ts`'s stage timeline,
+`neglect-evaluation.ts`'s "last full interaction", `automation-rules-tick.ts`).
+None is fooled going forward — the wrong-but-uniform 2018-01-01 value is
+gone, replaced by either the real date or a recent, honest one. One check
+worth naming: no entity's ENTIRE interaction history consists only of
+fallback-dated rows (verified by query before calling this done) — so no
+entity was left showing "awaiting reply since 2018-01-01" as its only
+signal, a genuinely worse failure mode than the wrong date alone.
+
+Also noticed in passing, not asked for and not touched: some of the 107
+rows' content (`"— Dotação: 1.154.020€ — gestao@besthorizon.pt / + inf /
+..."`) reads like scraped catalog/contact research, not an actual sent
+outbound touch, despite `direction='out'`/`classification='awaiting'`.
+Flagged here rather than silently reclassified or silently left — deciding
+whether these rows should even be `interactions` at all is a business
+judgment outside a date-repair task's scope.
+
+**§1 — "ABl" deleted; the gap that let it in is closed for the next one.**
+`matchdeal_investor_firm_view()` (0302) fed a MatchDeal profile's
+`representative_name` (and separately, a member's `auth.users` display
+name) into `people.full_name` with only a length-greater-than-zero check —
+any non-empty string became a real person row. Migration `20260910110000`
+raises both checks to `length(...) >= 4`: a genuine full name is
+essentially always longer than that, and per the prompt's own instruction,
+no person row is better than an illegible one. Confirmed before deleting:
+all 7 existing `data_source = 'matchdeal_profile'` rows belong to test
+entities/accounts (`ablute_ — Internal QA`, Nuno's own personal test
+account, `Test idividual`) — no contamination in the real catalog. Only the
+one row the prompt named ("ABl", `catalog_people.id = 58eb4043-...`) was
+deleted; the other 6 (test-flavored but legible names — "Alexandra",
+"Nuno", "ablute_ QA Investor") were left alone, since the prompt confirmed
+them benign and didn't ask for them.
+
+**§2 — could not reproduce a hard block; removed the one real friction
+point that exists.** `ask_amount_eur` has been correctly optional in code
+since it was introduced (Prompt 479, `git log -S` shows exactly one commit
+ever touching it) — `save()` only sets it when non-empty, and `formReady`
+never reads it, and there is no `<form>`/`type="submit"` anywhere in
+`RailLogForm.tsx` for native HTML5 validation to block on. What IS real:
+the input carried `step="1000"`, which makes `type="number"` treat any
+value not an exact multiple of 1000 as `:invalid` — a perfectly normal
+amount like €82,500 would trip it. Removed. If what Nuno saw was this
+`:invalid` state rather than an actual blocked Save, this closes it; if
+Save was genuinely refusing to fire, that's not reproducible from the
+current code and is worth a fresh screenshot to pin down.
+
+**§3 — both parts checked against the rendered page, not just the CSS.**
+The Pass Reason card's side-by-side redesign is already shipped (Prompt
+852, "Card layout, settled... Side by side from `sm`, stacked below it" —
+confirmed still live: `DecisionNotesCards.tsx`'s outer div is `flex
+flex-col gap-2 sm:flex-row`). The People & Team width complaint could not
+be reproduced: screenshotted the tab at 1180/1366/1536px against the
+richest person-list in the demo dataset (Nina Capital, 3 visible ranked
+people) — at every width the People card has substantial unused
+whitespace; the row content (name + role + two badges) simply doesn't need
+more room in this data. Not changed, since the shared grid
+(`lg:grid-cols-[1fr_392px] xl:...3fr/2fr... 2xl:...2fr/1fr`) is already a
+carefully, comment-documented per-breakpoint tuning pass shared by all four
+entity-page tabs — reshaping it on a guess risks regressing the other
+three tabs to fix a problem not reproducible here. Needs a real screenshot
+or a specific investor/viewport from Nuno to act on safely.
+
+**§4 — the editor exists; it just never reaches the page Nuno is actually
+looking at.** A real, direct, one-click-and-save entity editor already
+exists: `EditCatalogEntityModal.tsx` + `PATCH /api/backoffice/catalog/entities/[id]`
+(Prompt 584 §C, 21 real fields — name, website, thesis, check size, sectors,
+stage, contacts, etc. — audited diff-based writes, `is_platform_admin`
+RLS). But it lives ONLY inside `/backoffice/catalog`, a separate admin
+tool. On the entity/investor dossier page a founder or admin actually
+looks at (`/entities/[id]`), the only correction affordance is "+ Add
+info" (`ContributionBox`) — a suggestion that goes into a review queue, not
+an instant save. Nothing on that page ever pointed at the real editor.
+Closed with a small bridge rather than rebuilding either side: the entity
+page already computes `catalogMatch` (via `matchEntityToCatalog`, used
+elsewhere for prefill) for free, so a "Correct this in the Catalog
+(admin) →" link — visible only when `role === 'developer'`, i.e. exactly
+the "3 authorized accounts" — opens `/backoffice/catalog?edit=<id>`. The
+catalog page gained one-shot `?edit=` support (opens `EditCatalogEntityModal`
+for that row on load, then strips the param so it isn't picked up as a
+stray filter by `useTableUrlState`, which otherwise treats any
+unreserved query key as a persisted filter). No new privilege surface: the
+link is a client-side courtesy identical in spirit to every other
+`role === 'developer'`-gated affordance in this codebase, and the real gate
+is still the route's own `requirePlatformAdmin()`.

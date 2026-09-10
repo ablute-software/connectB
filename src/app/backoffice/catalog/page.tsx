@@ -529,7 +529,7 @@ function ChipList({ items }: { items: string[] }) {
   );
 }
 
-function CatalogTable({ catalog, refresh }: { catalog: CatalogEntity[]; refresh: () => void }) {
+function CatalogTable({ catalog, refresh, initialEditId }: { catalog: CatalogEntity[]; refresh: () => void; initialEditId?: string | null }) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newRow, setNewRow] = useState({ name: '', type: 'vc', website: '' });
   const [creating, setCreating] = useState(false);
@@ -541,6 +541,13 @@ function CatalogTable({ catalog, refresh }: { catalog: CatalogEntity[]; refresh:
   // per-row map) is enough.
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showMoreFilters, setShowMoreFilters] = useState(false);
+  // Prompt 878 §4 — a ?edit=<id> link (from the entity page's "Correct this
+  // in the Catalog" link) opens straight to that row's editor, rather than
+  // leaving the admin to search the table by hand.
+  useEffect(() => {
+    if (initialEditId) setEditingId(initialEditId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Prompt 582 §B.1 — search/filters/sort/page all live in the URL now,
   // the same shape Fase 3 gave Startups/Investors (use-table-url-state.ts,
@@ -870,6 +877,18 @@ function BackofficeCatalogContent() {
   }
   useEffect(refresh, []);
   useEffect(() => {
+    // Prompt 878 §4 — `edit` is a one-shot "open this row" signal, not a
+    // persisted filter; CatalogTable's own useTableUrlState would otherwise
+    // pick it up as a stray free-form filter (it's not in queue-table-
+    // state.ts's RESERVED set) and leave it sitting in the URL forever.
+    if (params.get('edit')) {
+      const qs = new URLSearchParams(params.toString());
+      qs.delete('edit');
+      router.replace(qs.toString() ? `${pathname}?${qs}` : pathname, { scroll: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
     // Prompt 582 §A — the tab label's own count, kept independent of
     // MergeDuplicatesTool's internal fetch (which needs the full cluster
     // detail, not just a number) rather than lifting its whole state up
@@ -909,7 +928,7 @@ function BackofficeCatalogContent() {
           </button>
         ))}
       </div>
-      {tab === 'catalog' && catalog && <CatalogTable catalog={catalog} refresh={refresh} />}
+      {tab === 'catalog' && catalog && <CatalogTable catalog={catalog} refresh={refresh} initialEditId={params.get('edit')} />}
       {tab === 'merge' && <MergeDuplicatesTool onMerged={() => { refresh(); }} />}
       {/* Prompt 544 Part E — above the campaign panel on purpose: it says
           WHO the next run should serve, which is the decision the panel below
