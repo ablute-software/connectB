@@ -10,7 +10,7 @@ import pipelineMobile from './pipeline-mobile.module.css';
 import { LoadingState } from '@/components/workspace-shell/LoadingState';
 import { MatchDealVisibilityBanner } from '@/components/dashboard/MatchDealVisibilityBanner';
 import { RelationshipCompactLine } from '@/components/RelationshipSummaryCard';
-import { hasAnythingToShow, readinessChips, type ReadinessBreakdown } from '@/lib/readiness-strip';
+import { hasAnythingToShow, isReachable, readinessChips, type ReadinessBreakdown } from '@/lib/readiness-strip';
 import { ReawakeningQueue } from '@/components/ReawakeningQueue';
 import { AddInvestorModal } from '@/components/AddInvestorModal';
 import { followUpTaskDisplayTitle, getStage, isPersonCandidate, isUnverifiedStub, relationshipSummary } from '@/lib/relationship';
@@ -493,13 +493,24 @@ function NeglectAskCell({ state, asking, onAsk }: {
 // everyone else, including brand-new/never-scored entities. A frozen entity
 // never lands in band 1/2 regardless of a stale fit_score — being parked IS
 // the "not live" signal, independent of what its fit once was.
-function pipelineBand(db: Db, e: Entity, interestedEntityIds: Set<string>, activeThreadEntityIds: Set<string>): 1 | 2 | 3 {
+// Prompt 879 — `deadEndIds` are delivered investors with nobody to contact
+// (no person on LinkedIn, no hook — isReachable is false). A live
+// relationship still wins band 1: if the founder is already talking to them,
+// they found a way in, whatever the readiness row says. What a dead end no
+// longer earns is band 2 on fit ALONE — a good-fit fund with no reachable
+// person is not a valid recommendation to put near the top, so it sinks to
+// band 3 (still visible, still usable via its email if it has one), which is
+// exactly Nuno's rule: don't show investors with nobody to contact as if they
+// were active recommendations. Deliberately keyed on membership of the set,
+// not on absence from the readiness map: a manually-added entity with no
+// catalog readiness row is never demoted by this.
+function pipelineBand(db: Db, e: Entity, interestedEntityIds: Set<string>, activeThreadEntityIds: Set<string>, deadEndIds: Set<string>): 1 | 2 | 3 {
   if (e.status === 'dormant') return 3;
   if (e.status === 'diligence') return 1;
   if (interestedEntityIds.has(e.id) || activeThreadEntityIds.has(e.id)) return 1;
   const health = relationshipSummary(db, e.id).health;
   if (health === 'hot' || health === 'warm') return 1;
-  if (e.fit_score && e.fit_score !== 'low') return 2;
+  if (e.fit_score && e.fit_score !== 'low' && !deadEndIds.has(e.id)) return 2;
   return 3;
 }
 
@@ -786,6 +797,16 @@ export default function PipelinePage() {
     return m;
   }, [db.entities, entityFrozenStates, liveDecisions]);
 
+  // Prompt 879 — delivered investors with nobody to contact (readiness says
+  // no LinkedIn and no hook). Only entities the readiness call actually
+  // returned can be here, so a manually-added entity with no catalog
+  // readiness row is never marked a dead end. Drives pipelineBand's demotion.
+  const deadEndIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const [id, b] of Object.entries(readinessByEntity)) if (!isReachable(b)) s.add(id);
+    return s;
+  }, [readinessByEntity]);
+
   const rows = useMemo(() => {
     let list = [...db.entities];
     // Prompt 257 §4 — the toggle's own base filter, applied before anything
@@ -816,15 +837,15 @@ export default function PipelinePage() {
     const bandingActive = sortKey === 'wave' && sortDir === 'asc';
     list.sort((a, b) => {
       if (bandingActive) {
-        const bandDiff = pipelineBand(db, a, interestedEntityIds, activeThreadEntityIds)
-          - pipelineBand(db, b, interestedEntityIds, activeThreadEntityIds);
+        const bandDiff = pipelineBand(db, a, interestedEntityIds, activeThreadEntityIds, deadEndIds)
+          - pipelineBand(db, b, interestedEntityIds, activeThreadEntityIds, deadEndIds);
         if (bandDiff !== 0) return bandDiff;
       }
       return cmp(sortValue(db, sortKey, a), sortValue(db, sortKey, b)) * dir
         || (a.wave ?? 9) - (b.wave ?? 9) || (fitOrder[a.fit_score ?? 'low'] - fitOrder[b.fit_score ?? 'low']);
     });
     return list;
-  }, [db, q, wave, status, sectors, country, sortKey, sortDir, interestedEntityIds, activeThreadEntityIds, frozenView, entityViews]);
+  }, [db, q, wave, status, sectors, country, sortKey, sortDir, interestedEntityIds, activeThreadEntityIds, frozenView, entityViews, deadEndIds]);
 
   const countries = Array.from(new Set(db.entities.map((e) => e.hq_country).filter(Boolean))) as string[];
   const sectorOptions = Array.from(new Set(db.entities.flatMap((e) => e.sectors))).sort();
@@ -1343,7 +1364,7 @@ export default function PipelinePage() {
               // other live-relationship reason (diligence, an active
               // thread, recent back-and-forth).
               const interested = interestedEntityIds.has(e.id);
-              const inBand1 = pipelineBand(db, e, interestedEntityIds, activeThreadEntityIds) === 1;
+              const inBand1 = pipelineBand(db, e, interestedEntityIds, activeThreadEntityIds, deadEndIds) === 1;
               // Prompt 259 — zebra striping so the eye can track a row
               // across 760 entities. Reuses gray-50 (already the app's own
               // card/dropdown-hover tone, not a new color) at 60% opacity;
@@ -1443,6 +1464,15 @@ export default function PipelinePage() {
                         </div>
                       );
                     })()}
+                    {/* Prompt 879 — why this row is not near the top: it was
+                        delivered before the 3 Sept rule and has no reachable
+                        person yet. Shown in the active view only, and not for
+                        a row the founder is already engaged with (band 1). */}
+                    {frozenView === 'none' && deadEndIds.has(e.id) && !inBand1 && (
+                      <div className="mt-0.5 text-[10px] text-amber-600" title="Delivered before the reachable-contact rule. It stays on your list, but it is not shown as an active recommendation until it has a person to contact.">
+                        No one to contact yet
+                      </div>
+                    )}
                     <RelationshipCompactLine entityId={e.id} neutral={frozenView !== 'none'} />
                     {/* E2 — a previously-passed/dormant investor that carries a
                         reopen trigger has resurfaced via the reopen doctrine;

@@ -45,3 +45,15 @@ export function readinessChips(b: ReadinessBreakdown): ReadinessChip[] {
 export function hasAnythingToShow(b: ReadinessBreakdown): boolean {
   return b.peopleCount > 0 || b.hasForm || b.hasEmail;
 }
+
+// Prompt 879 — the platform's own reachability floor, on the founder side.
+// catalog_top_matches (migration 0301) only DELIVERS an investor with a
+// person who has a LinkedIn or a hook; this is that same test, read from the
+// per-row readiness the founder actually sees. A firm-wide email is a
+// fallback contact, never a reachable PERSON, so it does not count here — an
+// investor with only a general inbox and no named person to write to is
+// exactly the "nobody to contact" case, and drops out of the active
+// recommendation bands even though its email keeps it visible and usable.
+export function isReachable(b: ReadinessBreakdown): boolean {
+  return b.linkedinCount > 0 || b.hookCount > 0;
+}

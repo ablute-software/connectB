@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasAnythingToShow, readinessChips, type ReadinessBreakdown } from './readiness-strip';
+import { hasAnythingToShow, isReachable, readinessChips, type ReadinessBreakdown } from './readiness-strip';
 
 const b = (o: Partial<ReadinessBreakdown> = {}): ReadinessBreakdown => ({
   peopleCount: 0, linkedinCount: 0, hookCount: 0, hasForm: false, hasEmail: false, ...o,
@@ -43,5 +43,28 @@ describe('hasAnythingToShow', () => {
 
   it('is true when there are people even with no channel', () => {
     expect(hasAnythingToShow(b({ peopleCount: 3 }))).toBe(true);
+  });
+});
+
+describe('isReachable — Prompt 879', () => {
+  it('a person on LinkedIn is reachable', () => {
+    expect(isReachable(b({ peopleCount: 4, linkedinCount: 1 }))).toBe(true);
+  });
+
+  it('a written hook is reachable even without a LinkedIn', () => {
+    expect(isReachable(b({ peopleCount: 2, hookCount: 1 }))).toBe(true);
+  });
+
+  it('a firm email alone is NOT a reachable person — the dead-end case', () => {
+    expect(isReachable(b({ hasEmail: true }))).toBe(false);
+  });
+
+  it('named people with neither LinkedIn nor hook are not reachable', () => {
+    // the 239 key_people just promoted: names exist, but nobody to write to yet
+    expect(isReachable(b({ peopleCount: 12 }))).toBe(false);
+  });
+
+  it('nothing at all is not reachable', () => {
+    expect(isReachable(b())).toBe(false);
   });
 });
