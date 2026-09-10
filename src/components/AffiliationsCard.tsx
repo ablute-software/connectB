@@ -57,13 +57,13 @@ export function AffiliationsCard({ person }: { person: Person }) {
           </label>
           {!independent && (
             <select value={entityId} onChange={(e) => setEntityId(e.target.value)}
-              className="rounded border border-gray-300 px-2 py-1 text-xs">
+              className="max-w-[12rem] rounded border border-gray-300 px-2 py-1 text-xs">
               <option value="">Entity…</option>
               {db.entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
           )}
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title (optional)"
-            className="rounded border border-gray-300 px-2 py-1 text-xs" />
+            autoComplete="off" className="rounded border border-gray-300 px-2 py-1 text-xs" />
         </div>
         <button
           disabled={!independent && !entityId}

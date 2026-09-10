@@ -1027,23 +1027,9 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
-        // hook_missing → research tasks (full_auto typical)
-        const hookAuto = prev.automations.find((a) => a.trigger === 'hook_missing' && a.enabled);
-        if (hookAuto) {
-          for (const person of prev.people) {
-            if (person.hook_status === 'to_research' && !person.do_not_contact) {
-              const has = next.tasks.some((t) => t.person_id === person.id && t.kind === 'research' && !t.done);
-              if (!has) {
-                next.tasks.push({
-                  id: uid('t'), kind: 'research', action_type: 'research_hook', done: false,
-                  title: `Research hook: ${person.full_name}`, person_id: person.id, entity_id: person.entity_id,
-                  due_at: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString(),
-                });
-                created++;
-              }
-            }
-          }
-        }
+        // Prompt 889 §2 — `hook_missing` no longer creates a founder
+        // "Research hook" task (Sherlock's job, not the founder's). No-op here;
+        // the missing-hook state shows as a non-task indication elsewhere.
         return next;
       });
       return created;

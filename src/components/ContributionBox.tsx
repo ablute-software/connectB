@@ -85,8 +85,27 @@ function isCorrectionRow(c: Contribution): boolean {
   return c.status === 'submitted' && c.kind === 'correction';
 }
 
+// Prompt 889 §0 — some contribution rows carry a structured object in `value`
+// instead of a scalar: a change record ({before, after}), an identity
+// confirmation ({confirmed, name, role, ...}), or a wrapped ({value, ...})
+// payload. Left to String(), each of those rendered as the literal
+// "[object Object]" on the founder's person page (seen on `title` and
+// `identity_confirmation`). Unwrap the shapes we know and, as a last resort,
+// fall back to readable JSON — never "[object Object]".
 function formatContributionValue(value: unknown): string {
-  return Array.isArray(value) ? value.join(', ') : String(value);
+  if (value === null || value === undefined) return '—';
+  if (Array.isArray(value)) return value.map((v) => formatContributionValue(v)).join(', ');
+  if (typeof value === 'object') {
+    const o = value as Record<string, unknown>;
+    if ('after' in o) return formatContributionValue(o.after);   // {before, after} change record → the new value
+    if ('value' in o) return formatContributionValue(o.value);   // {value, source, ...} wrapped payload
+    if ('confirmed' in o) {                                       // {confirmed, name, role, ...} identity confirmation
+      const who = [o.name, o.role].filter(Boolean).map(String).join(', ');
+      return o.confirmed ? (who ? `confirmed — ${who}` : 'confirmed') : 'not confirmed';
+    }
+    try { return JSON.stringify(o); } catch { return '—'; }
+  }
+  return String(value);
 }
 
 export function ContributionBox({ subjectType, subjectId, orgId, subject, onApplyValue, refreshKey, keyPeopleShownElsewhere }: {
@@ -419,7 +438,7 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
           <div className="font-semibold text-amber-900">{fieldLabel(conflictPopover.field)}</div>
           <div className="mt-1.5 grid grid-cols-2 gap-2">
             <div><div className="text-gray-500">Valor atual</div><div className="font-medium">{String(subject?.[conflictPopover.field] ?? '—')}</div></div>
-            <div><div className="text-gray-500">Valor importado</div><div className="font-medium">{String(conflictPopover.value)}</div></div>
+            <div><div className="text-gray-500">Valor importado</div><div className="font-medium">{formatContributionValue(conflictPopover.value)}</div></div>
           </div>
           <div className="mt-2 flex gap-2">
             <button disabled={resolving} onClick={() => resolveConflict('keep_existing')}

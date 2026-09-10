@@ -29,7 +29,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fitBucketFromScore } from './catalog-fit-bucket';
 import { catalogContactFields, waveForRank } from './catalog-delivery-mapping';
-import { firstStepTaskTitle } from './first-message-target';
 import { preferDeclaredList, preferDeclaredValue, resolveClaimedInvestorProfile } from './claimed-investor-profile';
 
 export interface CatalogDeliveryResult {
@@ -131,26 +130,16 @@ export async function deliverCatalogMatches(
   const { error: entityErr } = await admin.from('entities').insert(newEntities);
   if (entityErr) return { delivered: 0, deliveredIds: [], error: entityErr.message };
 
-  // Prompt 544 Part D — one task per WAVE-1 row, due in 3 days, worded the
-  // same as the Next Clue would word it. Every delivered row used to arrive
-  // with an empty "Next action" column, so a brand-new pipeline read as a
-  // list of names with nothing asked of the founder. Only W1: giving all ten
-  // a task on day one would recreate the wall of work waves exist to avoid.
-  //
-  // Never fatal — the pipeline is delivered either way, and a missing task is
-  // a smaller failure than a delivery that half-succeeded.
-  const dueAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
-  const firstStepTasks = newEntities
-    .filter((e) => e.wave === 1)
-    .map((e) => ({
-      org_id: orgId, entity_id: e.id as string,
-      title: firstStepTaskTitle(e.name as string, false),
-      due_at: dueAt, kind: 'research' as const, action_type: 'research_hook' as const,
-      source: 'suggested' as const,
-    }));
-  if (firstStepTasks.length) {
-    await admin.from('tasks').insert(firstStepTasks).then(() => {}, () => {});
-  }
+  // Prompt 889 §2 — no more auto-task on delivery. Prompt 544 Part D created
+  // one `research_hook` task per WAVE-1 row so a fresh pipeline wasn't a wall
+  // of names with nothing asked; but researching a person's hook is Sherlock's
+  // job, not the founder's, and delivering to five orgs had quietly stacked
+  // ~977 of these onto founders' task lists for people whose hook the platform
+  // simply had not enriched yet ("não podemos encher o user de tarefas que não
+  // são culpa dele"). The missing-hook state now belongs on the investor
+  // dossier's Team tab and the open person profile as a non-task indication —
+  // never a to-do. The pipeline's own waves still guide the founder's first
+  // step, so a delivered pipeline is not left with "nothing asked".
 
   // Step 2 of 2. quota_exempt: false is the column default (0171), explicit
   // here because this call site is where the decision that a delivery

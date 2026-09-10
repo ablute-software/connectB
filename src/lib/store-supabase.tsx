@@ -1849,22 +1849,14 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         }
       }
 
-      const hookAuto = prev.automations.find((a) => a.trigger === 'hook_missing' && a.enabled);
-      if (hookAuto) {
-        for (const person of prev.people) {
-          if (person.hook_status === 'to_research' && !person.do_not_contact) {
-            const has = tasks.some((t) => t.person_id === person.id && t.kind === 'research' && !t.done);
-            if (!has) {
-              const task: TaskItem = {
-                id: uuid(), kind: 'research', action_type: 'research_hook', done: false,
-                title: `Research hook: ${person.full_name}`, person_id: person.id, entity_id: person.entity_id,
-                due_at: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString(),
-              };
-              tasks.push(task); newTasks.push(task);
-            }
-          }
-        }
-      }
+      // Prompt 889 §2 — the `hook_missing` automation used to create a
+      // "Research hook: {name}" task per person still to research. Researching
+      // a person's hook is Sherlock's job, not the founder's, so this no longer
+      // emits a founder task (that is what filled task lists with work "que não
+      // é culpa dele"). The missing-hook state is surfaced as a non-task
+      // indication on the investor dossier's Team tab and the person profile
+      // instead. The `hook_missing` trigger stays a valid automation type but is
+      // a no-op here now.
 
       commit({ ...prev, runs, tasks });
       const o = orgIdRef.current;
