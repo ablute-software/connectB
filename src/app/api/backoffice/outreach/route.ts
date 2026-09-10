@@ -7,7 +7,7 @@ import { PROMO_ELIGIBLE_PLANS, normalizeDiscountForKind, type PromoKind } from '
 import type { OutreachCategory } from '@/lib/promo';
 import type { PlanTier } from '@/lib/types';
 
-const CATEGORIES: OutreachCategory[] = ['startup', 'accelerator', 'incubator', 'program'];
+const CATEGORIES: OutreachCategory[] = ['startup', 'accelerator', 'incubator', 'program', 'vc'];
 
 export async function GET() {
   const auth = await requirePlatformAdmin();

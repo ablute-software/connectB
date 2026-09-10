@@ -186,7 +186,14 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
     // renumbering of Insight/System: runs are contiguous by ARRAY ORDER, and
     // group only has to differ from its neighbours', so group: 6 here is
     // fine even though 5 (System) comes later in the array.
-    item('marketing-outreach', 'Startups / Ecosystems', '/backoffice/outreach', { icon: '✦', group: 6, groupLabel: 'Marketing' }),
+    //
+    // Prompt 875 — Overview inserted FIRST in the group per Nuno's own
+    // ordering ("antes de Startups / Ecosystems"), so groupLabel moves here
+    // from marketing-outreach below — mirrors how group 3 puts its
+    // groupLabel on data-catalog, the first item in THAT group, not a
+    // later one.
+    item('marketing-overview', 'Overview', '/backoffice/marketing-overview', { icon: '✦', group: 6, groupLabel: 'Marketing' }),
+    item('marketing-outreach', 'Startups / Ecosystems', '/backoffice/outreach', { icon: '✦', group: 6 }),
     // Moved here from group 2 (Accounts) — same href, key renamed from
     // accounts-promo, dimmed dropped: promo codes are marketing, not account
     // administration, and it is no longer a footnote once it has its own

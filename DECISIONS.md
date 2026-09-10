@@ -6108,3 +6108,70 @@ specified. What was NOT exercised end-to-end is the actual HTTP path through
 `route.ts` (signature verification, JSON parsing) — that part is unchanged
 scaffolding shared with the already-live subscription handlers, and the new
 code added to it is a straight-line extension of the same pattern.
+
+---
+
+## Prompt 875 — Marketing Overview: two ambiguities resolved with a stated default, one sign bug caught by testing against real data
+
+**Plan attribution is genuinely ambiguous, and stays visible as such.** A
+promo code's `applicable_plans` can name more than one plan at once, but
+`promo_redemptions` records no plan of its own — a redemption doesn't say
+which of the code's plans the org actually ended up on. Default taken (per
+the prompt's own instruction to ask rather than silently resolve, but with a
+stated fallback if Nuno doesn't weigh in): "created by plan" counts a
+multi-plan code once under EACH plan it targets (double-counts such codes
+across rows); "redeemed by plan" is attributed to the redeeming org's
+CURRENT `orgs.plan`, not the plan the code targeted. Both call-outs are on
+the card itself as an "ⓘ", not hidden — and the choice matters in practice
+today: all 6 real redemptions in production (`ablute_` ×4, Sherlock Deal,
+Wisify Tech Solutions) are on orgs still sitting on the free `idea` tier
+despite redeeming a `motherfunding` code, so "redeemed by plan" currently
+shows every real redemption under `idea`, a plan no promo code even targets.
+
+**The category mapping was checked against zero rows of real usage.**
+`promo_outreach_targets` has never had a row in production (confirmed before
+mapping "contacto directo" onto the existing `startup` value) — there is no
+real usage pattern to verify that reading against. Went with the prompt's
+own reasoning (the only category that isn't an organized program) since it
+was the only basis available, and this is the flag the prompt itself asked
+for rather than a silent guess.
+
+**The net-cost sign was wrong on the first real query, caught only because
+production data existed to check it against.** The prompt's prose reads
+"(cost while on promo) − (amount actually paid)" and separately says this
+must come out NEGATIVE when the program net-costs the platform (the normal
+case). Coded literally as `ai_cost − amount_paid`, `ablute_`'s real numbers
+(€8.18 AI cost, €0 paid — no Stripe invoice has fired for that org yet)
+produced **+8.18**, the wrong sign per the prompt's own stated expectation.
+Nuno's prose treats "cost" as a signed outflow in his own arithmetic; the
+function was flipped to `amount_paid − ai_cost` and re-run against the same
+row before shipping, producing −8.18. Both the wrong and the corrected query
+are in `marketing_overview_promo_net_cost()`'s own migration comment, so the
+reasoning survives the fix. General form, worth repeating: a formula stated
+in prose is not verified until it is run against a real number with a known
+expected sign — this one shipped correct only because real production data
+(not a synthetic fixture) was on hand to catch it before the first commit.
+
+**A second empirical catch, more serious: the revenue chart's first real
+query showed fake data as real revenue.** `marketing_overview_revenue_by_month()`
+initially aggregated `billing_invoices` directly, with no `orgs.is_test`
+filter — `billing_invoices` itself has no `is_test` column, only `orgs` and
+`catalog_entities` do, so nothing there flagged the gap. A manual check
+against the live function returned one bar, September, €29 — which is
+exactly this session's own `zz-test-874-invoice-mirror` fixture org (created
+minutes earlier, in the same session, to verify Prompt 874's webhook math),
+not real revenue. Fixed by joining both new functions
+(`marketing_overview_revenue_by_month` and `marketing_overview_promo_net_cost`'s
+own `paid`/`windows` CTEs) out to `orgs` and filtering `is_test = false`,
+re-verified against the live functions afterward (revenue now correctly
+empty — no real, non-test paid invoice exists yet; the three real promo
+redemptions' net-cost figures were unchanged, none of them being test orgs).
+Same general lesson as the sign-convention catch above: a query is not
+verified until it's run against real rows and the RESULT is read, not just
+the SQL.
+
+**No historical revenue chart, for the same reason 874 has none.** With the
+`is_test` filter in place, the revenue-by-month chart reads `billing_invoices`
+(Prompt 874, days old, no backfill) and currently renders NO bars at all —
+no real customer has a paid invoice yet. This is not padded and not a bug;
+the chart's own empty-state and caption say so.

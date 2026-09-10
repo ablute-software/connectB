@@ -13,7 +13,7 @@ import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { logAdminAction } from '@/lib/audit';
 import type { OutreachCategory } from '@/lib/promo';
 
-const CATEGORIES: OutreachCategory[] = ['startup', 'accelerator', 'incubator', 'program'];
+const CATEGORIES: OutreachCategory[] = ['startup', 'accelerator', 'incubator', 'program', 'vc'];
 const STATUSES = ['to_contact', 'contacted', 'replied', 'no_reply', 'declined'];
 // The fields that become part of the issued Stripe coupon (or would be, the
 // moment a founder redeems the generated code) — locked the instant

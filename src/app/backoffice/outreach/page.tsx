@@ -18,7 +18,7 @@ import { PLANS, planLabelForSlug } from '@/lib/plans';
 import { PROMO_ELIGIBLE_PLANS, discountedPriceEur, normalizeDiscountForKind, type PromoKind } from '@/lib/promo';
 import type { PlanTier } from '@/lib/types';
 
-type OutreachCategory = 'startup' | 'accelerator' | 'incubator' | 'program';
+type OutreachCategory = 'startup' | 'accelerator' | 'incubator' | 'program' | 'vc';
 type OutreachStatus = 'to_contact' | 'contacted' | 'replied' | 'no_reply' | 'declined';
 
 interface Redeemer { orgId: string; orgName: string }
@@ -45,7 +45,7 @@ interface Target {
 }
 
 const CATEGORY_LABEL: Record<OutreachCategory, string> = {
-  startup: 'Startup', accelerator: 'Accelerator', incubator: 'Incubator', program: 'Program',
+  startup: 'Startup', accelerator: 'Accelerator', incubator: 'Incubator', program: 'Program', vc: 'VC',
 };
 const STATUS_LABEL: Record<OutreachStatus, string> = {
   to_contact: 'To contact', contacted: 'Contacted', replied: 'Replied', no_reply: 'No reply', declined: 'Declined',

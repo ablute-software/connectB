@@ -113,7 +113,11 @@ export function normalizePromoCodeInput(raw: string): string {
 
 // ---------- Prompt 854 §B.5 — the outreach table's own code generator ----------
 
-export type OutreachCategory = 'startup' | 'accelerator' | 'incubator' | 'program';
+// Prompt 875 — 'vc' added: Nuno's four Marketing Overview categories
+// ("contacto directo, VC, programas patrocinados, Aceleradoras/incubadoras")
+// need a DB value for "VC" that didn't exist before (migration
+// 20260910090000_promo_outreach_vc_category_and_marketing_overview_functions).
+export type OutreachCategory = 'startup' | 'accelerator' | 'incubator' | 'program' | 'vc';
 
 // The word(s) that merely restate THIS row's own category — dropped so the
 // code spends its characters on what the target is CALLED, not on what it
@@ -125,6 +129,7 @@ const OUTREACH_CATEGORY_WORDS: Record<OutreachCategory, string[]> = {
   accelerator: ['ACELERADORA', 'ACCELERATOR'],
   incubator: ['INCUBADORA', 'INCUBATOR'],
   program: ['PROGRAMA', 'PROGRAM'],
+  vc: ['VC'],
 };
 const OUTREACH_UNIVERSAL_FILLERS = ['THE', 'A', 'O', 'DE', 'DA', 'DO'];
 
