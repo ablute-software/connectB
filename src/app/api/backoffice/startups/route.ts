@@ -78,13 +78,40 @@ export async function GET() {
     page++;
   }
 
+  // Prompt 887 §1 — the durable, membership-independent record of activity.
+  // A CLOSED account has no org_members (they are removed on close), so the
+  // auth.users path above yields nothing and "Last login" read "never" even
+  // for an account with real sessions. usage_sessions survives closure and is
+  // keyed on org_id directly. Ordered newest-first and read in pages, the
+  // first row seen for an org IS its most recent session, so the scan stops
+  // as soon as every org has one — no full-table read for a handful of orgs.
+  const maxSessionByOrg = new Map<string, string>();
+  const orgIdCount = (orgs ?? []).length;
+  for (let sPage = 0; ; sPage++) {
+    const { data, error: sErr } = await admin.from('usage_sessions')
+      .select('org_id, started_at').order('started_at', { ascending: false })
+      .range(sPage * 1000, sPage * 1000 + 999);
+    if (sErr || !data?.length) break;
+    for (const s of data) {
+      const oid = s.org_id as string | null;
+      if (oid && !maxSessionByOrg.has(oid)) maxSessionByOrg.set(oid, s.started_at as string);
+    }
+    if (maxSessionByOrg.size >= orgIdCount || data.length < 1000) break;
+  }
+
   const pipelineSizes = await Promise.all((orgs ?? []).map((org) => computeVisiblePipelineSize(admin, org.id)));
   const pipelineByOrg = new Map((orgs ?? []).map((org, i) => [org.id, pipelineSizes[i]]));
 
   const result = (orgs ?? []).map((org) => {
     const userIds = userIdsByOrg.get(org.id) ?? [];
-    const lastLogins = userIds.map((id) => lastSignInByUser.get(id)).filter(Boolean) as string[];
-    const lastLogin = lastLogins.length ? lastLogins.sort().at(-1)! : null;
+    // Prompt 887 §1 — the most recent of any member's auth sign-in AND any
+    // usage session for this org. The session source is what keeps a closed
+    // account (no members) from reading "never" when it was really used.
+    const lastLoginCandidates = [
+      ...(userIds.map((id) => lastSignInByUser.get(id)).filter(Boolean) as string[]),
+      ...(maxSessionByOrg.has(org.id) ? [maxSessionByOrg.get(org.id)!] : []),
+    ];
+    const lastLogin = lastLoginCandidates.length ? lastLoginCandidates.sort().at(-1)! : null;
     const interactionsThisWeek = interactionCountByOrg.get(org.id) ?? 0;
     const daysSinceLogin = lastLogin ? (Date.now() - new Date(lastLogin).getTime()) / (24 * 60 * 60 * 1000) : Infinity;
     // Renamed from 'health' (active/quiet/dormant) to 'status' (active/

@@ -74,13 +74,28 @@ type SortKey = 'name' | 'plan' | 'createdAt' | 'members' | 'completenessPct' | '
 // Fase 3 (row height/sort follow-up) — `type` is what toggleSort's own
 // initial-direction rule reads (queue-table-state.ts): text columns start
 // ascending, number/date start descending.
-const COLUMNS: { key: SortKey; label: string; type: ColumnSortType }[] = [
-  { key: 'name', label: 'Org', type: 'text' }, { key: 'plan', label: 'Plan', type: 'text' }, { key: 'createdAt', label: 'Registered', type: 'date' },
-  { key: 'completenessPct', label: '% Complete', type: 'number' }, { key: 'interactionsThisWeek', label: 'Logs/7d', type: 'number' },
-  { key: 'lastLogin', label: 'Last login', type: 'date' }, { key: 'status', label: 'Status', type: 'text' }, { key: 'filesInVault', label: 'Files', type: 'number' },
-  { key: 'visiblePipelineSize', label: 'Pipeline', type: 'number' }, { key: 'stage', label: 'Stage', type: 'text' },
-  { key: 'aiDraftsThisMonth', label: 'AI drafts', type: 'number' }, { key: 'aiReviewsThisMonth', label: 'AI review', type: 'number' },
-  { key: 'matchDealStatus', label: 'MatchDeal', type: 'text' },
+// Prompt 887 §2/§3 — the body renders a Members cell (the expandable count)
+// that had no header here, so every header from "% Complete" onward sat one
+// column left of its data: "% Complete" showed the member count and "Logs/7d"
+// showed the completeness % (rendered with a %, which is where the impossible
+// "97%" came from). Adding the Members column realigns the whole row.
+// Prompt 887 §4/§5 — each column carries a one-line `tip`, shown as the
+// header's tooltip (and covering the "Internal" grid affordance's meaning).
+const COLUMNS: { key: SortKey; label: string; type: ColumnSortType; tip: string }[] = [
+  { key: 'name', label: 'Org', type: 'text', tip: 'The startup account. Click the name to open a read-only viewer (logged internally).' },
+  { key: 'plan', label: 'Plan', type: 'text', tip: 'Subscription tier (idea / garage / motherfunding).' },
+  { key: 'createdAt', label: 'Registered', type: 'date', tip: 'When the account was created.' },
+  { key: 'members', label: 'Members', type: 'number', tip: 'People with a seat on this account. Click the number to list them.' },
+  { key: 'completenessPct', label: '% Complete', type: 'number', tip: 'How complete the company profile is, computed live from the profile fields.' },
+  { key: 'interactionsThisWeek', label: 'Logs/7d', type: 'number', tip: 'Outreach interactions the founder logged in the last 7 days — a count of logged actions, not a login count.' },
+  { key: 'lastLogin', label: 'Last login', type: 'date', tip: 'Most recent session for this account, from the usage log — it survives account closure.' },
+  { key: 'status', label: 'Status', type: 'text', tip: 'Activity signal: active (logged in and used in the last 2 weeks), quiet (used in the last month), or inactive.' },
+  { key: 'filesInVault', label: 'Files', type: 'number', tip: 'Documents uploaded to the Vault.' },
+  { key: 'visiblePipelineSize', label: 'Pipeline', type: 'number', tip: 'Investors delivered to this account / the eligible pool size.' },
+  { key: 'stage', label: 'Stage', type: 'text', tip: 'Fundraising stage the founder set.' },
+  { key: 'aiDraftsThisMonth', label: 'AI drafts', type: 'number', tip: 'AI-drafted outreach messages used this month.' },
+  { key: 'aiReviewsThisMonth', label: 'AI review', type: 'number', tip: 'AI reviews (deck / one-pager / market) run this month.' },
+  { key: 'matchDealStatus', label: 'MatchDeal', type: 'text', tip: 'Whether the startup published a MatchDeal card (complete / incomplete / not started).' },
 ];
 
 function MembersCell({ orgId, count }: { orgId: string; count: number }) {
@@ -249,15 +264,15 @@ function StartupsTable() {
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
                 {columns.map((c, i) => (
-                  <th key={c.key} onClick={() => toggleSort(c.key, c.type)}
-                    className={`cursor-pointer whitespace-nowrap py-1.5 pr-3 hover:text-gray-700 ${i === 0 ? 'bo-sticky-col' : ''}`}>
+                  <th key={c.key} onClick={() => toggleSort(c.key, c.type)} title={c.tip}
+                    className={`bo-sticky-head cursor-pointer whitespace-nowrap py-1.5 pr-3 hover:text-gray-700 ${i === 0 ? 'bo-sticky-col' : ''}`}>
                     {c.label} {sortIndicator(sortKey === c.key, sortDir)}
                   </th>
                 ))}
-                <th className="whitespace-nowrap py-1.5 pr-3">Badges</th>
+                <th className="bo-sticky-head whitespace-nowrap py-1.5 pr-3" title="Platform badges granted to this account.">Badges</th>
                 {/* Prompt 611 §A.1 — the "Viewer" column is gone; entering is
                     what clicking the org's name does now. */}
-                <th className="whitespace-nowrap py-1.5">Delete/Suspend</th>
+                <th className="bo-sticky-head whitespace-nowrap py-1.5" title="Delete or suspend this account (moderation).">Delete/Suspend</th>
               </tr>
             </thead>
             <tbody>

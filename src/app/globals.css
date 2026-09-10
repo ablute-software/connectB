@@ -391,6 +391,14 @@ body {
    rather than the other way round when both are pinned at once. */
 thead .bo-sticky-col { z-index: 3; }
 
+/* Prompt 887 §4 — the Orgs table header stays put on scroll. top:0 pins each
+   header cell to the top of its scroll context; the corner cell (also
+   bo-sticky-col, pinned left) needs the highest z so it sits above both a
+   scrolling body and a horizontally-scrolling row. An opaque background keeps
+   body rows from showing through as they slide under. */
+.bo-sticky-head { position: sticky; top: 0; z-index: 4; background: #ffffff; }
+.bo-sticky-head.bo-sticky-col { z-index: 5; }
+
 /* Prompt 647 — dragging a Pipeline row onto ❄ Frozen / ✕ Passed.
    The origin row stays put and reads STRONGER while its shadow travels (a
    2px accent outline, background one tone up); the targets pulse once so it
