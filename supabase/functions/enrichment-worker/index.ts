@@ -1237,7 +1237,14 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
         delete personPatch.full_name; delete personPatch.entity_id;
         if (existingPerson?.linkedin_url) { delete personPatch.linkedin_url; delete personPatch.linkedin_verified; }
       }
-      await supabase.from('catalog_people').update(personPatch).eq('id', personId);
+      // Prompt 646 §1.1 — a LinkedIn (or based_in) an admin stamped through
+      // catalog_person_admin_set_field lives in research.verified_fields, not in
+      // source_kind; read it the way the web path does, so a team page with a
+      // different link never rewrites the admin's.
+      const { data: existingStamp } = await supabase.from('catalog_people_research').select('verified_fields').eq('person_id', personId).maybeSingle();
+      const personGuard = stripHumanVerified(personPatch, (existingStamp?.verified_fields ?? {}) as Record<string, unknown>);
+      if (personGuard.protectedKeys.includes('linkedin_url')) delete personGuard.kept.linkedin_verified;
+      await supabase.from('catalog_people').update(personGuard.kept).eq('id', personId);
     } else {
       const { data: created, error: createErr } = await supabase.from('catalog_people').insert(personPatch).select('id').single();
       if (createErr || !created) continue; // provavel colisao de linkedin_url unico — nao bloqueia o resto do lote
@@ -1401,8 +1408,12 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
   if (entity?.is_test) return { status: 'skipped', reason: 'is_test entity, skipped by policy' };
 
   const { data: affiliation } = await supabase.from('catalog_person_affiliations').select('title').eq('person_id', person.id).eq('is_primary', true).maybeSingle();
-  const { data: existingResearch } = await supabase.from('catalog_people_research').select('bio_raw, verified_fields').eq('person_id', person.id).maybeSingle();
+  const { data: existingResearch } = await supabase.from('catalog_people_research').select('bio_raw, verified_fields, hook').eq('person_id', person.id).maybeSingle();
   const bioRaw = existingResearch?.bio_raw ?? null;
+  // Prompt 646 §1.2 — withoutNulls stopped a run that finds nothing from erasing
+  // an earlier hook, so the status must follow the text: none_found only when
+  // no hook is left on the row.
+  const hadHook = typeof existingResearch?.hook === 'string' && existingResearch.hook.trim() !== '';
   // Prompt 642 §4 — what a human stamped on this person; the model writes around it.
   const humanFields = (existingResearch?.verified_fields ?? {}) as Record<string, unknown>;
   const humanHook = isHumanVerified(humanFields, 'hook');
@@ -1508,7 +1519,7 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
     }
     const wroteBioHook = 'hook' in bioGuard.kept;
     await supabase.from('catalog_people').update({
-      ...(wroteBioHook || humanHook ? { hook_status: 'researched' } : {}), enrichment_status: 'enriched',
+      ...(wroteBioHook || humanHook || hadHook ? { hook_status: 'researched' } : {}), enrichment_status: 'enriched',
       enriched_at: new Date().toISOString(), enrichment_stale_after: addDays(new Date(), 90).toISOString(),
     }).eq('id', person.id);
     return {
@@ -1758,7 +1769,7 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
   // came back null for them, rather than discarding a real fact the bio
   // already supported.
   // Prompt 642 §4 — a key the model did not return is omitted, never written as null over a
-  // value (the `?? null` of 1719-1732 was exactly that); a key a human stamped leaves the
+  // value (the old `?? null` writes of the web path were exactly that); a key a human stamped leaves the
   // patch; hook_source travels with hook.
   const webGuard = stripHumanVerified(withoutNulls({
     intro_path: result.intro_path ?? bioResult?.introPath ?? null,
@@ -1779,7 +1790,7 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
   await supabase
     .from('catalog_people')
     .update({
-      hook_status: wroteWebHook || humanHook ? 'researched' : 'none_found',
+      hook_status: wroteWebHook || humanHook || hadHook ? 'researched' : 'none_found',
       enrichment_status: 'enriched',
       enriched_at: new Date().toISOString(),
       enrichment_stale_after: addDays(new Date(), 90).toISOString(), // Camada 2 = 90 dias
