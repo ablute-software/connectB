@@ -312,6 +312,14 @@ function DocumentsPageInner() {
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Prompt 881 — the "Add Document" card starts collapsed (just its label);
+  // it opens on click. Files are STAGED on choice rather than uploaded at
+  // once, so the access selector can appear after a file is picked and the
+  // founder can set the access level BEFORE the upload commits it — the
+  // selector would be useless appearing after an auto-upload already saved a
+  // default. Per-visit state, nothing persisted.
+  const [addDocOpen, setAddDocOpen] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   // Grant Access rebuild (prompt 33 part 2 / 47) — stepped flow: entity
   // first (mandatory, never the reverse), then scope, then the same tree
   // picker as before. Unlike the old single-person flow, this one never
@@ -872,6 +880,7 @@ function DocumentsPageInner() {
       setUploadProgress({ done: i + 1, total: files.length, failed: [...failed] });
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
+    setPendingFiles([]);
     setUploading(false);
     if (failed.length) setUploadErr(failed.join('\n'));
   }
@@ -1321,70 +1330,104 @@ function DocumentsPageInner() {
                 document.body,
               );
             })()}
-            <div className="mt-3 border-t border-gray-100 pt-3">
-              <div className="text-xs font-medium text-gray-500">Access level for new documents</div>
-              <div className="mt-1 flex flex-wrap gap-1.5">
-                {VISIBILITY_OPTIONS.map((v) => (
-                  <button key={v} type="button" title={VISIBILITY_META[v].title} onClick={() => setDocVisibility(v)}
-                    className={`rounded-full px-2.5 py-1 text-xs font-medium ${docVisibility === v ? 'bg-[#0E7490] text-white' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
-                    {VISIBILITY_META[v].icon} {VISIBILITY_META[v].label}
-                  </button>
-                ))}
-              </div>
-              <p className="mt-1 text-[11px] text-gray-400">Applies to whatever you add below — link or file upload. You can change it per document afterwards.</p>
-            </div>
-            <div className="mt-3 border-t border-gray-100 pt-3">
-              <div className="text-xs font-medium text-gray-500">Add document (link)</div>
-              <div className="mt-1 flex flex-wrap gap-2">
-                <input autoComplete="off" value={docName} onChange={(e) => setDocName(e.target.value)} placeholder="Name"
-                  className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
-                <input autoComplete="off" value={docUrl} onChange={(e) => setDocUrl(e.target.value)} placeholder="View-only URL"
-                  className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm" />
-                <button disabled={!docName || !docUrl}
-                  onClick={() => {
-                    setDocErr('');
-                    try {
-                      addDocument({
-                        folder_id: selFolder, name: docName, external_url: docUrl,
-                        is_view_only: !docUrl.includes('/edit'), visibility: docVisibility,
-                        watermark: false, downloadable: false,
-                      });
-                      setDocName(''); setDocUrl('');
-                    } catch (e) { setDocErr((e as Error).message); }
-                  }}
-                  className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Add</button>
-              </div>
-              {docErr && <div className="mt-1 text-xs text-[#B00000]">{docErr}</div>}
-              {(() => {
-                if (!docUrl) return null;
-                const normalized = normalizeDocumentUrl(docUrl);
-                if (normalized.includes('/edit')) {
-                  return <div className="mt-1 text-xs text-[#B00000]">✗ Editable link — will be rejected. Get the view/share version.</div>;
-                }
-                if (normalized !== docUrl) {
-                  return <div className="mt-1 text-xs text-green-700">✓ Google link detected — will be saved as a view-only link automatically.</div>;
-                }
-                return null;
-              })()}
-            </div>
-
-            {authEnabled && (
-              <div className="mt-3 border-t border-gray-100 pt-3">
-                <div className="text-xs font-medium text-gray-500">Or upload a file</div>
-                <div className="mt-1 flex flex-wrap items-center gap-2">
-                  <input ref={fileInputRef} type="file" multiple disabled={uploading}
-                    onChange={(e) => { const files = Array.from(e.target.files ?? []); if (files.length) uploadFiles(files); }}
-                    className="text-sm" />
-                  {uploadProgress && (
-                    <span className="text-xs text-gray-400">
-                      {uploadProgress.done}/{uploadProgress.total} uploaded{uploading ? '…' : ''}
-                    </span>
-                  )}
-                </div>
-                {uploadErr && <div className="mt-1 whitespace-pre-wrap text-xs text-[#B00000]">{uploadErr}</div>}
-              </div>
-            )}
           </Card>
+
+          {/* Prompt 881 — the third card: "Add Document", collapsed by
+              default (just its label). A distinct card from the documents
+              list above and the Access grants card below — none absorbs
+              another. The access selector lives INSIDE and appears only once
+              there is something to apply it to: a link URL typed or a file
+              chosen (Nuno's "after a file OR a link URL"). */}
+          {(() => {
+            const showAccessSelector = docUrl.trim().length > 0 || pendingFiles.length > 0;
+            if (!addDocOpen) {
+              return (
+                <button type="button" onClick={() => setAddDocOpen(true)}
+                  className="w-full rounded-2xl border border-dashed border-gray-300 bg-white p-4 text-left text-sm font-medium text-[#0E7490] shadow-sm hover:border-[#0E7490] hover:bg-[#E8F4F8]">
+                  + Add Document
+                </button>
+              );
+            }
+            return (
+              <Card title="Add Document" right={
+                <button type="button" onClick={() => setAddDocOpen(false)} aria-label="Collapse" title="Collapse"
+                  className="rounded-full border border-gray-300 px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-50">Close</button>
+              }>
+                {showAccessSelector && (
+                  <div className="mb-3 border-b border-gray-100 pb-3">
+                    <div className="text-xs font-medium text-gray-500">Access level for new documents</div>
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {VISIBILITY_OPTIONS.map((v) => (
+                        <button key={v} type="button" title={VISIBILITY_META[v].title} onClick={() => setDocVisibility(v)}
+                          className={`rounded-full px-2.5 py-1 text-xs font-medium ${docVisibility === v ? 'bg-[#0E7490] text-white' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                          {VISIBILITY_META[v].icon} {VISIBILITY_META[v].label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-1 text-[11px] text-gray-400">Applies to what you add here — link or file upload. You can change it per document afterwards.</p>
+                  </div>
+                )}
+                <div className="text-xs font-medium text-gray-500">Add document (link)</div>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <input autoComplete="off" value={docName} onChange={(e) => setDocName(e.target.value)} placeholder="Name"
+                    className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
+                  <input autoComplete="off" value={docUrl} onChange={(e) => setDocUrl(e.target.value)} placeholder="View-only URL"
+                    className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm" />
+                  <button disabled={!docName || !docUrl}
+                    onClick={() => {
+                      setDocErr('');
+                      try {
+                        addDocument({
+                          folder_id: selFolder, name: docName, external_url: docUrl,
+                          is_view_only: !docUrl.includes('/edit'), visibility: docVisibility,
+                          watermark: false, downloadable: false,
+                        });
+                        setDocName(''); setDocUrl('');
+                      } catch (e) { setDocErr((e as Error).message); }
+                    }}
+                    className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Add</button>
+                </div>
+                {docErr && <div className="mt-1 text-xs text-[#B00000]">{docErr}</div>}
+                {(() => {
+                  if (!docUrl) return null;
+                  const normalized = normalizeDocumentUrl(docUrl);
+                  if (normalized.includes('/edit')) {
+                    return <div className="mt-1 text-xs text-[#B00000]">✗ Editable link — will be rejected. Get the view/share version.</div>;
+                  }
+                  if (normalized !== docUrl) {
+                    return <div className="mt-1 text-xs text-green-700">✓ Google link detected — will be saved as a view-only link automatically.</div>;
+                  }
+                  return null;
+                })()}
+
+                {authEnabled && (
+                  <div className="mt-3 border-t border-gray-100 pt-3">
+                    <div className="text-xs font-medium text-gray-500">Or upload a file</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      {/* Prompt 881 — choosing files STAGES them; the access
+                          selector above appears, and the Upload button below
+                          commits them with the chosen access level. */}
+                      <input ref={fileInputRef} type="file" multiple disabled={uploading}
+                        onChange={(e) => setPendingFiles(Array.from(e.target.files ?? []))}
+                        className="text-sm" />
+                      {pendingFiles.length > 0 && !uploading && (
+                        <button onClick={() => uploadFiles(pendingFiles)}
+                          className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">
+                          Upload {pendingFiles.length} file{pendingFiles.length === 1 ? '' : 's'}
+                        </button>
+                      )}
+                      {uploadProgress && (
+                        <span className="text-xs text-gray-400">
+                          {uploadProgress.done}/{uploadProgress.total} uploaded{uploading ? '…' : ''}
+                        </span>
+                      )}
+                    </div>
+                    {uploadErr && <div className="mt-1 whitespace-pre-wrap text-xs text-[#B00000]">{uploadErr}</div>}
+                  </div>
+                )}
+              </Card>
+            );
+          })()}
 
           {/* Prompt 437 §D — passive advice only: never a modal, toast, or
               blocking gate, and never anything that reaches an investor
