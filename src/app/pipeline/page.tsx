@@ -8,7 +8,6 @@ import { authEnabled, browserClient } from '@/lib/supabase';
 import { FitTag, StatusPill, Tooltip, WaveTag, fmtEur, statusLabel } from '@/components/ui';
 import pipelineMobile from './pipeline-mobile.module.css';
 import { LoadingState } from '@/components/workspace-shell/LoadingState';
-import { MatchDealVisibilityBanner } from '@/components/dashboard/MatchDealVisibilityBanner';
 import { RelationshipCompactLine } from '@/components/RelationshipSummaryCard';
 import { hasAnythingToShow, isReachable, readinessChips, type ReadinessBreakdown } from '@/lib/readiness-strip';
 import { ReawakeningQueue } from '@/components/ReawakeningQueue';
@@ -363,10 +362,15 @@ function PipelineTopUpBanner({ unlock, onDelivered }: { unlock: UnlockState | nu
   // Prompt 579 — an unlimited account (is_ablute_developer()) has no quota
   // ceiling to unlock past, so there is nothing for a button to do — `n` is
   // already the real eligible-and-undelivered count, never the 999999
-  // sentinel (see computeDeliverable, pipeline-unlock-server.ts). "Your
-  // profile earned these" is gone too: deliverable is a plan ceiling minus
-  // what's already delivered, not a claim about fit, and it was never true.
+  // sentinel (see computeDeliverable, pipeline-unlock-server.ts).
   const { unlimited } = unlock;
+  // Prompt 880 §3 — "N matched investors waiting in the catalog." is the
+  // unlimited variant: a count with no action, which Nuno asked to remove
+  // outright. The non-unlimited variant below is a different thing — the
+  // founder's own "Unlock N" affordance, the only way to claim deliveries
+  // already earned (the Krohnsty case in this component's own header) — so
+  // that one stays; only the actionless card goes.
+  if (unlimited) return null;
 
   async function run() {
     if (!starterPack) return;
@@ -382,9 +386,7 @@ function PipelineTopUpBanner({ unlock, onDelivered }: { unlock: UnlockState | nu
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#0E7490]/20 bg-[#0E7490]/5 px-4 py-3">
       <div className="text-sm text-gray-700">
         <span className="font-medium text-gray-900">
-          {unlimited
-            ? `${n} matched investor${n === 1 ? '' : 's'} waiting in the catalog.`
-            : `${n} more matched investor${n === 1 ? '' : 's'} in the catalog.`}
+          {`${n} more matched investor${n === 1 ? '' : 's'} in the catalog.`}
         </span>
         {error && <span className="ml-1 text-red-700">We couldn&apos;t add them just now — try again in a moment.</span>}
       </div>
@@ -591,22 +593,14 @@ export default function PipelinePage() {
   const [sortKey, setSortKey] = useState<SortKey>('wave');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [addInvestorOpen, setAddInvestorOpen] = useState(false);
-  // Prompt 261 — dismiss the stats+spotlight card for this visit only.
-  // Plain component state, nothing persisted: PipelinePage unmounts on
-  // route change (confirmed live — navigating to /tasks and back re-runs
-  // this component from scratch), so leaving to another page and coming
-  // back already resets it with no extra logic needed. statsExiting drives
-  // the CSS exit animation; statsDismissed removes the card from the DOM
-  // once that animation (or, for prefers-reduced-motion, no animation at
-  // all) has had time to finish.
-  const [statsExiting, setStatsExiting] = useState(false);
-  const [statsDismissed, setStatsDismissed] = useState(false);
-  function dismissStatsCard() {
-    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    if (reduced) { setStatsDismissed(true); return; }
-    setStatsExiting(true);
-    setTimeout(() => setStatsDismissed(true), 220);
-  }
+  // Prompt 880 §4 — the summary card (Contacted / In talks / Diligence /
+  // Active / Frozen + the spotlight lines) is now off by default and shown
+  // only behind the header "Summary" toggle. It replaces Prompt 261's
+  // "dismiss for this visit": the founder opts IN to the context rather than
+  // dismissing it, which is the golden rule's "don't lead with a wall".
+  // Plain component state, nothing persisted — PipelinePage remounts on
+  // route change, so it defaults back to closed with no extra logic.
+  const [summaryOpen, setSummaryOpen] = useState(false);
   // Prompt 107 B.5 — which delivered entities are currently a suspended
   // investor. Derived at read time, never a mass write to `entities` (see
   // /api/pipeline/suspended-investors's own header for why).
@@ -1045,7 +1039,6 @@ export default function PipelinePage() {
   if (noEntities) {
     return (
       <div className="space-y-4">
-        <MatchDealVisibilityBanner />
         <PipelineUnlockBadge unlock={unlock} />
         <EmptyCompanyBlock variant="screen" unlock={unlock} onDelivered={refreshUnlock} />
       </div>
@@ -1079,23 +1072,21 @@ export default function PipelinePage() {
     // was really reaching for. This inverts its "the page never scrolls"
     // preference; showing the founder their own rows wins.
     <div className="space-y-4">
-      {/* P131-A — the banner already existed (Dashboard only, addenda to
-          Prompt 120); the founder-facing gap was that Pipeline — the page
-          this whole "why can't investors see us" mystery is actually about —
-          never had it. Same component, same /api/company/visibility source,
-          no new logic. */}
-      <div className="md:shrink-0"><MatchDealVisibilityBanner /></div>
+      {/* Prompt 880 §2 — the MatchDeal visibility banner is off the Pipeline
+          now (Nuno's call). Its count was fiction and, even fixed, the banner
+          belongs on the Dashboard/About surfaces, not on top of the pipeline
+          list. It still renders in OverviewPanel; only the two Pipeline
+          copies (this and the empty-state one above) are removed. */}
       <PageTour pageKey="guide_pipeline" />
       <div className="md:shrink-0"><PipelineUnlockBadge unlock={unlock} /></div>
       <div className="md:shrink-0"><PipelineTopUpBanner unlock={unlock} onDelivered={refreshUnlock} /></div>
       {noneClassified && <div className="md:shrink-0"><EmptyCompanyBlock variant="banner" unlock={unlock} onDelivered={refreshUnlock} /></div>}
-      {!statsDismissed && (
-      <div className={`relative md:shrink-0 ${statsExiting ? 'pipeline-stats-card-exit' : ''}`}>
-        {/* Prompt 261 — half on, half off the rounded-2xl corner, like a
-            badge sitting on the edge, not a button inside the content
-            padding. Neutral palette (gray-500/border-gray-300, hover
-            gray-700/gray-50) — no new color. */}
-        <button onClick={dismissStatsCard} aria-label="Dismiss this card for now" title="Dismiss for this visit"
+      {/* Prompt 880 §4 — shown only when the header "Summary" toggle is on. */}
+      {summaryOpen && (
+      <div className="relative md:shrink-0">
+        {/* The corner × closes the summary (same as toggling the header
+            button off) — half on, half off the rounded-2xl corner. */}
+        <button onClick={() => setSummaryOpen(false)} aria-label="Hide the summary" title="Hide summary"
           className="absolute -right-2 -top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-gray-300 bg-white text-gray-500 shadow-sm hover:bg-gray-50 hover:text-gray-700">
           ×
         </button>
@@ -1197,6 +1188,14 @@ export default function PipelinePage() {
         {(q || wave.length > 0 || status.length > 0 || sectors.length > 0 || country) && (
           <button onClick={() => { setQ(''); setWave([]); setStatus([]); setSectors([]); setCountry(''); }} className="text-sm text-gray-500 hover:underline">Clear</button>
         )}
+        {/* Prompt 880 §4 — the Summary toggle, between the country filter and
+            the ❄ Frozen indicator (Nuno's placement). On/off shows/hides the
+            summary card; off by default. */}
+        <button onClick={() => setSummaryOpen((v) => !v)}
+          title="Show the pipeline summary — counts and the investors that need attention"
+          className={`ml-auto rounded-lg border px-2.5 py-1.5 text-sm font-medium ${summaryOpen ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+          Summary
+        </button>
         {/* Prompt 257 §4 — pure visualization, no actions of its own: to
             unfreeze, open the dossier and use reactivation/reopen, already
             there. 'none' by default (frozen entities excluded from the list
@@ -1226,7 +1225,10 @@ export default function PipelinePage() {
         {/* Prompt 647 — the same toggle, now also a drop target with a vault
             door: a row dragged over it opens the face and shows the count
             behind; dropping it asks before writing (handleDrop above). */}
-        <PipelineDropTarget target="frozen" className="ml-auto"
+        {/* Prompt 880 §4 — the right group is right-aligned by the Summary
+            button's ml-auto now (it sits between the country filter and this),
+            so Frozen no longer carries ml-auto or it would split the two. */}
+        <PipelineDropTarget target="frozen"
           label={frozenView === 'frozen' ? '❄ Showing frozen' : `❄ Frozen (${frozenCount})`}
           title="Not moving right now — either an impasse, or fell through the cracks. Drag a row here to freeze it."
           count={frozenCount} active={frozenView === 'frozen'}

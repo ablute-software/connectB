@@ -110,10 +110,25 @@ export async function GET(req: Request) {
         admin.from('investor_pipeline_admissions').select('investor_catalog_entity_id').eq('org_id', member.org_id),
         admin.from('investor_relationship_decisions').select('investor_catalog_entity_id').eq('org_id', member.org_id),
       ]);
-      pipelineFirmCount = new Set([
+      const candidateIds = [...new Set([
         ...(admissions ?? []).map((r) => r.investor_catalog_entity_id as string),
         ...(decisions ?? []).map((r) => r.investor_catalog_entity_id as string),
-      ]).size;
+      ])];
+      // Prompt 880 §1 — the count must exclude test/QA/personal investor
+      // fixtures. Every one of the 12 rows across the whole table today
+      // resolves to a test entity (ablute_ Internal QA, "Test investor",
+      // "Test idividual", nunomarujo@… Individual investor), so without this
+      // filter the banner told real founders (Estojo, Krohnsty) that
+      // investors had them in their pipeline when none did. is_test is the
+      // gate; the two rows mislabelled is_test=false are corrected in the
+      // same prompt's data fix so this filter actually catches them.
+      if (candidateIds.length === 0) {
+        pipelineFirmCount = 0;
+      } else {
+        const { data: realFirms } = await admin
+          .from('catalog_entities').select('id').in('id', candidateIds).eq('is_test', false);
+        pipelineFirmCount = (realFirms ?? []).length;
+      }
     }
 
     return NextResponse.json({
