@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { entityMode, effectiveMode, nextBestAction, nextBestActionButton, nextContactPerson, nextPendingTaskDue, needsReopenTrigger } from './relationship';
-import type { Db, Entity, Interaction, Person, TaskItem } from './types';
+import { entityMode, effectiveMode, nextBestAction, nextBestActionButton, nextContactPerson, nextPendingTaskDue, needsReopenTrigger, dataRoomFirstContactTipApplies } from './relationship';
+import type { Db, DocumentItem, Entity, Interaction, Person, TaskItem } from './types';
 
 // Prompt 205 §E — o caso confirmado por screenshot em "Test idividual":
 // depois de escolher Frozen, o pill dizia "dormant" e a mesma página dizia
@@ -126,9 +126,13 @@ describe('nextBestAction — parqueado nao pode gritar "ready for first contact"
     expect(nextBestAction(db(e), 'e1', NOW)).toBe("Passed. Sherlock hasn't found a structural reason to reopen this yet — set your own note below, or leave it closed.");
   });
 
-  it('not_contacted sem pessoa nenhuma: pede para adicionar um contacto', () => {
+  // Prompt 880 — a corrected 879: "add a contact" is a data-setup task, not
+  // a next action toward this investor, so the banner shows nothing at all
+  // (undefined) rather than a setup instruction; the note moved to the
+  // People & Team tab instead.
+  it('not_contacted sem pessoa nenhuma: banner nao mostra nada (nota fica em People & Team)', () => {
     const e = entity({ status: 'not_contacted' });
-    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Add a contact person first — pre-flight needs one to check.');
+    expect(nextBestAction(db(e), 'e1', NOW)).toBeUndefined();
   });
 });
 
@@ -153,8 +157,9 @@ describe('nextBestAction — not_contacted mostra o resultado do preflight (254)
     const p = person({ hook_status: 'to_research', do_not_contact: true });
     // do_not_contact tambem bloqueia dnc — mas nextContactPerson ja filtra
     // do_not_contact fora da lista de candidatos, portanto este p NUNCA e
-    // escolhido: sem ninguem contactavel, cai no caso "adicionar contacto".
-    expect(nextBestAction(db(e, [], [], [], [], [p]), 'e1', NOW)).toBe('Add a contact person first — pre-flight needs one to check.');
+    // escolhido: sem ninguem contactavel, cai no caso "sem pessoa" (Prompt
+    // 880 — o banner nao mostra nada; a nota fica em People & Team).
+    expect(nextBestAction(db(e, [], [], [], [], [p]), 'e1', NOW)).toBeUndefined();
   });
 
   it('escolhe o mais senior CONTACTAVEL, nao so o rank 1 literal', () => {
@@ -432,5 +437,30 @@ describe('nextBestActionButton (396 §7)', () => {
     const e = entity({ status: 'not_contacted' });
     const p = person();
     expect(nextBestActionButton(db(e, [], [], [], [], [p]), 'e1', NOW)).toBeUndefined();
+  });
+});
+
+// Prompt 882 Part D — live, recomputed, no persistence: gone the instant a
+// document exists, and the mirror image of the "no entity about to be
+// first-contacted" case (a fully-contacted pipeline with an empty data
+// room has nothing urgent to flag here).
+describe('dataRoomFirstContactTipApplies', () => {
+  function withDocs(e: Entity, documents: DocumentItem[]): Db {
+    return { ...db(e), documents } as unknown as Db;
+  }
+
+  it('not_contacted entity + zero documents: applies', () => {
+    const e = entity({ status: 'not_contacted' });
+    expect(dataRoomFirstContactTipApplies(withDocs(e, []))).toBe(true);
+  });
+
+  it('not_contacted entity + at least one document: does not apply', () => {
+    const e = entity({ status: 'not_contacted' });
+    expect(dataRoomFirstContactTipApplies(withDocs(e, [{ id: 'd1' } as DocumentItem]))).toBe(false);
+  });
+
+  it('no not_contacted entity anywhere + zero documents: does not apply', () => {
+    const e = entity({ status: 'contacted' });
+    expect(dataRoomFirstContactTipApplies(withDocs(e, []))).toBe(false);
   });
 });

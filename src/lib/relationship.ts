@@ -357,7 +357,14 @@ export function nextBestAction(db: Db, entityId: string, now = new Date(), dealM
   // code can just do and show. This now names the RESULT.
   if (summary.stage === 'not_contacted') {
     const person = nextContactPerson(db, entityId);
-    if (!person) return 'Add a contact person first — pre-flight needs one to check.';
+    // Prompt 880 — "add a contact" is a data-setup task, not a next action
+    // toward this investor, and the Sherlock Insight banner is reserved
+    // exclusively for the latter (Nuno's own rule, correcting Prompt 879's
+    // plan to put a CTA for this right in the banner). SherlockInsightBanner
+    // already has the doctrine this needs, verbatim: "no advice, no box.
+    // Never an empty banner" — undefined renders nothing. The note now
+    // lives in the People & Team tab instead (src/app/entities/[id]/page.tsx).
+    if (!person) return undefined;
     const result = preflightSummary(preflight(db, person, null, now));
     if (result.green) return `Ready for first contact — pre-flight clear for ${person.full_name}.`;
     return `Not ready yet — pre-flight found ${result.failed.length} issue${result.failed.length === 1 ? '' : 's'} for ${person.full_name}:`;
@@ -394,6 +401,20 @@ export function nextBestActionButton(db: Db, entityId: string, now = new Date(),
   if (summary.whoseTurn !== 'overdue') return undefined;
   const person = nextContactPerson(db, entityId);
   return person ? { kind: 'follow_up', personId: person.id } : undefined;
+}
+
+// Prompt 882 Part D — Data Room tip: live, recomputed, nothing persisted,
+// same "nothing to say → nothing renders" discipline as
+// SherlockInsightBanner's own `if (!action) return null` and Pipeline's
+// readiness-strip.ts. Fires when the org has zero documents in the Vault
+// AND at least one entity is genuinely about to be first-contacted — using
+// the DERIVED stage (getStage), same correction Prompt 880 made for the
+// People & Team note, so a stale raw entities.status can't show the tip
+// after a founder has already advanced an entity past not_contacted via
+// relationship_state.
+export function dataRoomFirstContactTipApplies(db: Db): boolean {
+  if (db.documents.length > 0) return false;
+  return db.entities.some((e) => getStage(db, e.id) === 'not_contacted');
 }
 
 // The recommended "tipo de compromisso" for a next-step task on this

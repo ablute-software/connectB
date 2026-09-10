@@ -30,12 +30,14 @@ import { ContributionBox } from '@/components/ContributionBox';
 import { CommunityConsensusPanel } from '@/components/CommunityConsensusPanel';
 import { EnrichmentBadge } from '@/components/EnrichmentBadge';
 import { EntityPeoplePanel } from '@/components/EntityPeoplePanel';
+import { QuickCreatePerson } from '@/components/QuickCreatePerson';
 import { CompetitorInvestmentCard } from '@/components/CompetitorInvestmentCard';
 import { PathfinderCard } from '@/components/PathfinderCard';
 import { entityCompleteness, qualifiesForContactEnrichment } from '@/lib/completeness';
 import { isPersonCandidate, isUnverifiedStub, relatedContacts, relationshipSummary } from '@/lib/relationship';
 import { vaultAccessAdviceFromDb } from '@/lib/vault-access-advice';
 import { SherlockInsightBanner } from '@/components/SherlockInsightBanner';
+import { PreContactReadinessNudge } from '@/components/PreContactReadinessNudge';
 import { computeAlignment } from '@/lib/company-canon-logic';
 import { browserClient } from '@/lib/supabase';
 import { EntityClassificationEditor } from '@/components/EntityClassificationEditor';
@@ -81,6 +83,13 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   // classifyNonce: pedir duas vezes a mesma tem de voltar a fazer scroll.
   const [focusInteraction, setFocusInteraction] = useState<{ id: string; nonce: number }>({ id: '', nonce: 0 });
   const [contactAvailable, setContactAvailable] = useState(false);
+  // Prompt 878 §4 — the only correction path a founder saw on this page was
+  // "+ Add info" (a contribution, reviewed later). A real, save-it-now
+  // editor (EditCatalogEntityModal, Prompt 584 §C) already exists, but only
+  // reachable from /backoffice/catalog — nothing here links to it. `role`
+  // gates a link to that same editor for the platform-admin accounts that
+  // actually have it.
+  const [role, setRole] = useState<string | null>(null);
   const [editingContact, setEditingContact] = useState(false);
   const [contactDraft, setContactDraft] = useState({ website: '', email: '', phone: '', address: '' });
   const [contributionsRefreshKey, setContributionsRefreshKey] = useState(0);
@@ -95,6 +104,10 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   const [justAddedPersonId, setJustAddedPersonId] = useState<string | null>(null);
   const personRowRefs = useRef<Record<string, HTMLLIElement | null>>({});
   const [showFormAssist, setShowFormAssist] = useState(false);
+  // Prompt 880 — QuickCreatePerson embedded here as "Add someone else",
+  // the manual-entry counterpart to EntityPeoplePanel's "Add as contact"
+  // (catalog research rows) above it.
+  const [addingPerson, setAddingPerson] = useState(false);
   // Prompt 285 §1 — a general, always-reachable report entry point,
   // independent of HardFilterBanner's own "Report" button (ui.tsx L273
   // only ever shows it when hard_filter_status==='open' AND hard_filter
@@ -164,7 +177,10 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   const [activeSection, setActiveSection] = useState<'summary' | 'people' | 'approach' | 'engagement'>('summary');
 
   useEffect(() => {
-    fetch('/api/me').then((r) => r.json()).then((me) => setContactAvailable(!!me.capabilities?.entityContactFields)).catch(() => {});
+    fetch('/api/me').then((r) => r.json()).then((me) => {
+      setContactAvailable(!!me.capabilities?.entityContactFields);
+      setRole(me.role ?? null);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -540,6 +556,19 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
+      {/* Prompt 882 (main) — SherlockInsightBanner is moved above
+          RelationshipSummaryCard: for a first-time, lost user, "what do I do
+          next" should win top billing over the stepper/summary card. Every
+          conditional warning above (hard filter, lock, alignment, pending
+          interest) still outranks it — only its position relative to the
+          summary card changed. */}
+      <SherlockInsightBanner entity={entity} dealMessageTouches={dealMessageTouches}
+        onClassifyRequest={classifyOnHistory}
+        canMessage={canMessagePanel}
+        focus={focusParam}
+        onSwitchToMessage={() => setPanelMode('message')}
+        onSwitchToLog={(personId) => { setLogPrefill((p) => ({ personId, nonce: p.nonce + 1 })); setPanelMode('log'); }} />
+
       {/* Prompt 397 §A.3 — the journey+state+actions card. */}
       <RelationshipSummaryCard entity={entity}
         onClassifyRequest={classifyOnHistory}
@@ -555,15 +584,6 @@ export default function EntityPage({ params }: { params: { id: string } }) {
           you usually expect a deeper look; <Link href="/documents" className="font-medium underline hover:no-underline">share the folders that answer their questions</Link>.
         </div>
       )}
-
-      {/* Prompt 397 §A.4 — the advice banner, full-width, between the
-          journey card and the rest of the page. */}
-      <SherlockInsightBanner entity={entity} dealMessageTouches={dealMessageTouches}
-        onClassifyRequest={classifyOnHistory}
-        canMessage={canMessagePanel}
-        focus={focusParam}
-        onSwitchToMessage={() => setPanelMode('message')}
-        onSwitchToLog={(personId) => { setLogPrefill((p) => ({ personId, nonce: p.nonce + 1 })); setPanelMode('log'); }} />
 
       {/* Prompt 397 §B.1 — below the banner: left = Zone B's 4 tabs
           (unchanged), right = the conversation panel (History/Log/Message).
@@ -768,6 +788,15 @@ export default function EntityPage({ params }: { params: { id: string } }) {
           <ContributionBox subjectType="entity" subjectId={entity.id} orgId={db.org.id} subject={entity as unknown as Record<string, unknown>}
             onApplyValue={(field, value) => updateEntity(entity.id, { [field]: value } as Partial<typeof entity>)} refreshKey={contributionsRefreshKey}
             keyPeopleShownElsewhere={keyPeopleShownInTeam} />
+          {/* Prompt 878 §4 — a platform-admin account can fix this catalog
+              row on the spot instead of routing a correction through
+              "+ Add info" and a later review. */}
+          {role === 'developer' && catalogMatch && (
+            <Link href={`/backoffice/catalog?edit=${catalogMatch.id}`} target="_blank"
+              className="mt-2 inline-block text-xs text-cyan-700 hover:underline">
+              Correct this in the Catalog (admin) →
+            </Link>
+          )}
         </div>
         <CommunityConsensusPanel entityId={entity.id}
           onApplyValue={(field, value) => updateEntity(entity.id, { [field]: value } as Partial<typeof entity>)} />
@@ -867,6 +896,37 @@ export default function EntityPage({ params }: { params: { id: string } }) {
               })}
             </ul>
             <p className="mt-2 text-xs text-gray-400">Rank 2 unlocks only after rank 1 replies or goes dormant.</p>
+            {/* Prompt 880 — this note is what used to live in the Sherlock
+                Insight banner as "Add a contact person first". Nuno's
+                correction: that banner is reserved exclusively for a genuine
+                next action toward the open investor, never a data-setup
+                task. This is a plain, quiet note, seen only by a founder
+                already on this tab — never styled like the blue banner. */}
+            {/* Prompt 880 — gated on the DERIVED stage (same one
+                nextBestAction itself checks via getStage/relationshipState),
+                not the raw entity.status: a relationshipState row can put
+                the pipeline stage past "not_contacted" while entity.status
+                itself hasn't changed, and this note must not outlive that. */}
+            {people.length === 0 && relSummary.stage === 'not_contacted' && (
+              <p className="mt-3 border-t border-gray-100 pt-3 text-xs text-gray-500">
+                Nobody on file at {entity.name} yet — add the person you want to approach before reaching out.
+              </p>
+            )}
+            {/* Prompt 880 §3 — QuickCreatePerson (previously orphaned in
+                NeedsReviewPanel.tsx) as the manual-entry counterpart to
+                EntityPeoplePanel's "Add as contact" (catalog research rows)
+                above. Always available here, not only on the empty-state —
+                this is the ONLY place a person can be added to this entity
+                by hand. */}
+            {addingPerson ? (
+              <QuickCreatePerson entityId={entity.id}
+                onCreated={(pid) => { setJustAddedPersonId(pid); setAddingPerson(false); }}
+                onCancel={() => setAddingPerson(false)} />
+            ) : (
+              <button onClick={() => setAddingPerson(true)} className="mt-2 text-xs text-cyan-700 hover:underline">
+                Add someone else
+              </button>
+            )}
           </Card>
 
           {alsoConnected.length > 0 && (
@@ -1022,8 +1082,15 @@ export default function EntityPage({ params }: { params: { id: string } }) {
                   onSaved={() => setPanelMode('history')} />
               )}
               {panelMode === 'message' && messaging.canMessage && messaging.investorCatalogEntityId && (
-                <MessageThreadCore entityId={entity.id} investorCatalogEntityId={messaging.investorCatalogEntityId}
-                  initialBody={ndaDraft ?? undefined} />
+                <>
+                  {/* Prompt 882 Part B — same recurring nudge as the banner's
+                      copy, anchored here too since a not-yet-contacted
+                      entity can already be message-eligible (an investor who
+                      claimed their profile before any founder outreach). */}
+                  <PreContactReadinessNudge entityId={entity.id} />
+                  <MessageThreadCore entityId={entity.id} investorCatalogEntityId={messaging.investorCatalogEntityId}
+                    initialBody={ndaDraft ?? undefined} />
+                </>
               )}
             </div>
           </div>

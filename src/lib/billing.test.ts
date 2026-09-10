@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  priceIdFor, tierForPriceId, planForSubscription, billingEffectFromEvent, parseStripeSigHeader,
+  priceIdFor, tierForPriceId, planForSubscription, billingEffectFromEvent, invoiceEffectFromEvent,
+  parseStripeSigHeader,
   type StripePriceMap,
 } from './billing';
 
@@ -98,6 +99,88 @@ describe('billingEffectFromEvent (webhook mapping — signatures out of scope he
   it('ignores events without an org_id in metadata, and unhandled types', () => {
     expect(billingEffectFromEvent({ type: 'checkout.session.completed', data: { object: { metadata: {} } } }, PRICES)).toBeNull();
     expect(billingEffectFromEvent({ type: 'invoice.paid', data: { object: { metadata: { org_id: 'o1' } } } }, PRICES)).toBeNull();
+  });
+});
+
+describe('invoiceEffectFromEvent (Prompt 874 — invoice mirror, founder side)', () => {
+  it('invoice.paid extracts amounts, period, paid_at (status_transitions), and sets next_payment_due_at from period_end', () => {
+    const event = {
+      type: 'invoice.paid',
+      data: {
+        object: {
+          id: 'in_1', customer: 'cus_1', subscription: 'sub_1',
+          amount_due: 2900, amount_paid: 2900, currency: 'eur', status: 'paid',
+          period_start: 1735689600, period_end: 1738368000, due_date: 1738368000,
+          status_transitions: { paid_at: 1735689650 },
+          hosted_invoice_url: 'https://invoice.stripe.com/i/x', metadata: { org_id: 'o1' },
+        },
+      },
+    };
+    expect(invoiceEffectFromEvent(event)).toEqual({
+      orgId: 'o1',
+      stripeInvoiceId: 'in_1',
+      stripeCustomerId: 'cus_1',
+      stripeSubscriptionId: 'sub_1',
+      amountDueCents: 2900,
+      amountPaidCents: 2900,
+      currency: 'eur',
+      status: 'paid',
+      periodStart: new Date(1735689600 * 1000).toISOString(),
+      periodEnd: new Date(1738368000 * 1000).toISOString(),
+      dueDate: new Date(1738368000 * 1000).toISOString(),
+      paidAt: new Date(1735689650 * 1000).toISOString(),
+      hostedInvoiceUrl: 'https://invoice.stripe.com/i/x',
+      nextPaymentDueAt: new Date(1738368000 * 1000).toISOString(),
+      lastPaymentStatus: 'paid',
+    });
+  });
+
+  it('invoice.payment_failed marks last_payment_status=failed and leaves next_payment_due_at null', () => {
+    const event = {
+      type: 'invoice.payment_failed',
+      data: {
+        object: {
+          id: 'in_2', customer: 'cus_1', amount_due: 2900, amount_paid: 0,
+          currency: 'eur', status: 'open', metadata: { org_id: 'o1' },
+        },
+      },
+    };
+    const effect = invoiceEffectFromEvent(event);
+    expect(effect?.lastPaymentStatus).toBe('failed');
+    expect(effect?.nextPaymentDueAt).toBeNull();
+    expect(effect?.status).toBe('open');
+  });
+
+  it('falls back to subscription_details.metadata when top-level metadata is empty', () => {
+    const event = {
+      type: 'invoice.paid',
+      data: {
+        object: {
+          id: 'in_3', amount_due: 100, amount_paid: 100, status: 'paid',
+          metadata: {}, subscription_details: { metadata: { org_id: 'o1' } },
+        },
+      },
+    };
+    expect(invoiceEffectFromEvent(event)?.orgId).toBe('o1');
+  });
+
+  it('returns a null orgId (not the whole effect) when no metadata names one, for the route to resolve by customer id', () => {
+    const event = { type: 'invoice.paid', data: { object: { id: 'in_4', amount_due: 100, amount_paid: 100, status: 'paid' } } };
+    expect(invoiceEffectFromEvent(event)?.orgId).toBeNull();
+    expect(invoiceEffectFromEvent(event)?.stripeInvoiceId).toBe('in_4');
+  });
+
+  it('defers to the investor side when metadata names a firm and no org', () => {
+    const event = {
+      type: 'invoice.paid',
+      data: { object: { id: 'in_5', amount_due: 100, amount_paid: 100, status: 'paid', metadata: { catalog_entity_id: 'f1' } } },
+    };
+    expect(invoiceEffectFromEvent(event)).toBeNull();
+  });
+
+  it('ignores unhandled invoice event types (e.g. invoice.finalized — explicitly out of scope)', () => {
+    const event = { type: 'invoice.finalized', data: { object: { id: 'in_6', metadata: { org_id: 'o1' } } } };
+    expect(invoiceEffectFromEvent(event)).toBeNull();
   });
 });
 

@@ -33,14 +33,21 @@ import { DecisionNotesCards, type DecisionNote } from './DecisionNotesCards';
 import { DECISION_NOTE_MAX, REOPEN_TRIGGER_MIN_LENGTH } from '@/lib/startup-investor-decision';
 import { useOrgCapability } from '@/lib/use-org-capability';
 import { useConfirm } from '@/lib/confirm';
+import { PreContactReadinessNudge } from './PreContactReadinessNudge';
 
 // Prompt 410 §2.3 — how long the post-decision confirmation stays up. Short
 // on purpose ("toast", Nuno's own word) — this isn't an undo window (the
 // decision already posted), just an acknowledgment.
 const DECISION_TOAST_MS = 4000;
 
-const NEXT_STEP_GLOSSARY: { pattern: RegExp; explain: string }[] = [
-  { pattern: /pre-flight/i, explain: 'An automatic check run just before a first message — flags missing hook research, banned phrases, or reaching out too soon.' },
+// Prompt 879/880 §4 — "pre-flight" appears mid-sentence ("Ready for first
+// contact — pre-flight clear for {name}."), and splicing the hint icon in
+// right after the matched word landed it awkwardly mid-phrase. `hintAt:
+// 'end'` moves it to the end of the sentence instead; 'match' (the
+// default) keeps the original inline placement, which is still right for
+// "Locked" (matches at the very start of the string already).
+const NEXT_STEP_GLOSSARY: { pattern: RegExp; explain: string; hintAt?: 'match' | 'end' }[] = [
+  { pattern: /pre-flight/i, explain: 'An automatic check run just before a first message — flags missing hook research, banned phrases, or reaching out too soon.', hintAt: 'end' },
   { pattern: /^Locked/, explain: `Outreach to this investor is paused for ${LOCK_DAYS} days after your last message, so a reply has time to arrive before you follow up again.` },
 ];
 
@@ -48,6 +55,9 @@ function annotateNextStep(text: string): ReactNode {
   for (const term of NEXT_STEP_GLOSSARY) {
     const m = text.match(term.pattern);
     if (m?.index === undefined) continue;
+    if (term.hintAt === 'end') {
+      return <>{text}<TermHint text={term.explain} /></>;
+    }
     const before = text.slice(0, m.index);
     const match = m[0];
     const after = text.slice(m.index + match.length);
@@ -301,6 +311,11 @@ export function SherlockInsightBanner({
           )}
         </div>
       </div>
+
+      {/* Prompt 882 Part B — recurs every render until the org has actually
+          used Readiness & Train once; see PreContactReadinessNudge's own
+          header for why this isn't the onboarding engine. */}
+      <PreContactReadinessNudge entityId={entity.id} />
 
       {/* Prompt 410 §2.3 — the decision toast. Lives outside the button
           branches above (which swap to the next best action as soon as

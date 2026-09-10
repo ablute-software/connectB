@@ -6049,3 +6049,615 @@ symptom that surfaced was not "LinkedIn is unreachable" but a bio that said
 about the founder's own materials, shown to the founder. Before trusting a
 source, measure that it answers; before shipping a silent fallback, ask what
 it will look like from the outside when the source never answers at all.
+
+---
+
+## Prompt 874 — a local Stripe invoice/payment mirror, and a fallback that turned out not to exist yet
+
+**What this is.** `billing_invoices` (migration
+`20260910083000_billing_invoices_mirror.sql`) is a new local mirror of Stripe
+`invoice.paid`/`invoice.payment_failed` events — one row per billing cycle,
+for both sides of this schema's billing split (`kind: 'org' | 'investor_entity'`).
+Before this, no table anywhere recorded a payment amount, a due date, or a
+paid/failed status; the webhook only ever processed
+`checkout.session.completed`/`customer.subscription.*`. Two denormalized
+columns (`next_payment_due_at`, `last_payment_status`) were added to both
+`orgs` and `investor_billing` so a list view doesn't need a correlated
+subquery per row; they're kept in sync by the webhook handler itself, not a
+trigger, since the webhook already holds the values it just wrote. RLS
+enabled, zero policies, `anon`/`authenticated` revoked — same posture as
+`investor_billing`'s own 0287 migration, for the same reason (Stripe-adjacent
+amounts are not safe to expose via PostgREST).
+
+**The assumption that didn't hold.** The prompt's own framing was "check
+whether the existing subscription-event handlers already have a
+stripe_customer_id reverse-lookup fallback, and reuse it verbatim." Reading
+`billing.ts` and the webhook route in full before writing anything found
+that this fallback does not exist. `investor_billing`'s migration 0287 does
+carry a comment ("Índice para a resolução inversa do webhook…") and an index
+on `stripe_subscription_id` that clearly anticipated one — but no code was
+ever written to use it. Invoice events don't reliably carry the
+checkout-time `metadata.org_id`/`metadata.catalog_entity_id` either (recent
+Stripe API versions nest subscription metadata under
+`subscription_details.metadata` rather than copying it to the invoice's own
+top-level `metadata`, and even that can be empty), so this prompt needed the
+fallback for real. It's now genuinely new code:
+`resolveSubjectIdByCustomer()` in the webhook route, querying `orgs`/
+`investor_billing` by the new `stripe_customer_id` index each table now
+has (`orgs` never had one before this migration).
+
+**No historical backfill.** The table starts empty. Existing customers'
+`next_payment_due_at`/`last_payment_status` stay null until their next real
+Stripe invoice event fires. A one-off backfill against the live Stripe API
+was explicitly out of scope for this prompt and was not attempted.
+
+**How this was verified without live Stripe.** This sandbox has no Stripe
+CLI and no Stripe credentials anywhere in env, so `stripe trigger invoice.paid`
+against test mode — the prompt's own preferred method — could not run here.
+Instead: `tsc`/`vitest` (3650/3650)/`eslint`/`next build` all passed by exit
+code, the two new pure functions got full unit coverage (metadata-present,
+metadata-absent, `subscription_details.metadata` fallback, founder/investor
+mutual exclusivity, `invoice.finalized` correctly ignored), and the schema +
+webhook SQL operations themselves were exercised against the real Supabase
+project using a `zz-test-874-invoice-mirror` org: the reverse-lookup query
+resolved the org from `stripe_customer_id` alone (no metadata), the upsert
+created one row, replaying the same `stripe_invoice_id` did not duplicate it,
+and a following `invoice.payment_failed` flipped `last_payment_status` to
+`'failed'` while leaving `next_payment_due_at` untouched, exactly as
+specified. What was NOT exercised end-to-end is the actual HTTP path through
+`route.ts` (signature verification, JSON parsing) — that part is unchanged
+scaffolding shared with the already-live subscription handlers, and the new
+code added to it is a straight-line extension of the same pattern.
+
+---
+
+## Prompt 875 — Marketing Overview: two ambiguities resolved with a stated default, one sign bug caught by testing against real data
+
+**Plan attribution is genuinely ambiguous, and stays visible as such.** A
+promo code's `applicable_plans` can name more than one plan at once, but
+`promo_redemptions` records no plan of its own — a redemption doesn't say
+which of the code's plans the org actually ended up on. Default taken (per
+the prompt's own instruction to ask rather than silently resolve, but with a
+stated fallback if Nuno doesn't weigh in): "created by plan" counts a
+multi-plan code once under EACH plan it targets (double-counts such codes
+across rows); "redeemed by plan" is attributed to the redeeming org's
+CURRENT `orgs.plan`, not the plan the code targeted. Both call-outs are on
+the card itself as an "ⓘ", not hidden — and the choice matters in practice
+today: all 6 real redemptions in production (`ablute_` ×4, Sherlock Deal,
+Wisify Tech Solutions) are on orgs still sitting on the free `idea` tier
+despite redeeming a `motherfunding` code, so "redeemed by plan" currently
+shows every real redemption under `idea`, a plan no promo code even targets.
+
+**The category mapping was checked against zero rows of real usage.**
+`promo_outreach_targets` has never had a row in production (confirmed before
+mapping "contacto directo" onto the existing `startup` value) — there is no
+real usage pattern to verify that reading against. Went with the prompt's
+own reasoning (the only category that isn't an organized program) since it
+was the only basis available, and this is the flag the prompt itself asked
+for rather than a silent guess.
+
+**The net-cost sign was wrong on the first real query, caught only because
+production data existed to check it against.** The prompt's prose reads
+"(cost while on promo) − (amount actually paid)" and separately says this
+must come out NEGATIVE when the program net-costs the platform (the normal
+case). Coded literally as `ai_cost − amount_paid`, `ablute_`'s real numbers
+(€8.18 AI cost, €0 paid — no Stripe invoice has fired for that org yet)
+produced **+8.18**, the wrong sign per the prompt's own stated expectation.
+Nuno's prose treats "cost" as a signed outflow in his own arithmetic; the
+function was flipped to `amount_paid − ai_cost` and re-run against the same
+row before shipping, producing −8.18. Both the wrong and the corrected query
+are in `marketing_overview_promo_net_cost()`'s own migration comment, so the
+reasoning survives the fix. General form, worth repeating: a formula stated
+in prose is not verified until it is run against a real number with a known
+expected sign — this one shipped correct only because real production data
+(not a synthetic fixture) was on hand to catch it before the first commit.
+
+**A second empirical catch, more serious: the revenue chart's first real
+query showed fake data as real revenue.** `marketing_overview_revenue_by_month()`
+initially aggregated `billing_invoices` directly, with no `orgs.is_test`
+filter — `billing_invoices` itself has no `is_test` column, only `orgs` and
+`catalog_entities` do, so nothing there flagged the gap. A manual check
+against the live function returned one bar, September, €29 — which is
+exactly this session's own `zz-test-874-invoice-mirror` fixture org (created
+minutes earlier, in the same session, to verify Prompt 874's webhook math),
+not real revenue. Fixed by joining both new functions
+(`marketing_overview_revenue_by_month` and `marketing_overview_promo_net_cost`'s
+own `paid`/`windows` CTEs) out to `orgs` and filtering `is_test = false`,
+re-verified against the live functions afterward (revenue now correctly
+empty — no real, non-test paid invoice exists yet; the three real promo
+redemptions' net-cost figures were unchanged, none of them being test orgs).
+Same general lesson as the sign-convention catch above: a query is not
+verified until it's run against real rows and the RESULT is read, not just
+the SQL.
+
+**No historical revenue chart, for the same reason 874 has none.** With the
+`is_test` filter in place, the revenue-by-month chart reads `billing_invoices`
+(Prompt 874, days old, no backfill) and currently renders NO bars at all —
+no real customer has a paid invoice yet. This is not padded and not a bug;
+the chart's own empty-state and caption say so.
+
+---
+
+## Prompt 876 — the attachment schema's own literal template would have hard-failed on its first real upload
+
+**The bug, and why it matters more than usual.** The prompt's own SQL
+template for `promo_outreach_attachments.malware_scan_status` listed four
+values: `'not_scanned','pending','clean','flagged'`. Migration 0244
+(25/08/2026) replaced this app's VirusTotal strategy app-wide with a
+hash-only lookup and, in that same migration, widened EVERY existing
+`malware_scan_status` check constraint in the schema to also accept
+`'local_only'` — the ordinary, honest outcome for a private file VT has
+never seen, or whenever `VIRUSTOTAL_API_KEY` isn't configured at all
+(unknown in this schema's env-var list; unlike Stripe/Supabase, nothing
+confirms it's set in production). `scanWithVirusTotal()` — the function this
+prompt's own instruction says to call "exactly like the support-attachment
+route does" — returns `'local_only'` as its default, not-configured-case
+result. A four-value constraint here would not have degraded gracefully; it
+would have hard-failed the INSERT on the very first real upload through this
+route, in whichever of the two likelier production states actually holds
+(no VirusTotal key, or a genuinely new private file). Caught by reading
+0244's own reasoning before writing the migration, not by testing after the
+fact — the five-value set (`not_scanned, pending, clean, local_only,
+flagged`) was used from the start, and confirmed empirically afterward by
+inserting a real `local_only` row and a real `pending` row into the live
+table, both accepted.
+
+**Three drop-zones, not the two the prompt itself suggested.** Nuno named
+contracts as their own category of document ("documentos como contratos"),
+and the schema already carries a dedicated `'contract'` label. Collapsing
+upload UI into "Proof of publicity" / "Other documents" (the prompt's own
+suggested simplification) would have made `'contract'` practically
+unreachable from the UI the very feature exists to serve. Kept as three
+zones instead — Proof of publicity / Contract / Other — a small, deliberate
+deviation, not a silent narrowing.
+
+**Recipient/contact/program-info editing lives in one panel with the
+attachments, not only in CreateForm.** The prompt's own scope named
+CreateForm explicitly for these four fields but also, separately, asked for
+"a small panel" for documents (Part C). Since an EXISTING row needs
+somewhere to edit these fields too (not just at creation), and Part C
+already needed a per-row detail surface, both live in one "Details &
+documents" modal rather than doubling the number of per-row affordances or
+widening the already-16-column table further. Flagged here as the
+consolidation it is, not discovered later as scope creep.
+
+**No second promo-redemption entry point exists.** Searched every call site
+of `promo_codes`/`normalizePromoCodeInput` in `src/` (21 files) before
+writing the email-lock check: `/api/promo/redeem/route.ts` is the only place
+in the entire codebase that ever inserts into `promo_redemptions` — checkout
+(`/api/stripe/checkout/route.ts`) only ever reads an ALREADY-redeemed row to
+apply its Stripe coupon, never creates one, and no signup/onboarding flow
+touches promo codes at all. The email lock needed adding in exactly one
+place.
+
+**Verification against real data, and what couldn't be run.** This sandbox
+has no dev server with an authenticated admin session and no way to sign in
+as two different real accounts, so the prompt's own "redeem from a
+different email, then a matching one" end-to-end test could not run through
+the actual HTTP+auth path. Instead: the case-insensitive comparison was
+pulled out into a pure `emailLockBlocksRedemption()` (fully unit-tested,
+including the "locked but the user has no email at all" edge case), and the
+route's exact lookup query was run against a real `zz-test-876-email-lock`
+fixture, confirming it resolves the locked email correctly. The archive
+derivation (`isOutreachArchived`, already unit-tested with 6 cases) was
+checked against three real fixture rows built to exercise each branch
+(never-expired-and-unredeemed, expired-and-unused, max-redemptions-reached)
+— the GET route's exact query was replicated by hand and matched every
+expected `is_archived` value. All fixtures (attachments, codes, redemptions,
+targets) were deleted afterward: `promo_outreach_targets`/`promo_codes`/
+`promo_outreach_attachments` have no `is_test` filter anywhere in this app,
+so leaving them would have permanently shown fake rows on the real outreach
+table and on Prompt 875's Marketing Overview dashboard — the same class of
+gap that prompt's own report already flagged and fixed for `billing_invoices`.
+
+---
+
+## Prompt 877 — Ficha do cliente: one customer list, two schemas, three flagged gaps
+
+`/backoffice/ficha-cliente` (list) and `/backoffice/ficha-cliente/[kind]/[id]`
+(detail), reading a new `GET /api/backoffice/ficha-cliente` (list) and
+`GET /api/backoffice/ficha-cliente/[kind]/[id]` (detail). One customer
+concept spanning `orgs` (startups) and `catalog_entities` (investor firms),
+discriminated by `kind: 'org' | 'investor_entity'` — the exact vocabulary
+`ViewerEntryName.tsx` already uses for this same two-schema situation,
+reused rather than reinvented. "Registered investor account" is the same
+definition `/api/backoffice/investor-accounts` already established (an
+active `matchdeal_investor_members` seat, via `investorOrgRows()` +
+`isRegisteredInvestorAccount()`), not a second narrower one.
+
+**`investor_billing.created_at` (migration `20260910104000`) has no
+backfill, and there was nothing to backfill from.** `investor_billing` has
+ZERO rows in production (confirmed by direct count before writing the
+migration) — no firm has ever had a Stripe subscription recorded there, so
+every future row carries a real `created_at` from the moment it's created.
+This also means `investor_billing.created_at` is currently unused as a
+signup-date source in practice: every registered investor row's signup date
+today comes from its earliest active seat instead (`investor_billing.created_at`
+is only the fallback for a firm with billing history but no active seat on
+record — a state that shouldn't currently exist). Confirmed against real
+data: 3 non-test registered investor firms exist today (Invest green, Test
+idividual, Test investor — the two "Test…"-named ones are NOT `is_test`-flagged
+in the database and so appear as real customers, consistent with how
+`investors/page.tsx` itself already treats them; not a gap this prompt
+introduced), all with an active-seat signup date and zero `investor_billing`
+rows.
+
+**The VC → portfolio-company promo-code cross-reference is not buildable, as
+the prompt itself allowed for.** Checked both schema paths that could
+plausibly carry it: `investor_investments`/`market_companies` (0201) link a
+VC to a third-party research library table that its own migration comment
+states explicitly has no `org_id`; `org_competitors` (0246) links the
+OPPOSITE direction (a startup declaring a third-party company as a
+competitor). Neither connects a VC's `catalog_entity_id` to the `org_id`s of
+startups in its portfolio that are also our own paying customers. The
+detail page renders this section as "Not buildable — …" with the reason
+stated, never an empty or guessed list.
+
+**The promo-code section on a startup's detail page shows less than the
+prompt describes, because Prompt 876 is not merged.** The prompt's own
+language ("that target's attachments, and recipient-email lock state")
+describes fields that live only on `promo_outreach_targets.recipient_email`
+and the new `promo_outreach_attachments` table — both added by Prompt 876
+(migration `20260910100000`, branch `claude/prompt-876-outreach-form-attachments`),
+which is pushed but still unmerged into `main` as of this prompt. 877 was
+built on top of 875/`main`, not on top of 876, so those columns/tables
+genuinely don't exist on this branch's schema. The detail page shows
+everything the CURRENT schema (`promo_outreach_targets` as of migration
+0343) actually has for a redeemed code: the outreach target's name,
+category, status, and the code's own discount/label/dates. Once 876 lands,
+extending this section with attachments and the recipient-email lock is an
+addition to the same block, not a rewrite — flagged here rather than
+silently narrowed or silently blocked on 876 landing first.
+
+**The overdue-first-and-red behavior could not be visually verified against
+a real overdue account, because none currently exists.** Production has
+exactly one real, non-internal startup customer (Wisify Tech Solutions, free
+`idea` plan, no `next_payment_due_at` at all) and three real registered
+investor firms, none with a `investor_billing` row — so `isOverdue` is
+`false` for every real row today. Verified instead via `customer-filter.test.ts`'s
+own `isCustomerOverdue`/`isCustomerArchived` unit tests (14 cases, including
+the overdue-with-a-past-due-date-and-unpaid-status case) and by reading the
+route's SQL back against production to confirm the shape matches — not a
+substitute for seeing a red row render, stated plainly rather than claimed
+as full end-to-end coverage. `zz-test` fixtures were deliberately not used
+for this: the list route excludes `is_test` rows on purpose (this is a real
+customer list, not an admin ops table, mirroring `marketing-overview`'s own
+`is_test` exclusion from Prompt 875), so a `zz-test-*` org would never
+appear in it regardless of how it's set up.
+
+**A three-bucket payment taxonomy (paid/unpaid/promo) has no "free tier"
+state, so a free `idea`-plan org with no billing history at all shows as
+"Unpaid."** This matches the prompt's own three buckets literally and isn't
+a bug, but it's worth naming: Wisify Tech Solutions (the one real startup
+customer today, on the free plan) renders an amber "Unpaid" badge despite
+owing nothing. It does NOT get the red overdue treatment — that's gated on
+`next_payment_due_at` being in the past, which is null for a free-tier org —
+so the practical effect is small, but the badge itself reads more alarming
+than the underlying state.
+
+---
+
+## Prompt 878 — 243 misdated interactions, a truncated test name, an amount field's `step`, and a real editor that never reached Nuno
+
+**§0 — the 243 interactions were not a single bug, and roughly half their
+real dates were sitting in plain sight.** All 243 shared `occurred_at` in
+2018–2019 and `created_at` in the same ~2h30 window on 22 Jul — a single
+bulk import (the structured-import commit route,
+`src/app/api/import/structured/commit/route.ts:150`:
+`occurred_at: r.occurred_at ?? new Date().toISOString()`, which only
+defaults when the CSV field is nullish, not when it's unparseable).
+Breaking the 243 down by exact `occurred_at` value found 107 rows sharing
+the literal value `2018-01-01` — a single day accounting for 44% of the
+"2018/2019" set, with the next most common value at 15 rows. That is not a
+plausible historical clustering; it is a default. Sampling those 107 rows'
+`content` showed why: roughly half start with an embedded date in Portuguese
+prose (`"25 de agosto de 2022 / Paulo Gaspar / ..."`, `"4 de junho de
+2024 / ..."`) spanning real years from 2018 through late 2025 — the true
+date was typed INTO the content field, never parsed out into `occurred_at`
+at all. A regex (`^(\d{1,2}) de (\w+) de (\d{4})`) recovered 52 of the 107
+this way, real dates now written back to `occurred_at`. The remaining 55
+have no recoverable date in `content` at all (bare times like `"17:46"`, or
+scraped contact/funding info with no date prefix) — those got the
+prompt's own explicitly-sanctioned fallback, `occurred_at = created_at`
+(2026-07-22, the real import date), rather than staying at a fabricated
+2018-01-01. The other 136 of the original 243 (varied real-looking dates,
+narrative content like `"Telefonei / Falei com cristina que me disse..."`)
+were left untouched — they read as genuine historical outreach log entries,
+not import artifacts, and blanket-overwriting them to `created_at` would
+have destroyed real history to fix a problem they don't have.
+
+Audited every consumer of `interactions.occurred_at` (`rules.ts`'s
+`outboundCounts`/follow-up cutoff, `journey.ts`'s stage timeline,
+`neglect-evaluation.ts`'s "last full interaction", `automation-rules-tick.ts`).
+None is fooled going forward — the wrong-but-uniform 2018-01-01 value is
+gone, replaced by either the real date or a recent, honest one. One check
+worth naming: no entity's ENTIRE interaction history consists only of
+fallback-dated rows (verified by query before calling this done) — so no
+entity was left showing "awaiting reply since 2018-01-01" as its only
+signal, a genuinely worse failure mode than the wrong date alone.
+
+Also noticed in passing, not asked for and not touched: some of the 107
+rows' content (`"— Dotação: 1.154.020€ — gestao@besthorizon.pt / + inf /
+..."`) reads like scraped catalog/contact research, not an actual sent
+outbound touch, despite `direction='out'`/`classification='awaiting'`.
+Flagged here rather than silently reclassified or silently left — deciding
+whether these rows should even be `interactions` at all is a business
+judgment outside a date-repair task's scope.
+
+**§1 — "ABl" deleted; the gap that let it in is closed for the next one.**
+`matchdeal_investor_firm_view()` (0302) fed a MatchDeal profile's
+`representative_name` (and separately, a member's `auth.users` display
+name) into `people.full_name` with only a length-greater-than-zero check —
+any non-empty string became a real person row. Migration `20260910110000`
+raises both checks to `length(...) >= 4`: a genuine full name is
+essentially always longer than that, and per the prompt's own instruction,
+no person row is better than an illegible one. Confirmed before deleting:
+all 7 existing `data_source = 'matchdeal_profile'` rows belong to test
+entities/accounts (`ablute_ — Internal QA`, Nuno's own personal test
+account, `Test idividual`) — no contamination in the real catalog. Only the
+one row the prompt named ("ABl", `catalog_people.id = 58eb4043-...`) was
+deleted; the other 6 (test-flavored but legible names — "Alexandra",
+"Nuno", "ablute_ QA Investor") were left alone, since the prompt confirmed
+them benign and didn't ask for them.
+
+**§2 — could not reproduce a hard block; removed the one real friction
+point that exists.** `ask_amount_eur` has been correctly optional in code
+since it was introduced (Prompt 479, `git log -S` shows exactly one commit
+ever touching it) — `save()` only sets it when non-empty, and `formReady`
+never reads it, and there is no `<form>`/`type="submit"` anywhere in
+`RailLogForm.tsx` for native HTML5 validation to block on. What IS real:
+the input carried `step="1000"`, which makes `type="number"` treat any
+value not an exact multiple of 1000 as `:invalid` — a perfectly normal
+amount like €82,500 would trip it. Removed. If what Nuno saw was this
+`:invalid` state rather than an actual blocked Save, this closes it; if
+Save was genuinely refusing to fire, that's not reproducible from the
+current code and is worth a fresh screenshot to pin down.
+
+**§3 — both parts checked against the rendered page, not just the CSS.**
+The Pass Reason card's side-by-side redesign is already shipped (Prompt
+852, "Card layout, settled... Side by side from `sm`, stacked below it" —
+confirmed still live: `DecisionNotesCards.tsx`'s outer div is `flex
+flex-col gap-2 sm:flex-row`). The People & Team width complaint could not
+be reproduced: screenshotted the tab at 1180/1366/1536px against the
+richest person-list in the demo dataset (Nina Capital, 3 visible ranked
+people) — at every width the People card has substantial unused
+whitespace; the row content (name + role + two badges) simply doesn't need
+more room in this data. Not changed, since the shared grid
+(`lg:grid-cols-[1fr_392px] xl:...3fr/2fr... 2xl:...2fr/1fr`) is already a
+carefully, comment-documented per-breakpoint tuning pass shared by all four
+entity-page tabs — reshaping it on a guess risks regressing the other
+three tabs to fix a problem not reproducible here. Needs a real screenshot
+or a specific investor/viewport from Nuno to act on safely.
+
+**§4 — the editor exists; it just never reaches the page Nuno is actually
+looking at.** A real, direct, one-click-and-save entity editor already
+exists: `EditCatalogEntityModal.tsx` + `PATCH /api/backoffice/catalog/entities/[id]`
+(Prompt 584 §C, 21 real fields — name, website, thesis, check size, sectors,
+stage, contacts, etc. — audited diff-based writes, `is_platform_admin`
+RLS). But it lives ONLY inside `/backoffice/catalog`, a separate admin
+tool. On the entity/investor dossier page a founder or admin actually
+looks at (`/entities/[id]`), the only correction affordance is "+ Add
+info" (`ContributionBox`) — a suggestion that goes into a review queue, not
+an instant save. Nothing on that page ever pointed at the real editor.
+Closed with a small bridge rather than rebuilding either side: the entity
+page already computes `catalogMatch` (via `matchEntityToCatalog`, used
+elsewhere for prefill) for free, so a "Correct this in the Catalog
+(admin) →" link — visible only when `role === 'developer'`, i.e. exactly
+the "3 authorized accounts" — opens `/backoffice/catalog?edit=<id>`. The
+catalog page gained one-shot `?edit=` support (opens `EditCatalogEntityModal`
+for that row on load, then strips the param so it isn't picked up as a
+stray filter by `useTableUrlState`, which otherwise treats any
+unreserved query key as a persisted filter). No new privilege surface: the
+link is a client-side courtesy identical in spirit to every other
+`role === 'developer'`-gated affordance in this codebase, and the real gate
+is still the route's own `requirePlatformAdmin()`.
+
+---
+
+## Prompt 880 — a correction to Prompt 879, same day: the Sherlock Insight banner (top of the entity page) is reserved exclusively for a genuine next action toward the open investor — never a data-setup task. Adding a contact person is surfaced only inside the People & Team tab, as a plain note, never in the banner.
+
+Confirmed before touching anything: Prompt 879's part B (the banner text
+becoming "Pick someone at {entity}…"/"Choose from their team" inside
+`SherlockInsightBanner`) was never actually built — no commit in
+`origin/main`'s history references 879, "Choose from their team", or "Pick
+someone at", and the code still had the original pre-879 text ("Add a
+contact person first — pre-flight needs one to check."). Nothing to
+revert; implemented the corrected design directly.
+
+`nextBestAction`'s no-person branch (`src/lib/relationship.ts`) now
+returns `undefined` instead of that setup-instruction string.
+`SherlockInsightBanner.tsx` already had the exact doctrine this needs,
+untouched, from Prompt 397 §A.4.4: `if (!action) return null` — "no
+advice, no box. Never an empty banner." Returning `undefined` here isn't
+new banner behavior, it's routing this one case into a mechanism the
+banner already had for it. Both `entity-mode.test.ts` assertions that
+literally expected the old string now expect `undefined`; grepped the
+whole repo for that exact string first — no other caller branches on it.
+
+The note itself now lives in the "People — one at a time, senior first"
+card (`src/app/entities/[id]/page.tsx`, People & Team tab): plain
+`text-xs text-gray-500`, gated on zero `people` rows AND the entity's
+*derived* stage being `not_contacted` — deliberately `relationshipSummary(...).stage`
+(same `getStage()` a `relationshipState` row can override), not the raw
+`entity.status` field, since those two can diverge (a manually-advanced
+pipeline stage with `entity.status` still literally `'not_contacted'`)
+and the note must not outlive that divergence any more than the banner
+itself would.
+
+`QuickCreatePerson` (previously orphaned — its only caller was
+`NeedsReviewPanel.tsx:700`) is now embedded in this same card as "Add
+someone else", always available (not only on the empty-state — useful for
+adding a second contact too), `onCreated` wired to the page's existing
+`setJustAddedPersonId` scroll-highlight mechanism. This is the only place
+a person can be added to an entity by hand; catalog research rows still
+get their own "Add as contact" button via `EntityPeoplePanel.tsx`
+(Prompt 263, unchanged, predates both 879 and this correction).
+
+879 part C — the `TermHint` for "pre-flight" landing awkwardly mid-sentence
+("Ready for first contact — pre-flight**ⓘ** clear for {name}.") — is fixed:
+`NEXT_STEP_GLOSSARY` entries now carry an optional `hintAt: 'end'`, set
+only for the pre-flight entry, moving its hint icon to the end of the
+sentence. The "Locked" entry (matches at the very start of the string
+already) is untouched.
+
+**Verified visually, not just by the passing unit tests** — screenshotted
+end-to-end against a `zz-test-880` fixture entity (cloned from the demo
+seed's Bynd VC in the browser's own `localStorage`, zero `people` rows, no
+`relationshipState` row, no interactions; never touched real/seed data):
+entity page shows no blue banner at all; People & Team shows the plain
+note and "Add someone else"; adding a contact through it makes the note
+disappear and the blue banner appear live, reading "Not ready yet —
+pre-flight found 1 issue for {name}:" with the hint icon correctly at the
+end of the sentence. Screenshots sent to the user directly.
+
+Branch `claude/prompt-880-sherlock-banner-scope`, build/tsc/vitest/eslint
+all green by exit code on the branch head before push.
+
+---
+
+## Prompt 882 — guide with discipline: a skippable Readiness & Train nudge before first contact, and extending "nothing to say → nothing renders" beyond the entity page
+
+Two of Nuno's five asks were already built (confirmed by reading
+`origin/main` before touching anything, not rebuilt): `nextBestAction()`/
+`nextBestActionButton()` already drive `SherlockInsightBanner`'s advice
+text and a real button per branch ("Log the first interaction", "Reply
+now", inline Approve/Deny on pending interest, "Classify N replies"), and
+the banner's button already switches the entity page's rail straight to
+`RailLogForm`, pre-filled, with `onSaved` flipping the rail to History
+where the store commits the interaction locally before the network call
+resolves. Left untouched beyond the one polish item below.
+
+**Polish item**: `SherlockInsightBanner` now renders directly after the
+header block and before `RelationshipSummaryCard` on the entity page
+(`src/app/entities/[id]/page.tsx`) — for a first-time, lost user, "what do
+I do next" should win top billing over the stepper. Every conditional
+warning that genuinely outranks it (hard-filter, lock, alignment, pending
+interest) is unchanged and still renders above both.
+
+**Part A — `orgs.readiness_train_first_used_at`.** New column
+(`supabase/migrations/20260910140000_readiness_train_first_used_at.sql`),
+set exactly once via a guarded `update orgs set ... where id = $org and
+readiness_train_first_used_at is null` — factored into one shared helper,
+`markReadinessTrainFirstUsed()` (`src/lib/readiness-usage.ts`), so all
+call sites share the identical guard and the identical "never fail the
+real action this rides on" swallow-errors behaviour. Hooked at every
+sub-tab of Readiness & Train that has a genuine "did something" moment,
+not merely a tab open:
+- **Review** — `/api/review/investability` POST, after the `review_runs`
+  insert (the pre-existing hook from earlier in this session, refactored
+  onto the shared helper).
+- **Train** — `/api/coaching/feedback` POST, after the `coaching_runs`
+  insert (a practice session actually graded).
+- **Pitch Blueprint** — `/api/blueprint` POST, after `runAnalysis()`'s own
+  ingestion (fires whether or not it proposed anything new this pass —
+  the founder still ran a real analysis).
+- **Market data** — hooked at BOTH of its two genuine actions:
+  `/api/market-data/document-extract` POST ("Read my documents", pulling
+  market data from picked Vault files) and `/api/market-data` POST
+  (saving the founder's own typed market figures).
+- **Action plan** — deliberately left OUT. Read on `ai_reviews`/company
+  claims/the Data Room checklist, entirely derived; it has no save or
+  generate action of its own (claim accept/reject there routes through
+  Blueprint's own `/api/blueprint/claim`, already covered by the
+  Blueprint hook firing first; the Vault "upload corrected version"
+  control belongs to the Vault feature, not to "used Readiness & Train").
+- **Sherlock Prep** — not in Nuno's own named list for this prompt (only
+  Review, Blueprint, Market data, Action plan, Train were named); left
+  untouched rather than guessing at a trigger the prompt didn't ask for.
+
+**Part B — `PreContactReadinessNudge.tsx`.** Deliberately NOT built on the
+onboarding engine (`src/lib/onboarding/engine.ts`, `content.ts`,
+`OnboardingProvider.tsx`, `onboarding_state`) — that engine is "show once,
+dismiss, persist, never again," and Nuno's own wording ("esta dica só deve
+aparecer até a startup usar pela primeira vez a ferramenta") means the
+opposite: it must keep recurring every time the situation applies until
+the org has genuinely used the tool. So this is a small, self-contained
+component computing its own condition fresh on every render — `entity
+stage === 'not_contacted' && touchCount === 0 && !org.readiness_train_first_used_at`
+— reading `useStore()` directly, same "live, recomputed, nothing
+persisted" shape as `SherlockInsightBanner`'s `if (!action) return null`
+and Pipeline's `readiness-strip.ts` `hasAnythingToShow()`. "Skip" is local
+`useState` only — never a write to `onboarding_state` or any other
+persisted flag; only the org actually using Readiness & Train (Part A's
+timestamp) makes it stop appearing, everywhere, permanently. Visual
+language borrowed from `CoachMark.tsx`'s bubble styling, not its dismiss
+mechanism. Anchored in two places: inside `SherlockInsightBanner` (right
+below the main teal box, next to "Log the first interaction"), and above
+`MessageThreadCore` on the entity page's Message tab (a not-yet-contacted
+entity can already be message-eligible — an investor who claimed their
+profile before any founder outreach).
+
+**Part C — the mandatory/dismissible taxonomy, as asked, documented rather
+than rebuilt** (this codebase already has the shape; it just wasn't
+written down as a rule):
+- **Mandatory** = `preflight()`'s own checks (`src/lib/rules.ts`,
+  consumed via `preflightSummary()` in `src/lib/relationship.ts`). These
+  already block "ready" status and are named individually in
+  `nextBestAction`'s "Not ready yet — pre-flight found N issues" branch.
+  Mandatory today by construction — you cannot get a green pre-flight
+  without addressing them. Nothing new to build here.
+- **Dismissible** = everything else: the onboarding engine's coachmarks/
+  modals (`seen`-gated, permanent once dismissed), and every live/
+  recomputed nudge — Part B's Readiness tip, Pipeline's readiness strip,
+  and Part D's Data Room tip below. All of these must stay skippable and
+  must never block navigation or the ability to act.
+
+Any future tip must be classified as one or the other before it ships: if
+it isn't an existing `preflight()` check, it's dismissible, full stop.
+
+**Part D — Data Room tip + audit of Today/company profile/catalog.** Built
+the one fully-specified example: `dataRoomFirstContactTipApplies(db)`
+(`src/lib/relationship.ts`) — `db.documents.length === 0` AND at least one
+entity has the DERIVED stage (`getStage()`, same correction as Prompt
+880's People & Team note) `'not_contacted'`. Rendered on
+`src/app/documents/page.tsx`'s Documents & Vault Data Room tab: "No
+documents in your data room yet — investors will ask for these once you
+reach out." linking to the Documents panel. Live, recomputed, no
+persistence — gone the instant a document exists. Unit-tested in
+`entity-mode.test.ts` (three cases: applies, gone once a document exists,
+gone when no entity is `not_contacted`).
+
+Audit of Today, company profile, and catalog (report only, per the
+prompt's own instruction — nothing built beyond this without a follow-up
+decision from Nuno):
+- **Today** (`TodayPanel.tsx`): no live/recomputed contextual-tip layer
+  today, only static per-section empty copy. Real gap: an empty pipeline
+  (`db.entities.length === 0`) looks identical to "fully caught up" —
+  proposed condition `db.entities.length === 0`, copy "Your pipeline is
+  empty — add investors from the catalog or Pipeline to start seeing next
+  actions here."
+- **Company profile** (`/settings`, `CompanyPanel.tsx`): already has a
+  real, objective gap engine — `calcCompanyCompleteness()`
+  (`src/lib/companyCompleteness.ts`) — covering Identity/Team/Round.
+  Cap table sits outside it entirely and is the one objectively-checkable
+  sibling gap (Previous funding/Traction have no "should always be
+  non-empty" truth). Proposed condition `org.round_raising !== false &&
+  capTableEntries.length === 0`, copy "No cap table entered yet —
+  investors will ask for your ownership structure once you're raising."
+- **Catalog**: there is no founder-facing catalog browsing page left to
+  audit — `/packs` now redirects to `/pipeline` (pack browsing/unlocking
+  was dropped, per that route's own comment), and the only surviving
+  catalog UI (the "Suggest an investor" modal, the frosted catalog-
+  delivery panel) already lives on Pipeline, already covered by
+  Pipeline's `readiness-strip.ts`. Plain "nothing to flag" — the audit's
+  own accepted, correct answer.
+
+Neither the Today nor the company-profile tip is built — reported per the
+prompt's own instruction, awaiting Nuno's decision on which (if either) to
+build next.
+
+**Verified**: full `tsc`/`vitest`/`eslint`/`build` green by exit code
+(3678 tests, 245 files). Against production (`wkjcaoqdvhykrfacsylr`): a
+disposable `zz-test-882-readiness-nudge` org confirmed the guarded update
+fires exactly once (same timestamp before/after a second call with the
+column already non-null), then deleted. Screenshotted end-to-end in
+`dev:verify` demo mode against a `zz-test-882-entity` fixture (cloned from
+the seed's Bynd VC, zero interactions, zero documents, injected via
+`localStorage`, never touching real data): banner-then-nudge-then-stepper
+order confirmed; Skip collapses the nudge for that view only; a reload
+brings it back; the Data Room tip shows with zero documents; setting
+`org.readiness_train_first_used_at` makes the nudge disappear everywhere,
+permanently, confirmed both in the full flow and in an isolated repro.
+Screenshots sent to the user directly.
+
+Branch `claude/prompt-882-guided-discipline`.

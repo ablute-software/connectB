@@ -401,7 +401,7 @@ function InvestorAccountsTable() {
           <ul className="divide-y divide-gray-100 text-sm">
             {pending.map((a) => (
               <li key={a.entityId} className="flex flex-wrap items-center gap-2 py-2">
-                <span className="font-medium">{a.name}</span>
+                <Link href={`/backoffice/ficha-cliente/investor_entity/${a.entityId}`} className="font-medium text-[#0E7490] hover:underline">{a.name}</Link>
                 <span className="text-xs text-gray-500">
                   {tierName(a.planTier ?? 'tier_a')} → <b>{tierName(a.planTierRequested)}</b>
                   {a.planTierRequestedAt && ` · requested ${a.planTierRequestedAt.slice(0, 10)}`}
@@ -476,6 +476,10 @@ function InvestorAccountsTable() {
                       </span>
                     )}
                   </ViewerEntryName>
+                  {/* Prompt 877 §113 — a second, non-impersonating way in:
+                      the customer/billing record, not the live account view. */}
+                  <Link href={`/backoffice/ficha-cliente/investor_entity/${a.entityId}`} title="Ficha do cliente"
+                    className="ml-1.5 text-gray-400 hover:text-[#0E7490]">▦</Link>
                 </td>
                 <td className="pr-3">
                   <div className="flex items-center gap-1.5">

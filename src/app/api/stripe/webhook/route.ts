@@ -6,12 +6,15 @@
 // re-applies the same terminal state.
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import {
   investorBillingConfigured, investorStripePriceMap,
   stripeConfigured, stripePriceMap, stripeWebhookSecret,
 } from '@/lib/stripe-env';
-import { billingEffectFromEvent, investorBillingEffectFromEvent, parseStripeSigHeader } from '@/lib/billing';
+import {
+  billingEffectFromEvent, investorBillingEffectFromEvent, invoiceEffectFromEvent,
+  investorInvoiceEffectFromEvent, parseStripeSigHeader,
+} from '@/lib/billing';
 import { applyPlanChangeSideEffects } from '@/lib/plan-sync';
 import { applyInvestorTierToFirm } from '@/lib/investor-plan-apply';
 import { INVESTOR_PLAN_TO_MATCHDEAL_TIER } from '@/lib/plans';
@@ -31,6 +34,33 @@ function verify(rawBody: string, sigHeader: string | null, secret: string, nowSe
     const sigBuf = Buffer.from(sig);
     return sigBuf.length === expectedBuf.length && crypto.timingSafeEqual(sigBuf, expectedBuf);
   });
+}
+
+// Prompt 874 — the reverse-lookup fallback that investor_billing's own
+// migration 0287 anticipated (its `investor_billing_subscription_idx` comment
+// says as much) but that neither existing handler above ever actually
+// implements — confirmed by reading both before writing this. Invoice events
+// do not reliably carry the checkout-time metadata (recent Stripe API
+// versions nest subscription metadata under `subscription_details.metadata`
+// rather than copying it to the invoice's own top-level `metadata`, and even
+// that may be empty), so when metadata is silent, this is what resolves the
+// invoice to a founder org or an investor firm — by the one field an invoice
+// always carries: its Stripe customer id.
+async function resolveSubjectIdByCustomer(
+  admin: SupabaseClient,
+  table: 'orgs' | 'investor_billing',
+  idColumn: 'id' | 'catalog_entity_id',
+  stripeCustomerId: string | undefined,
+): Promise<string | null> {
+  if (!stripeCustomerId) return null;
+  const { data, error } = await admin
+    .from(table)
+    .select(idColumn)
+    .eq('stripe_customer_id', stripeCustomerId)
+    .limit(1);
+  if (error || !data || data.length === 0) return null;
+  const row = data[0] as Record<string, string>;
+  return row[idColumn] ?? null;
 }
 
 export async function POST(req: Request) {
@@ -54,6 +84,90 @@ export async function POST(req: Request) {
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  // Prompt 874 — invoice mirror, a third event family distinct from the two
+  // below: invoiceEffectFromEvent/investorInvoiceEffectFromEvent return null
+  // for every type except invoice.paid/invoice.payment_failed, so this never
+  // overlaps checkout.session.completed or customer.subscription.*. Handled
+  // first, ahead of the subscription paths, purely because it's independent
+  // of them — order doesn't matter for correctness here.
+  const invoiceInvestorEffect = investorInvoiceEffectFromEvent(event as Record<string, unknown>);
+  const invoiceOrgEffect = invoiceEffectFromEvent(event as Record<string, unknown>);
+  if ((invoiceInvestorEffect || invoiceOrgEffect) && url && service) {
+    const admin = createClient(url, service, { auth: { persistSession: false } });
+
+    if (invoiceInvestorEffect) {
+      const catalogEntityId = invoiceInvestorEffect.catalogEntityId
+        ?? await resolveSubjectIdByCustomer(admin, 'investor_billing', 'catalog_entity_id', invoiceInvestorEffect.stripeCustomerId);
+      if (!catalogEntityId) {
+        console.error(`Stripe invoice webhook: could not resolve firm for invoice=${invoiceInvestorEffect.stripeInvoiceId} (no metadata, no stripe_customer_id match)`);
+      } else {
+        const row = {
+          kind: 'investor_entity' as const,
+          catalog_entity_id: catalogEntityId,
+          org_id: null,
+          stripe_invoice_id: invoiceInvestorEffect.stripeInvoiceId,
+          stripe_customer_id: invoiceInvestorEffect.stripeCustomerId ?? null,
+          stripe_subscription_id: invoiceInvestorEffect.stripeSubscriptionId,
+          amount_due_cents: invoiceInvestorEffect.amountDueCents,
+          amount_paid_cents: invoiceInvestorEffect.amountPaidCents,
+          currency: invoiceInvestorEffect.currency,
+          status: invoiceInvestorEffect.status,
+          period_start: invoiceInvestorEffect.periodStart,
+          period_end: invoiceInvestorEffect.periodEnd,
+          due_date: invoiceInvestorEffect.dueDate,
+          paid_at: invoiceInvestorEffect.paidAt,
+          hosted_invoice_url: invoiceInvestorEffect.hostedInvoiceUrl,
+          updated_at: new Date().toISOString(),
+        };
+        const { error: invErr } = await admin.from('billing_invoices').upsert(row, { onConflict: 'stripe_invoice_id' });
+        if (invErr) console.error('Stripe invoice webhook: billing_invoices upsert (investor) failed:', invErr.message);
+
+        // invoice.payment_failed leaves next_payment_due_at untouched — the
+        // key is only set on the patch when invoice.paid actually produced one.
+        const patch: Record<string, unknown> = { last_payment_status: invoiceInvestorEffect.lastPaymentStatus };
+        if (invoiceInvestorEffect.nextPaymentDueAt) patch.next_payment_due_at = invoiceInvestorEffect.nextPaymentDueAt;
+        const { error: colErr } = await admin.from('investor_billing').update(patch).eq('catalog_entity_id', catalogEntityId);
+        if (colErr) console.error('Stripe invoice webhook: investor_billing denorm update failed:', colErr.message);
+      }
+    }
+
+    if (invoiceOrgEffect) {
+      const orgId = invoiceOrgEffect.orgId
+        ?? await resolveSubjectIdByCustomer(admin, 'orgs', 'id', invoiceOrgEffect.stripeCustomerId);
+      if (!orgId) {
+        console.error(`Stripe invoice webhook: could not resolve org for invoice=${invoiceOrgEffect.stripeInvoiceId} (no metadata, no stripe_customer_id match)`);
+      } else {
+        const row = {
+          kind: 'org' as const,
+          org_id: orgId,
+          catalog_entity_id: null,
+          stripe_invoice_id: invoiceOrgEffect.stripeInvoiceId,
+          stripe_customer_id: invoiceOrgEffect.stripeCustomerId ?? null,
+          stripe_subscription_id: invoiceOrgEffect.stripeSubscriptionId,
+          amount_due_cents: invoiceOrgEffect.amountDueCents,
+          amount_paid_cents: invoiceOrgEffect.amountPaidCents,
+          currency: invoiceOrgEffect.currency,
+          status: invoiceOrgEffect.status,
+          period_start: invoiceOrgEffect.periodStart,
+          period_end: invoiceOrgEffect.periodEnd,
+          due_date: invoiceOrgEffect.dueDate,
+          paid_at: invoiceOrgEffect.paidAt,
+          hosted_invoice_url: invoiceOrgEffect.hostedInvoiceUrl,
+          updated_at: new Date().toISOString(),
+        };
+        const { error: invErr } = await admin.from('billing_invoices').upsert(row, { onConflict: 'stripe_invoice_id' });
+        if (invErr) console.error('Stripe invoice webhook: billing_invoices upsert (org) failed:', invErr.message);
+
+        const patch: Record<string, unknown> = { last_payment_status: invoiceOrgEffect.lastPaymentStatus };
+        if (invoiceOrgEffect.nextPaymentDueAt) patch.next_payment_due_at = invoiceOrgEffect.nextPaymentDueAt;
+        const { error: colErr } = await admin.from('orgs').update(patch).eq('id', orgId);
+        if (colErr) console.error('Stripe invoice webhook: orgs denorm update failed:', colErr.message);
+      }
+    }
+
+    return NextResponse.json({ received: true });
+  }
 
   // Lado investidor primeiro, e os dois são mutuamente exclusivos por
   // construção: um evento de founder traz `metadata.org_id` e nenhum

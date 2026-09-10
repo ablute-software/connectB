@@ -16,9 +16,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { PLANS, planLabelForSlug } from '@/lib/plans';
 import { PROMO_ELIGIBLE_PLANS, discountedPriceEur, normalizeDiscountForKind, type PromoKind } from '@/lib/promo';
+import { Tabs } from '@/components/ui';
 import type { PlanTier } from '@/lib/types';
 
-type OutreachCategory = 'startup' | 'accelerator' | 'incubator' | 'program';
+type OutreachCategory = 'startup' | 'accelerator' | 'incubator' | 'program' | 'vc';
 type OutreachStatus = 'to_contact' | 'contacted' | 'replied' | 'no_reply' | 'declined';
 
 interface Redeemer { orgId: string; orgName: string }
@@ -42,13 +43,44 @@ interface Target {
   notes: string | null;
   created_at: string;
   redeemed: Redeemer[];
+  // Prompt 876 §A — the startup that will actually RECEIVE the code,
+  // distinct from `name` (the program/VC's own name) and from email/phone
+  // above (the program/VC's own contact channel).
+  recipient_name: string | null;
+  recipient_email: string | null;
+  contact_person_name: string | null;
+  program_info: string | null;
+  // Prompt 876 §D — derived server-side, never stored (see isOutreachArchived).
+  is_archived: boolean;
+}
+
+// Prompt 876 §C
+type AttachmentLabel = 'proof_of_publicity' | 'contract' | 'other';
+interface Attachment {
+  id: string;
+  label: AttachmentLabel;
+  storage_path: string;
+  original_filename: string;
+  malware_scan_status: 'not_scanned' | 'pending' | 'clean' | 'local_only' | 'flagged';
+  created_at: string;
 }
 
 const CATEGORY_LABEL: Record<OutreachCategory, string> = {
-  startup: 'Startup', accelerator: 'Accelerator', incubator: 'Incubator', program: 'Program',
+  startup: 'Startup', accelerator: 'Accelerator', incubator: 'Incubator', program: 'Program', vc: 'VC',
 };
 const STATUS_LABEL: Record<OutreachStatus, string> = {
   to_contact: 'To contact', contacted: 'Contacted', replied: 'Replied', no_reply: 'No reply', declined: 'Declined',
+};
+// Prompt 876 §C — three drop-zones, one per label, rather than the
+// prompt's own suggested two ("Proof of publicity" / "Other documents"):
+// Nuno named contracts explicitly as their own category of document
+// ("documentos como contratos"), and the schema already has a dedicated
+// 'contract' label for exactly that — collapsing it into "Other" would
+// make that label practically unreachable from this UI. Flagged as a
+// deliberate small deviation from the prompt's own simplification, not an
+// oversight.
+const ATTACHMENT_LABEL: Record<AttachmentLabel, string> = {
+  proof_of_publicity: 'Proof of publicity', contract: 'Contract', other: 'Other documents',
 };
 const ELIGIBLE_PLAN_ROWS = PLANS.filter((p) => PROMO_ELIGIBLE_PLANS.includes(p.tier));
 
@@ -187,6 +219,16 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
+  // Prompt 876 §A — the recipient sub-section is optional and collapsed by
+  // default (most targets are the program/VC itself, not yet tied to a
+  // specific startup); the contact-person/program-info fields are always
+  // visible since Nuno described them as standard for every target.
+  const [recipientOpen, setRecipientOpen] = useState(false);
+  const [recipientName, setRecipientName] = useState('');
+  const [recipientEmail, setRecipientEmail] = useState('');
+  const [contactPersonName, setContactPersonName] = useState('');
+  const [programInfo, setProgramInfo] = useState('');
+
   const effectivePct = normalizeDiscountForKind(kind, Number(discountPct) || 0);
 
   function togglePlan(tier: PlanTier) {
@@ -198,12 +240,20 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
     try {
       const res = await fetch('/api/backoffice/outreach', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name, category, kind, discount_pct: effectivePct, applicable_plans: plans }),
+        body: JSON.stringify({
+          name, category, kind, discount_pct: effectivePct, applicable_plans: plans,
+          recipient_name: recipientOpen ? recipientName.trim() || null : null,
+          recipient_email: recipientOpen ? recipientEmail.trim() || null : null,
+          contact_person_name: contactPersonName.trim() || null,
+          program_info: programInfo.trim() || null,
+        }),
       });
       const body = await res.json();
       if (!body.ok) { setErr(body.error ?? 'Could not add the target.'); return; }
       setName(''); setCategory('startup'); setKind('percent_off'); setDiscountPct('20');
       setPlans(ELIGIBLE_PLAN_ROWS.map((p) => p.tier));
+      setRecipientOpen(false); setRecipientName(''); setRecipientEmail('');
+      setContactPersonName(''); setProgramInfo('');
       setOpen(false);
       onCreated();
     } finally { setBusy(false); }
@@ -262,6 +312,46 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
             })}
           </div>
         </div>
+        <div className="sm:col-span-2 lg:col-span-4">
+          <label className="text-xs font-medium text-gray-500">Contact person (program/VC side)</label>
+          <input value={contactPersonName} onChange={(e) => setContactPersonName(e.target.value)} autoComplete="off"
+            placeholder="Who we're in touch with at this program/VC"
+            className="mt-1 w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm" />
+        </div>
+        <div className="sm:col-span-2 lg:col-span-4">
+          <label className="text-xs font-medium text-gray-500">Program info</label>
+          <textarea value={programInfo} onChange={(e) => setProgramInfo(e.target.value)} rows={3}
+            placeholder="What the program is, its format (e.g. it's a call), and who at SherlockDeal made the contact"
+            className="mt-1 w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm" />
+        </div>
+        <div className="sm:col-span-2 lg:col-span-4">
+          {!recipientOpen ? (
+            <button type="button" onClick={() => setRecipientOpen(true)} className="text-xs text-[#0E7490] hover:underline">
+              + Optional recipient (a startup that will receive this code)
+            </button>
+          ) : (
+            <div className="rounded-lg border border-gray-100 bg-gray-50/60 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-medium text-gray-500">Optional recipient</span>
+                <button type="button" onClick={() => { setRecipientOpen(false); setRecipientName(''); setRecipientEmail(''); }}
+                  className="text-xs text-gray-400 hover:underline">Remove</button>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Recipient name</label>
+                  <input value={recipientName} onChange={(e) => setRecipientName(e.target.value)} autoComplete="off"
+                    className="mt-1 w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Recipient email</label>
+                  <input type="email" value={recipientEmail} onChange={(e) => setRecipientEmail(e.target.value)} autoComplete="off"
+                    placeholder="Locks redemption to this email"
+                    className="mt-1 w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm" />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
       {err && <p className="mt-2 text-xs text-[#B00000]">{err}</p>}
       <div className="mt-3 flex gap-1.5">
@@ -275,6 +365,171 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
   );
 }
 
+// Prompt 876 §A/§C — a single modal for the fields that don't fit the main
+// table (recipient/contact-person/program-info, all optional and easy to
+// leave blank most of the time) AND the document attachments, rather than
+// two separate affordances. The prompt asked for a documents panel and
+// separately for recipient/contact/program-info inputs "in the CreateForm";
+// editing those same fields on an EXISTING row still needs somewhere to
+// live, and since Part C already needs a per-row detail surface, putting
+// both there avoids widening the already-16-column table further. Flagged
+// as a deliberate consolidation, not silently decided.
+function DetailsPanel({ target, onClose, onSaved }: { target: Target; onClose: () => void; onSaved: () => void }) {
+  const [recipientName, setRecipientName] = useState(target.recipient_name ?? '');
+  const [recipientEmail, setRecipientEmail] = useState(target.recipient_email ?? '');
+  const [contactPersonName, setContactPersonName] = useState(target.contact_person_name ?? '');
+  const [programInfo, setProgramInfo] = useState(target.program_info ?? '');
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState('');
+
+  const [attachments, setAttachments] = useState<Attachment[] | null>(null);
+  const [attachErr, setAttachErr] = useState('');
+  const [uploadingLabel, setUploadingLabel] = useState<AttachmentLabel | null>(null);
+
+  function refreshAttachments() {
+    fetch(`/api/backoffice/outreach/${target.id}/attachments`).then((r) => r.json()).then((body) => {
+      if (body.ok) setAttachments(body.attachments);
+    }).catch(() => {});
+  }
+  useEffect(refreshAttachments, [target.id]);
+
+  async function saveDetails() {
+    setErr(''); setBusy(true); setSaved(false);
+    try {
+      const res = await fetch(`/api/backoffice/outreach/${target.id}`, {
+        method: 'PATCH', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          recipient_name: recipientName.trim() || null,
+          recipient_email: recipientEmail.trim() || null,
+          contact_person_name: contactPersonName.trim() || null,
+          program_info: programInfo.trim() || null,
+        }),
+      });
+      const body = await res.json();
+      if (!body.ok) { setErr(body.error ?? 'Could not save.'); return; }
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+      onSaved();
+    } finally { setBusy(false); }
+  }
+
+  async function uploadFiles(label: AttachmentLabel, files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setAttachErr(''); setUploadingLabel(label);
+    try {
+      const form = new FormData();
+      form.set('label', label);
+      for (const f of Array.from(files)) form.append('files', f);
+      const res = await fetch(`/api/backoffice/outreach/${target.id}/attachments`, { method: 'POST', body: form });
+      const body = await res.json();
+      if (!body.ok) { setAttachErr(body.error ?? 'Upload failed.'); return; }
+      refreshAttachments();
+    } catch {
+      setAttachErr('Upload failed — check your connection.');
+    } finally {
+      setUploadingLabel(null);
+    }
+  }
+
+  async function deleteAttachment(id: string) {
+    const prev = attachments;
+    setAttachments((cur) => (cur ?? []).filter((a) => a.id !== id));
+    const res = await fetch(`/api/backoffice/outreach/${target.id}/attachments/${id}`, { method: 'DELETE' });
+    const body = await res.json().catch(() => ({ ok: false }));
+    if (!body.ok) { setAttachments(prev); setAttachErr(body.error ?? 'Could not delete.'); }
+  }
+
+  // Prompt-wide convention (see CLAUDE.md): a fixed/inset-0 overlay must go
+  // through createPortal(document.body), never render inline, and this SSR
+  // guard is the established pattern for it (see DeleteControl above).
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="max-h-[85vh] w-full max-w-[640px] overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-gray-900">{target.name} — details &amp; documents</h2>
+          <button onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-700">×</button>
+        </div>
+
+        <div className="space-y-3">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div>
+              <label className="text-xs font-medium text-gray-500">Recipient name</label>
+              <input value={recipientName} onChange={(e) => setRecipientName(e.target.value)} autoComplete="off"
+                className="mt-1 w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500">Recipient email</label>
+              <input type="email" value={recipientEmail} onChange={(e) => setRecipientEmail(e.target.value)} autoComplete="off"
+                placeholder="Locks redemption to this email"
+                className="mt-1 w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm" />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-500">Contact person (program/VC side)</label>
+            <input value={contactPersonName} onChange={(e) => setContactPersonName(e.target.value)} autoComplete="off"
+              className="mt-1 w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-500">Program info</label>
+            <textarea value={programInfo} onChange={(e) => setProgramInfo(e.target.value)} rows={3}
+              className="mt-1 w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm" />
+          </div>
+          {err && <p className="text-xs text-[#B00000]">{err}</p>}
+          <div className="flex items-center gap-2">
+            <button onClick={saveDetails} disabled={busy}
+              className="rounded-lg bg-[#0E7490] px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
+              {busy ? 'Saving…' : 'Save'}
+            </button>
+            {saved && <span className="text-xs text-emerald-600">Saved.</span>}
+          </div>
+        </div>
+
+        <hr className="my-4 border-gray-100" />
+
+        <div>
+          <h3 className="mb-2 text-sm font-bold text-gray-900">Documents</h3>
+          {attachErr && <p className="mb-2 text-xs text-[#B00000]">{attachErr}</p>}
+          <div className="grid gap-2 sm:grid-cols-3">
+            {(Object.keys(ATTACHMENT_LABEL) as AttachmentLabel[]).map((label) => (
+              <label key={label}
+                className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-gray-300 px-2 py-4 text-center text-xs text-gray-500 hover:border-[#0E7490] hover:text-[#0E7490]">
+                {uploadingLabel === label ? 'Uploading…' : ATTACHMENT_LABEL[label]}
+                <input type="file" multiple hidden disabled={uploadingLabel !== null}
+                  onChange={(e) => { uploadFiles(label, e.target.files); e.target.value = ''; }} />
+              </label>
+            ))}
+          </div>
+
+          {attachments === null ? (
+            <p className="mt-3 text-xs text-gray-400">Loading…</p>
+          ) : attachments.length === 0 ? (
+            <p className="mt-3 text-xs text-gray-400">No documents uploaded yet.</p>
+          ) : (
+            <ul className="mt-3 divide-y divide-gray-50 text-xs">
+              {attachments.map((a) => (
+                <li key={a.id} className="flex items-center justify-between gap-2 py-1.5">
+                  <span className="min-w-0 truncate">
+                    <span className="mr-1.5 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500">{ATTACHMENT_LABEL[a.label]}</span>
+                    {a.original_filename}
+                    {a.malware_scan_status === 'flagged' && <span className="ml-1.5 font-semibold text-[#B00000]">flagged</span>}
+                    {a.malware_scan_status === 'pending' && <span className="ml-1.5 text-amber-600">scanning…</span>}
+                  </span>
+                  <button onClick={() => deleteAttachment(a.id)} aria-label={`Delete ${a.original_filename}`}
+                    className="shrink-0 text-gray-300 hover:text-[#B00000]">×</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export default function OutreachPage() {
   const [targets, setTargets] = useState<Target[] | null>(null);
   const [err, setErr] = useState('');
@@ -282,6 +537,10 @@ export default function OutreachPage() {
   const [rowErr, setRowErr] = useState<Record<string, string>>({});
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState('');
+  // Prompt 876 §D — "Active" / "Arquivo", not the same thing as deleted_at
+  // (a target can be archived while still fully alive as a row).
+  const [activeTab, setActiveTab] = useState<'active' | 'archive'>('active');
+  const [detailsTarget, setDetailsTarget] = useState<Target | null>(null);
 
   const [nameFilter, setNameFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -379,9 +638,14 @@ export default function OutreachPage() {
     } finally { setGeneratingId(null); }
   }
 
+  // Prompt 876 §D — tab split happens before the existing UI filters, so
+  // "showing N of M" and the filter dropdowns all operate within the
+  // current tab, not across both.
+  const tabTargets = useMemo(() => (targets ?? []).filter((t) => (activeTab === 'archive' ? t.is_archived : !t.is_archived)), [targets, activeTab]);
+  const archivedCount = useMemo(() => (targets ?? []).filter((t) => t.is_archived).length, [targets]);
+
   const filtered = useMemo(() => {
-    if (!targets) return [];
-    return targets.filter((t) => {
+    return tabTargets.filter((t) => {
       if (nameFilter.trim() && !t.name.toLowerCase().includes(nameFilter.trim().toLowerCase())) return false;
       if (typeFilter && t.kind !== typeFilter) return false;
       if (categoryFilter && t.category !== categoryFilter) return false;
@@ -393,7 +657,7 @@ export default function OutreachPage() {
       if (dateTo && (!t.contacted_on || t.contacted_on > dateTo)) return false;
       return true;
     });
-  }, [targets, nameFilter, typeFilter, categoryFilter, planFilter, discountMin, discountMax, statusFilter, dateFrom, dateTo]);
+  }, [tabTargets, nameFilter, typeFilter, categoryFilter, planFilter, discountMin, discountMax, statusFilter, dateFrom, dateTo]);
 
   const anyFilterSet = !!(nameFilter.trim() || typeFilter || categoryFilter || planFilter || discountMin.trim() || discountMax.trim() || statusFilter || dateFrom || dateTo);
   function clearFilters() {
@@ -401,10 +665,10 @@ export default function OutreachPage() {
     setDiscountMin(''); setDiscountMax(''); setStatusFilter(''); setDateFrom(''); setDateTo('');
   }
 
-  // Prompt 855 §A.4 — +1 for the new leading delete column. The derived
+  // Prompt 876 §C — +1 for the new trailing Details column. The derived
   // Redeemed column is still the one NOT counted here (colSpan below adds
-  // its own +1 for that, unchanged) — 17 rendered <th> cells in total.
-  const COLUMN_COUNT = 16;
+  // its own +1 for that, unchanged) — 18 rendered <th> cells in total.
+  const COLUMN_COUNT = 17;
 
   return (
     <div className="space-y-4">
@@ -418,6 +682,12 @@ export default function OutreachPage() {
         </div>
         <CreateForm onCreated={refresh} />
       </div>
+
+      <Tabs active={activeTab} onChange={(v) => setActiveTab(v as 'active' | 'archive')}
+        items={[
+          { key: 'active', label: 'Active' },
+          { key: 'archive', label: 'Arquivo', badge: archivedCount || undefined },
+        ]} />
 
       {err && <p className="text-sm text-[#B00000]">{err}</p>}
 
@@ -486,7 +756,7 @@ export default function OutreachPage() {
                 className="rounded border border-gray-300 px-1.5 py-1 text-xs" />
             </label>
             {anyFilterSet && <button onClick={clearFilters} className="text-xs text-gray-400 hover:underline">Clear filters</button>}
-            <span className="ml-auto text-xs text-gray-400">showing {filtered.length} of {targets.length}</span>
+            <span className="ml-auto text-xs text-gray-400">showing {filtered.length} of {tabTargets.length}</span>
           </div>
 
           {targets.length === 0 ? (
@@ -513,6 +783,7 @@ export default function OutreachPage() {
                     <th className="px-2 py-2">Date</th>
                     <th className="px-2 py-2">Comment / reply</th>
                     <th className="px-2 py-2">Redeemed</th>
+                    <th className="px-2 py-2">Details</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -643,6 +914,12 @@ export default function OutreachPage() {
                             </span>
                           )}
                         </td>
+                        <td className="px-2 py-1.5">
+                          <button onClick={() => setDetailsTarget(t)}
+                            className="rounded border border-gray-200 px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-50">
+                            Details
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}
@@ -651,6 +928,9 @@ export default function OutreachPage() {
             </div>
           )}
         </div>
+      )}
+      {detailsTarget && (
+        <DetailsPanel target={detailsTarget} onClose={() => setDetailsTarget(null)} onSaved={refresh} />
       )}
     </div>
   );

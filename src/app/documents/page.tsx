@@ -14,6 +14,7 @@ import {
   collectFolderSelectionKeys, cycleGrantState,
   dueDiligenceUnderFolders, normalizeDocumentUrl, reorderByDrag, sanitizeStorageKey, type GrantState,
 } from '@/lib/data-room';
+import { dataRoomFirstContactTipApplies } from '@/lib/relationship';
 import { grantStatus } from '@/lib/access-grants';
 import { buildAccessRelationships, type RelationshipGrant } from '@/lib/data-room-access-relationships';
 import { uploadAndVerifyFile } from '@/lib/vault-upload-client';
@@ -1071,6 +1072,15 @@ function DocumentsPageInner() {
           People & Access
         </button>
       </div>
+      {/* Prompt 882 Part D — live, recomputed, no persistence: gone the
+          instant a document exists, same discipline as
+          PreContactReadinessNudge and Pipeline's readiness-strip.ts. */}
+      {tab === 'documents' && dataRoomFirstContactTipApplies(db) && (
+        <div className="rounded-xl border border-cyan-200 bg-cyan-50/70 p-3 text-[12.5px] text-cyan-900">
+          No documents in your data room yet — investors will ask for these once you reach out.{' '}
+          <a href="#documents-panel" className="font-semibold text-[#0E7490] hover:underline">Upload one →</a>
+        </div>
+      )}
       {tab === 'people' ? (
         <PeopleAccessPanel onShareByEmail={(email) => {
           // Prompt 545 — the share panel is on the Documents tab, so this
@@ -1110,7 +1120,7 @@ function DocumentsPageInner() {
         </Card>
         </div>
 
-        <div data-tour-id="documents-panel" className="space-y-4 md:col-span-2">
+        <div id="documents-panel" data-tour-id="documents-panel" className="space-y-4 md:col-span-2">
           <Card title={`Documents in “${selected?.name ?? ''}”`}>
             {documentOrderingAvailable && docsIn(selFolder).length > 1 && (
               <p className="mb-2 text-[11px] text-gray-400">Drag ⠿ to reorder, or drop a document onto a folder on the left to move it.</p>

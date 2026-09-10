@@ -3,11 +3,11 @@
 // as every other /api/backoffice/* route.
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
-import { PROMO_ELIGIBLE_PLANS, normalizeDiscountForKind, type PromoKind } from '@/lib/promo';
+import { PROMO_ELIGIBLE_PLANS, normalizeDiscountForKind, isOutreachArchived, type PromoKind } from '@/lib/promo';
 import type { OutreachCategory } from '@/lib/promo';
 import type { PlanTier } from '@/lib/types';
 
-const CATEGORIES: OutreachCategory[] = ['startup', 'accelerator', 'incubator', 'program'];
+const CATEGORIES: OutreachCategory[] = ['startup', 'accelerator', 'incubator', 'program', 'vc'];
 
 export async function GET() {
   const auth = await requirePlatformAdmin();
@@ -39,19 +39,30 @@ export async function GET() {
     }
   }
 
-  const codesById = new Map<string, string>();
+  // Prompt 876 §D — the same batched codes query now also carries what
+  // isOutreachArchived needs (redeemable_until, max_redemptions), so
+  // is_archived costs no extra round trip beyond what "Redeemed" already paid.
+  const codesById = new Map<string, { code: string; redeemable_until: string | null; max_redemptions: number | null }>();
   if (codeIds.length > 0) {
-    const { data: codes } = await admin.from('promo_codes').select('id, code').in('id', codeIds);
-    for (const c of codes ?? []) codesById.set(c.id as string, c.code as string);
+    const { data: codes } = await admin.from('promo_codes').select('id, code, redeemable_until, max_redemptions').in('id', codeIds);
+    for (const c of codes ?? []) {
+      codesById.set(c.id as string, { code: c.code as string, redeemable_until: c.redeemable_until as string | null, max_redemptions: c.max_redemptions as number | null });
+    }
   }
 
+  const now = new Date();
   return NextResponse.json({
     ok: true,
-    targets: (rows ?? []).map((r) => ({
-      ...r,
-      promo_code: r.promo_code_id ? (codesById.get(r.promo_code_id as string) ?? null) : null,
-      redeemed: r.promo_code_id ? (redemptionsByCode.get(r.promo_code_id as string) ?? []) : [],
-    })),
+    targets: (rows ?? []).map((r) => {
+      const codeInfo = r.promo_code_id ? (codesById.get(r.promo_code_id as string) ?? null) : null;
+      const redemptionCount = r.promo_code_id ? (redemptionsByCode.get(r.promo_code_id as string) ?? []).length : 0;
+      return {
+        ...r,
+        promo_code: codeInfo?.code ?? null,
+        redeemed: r.promo_code_id ? (redemptionsByCode.get(r.promo_code_id as string) ?? []) : [],
+        is_archived: isOutreachArchived(codeInfo, redemptionCount, now),
+      };
+    }),
   });
 }
 
@@ -61,7 +72,16 @@ export async function POST(req: Request) {
   const { admin, userId } = auth;
 
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
-  const { name, category, kind, discount_pct, applicable_plans, redeemable_until, benefit_duration_months, max_redemptions, website, email, phone } = body;
+  const {
+    name, category, kind, discount_pct, applicable_plans, redeemable_until, benefit_duration_months, max_redemptions,
+    website, email, phone,
+    // Prompt 876 §A — recipient_name/recipient_email describe the startup
+    // that will RECEIVE the code (distinct from `name`, the program/VC's
+    // own name, and from email/phone above, the program/VC's own contact
+    // channel). contact_person_name/program_info describe the program/VC
+    // side in more detail. All four optional.
+    recipient_name, recipient_email, contact_person_name, program_info,
+  } = body;
 
   if (typeof name !== 'string' || !name.trim()) {
     return NextResponse.json({ ok: false, error: 'Name is required.' }, { status: 400 });
@@ -99,6 +119,10 @@ export async function POST(req: Request) {
     website: typeof website === 'string' && website.trim() ? website.trim() : null,
     email: typeof email === 'string' && email.trim() ? email.trim() : null,
     phone: typeof phone === 'string' && phone.trim() ? phone.trim() : null,
+    recipient_name: typeof recipient_name === 'string' && recipient_name.trim() ? recipient_name.trim() : null,
+    recipient_email: typeof recipient_email === 'string' && recipient_email.trim() ? recipient_email.trim() : null,
+    contact_person_name: typeof contact_person_name === 'string' && contact_person_name.trim() ? contact_person_name.trim() : null,
+    program_info: typeof program_info === 'string' && program_info.trim() ? program_info.trim() : null,
     created_by: userId,
   }).select('*').single();
 
