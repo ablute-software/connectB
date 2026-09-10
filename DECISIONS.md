@@ -6451,3 +6451,64 @@ unreserved query key as a persisted filter). No new privilege surface: the
 link is a client-side courtesy identical in spirit to every other
 `role === 'developer'`-gated affordance in this codebase, and the real gate
 is still the route's own `requirePlatformAdmin()`.
+
+---
+
+## Prompt 880 — a correction to Prompt 879, same day: the Sherlock Insight banner (top of the entity page) is reserved exclusively for a genuine next action toward the open investor — never a data-setup task. Adding a contact person is surfaced only inside the People & Team tab, as a plain note, never in the banner.
+
+Confirmed before touching anything: Prompt 879's part B (the banner text
+becoming "Pick someone at {entity}…"/"Choose from their team" inside
+`SherlockInsightBanner`) was never actually built — no commit in
+`origin/main`'s history references 879, "Choose from their team", or "Pick
+someone at", and the code still had the original pre-879 text ("Add a
+contact person first — pre-flight needs one to check."). Nothing to
+revert; implemented the corrected design directly.
+
+`nextBestAction`'s no-person branch (`src/lib/relationship.ts`) now
+returns `undefined` instead of that setup-instruction string.
+`SherlockInsightBanner.tsx` already had the exact doctrine this needs,
+untouched, from Prompt 397 §A.4.4: `if (!action) return null` — "no
+advice, no box. Never an empty banner." Returning `undefined` here isn't
+new banner behavior, it's routing this one case into a mechanism the
+banner already had for it. Both `entity-mode.test.ts` assertions that
+literally expected the old string now expect `undefined`; grepped the
+whole repo for that exact string first — no other caller branches on it.
+
+The note itself now lives in the "People — one at a time, senior first"
+card (`src/app/entities/[id]/page.tsx`, People & Team tab): plain
+`text-xs text-gray-500`, gated on zero `people` rows AND the entity's
+*derived* stage being `not_contacted` — deliberately `relationshipSummary(...).stage`
+(same `getStage()` a `relationshipState` row can override), not the raw
+`entity.status` field, since those two can diverge (a manually-advanced
+pipeline stage with `entity.status` still literally `'not_contacted'`)
+and the note must not outlive that divergence any more than the banner
+itself would.
+
+`QuickCreatePerson` (previously orphaned — its only caller was
+`NeedsReviewPanel.tsx:700`) is now embedded in this same card as "Add
+someone else", always available (not only on the empty-state — useful for
+adding a second contact too), `onCreated` wired to the page's existing
+`setJustAddedPersonId` scroll-highlight mechanism. This is the only place
+a person can be added to an entity by hand; catalog research rows still
+get their own "Add as contact" button via `EntityPeoplePanel.tsx`
+(Prompt 263, unchanged, predates both 879 and this correction).
+
+879 part C — the `TermHint` for "pre-flight" landing awkwardly mid-sentence
+("Ready for first contact — pre-flight**ⓘ** clear for {name}.") — is fixed:
+`NEXT_STEP_GLOSSARY` entries now carry an optional `hintAt: 'end'`, set
+only for the pre-flight entry, moving its hint icon to the end of the
+sentence. The "Locked" entry (matches at the very start of the string
+already) is untouched.
+
+**Verified visually, not just by the passing unit tests** — screenshotted
+end-to-end against a `zz-test-880` fixture entity (cloned from the demo
+seed's Bynd VC in the browser's own `localStorage`, zero `people` rows, no
+`relationshipState` row, no interactions; never touched real/seed data):
+entity page shows no blue banner at all; People & Team shows the plain
+note and "Add someone else"; adding a contact through it makes the note
+disappear and the blue banner appear live, reading "Not ready yet —
+pre-flight found 1 issue for {name}:" with the hint icon correctly at the
+end of the sentence. Screenshots sent to the user directly.
+
+Branch `claude/prompt-880-sherlock-banner-scope`, build/tsc/vitest/eslint
+all green by exit code on the branch head before push.
