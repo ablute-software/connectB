@@ -6838,3 +6838,179 @@ Branch `claude/prompt-585-people-evidence-hooks`. Migration 0344 is the
 final one applied so far; next free number per `verify:migrations` is
 0345 at time of writing (resweep again before any further migration in
 this branch).
+
+## Prompt 585 Phase 2 — topic signal, person priority, match-score bonus, entity-header block
+
+Migrations `0345_catalog_topic_signal_and_person_priority.sql` and
+`0346_catalog_entity_contact_context.sql`, applied to production in
+pieces (the MCP tools' ~60s timeout again — see Phase 1's own note).
+
+**`catalog_topic_distance(a, b)`** — 0 same topic, 1 direct parent/child,
+2 grandparent/grandchild or siblings sharing a parent, else null (too far,
+ignored).
+
+**`catalog_topic_signal(org, person|entity)`** — exactly one of
+person/entity. Sums distance- (1.0/0.6/0.3), recency- (1.0 ≤12mo / 0.7
+≤36mo / 0.4 older) and strength/confidence-weighted contributions from
+eligible evidence (status found/verified, url present — enforced by the
+table already, not contributed by the requesting org itself, polarity ≠
+negative), capped at 4 per topic and 20 overall (internal scale).
+Threshold (rule 2 of the prompt): score reads as 0 ("mention") unless ≥2
+distinct evidence urls, or one at strength 4. Below threshold the score
+is force-zeroed but `top_evidence` still shows the raw contribution —
+informational, not hidden. `watch_outs`: negative-polarity evidence
+within tag-distance ≤1, listed, never subtracted.
+
+**`catalog_topic_signal_match_bonus(raw)`** — linear map from the 0-20
+internal scale to +0..+8 (Nuno's decision 5's own number), floor'd,
+capped.
+
+**`catalog_match_score()`** extended (every original line kept) with
+`v_bonus := bonus(greatest(entity's own signal, best eligible person's
+signal))` added before `return v_score`. "Eligible" here mirrors
+`catalog_person_priority`'s own gate (current, not `do_not_contact`,
+`seniority_rank <= 4`) rather than a narrower one — Nuno's "lightweight:
+adjust the live int directly" decision, no `match_components`/
+`match_formula_version` persisted-scoring system built (that structure
+doesn't exist yet; `MATCHING_ENGINE_SPEC.md`'s own first line already
+says "Nothing in this document is implemented" — building it as a
+prerequisite here would have been a much larger, unscoped undertaking).
+Registered here in DECISIONS.md rather than in
+`MATCHING_ENGINE_SPEC.md` itself, since that document describes a
+column (`match_formula_version`) that doesn't exist to bump — the spec
+document is unchanged by this prompt, on purpose; a future prompt that
+actually builds the persisted-components system is the right place to
+reconcile the two.
+
+**Bug found and fixed by zz-test verification, before this ever reached
+`main`:** the best-eligible-person-signal lookup was originally written
+as `select greatest(v_best_person_signal, ...) into v_best_person_signal
+from ... where <multiple rows>` — a scalar `greatest()`, not an
+aggregate, fed by a bare (non-`STRICT`) `SELECT INTO` over a
+multi-row query. PL/pgSQL's `SELECT INTO` without `STRICT` does not
+error on more than one row — it silently keeps whichever row the planner
+happens to return first. Built a 4-person zz-test fixture (one
+protected-tier person with no evidence, one rank-4 person with a real
+signal, one rank-4 person below threshold, one rank-9 excluded) and got
+`catalog_match_score` = 39 where it should have been 40 — the bonus came
+out 0 because the arbitrary "first" row the un-ordered query returned
+wasn't the one person who actually had a signal. Fixed by replacing the
+scalar `greatest()` with a real `max()` aggregate over the same query.
+Re-verified against the same fixture: 40, matching hand computation
+(base 15+12+10+2=39, bonus `floor(4*8/20)`=1). This is exactly the
+category of defect the "validate by exit code, never by grepping
+output" and "verify what you pushed" rules exist for, one level up:
+green `tsc`/`vitest`/`build` prove nothing about a SQL function's
+runtime correctness — only a real query against real data catches this
+class of bug, which is why Phase 1 and Phase 2 both budget time for a
+zz-test DB pass rather than treating it as optional.
+
+**`catalog_person_priority(org, person, entity)`** — materialized
+ranking. Eligibility: `seniority_rank <= 3` always eligible;
+`seniority_rank = 4` ONLY when the person's own topic signal
+`meets_threshold` (Nuno's decision: listed alongside ≤3, not gated on
+their absence as the prompt's own text originally read). Never rank 9 or
+null; never `do_not_contact`. Ordering: a protected tier
+(`seniority_rank <= 2`) always sorts before everyone else — a rank-4 (or
+rank-3) person with a strong signal may outrank ANOTHER rank-3/4 person,
+but never an eligible rank-1/2 person (Nuno's decision, verified live:
+the zz-test protected-tier person with score 0 ranked #1 ahead of the
+rank-4 person with score 4). Within each tier: score desc, seniority_rank
+asc, reachability desc (`linkedin_url is not null` — the only real
+reachability signal that exists on `catalog_people` today;
+`platform_member_id`/`accepts_cold_contact` do not exist on that table,
+confirmed against the live schema), is_primary desc.
+
+**`catalog_recompute_person_priority_backfill()`** — bulk entry point
+over every existing `(org_id, catalog_id)` pair in `catalog_deliveries`.
+Run against production: **4,093 rows** across **570** distinct
+`(org, entity)` pairs (of 880 total deliveries — the remaining 310 have
+no current, non-`do_not_contact`, ranked-≤9 affiliation to rank at all,
+which is correct, not a bug). 0 `do_not_contact` leaks, 0 rows at
+`rank_position = 0`, scores 0-10.8 (expected: real topic-signal coverage
+is still thin — Phase 1's AI-fallback tagging pass hasn't run for real
+yet, no `ANTHROPIC_API_KEY` in this session, same gap as Phase 1).
+
+**Deliberate, disclosed scope gap, carried over unchanged from the plan
+made at Phase 1 time:** no live trigger auto-recomputes
+`catalog_person_priority` on evidence/`org_topics`/affiliation changes.
+Phase 1's own per-row-loop timeout at ~4,987 rows is the concrete reason
+— wiring this onto every future evidence insert risks the same cascade
+at a worse multiplier (one evidence row can affect many `(org, entity)`
+pairs at once via `catalog_deliveries`). Recompute today is
+call-explicit (`catalog_recompute_person_priority(org, entity)`); a
+follow-up prompt should design the live-trigger path deliberately (e.g.
+a queued recompute, not synchronous).
+
+**`catalog_entity_contact_context(org, catalog_id)`** (migration 0346)
+— the one addition NOT anticipated when Phase 2 was scoped. §E's
+"reuse only what's real" decision named `matchdeal_profiles
+.accepts_cold_contact` as a reachability fallback signal, but a founder
+cannot read it directly: `matchdeal_investor_members_select_own`
+restricts that table to `user_id = auth.uid()` (the investor's own
+account only), which blocks the `catalog_entity_id -> membership_id ->
+matchdeal_profiles` join even though `matchdeal_profiles` itself is
+readable when `is_visible = true`. The existing
+`matchdeal_investor_firm_view()` already does this exact join — but it's
+`service_role`-only by design, since it also projects description,
+tickets, exclusions and representative contact details a founder
+shouldn't see wholesale. This is a narrower, purpose-built sibling:
+projects ONLY `accepts_cold_contact` + `preferred_contact_channel`, and
+only for a catalog entity already in the calling org's own pipeline
+(`catalog_deliveries` must have a row first — never an arbitrary
+`catalog_id`). Same `is_org_member(p_org_id) or is_platform_admin()`
+auth-guard pattern as every other function in this phase.
+
+**Entity-header "who to contact" block (§E)** — `WhoToContactCard.tsx`,
+rendered on `/entities/[id]` right after `RelationshipSummaryCard`, above
+the tab strip (visible regardless of which Zone-B tab is active).
+Client-side read (RLS-scoped, same pattern as `EntityPeoplePanel`):
+resolves the catalog link via `catalog_deliveries`, reads the top
+`catalog_person_priority` row (name + LinkedIn if verified + the stored
+justification when score > 0, else a plain "most senior contact on
+file" line), and falls back — only when no eligible ranked person exists
+at all — to `catalog_entity_contact_context` (accepts-cold-contact) and
+then `entities.submission_channel_type` (form/email) before giving up
+and rendering nothing. Hidden entirely in demo mode (no catalog
+evidence/priority data exists there to reason from — same
+`no_catalog_link` pattern `EntityPeoplePanel` already uses) and hidden
+whenever there's genuinely nothing useful to say, rather than showing an
+empty or generic card (the Sherlock golden rule: reduce perceived
+weight, never add noise).
+
+**Verified:** `tsc`/`vitest`/`eslint`/`build` all green by exit code
+(3,696 tests, 247 files, 0 regressions — no new unit tests added this
+phase since the new logic is SQL, not TS; the TS surface added is a
+single client component with no pure logic to unit-test in isolation).
+`npm run verify:migrations` clean (no new numbering collision; the
+pre-existing 0339 collision listed by the tool is unrelated, from
+`startup_investor_decisions` vs. `support_suggestions` on other
+branches, not touched this phase). zz-test DB verification (fixtures
+created and fully destroyed after, `zz-test-585-phase2*` naming): all of
+`catalog_topic_signal`'s rules confirmed live (score/cap, threshold
+gating, watch_outs, top_evidence) as documented above; the
+`catalog_match_score` aggregate bug found, fixed, and re-verified
+(39 → 40); `catalog_recompute_person_priority`'s eligibility and
+ordering rules (protected tier, rank-4-with-signal, rank-9 exclusion)
+all matched expectations exactly; `catalog_entity_contact_context`'s
+"no matchdeal profile" null-fallback path confirmed (the "profile
+exists and accepts_cold_contact=true" path was reviewed but not
+fixture-tested live — `matchdeal_investor_members.user_id` is a
+NOT-NULL FK to `auth.users`, and fabricating an `auth.users` row for a
+disposable zz-test fixture was judged riskier than the value of that one
+additional assertion; the function's own logic is a straightforward
+projection of two columns behind the same auth-guard pattern already
+proven correct twice over in this same phase).
+
+**Not done yet, tracked separately, per Nuno's own "stop after Phase 2
+for a check-in" instruction:** Phase 3 (person evidence page rebuild,
+`EntityPeoplePanel` reorder, founder propose-evidence flow, back-office
+evidence queue), Phase 4 (hook suggestions — must not merge before
+Phase 3; no quota enforcement per Nuno's explicit "não aplicar limites
+para já" answer), Phase 5 (contact-outcome measurement, back-office
+no-link/outcomes panels), and the GDPR-erase extension for the three new
+tables this prompt adds across its phases.
+
+Branch `claude/prompt-585-people-evidence-hooks`. Migration 0346 is the
+final one applied so far; next free number per `verify:migrations` is
+0347 (resweep again before any further migration in this branch).

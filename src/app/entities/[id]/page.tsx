@@ -37,6 +37,7 @@ import { entityCompleteness, qualifiesForContactEnrichment } from '@/lib/complet
 import { isPersonCandidate, isUnverifiedStub, relatedContacts, relationshipSummary } from '@/lib/relationship';
 import { SherlockInsightBanner } from '@/components/SherlockInsightBanner';
 import { PreContactReadinessNudge } from '@/components/PreContactReadinessNudge';
+import { WhoToContactCard } from '@/components/WhoToContactCard';
 import { computeAlignment } from '@/lib/company-canon-logic';
 import { browserClient } from '@/lib/supabase';
 import { EntityClassificationEditor } from '@/components/EntityClassificationEditor';
@@ -563,6 +564,11 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         onClassifyRequest={classifyOnHistory}
         onViewInHistory={focusHistory}
         dealMessageTouches={dealMessageTouches} />
+
+      {/* Prompt 585 §E — Sherlock's own read on who to approach here and
+          why, ahead of the tabs: the founder should see this before
+          scrolling to the Team list. */}
+      <WhoToContactCard entity={entity} />
 
       {/* Prompt 397 §B.1 — below the banner: left = Zone B's 4 tabs
           (unchanged), right = the conversation panel (History/Log/Message).
