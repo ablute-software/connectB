@@ -13,6 +13,7 @@ import { HorizontalScroller } from '@/components/backoffice/HorizontalScroller';
 import type { DomainMatchVerdict } from '@/lib/investor-domain-match';
 import { ModerationControls } from '@/components/backoffice/ModerationControls';
 import { ModerationHistoryCard } from '@/components/backoffice/ModerationHistoryCard';
+import { CatalogMetricsChart } from '@/components/backoffice/CatalogMetricsChart';
 import { AccountStatusFilter } from '@/components/backoffice/AccountStatusFilter';
 import type { ModerationStatus } from '@/lib/account-moderation';
 import { INVESTOR_PLANS } from '@/lib/plans';
@@ -36,9 +37,12 @@ function tierName(matchdealTier: string | null): string {
   return t ? (INVESTOR_PLANS.find((p) => p.tier === t)?.name ?? matchdealTier) : matchdealTier;
 }
 
+// Prompt 644 §2.1 — every number here is a metric of catalog_metrics_compute()
+// (see /api/backoffice/investors); the page names them, it never counts.
 type Totals = {
-  total: number; verified: number; imported: number; demo: number; backfilled: number;
-  withPerson: number; withEmail: number; personPct: number; countries: number;
+  total: number; verified: number; imported: number; importedPending: number; backfilled: number;
+  confirmedContact: number; withPerson: number; withEmail: number; personPct: number; countries: number;
+  enriched: number; peopleTotal: number; peopleWithHook: number; peopleHookHuman: number; contributionsQueue: number;
 };
 type AccessRequest = {
   id: string; created_at: string; email: string; firm_name: string | null; note: string | null;
@@ -581,27 +585,35 @@ function CatalogStatsTab() {
   if (!data.ok) return <p className="text-sm text-[#B00000]">{data.error}</p>;
 
   const { totals } = data;
-  const packable = totals.total - totals.demo;
 
+  // Prompt 644 §0 — each card says what it counts. "Total" excludes demo AND
+  // test rows (and is the denominator everywhere); "Verified" is what
+  // verification_status means since 633, not "confirmed contact"; that
+  // number is its own card; "Imported" is the developer imports, not the
+  // two test leftovers; "named contact" counts people, not the key_people text.
   return (
     <div className="space-y-6">
       <p className="text-sm text-gray-500">
         Real numbers for the global catalog. The public landing page shows rounded-down bands
-        ({Math.floor(packable / 100) * 100}+ profiles, {Math.floor(totals.countries / 5) * 5}+ countries) — this is the ground truth.
+        ({Math.floor(totals.total / 100) * 100}+ profiles, {Math.floor(totals.countries / 5) * 5}+ countries) — this is the ground truth.
+        All cards are the live value of the same function the chart below reads (<code>catalog_metrics_compute</code>).
       </p>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Total in catalog" value={totals.total} hint={`${totals.demo} demo entities excluded`} />
-        <Stat label="Verified" value={totals.verified} hint="confirmed contact" />
-        <Stat label="Imported" value={totals.imported} hint="pending enrichment" />
-        <Stat label="Countries" value={totals.countries} />
+        <Stat label="Total in catalog" value={totals.total} hint="demo and test rows excluded" />
+        <Stat label="Verified" value={totals.verified} hint="in catalog, delivered or admin-verified" />
+        <Stat label="With confirmed contact" value={totals.confirmedContact} hint="email or a named person" />
+        <Stat label="Imported" value={totals.imported} hint={`developer imports · ${totals.importedPending} pending enrichment`} />
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="With named contact" value={`${totals.personPct}%`} hint={`${totals.withPerson} of ${packable}`} />
+        <Stat label="With named contact" value={`${totals.personPct}%`} hint={`${totals.withPerson} of ${totals.total} · people, not key_people`} />
         <Stat label="With direct email" value={totals.withEmail} />
+        <Stat label="Countries" value={totals.countries} />
         <Stat label="From backfill" value={totals.backfilled} hint="with provenance" />
       </div>
+
+      <CatalogMetricsChart />
 
       <PipelineDecisionsPanel />
 

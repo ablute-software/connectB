@@ -1,6 +1,16 @@
 // Prompt B — the internal truth about the investor catalogue. The public
 // landing shows rounded-down bands (500+, 25+); this route shows the real
 // numbers, for the platform team only. Read-only: it counts, it never writes.
+//
+// Prompt 644 §2.1 — it no longer counts by itself. The seven queries that
+// used to live here said one thing and counted another ("Total 763 — 3 demo
+// excluded" counted the demo rows; "Verified — confirmed contact" counted
+// catalog_status = verified, which since 633 means "delivered to at least
+// one org"; "Imported" showed two test leftovers and hid the four developer
+// imports). The definitions now live in ONE place, the database function
+// catalog_metrics_compute(), which the daily snapshot and the chart read
+// too — a card and a curve cannot disagree because they are the same
+// function. This route only maps metric names to the shape the page shows.
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 
@@ -9,56 +19,38 @@ export async function GET() {
   if ('error' in auth) return auth.error;
   const { admin } = auth;
 
-  // head+count keeps every one of these a COUNT query rather than a fetch —
-  // the catalogue is 500+ rows today and only grows.
-  const countOf = async (build: (q: any) => any) => {
-    const { count } = await build(admin.from('catalog_entities').select('id', { count: 'exact', head: true }));
-    return count ?? 0;
-  };
+  const today = new Date().toISOString().slice(0, 10);
+  const { data, error } = await admin.rpc('catalog_metrics_compute', { p_day: today });
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 200 });
 
-  const [total, verified, imported, demo, withPerson, withEmail, backfilled] = await Promise.all([
-    countOf((q) => q),
-    countOf((q) => q.eq('catalog_status', 'verified')),
-    countOf((q) => q.eq('catalog_status', 'imported')),
-    countOf((q) => q.eq('catalog_status', 'demo')),
-    countOf((q) => q.not('key_people', 'is', null)),
-    countOf((q) => q.not('email', 'is', null)),
-    countOf((q) => q.not('source_entity_id', 'is', null)),
-  ]);
-
-  // Country breakdown: one paged read of just two columns. Counting per
-  // country server-side would be one query per country — worse, not better.
-  const countries = new Map<string, { total: number; verified: number }>();
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await admin
-      .from('catalog_entities')
-      .select('hq_country, catalog_status')
-      .order('id', { ascending: true })
-      .range(from, from + 999);
-    if (error || !data) break;
-    for (const row of data) {
-      const key = row.hq_country ?? '—';
-      const bucket = countries.get(key) ?? { total: 0, verified: 0 };
-      bucket.total += 1;
-      if (row.catalog_status === 'verified') bucket.verified += 1;
-      countries.set(key, bucket);
-    }
-    if (data.length < 1000) break;
+  const m: Record<string, number | null> = {};
+  for (const row of (data ?? []) as { metric: string; value: number | string | null }[]) {
+    m[row.metric] = row.value === null || row.value === undefined ? null : Number(row.value);
   }
-  const byCountry = [...countries.entries()]
-    .map(([country, v]) => ({ country, ...v }))
-    .sort((a, b) => b.verified - a.verified || b.total - a.total || a.country.localeCompare(b.country));
+  const n = (k: string) => m[k] ?? 0;
 
   return NextResponse.json({
     ok: true,
+    asOf: today,
     totals: {
-      total, verified, imported, demo, backfilled,
-      withPerson, withEmail,
-      // Share of the catalogue (excluding demo rows) that has a named
+      total: n('entities_total'),
+      verified: n('entities_verified'),
+      imported: n('entities_imported'),
+      importedPending: n('entities_imported_pending'),
+      confirmedContact: n('entities_confirmed_contact'),
+      withPerson: n('entities_with_person'),
+      withEmail: n('entities_with_email'),
+      backfilled: n('entities_from_backfill'),
+      countries: n('entities_countries'),
+      enriched: n('entities_enriched'),
+      // Share of the catalogue (demo and test rows excluded) with a named
       // person — the number that decides whether an entity is actually
-      // actionable for a founder.
-      personPct: total - demo > 0 ? Math.round((withPerson / (total - demo)) * 100) : 0,
-      countries: byCountry.filter((c) => c.country !== '—').length,
+      // actionable for a founder. People, not the key_people text.
+      personPct: n('entities_total') > 0 ? Math.round((n('entities_with_person') / n('entities_total')) * 100) : 0,
+      peopleTotal: n('people_total'),
+      peopleWithHook: n('people_with_hook'),
+      peopleHookHuman: n('people_hook_human'),
+      contributionsQueue: n('contributions_submitted'),
     },
   });
 }
