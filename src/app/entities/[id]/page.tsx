@@ -80,6 +80,13 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   // classifyNonce: pedir duas vezes a mesma tem de voltar a fazer scroll.
   const [focusInteraction, setFocusInteraction] = useState<{ id: string; nonce: number }>({ id: '', nonce: 0 });
   const [contactAvailable, setContactAvailable] = useState(false);
+  // Prompt 878 §4 — the only correction path a founder saw on this page was
+  // "+ Add info" (a contribution, reviewed later). A real, save-it-now
+  // editor (EditCatalogEntityModal, Prompt 584 §C) already exists, but only
+  // reachable from /backoffice/catalog — nothing here links to it. `role`
+  // gates a link to that same editor for the platform-admin accounts that
+  // actually have it.
+  const [role, setRole] = useState<string | null>(null);
   const [editingContact, setEditingContact] = useState(false);
   const [contactDraft, setContactDraft] = useState({ website: '', email: '', phone: '', address: '' });
   const [contributionsRefreshKey, setContributionsRefreshKey] = useState(0);
@@ -163,7 +170,10 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   const [activeSection, setActiveSection] = useState<'summary' | 'people' | 'approach' | 'engagement'>('summary');
 
   useEffect(() => {
-    fetch('/api/me').then((r) => r.json()).then((me) => setContactAvailable(!!me.capabilities?.entityContactFields)).catch(() => {});
+    fetch('/api/me').then((r) => r.json()).then((me) => {
+      setContactAvailable(!!me.capabilities?.entityContactFields);
+      setRole(me.role ?? null);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -748,6 +758,15 @@ export default function EntityPage({ params }: { params: { id: string } }) {
           <ContributionBox subjectType="entity" subjectId={entity.id} orgId={db.org.id} subject={entity as unknown as Record<string, unknown>}
             onApplyValue={(field, value) => updateEntity(entity.id, { [field]: value } as Partial<typeof entity>)} refreshKey={contributionsRefreshKey}
             keyPeopleShownElsewhere={keyPeopleShownInTeam} />
+          {/* Prompt 878 §4 — a platform-admin account can fix this catalog
+              row on the spot instead of routing a correction through
+              "+ Add info" and a later review. */}
+          {role === 'developer' && catalogMatch && (
+            <Link href={`/backoffice/catalog?edit=${catalogMatch.id}`} target="_blank"
+              className="mt-2 inline-block text-xs text-cyan-700 hover:underline">
+              Correct this in the Catalog (admin) →
+            </Link>
+          )}
         </div>
         <CommunityConsensusPanel entityId={entity.id}
           onApplyValue={(field, value) => updateEntity(entity.id, { [field]: value } as Partial<typeof entity>)} />

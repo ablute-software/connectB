@@ -568,7 +568,15 @@ export function RailLogForm({
           <label className="text-[10.5px] font-semibold uppercase tracking-wide text-gray-400">Amount asked (optional)</label>
           <div className="mt-1 flex items-center gap-1.5">
             <span className="text-sm text-gray-400">€</span>
-            <input type="number" min="0" step="1000" value={askAmount} onChange={(e) => setAskAmount(e.target.value)}
+            {/* Prompt 878 §2 — `step="1000"` used to sit here. The field was
+                already coded as optional (save() below only sets
+                ask_amount_eur when askAmount is non-empty, and formReady
+                never reads it), but `step` makes `type="number"` reject any
+                value that isn't an exact multiple of the step as :invalid —
+                a real amount like 82500 would trip it. Dropped so any
+                number is accepted, matching the "(optional)" label with no
+                implicit constraint left to contradict it. */}
+            <input type="number" min="0" value={askAmount} onChange={(e) => setAskAmount(e.target.value)}
               placeholder="e.g. 1300000" className="w-32 rounded border border-gray-300 px-2 py-1 text-sm" />
           </div>
         </div>
