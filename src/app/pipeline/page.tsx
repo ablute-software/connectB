@@ -553,15 +553,23 @@ export default function PipelinePage() {
   //     without a change in conditions"): Bynd (reaffirmed anti-medtech
   //     policy), Pathena (wind-down), Sofinnova MD Start (accelerator
   //     model) all fit that description, none of them fraud.
-  //   'stale' = stand_by + no_data, unchanged from 282.
   //   'reported' = ONLY blocked (fraud reported with proof) — with 0 real
   //     cases today, the button hides entirely rather than sitting at 🚨(0)
   //     as permanent noise (see the button rendering below).
-  // Three mutually-exclusive views plus 'none', still session-local.
-  // Prompt 852 §C — a fourth value. The class -> view mapping (including
-  // this one) lives in pipelineViewForEntity (frozen-view-grouping.ts), never
-  // inline here: three separate places used to derive it and two consecutive
-  // prompts corrected only one of them.
+  // Two mutually-exclusive frozen-family views plus 'none', still
+  // session-local.
+  // Prompt 873 — Nuno's own next instruction: merge Frozen and Stale into
+  // one ("vamos fundir frozen com stale"). 'stale' (stand_by + no_data) no
+  // longer exists as its own view; those two classes now group into
+  // 'frozen' too — see frozen-view-grouping.ts's own header for why
+  // "Frozen" is the surviving name. The row-level pill still distinguishes
+  // them ("Stale"/"Never contacted"), so no granularity is lost, only the
+  // header button.
+  // Prompt 852 §C — a further value, Passed. The class -> view mapping
+  // (including all of the above) lives in pipelineViewForEntity
+  // (frozen-view-grouping.ts), never inline here: three separate places
+  // used to derive it and two consecutive prompts corrected only one of
+  // them.
   const [frozenView, setFrozenView] = useState<PipelineView>('none');
   const [sortKey, setSortKey] = useState<SortKey>('wave');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -814,18 +822,19 @@ export default function PipelinePage() {
 
   const countries = Array.from(new Set(db.entities.map((e) => e.hq_country).filter(Boolean))) as string[];
   const sectorOptions = Array.from(new Set(db.entities.flatMap((e) => e.sectors))).sort();
-  // Prompt 282/283 — three counts, matching the three buttons, all derived
-  // from the one grouping function so they can never drift from the row
-  // filter or the pill label above.
+  // Prompt 282/283 — counts matching the header buttons, all derived from
+  // the one grouping function so they can never drift from the row filter
+  // or the pill label above. Prompt 873 merged Frozen+Stale into one
+  // button/count — frozenCount now includes what used to be staleCount,
+  // via viewForFrozenState itself, not a separate fold here.
   // Prompt 852 §C — a fourth count, from the same per-entity mapping the row
   // filter uses, so the pill label and the list can never disagree. What each
   // part counts: `passed` is BOTH directions of "no" — an investor pass
   // (status 'passed') and the founder's own live decision — deliberately in
   // one bucket for the header number and split by label inside the view.
-  const viewCounts = { frozen: 0, stale: 0, reported: 0, passed: 0, none: 0 };
+  const viewCounts = { frozen: 0, reported: 0, passed: 0, none: 0 };
   for (const view of entityViews.values()) viewCounts[view]++;
   const frozenCount = viewCounts.frozen;
-  const staleCount = viewCounts.stale;
   // Named reportedCount, not blockedCount — that name is already taken by
   // the unrelated catalog-quota "blocked" count further up (from the
   // catalog_blocked_count() RPC, Prompt 123).
@@ -843,7 +852,7 @@ export default function PipelinePage() {
   // rows nobody is pursuing. Both directions belong here: an investor who
   // passed and an investor the founder ruled out are equally not candidates
   // for outreach.
-  const notActivePipelineCount = frozenCount + staleCount + reportedCount + passedCount;
+  const notActivePipelineCount = frozenCount + reportedCount + passedCount;
 
   // Prompt 273 §3 / Prompt 282/283 — the row's Status pill shows the real
   // sub-class, not the raw 'dormant' status, but only inside the 3
@@ -1026,10 +1035,10 @@ export default function PipelinePage() {
               out, same as they're excluded from the row filter's 'none'
               view: none of them are "active" just because they no longer
               count as plain frozen. "Frozen" stays the umbrella label for
-              this one summary number on purpose — the 3-way breakdown
-              (Frozen/Stale/Reported) is what the toggle buttons below are
-              for; this top line only needs "how many am I not actively
-              pursuing right now". */}
+              this one summary number on purpose — the toggle buttons below
+              (Frozen/Reported/Passed, since Prompt 873 merged Stale into
+              Frozen) are what the per-view breakdown is for; this top line
+              only needs "how many am I not actively pursuing right now". */}
           <div className="ml-auto flex items-baseline gap-1.5">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Active</span>
             <span className="text-lg font-bold text-gray-800">{db.entities.length - notActivePipelineCount}</span>
@@ -1122,16 +1131,16 @@ export default function PipelinePage() {
             as a permanent 🚨 with nothing behind it: with only `blocked`
             counting now (evidence required), 0 is the common case, not the
             exception. Kept visible while it's the ACTIVE view even at 0, so
-            toggling it back off never needs a second, different control. */}
+            toggling it back off never needs a second, different control.
+            Prompt 873 — Frozen and Stale merged into this one button at
+            Nuno's explicit request ("vamos fundir frozen com stale");
+            "Frozen" is the name kept (see frozen-view-grouping.ts's own
+            header for why). No granularity lost: the row pill still shows
+            "Stale"/"Never contacted" for what used to be the Stale rows. */}
         <button onClick={() => setFrozenView((v) => v === 'frozen' ? 'none' : 'frozen')}
-          title="Reached an impasse — won't move without a change in conditions."
+          title="Not moving right now — either an impasse, or fell through the cracks."
           className={`ml-auto rounded-lg border px-2.5 py-1.5 text-sm font-medium ${frozenView === 'frozen' ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
           {frozenView === 'frozen' ? '❄ Showing frozen' : `❄ Frozen (${frozenCount})`}
-        </button>
-        <button onClick={() => setFrozenView((v) => v === 'stale' ? 'none' : 'stale')}
-          title="Fell through the cracks, for one reason or another."
-          className={`rounded-lg border px-2.5 py-1.5 text-sm font-medium ${frozenView === 'stale' ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
-          {frozenView === 'stale' ? '💤 Showing stale' : `💤 Stale (${staleCount})`}
         </button>
         {(reportedCount > 0 || frozenView === 'reported') && (
           <button onClick={() => setFrozenView((v) => v === 'reported' ? 'none' : 'reported')}
@@ -1155,7 +1164,9 @@ export default function PipelinePage() {
             (Stand by no longer has its own button), but still only ever
             acts on the stand_by rows WITHIN it, never the no_data ones now
             sharing the view — the server-side re-verification itself is
-            unchanged. */}
+            unchanged. Prompt 873 — the Stale view itself is gone (merged
+            into Frozen); this now gates on 'frozen', still only ever
+            touching the stand_by rows bulkAskIds computes, unchanged. */}
         {/* Prompt 513 §2 — the count is now "not yet evaluated, or evaluated
             and something has since changed", not "no verdict in this
             browser tab's memory". Before, every dismissed verdict was
@@ -1164,7 +1175,7 @@ export default function PipelinePage() {
             minutes, confirmed in ai_call_log. At 0 the button disappears
             rather than offering a no-op; re-asking one entity is the row's
             own explicit "Ask Sherlock again". */}
-        {frozenView === 'stale' && bulkAskIds.length > 0 && (
+        {frozenView === 'frozen' && bulkAskIds.length > 0 && (
           <button onClick={() => askSherlockFor(bulkAskIds)}
             className="rounded-lg bg-[#0f5132] px-2.5 py-1.5 text-sm font-medium text-white hover:bg-[#0c4028]">
             Ask Sherlock — evaluate all ({bulkAskIds.length})
@@ -1369,9 +1380,10 @@ export default function PipelinePage() {
                       </div>
                     )}
                     {/* Prompt 271 §3 / Prompt 272 / Prompt 282 — only for
-                        stand_by rows, now inside the shared Stale view (the
-                        row filter no longer scopes the whole view to
-                        stand_by alone, so this checks the class directly).
+                        stand_by rows, now inside the shared Frozen view
+                        (Prompt 873 merged Stale into it; the row filter no
+                        longer scopes the whole view to stand_by alone, so
+                        this checks the class directly).
                         On-demand, individual: no evaluation happens just
                         from viewing this list. A 'reactivate' verdict
                         already created the full proposal in
@@ -1380,7 +1392,7 @@ export default function PipelinePage() {
                         the whole breakdown in a table cell; 'hold_for_hook'
                         and 'not_worth_it' never reach that queue, so this
                         IS the only place their reasoning is ever shown. */}
-                    {frozenView === 'stale' && entityFrozenStates.get(e.id) === 'stand_by' && (
+                    {frozenView === 'frozen' && entityFrozenStates.get(e.id) === 'stand_by' && (
                       <NeglectAskCell
                         state={askStateFor(e.id)}
                         asking={askingIds.includes(e.id)}

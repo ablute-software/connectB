@@ -1,6 +1,6 @@
 // Prompt 282/283 — how classifyEntityFrozenState's six values (frozen-
-// classifier.ts) map onto the Pipeline header's three views. Pulled out as
-// its own small pure module — not because three views is complex, but
+// classifier.ts) map onto the Pipeline header's views. Pulled out as its
+// own small pure module — not because a handful of views is complex, but
 // because this mapping got corrected TWICE in two consecutive prompts
 // (282 grouped resolved_not_a_fit into Reported; 283 moved it to Frozen
 // after Nuno found a real "not a fit" investor, Sofinnova MD Start,
@@ -9,6 +9,15 @@
 // pipeline/page.tsx. One function per concern here, reused by all three,
 // is what actually prevents a future correction from landing in only one
 // of those three places.
+//
+// Prompt 873 — Frozen and Stale merged into one header button/view at
+// Nuno's explicit request ("vamos fundir frozen com stale"). "Frozen" is
+// the name kept: it was already the umbrella term for this exact set
+// elsewhere in the page (notActivePipelineCount's own comment), and it is
+// the word used everywhere else in the product (frozen-classifier.ts's
+// own type names, the entity dossier's reactivation UI). No information is
+// lost — pillLabelForFrozenState below still returns the 5 distinct
+// per-row labels, unchanged; only the two header BUTTONS collapsed.
 //
 // Prompt 283's own principle, stated by Nuno: entering Reported requires
 // EVIDENCE — the fraud-report flow with justification + proof (277 A).
@@ -22,12 +31,11 @@
 // a fraud signal.
 import type { EntityFrozenState } from './frozen-classifier';
 
-export type FrozenView = 'frozen' | 'stale' | 'reported';
+export type FrozenView = 'frozen' | 'reported';
 
 export function viewForFrozenState(state: EntityFrozenState): FrozenView {
   if (state === 'blocked') return 'reported';
-  if (state === 'stand_by' || state === 'no_data') return 'stale';
-  return 'frozen'; // closed_for_cause, frozen_cold, not_a_fit
+  return 'frozen'; // closed_for_cause, frozen_cold, not_a_fit, stand_by, no_data
 }
 
 // Row-level Status pill inside a dedicated view — the sub-class

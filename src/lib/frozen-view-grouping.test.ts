@@ -10,9 +10,12 @@ describe('viewForFrozenState', () => {
     expect(viewForFrozenState('not_a_fit')).toBe('frozen');
   });
 
-  it('groups stand_by and no_data into stale', () => {
-    expect(viewForFrozenState('stand_by')).toBe('stale');
-    expect(viewForFrozenState('no_data')).toBe('stale');
+  // Prompt 873 — Frozen and Stale merged into one header view/button at
+  // Nuno's request; stand_by/no_data (formerly Stale) now group into
+  // frozen too, alongside the three states above.
+  it('groups stand_by and no_data (formerly Stale) into frozen too', () => {
+    expect(viewForFrozenState('stand_by')).toBe('frozen');
+    expect(viewForFrozenState('no_data')).toBe('frozen');
   });
 
   it('reported requires evidence — only blocked (fraud reported with proof) reaches it', () => {
@@ -21,7 +24,7 @@ describe('viewForFrozenState', () => {
 
   it('every EntityFrozenState value maps to exactly one view (exhaustiveness)', () => {
     const all: EntityFrozenState[] = ['stand_by', 'closed_for_cause', 'frozen_cold', 'no_data', 'not_a_fit', 'blocked'];
-    for (const state of all) expect(['frozen', 'stale', 'reported']).toContain(viewForFrozenState(state));
+    for (const state of all) expect(['frozen', 'reported']).toContain(viewForFrozenState(state));
   });
 });
 
@@ -66,7 +69,7 @@ describe('pipelineViewForEntity — the fourth view', () => {
     expect(pipelineViewForEntity({ hasLiveDecision: false })).toBe('none');
   });
 
-  it('leaves the three frozen views exactly where viewForFrozenState puts them', () => {
+  it('leaves every frozen sub-state exactly where viewForFrozenState puts it', () => {
     const all: EntityFrozenState[] = ['stand_by', 'closed_for_cause', 'frozen_cold', 'no_data', 'not_a_fit', 'blocked'];
     for (const state of all) {
       expect(pipelineViewForEntity({ frozenState: state, status: 'dormant', hasLiveDecision: false }))
