@@ -6049,3 +6049,62 @@ symptom that surfaced was not "LinkedIn is unreachable" but a bio that said
 about the founder's own materials, shown to the founder. Before trusting a
 source, measure that it answers; before shipping a silent fallback, ask what
 it will look like from the outside when the source never answers at all.
+
+---
+
+## Prompt 874 — a local Stripe invoice/payment mirror, and a fallback that turned out not to exist yet
+
+**What this is.** `billing_invoices` (migration
+`20260910083000_billing_invoices_mirror.sql`) is a new local mirror of Stripe
+`invoice.paid`/`invoice.payment_failed` events — one row per billing cycle,
+for both sides of this schema's billing split (`kind: 'org' | 'investor_entity'`).
+Before this, no table anywhere recorded a payment amount, a due date, or a
+paid/failed status; the webhook only ever processed
+`checkout.session.completed`/`customer.subscription.*`. Two denormalized
+columns (`next_payment_due_at`, `last_payment_status`) were added to both
+`orgs` and `investor_billing` so a list view doesn't need a correlated
+subquery per row; they're kept in sync by the webhook handler itself, not a
+trigger, since the webhook already holds the values it just wrote. RLS
+enabled, zero policies, `anon`/`authenticated` revoked — same posture as
+`investor_billing`'s own 0287 migration, for the same reason (Stripe-adjacent
+amounts are not safe to expose via PostgREST).
+
+**The assumption that didn't hold.** The prompt's own framing was "check
+whether the existing subscription-event handlers already have a
+stripe_customer_id reverse-lookup fallback, and reuse it verbatim." Reading
+`billing.ts` and the webhook route in full before writing anything found
+that this fallback does not exist. `investor_billing`'s migration 0287 does
+carry a comment ("Índice para a resolução inversa do webhook…") and an index
+on `stripe_subscription_id` that clearly anticipated one — but no code was
+ever written to use it. Invoice events don't reliably carry the
+checkout-time `metadata.org_id`/`metadata.catalog_entity_id` either (recent
+Stripe API versions nest subscription metadata under
+`subscription_details.metadata` rather than copying it to the invoice's own
+top-level `metadata`, and even that can be empty), so this prompt needed the
+fallback for real. It's now genuinely new code:
+`resolveSubjectIdByCustomer()` in the webhook route, querying `orgs`/
+`investor_billing` by the new `stripe_customer_id` index each table now
+has (`orgs` never had one before this migration).
+
+**No historical backfill.** The table starts empty. Existing customers'
+`next_payment_due_at`/`last_payment_status` stay null until their next real
+Stripe invoice event fires. A one-off backfill against the live Stripe API
+was explicitly out of scope for this prompt and was not attempted.
+
+**How this was verified without live Stripe.** This sandbox has no Stripe
+CLI and no Stripe credentials anywhere in env, so `stripe trigger invoice.paid`
+against test mode — the prompt's own preferred method — could not run here.
+Instead: `tsc`/`vitest` (3650/3650)/`eslint`/`next build` all passed by exit
+code, the two new pure functions got full unit coverage (metadata-present,
+metadata-absent, `subscription_details.metadata` fallback, founder/investor
+mutual exclusivity, `invoice.finalized` correctly ignored), and the schema +
+webhook SQL operations themselves were exercised against the real Supabase
+project using a `zz-test-874-invoice-mirror` org: the reverse-lookup query
+resolved the org from `stripe_customer_id` alone (no metadata), the upsert
+created one row, replaying the same `stripe_invoice_id` did not duplicate it,
+and a following `invoice.payment_failed` flipped `last_payment_status` to
+`'failed'` while leaving `next_payment_due_at` untouched, exactly as
+specified. What was NOT exercised end-to-end is the actual HTTP path through
+`route.ts` (signature verification, JSON parsing) — that part is unchanged
+scaffolding shared with the already-live subscription handlers, and the new
+code added to it is a straight-line extension of the same pattern.

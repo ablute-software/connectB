@@ -114,6 +114,128 @@ export function billingEffectFromEvent(event: StripeEventLike, prices: StripePri
   return null;
 }
 
+// ===== Invoice mirror (Prompt 874) =====
+// A local mirror of invoice.paid / invoice.payment_failed events, one row per
+// billing cycle in billing_invoices (migration
+// 20260910083000_billing_invoices_mirror.sql) — an invoice is a repeating
+// fact, not a subscription-level attribute, so it doesn't belong squeezed
+// into orgs/investor_billing beyond the two denormalized read columns those
+// tables already got.
+//
+// Field choices below, made explicit per this prompt's own instruction to
+// flag an assumption rather than silently reshape the schema:
+//   - paid_at            <- status_transitions.paid_at. Invoice has no
+//                            top-level `paid_at`; status_transitions is
+//                            Stripe's own record of when each transition
+//                            happened.
+//   - next_payment_due_at (invoice.paid only) <- period_end. A raw invoice
+//                            webhook payload carries no expanded subscription
+//                            object, so there is no `current_period_end` to
+//                            read; period_end is the invoice's own record of
+//                            when the period it covers ends, which for a
+//                            subscription invoice is the next charge point —
+//                            the cleanest available signal, not a guess at an
+//                            undocumented field. invoice.payment_failed
+//                            leaves it null (the route then leaves the column
+//                            untouched), per this prompt's own instruction.
+//   - status              <- read straight off the invoice object itself
+//                            ('draft'|'open'|'paid'|'uncollectible'|'void'),
+//                            not inferred from the event type; it already
+//                            matches billing_invoices' check constraint.
+//   - org/firm metadata   <- checked at obj.metadata first, then at
+//                            obj.subscription_details.metadata (recent Stripe
+//                            API versions nest subscription metadata there
+//                            rather than copying it onto the invoice's own
+//                            top-level metadata). When BOTH come up empty,
+//                            these pure functions return a null subject id —
+//                            the caller (the webhook route, which can do I/O)
+//                            is responsible for the stripe_customer_id
+//                            reverse-lookup fallback. Confirmed by reading
+//                            billing.ts + the webhook route in full before
+//                            writing this: neither existing subscription
+//                            handler (billingEffectFromEvent /
+//                            investorBillingEffectFromEvent) implements such
+//                            a fallback today — despite investor_billing's
+//                            own migration 0287 already carrying a comment
+//                            and an index that anticipated one — so this is
+//                            new code, not a reuse of an existing path.
+
+function invoiceMetadataOf(obj: Record<string, unknown>): Record<string, string> {
+  const top = (obj.metadata ?? {}) as Record<string, string>;
+  if (top.org_id || top.catalog_entity_id) return top;
+  const subDetails = obj.subscription_details as { metadata?: Record<string, string> } | undefined;
+  return subDetails?.metadata ?? top;
+}
+
+function toIsoFromUnixSeconds(value: unknown): string | null {
+  return typeof value === 'number' ? new Date(value * 1000).toISOString() : null;
+}
+
+interface InvoiceFields {
+  stripeInvoiceId: string;
+  stripeCustomerId: string | undefined;
+  stripeSubscriptionId: string | null;
+  amountDueCents: number;
+  amountPaidCents: number;
+  currency: string;
+  status: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  dueDate: string | null;
+  paidAt: string | null;
+  hostedInvoiceUrl: string | null;
+  /** Set only on invoice.paid; null on invoice.payment_failed (column stays untouched). */
+  nextPaymentDueAt: string | null;
+  lastPaymentStatus: 'paid' | 'failed';
+}
+
+// Shared by both sides — the invoice payload shape and field semantics are
+// identical; only the subject id (org vs. firm) differs, extracted by each
+// caller below. This is deliberately NOT split into two copies the way the
+// founder/investor plan logic above is: that split exists because the two
+// domains have genuinely different vocabularies (a free tier vs. none, two
+// different target tables); an invoice's own fields don't vary by side.
+function extractInvoiceFields(type: string | undefined, obj: Record<string, unknown>): InvoiceFields | null {
+  if (type !== 'invoice.paid' && type !== 'invoice.payment_failed') return null;
+  if (typeof obj.id !== 'string') return null;
+  const statusTransitions = (obj.status_transitions ?? {}) as Record<string, unknown>;
+  const periodEndIso = toIsoFromUnixSeconds(obj.period_end);
+  const lastPaymentStatus: 'paid' | 'failed' = type === 'invoice.paid' ? 'paid' : 'failed';
+  return {
+    stripeInvoiceId: obj.id,
+    stripeCustomerId: typeof obj.customer === 'string' ? obj.customer : undefined,
+    stripeSubscriptionId: typeof obj.subscription === 'string' ? obj.subscription : null,
+    amountDueCents: typeof obj.amount_due === 'number' ? obj.amount_due : 0,
+    amountPaidCents: typeof obj.amount_paid === 'number' ? obj.amount_paid : 0,
+    currency: typeof obj.currency === 'string' ? obj.currency : 'eur',
+    status: typeof obj.status === 'string' ? obj.status : (lastPaymentStatus === 'paid' ? 'paid' : 'open'),
+    periodStart: toIsoFromUnixSeconds(obj.period_start),
+    periodEnd: periodEndIso,
+    dueDate: toIsoFromUnixSeconds(obj.due_date),
+    paidAt: toIsoFromUnixSeconds(statusTransitions.paid_at),
+    hostedInvoiceUrl: typeof obj.hosted_invoice_url === 'string' ? obj.hosted_invoice_url : null,
+    nextPaymentDueAt: lastPaymentStatus === 'paid' ? periodEndIso : null,
+    lastPaymentStatus,
+  };
+}
+
+export interface InvoiceEffect extends InvoiceFields {
+  /** null when metadata carries no org_id — caller resolves via stripe_customer_id. */
+  orgId: string | null;
+}
+
+// Founder side. An event whose metadata names a catalog_entity_id (and no
+// org_id) is the investor side's — returns null so the two never collide,
+// the same mutual-exclusivity-by-construction the subscription handlers use.
+export function invoiceEffectFromEvent(event: StripeEventLike): InvoiceEffect | null {
+  const obj = (event.data?.object ?? {}) as Record<string, unknown>;
+  const fields = extractInvoiceFields(event.type, obj);
+  if (!fields) return null;
+  const meta = invoiceMetadataOf(obj);
+  if (meta.catalog_entity_id && !meta.org_id) return null;
+  return { ...fields, orgId: meta.org_id ?? null };
+}
+
 // Parse a Stripe-Signature header ("t=<ts>,v1=<sig>,v1=<sig>…") into its
 // timestamp and the v1 signatures. Pure so the parsing is testable; the HMAC
 // compare + timestamp tolerance live in the route (they need crypto + clock).
@@ -241,4 +363,23 @@ export function investorBillingEffectFromEvent(
   }
 
   return null;
+}
+
+export interface InvestorInvoiceEffect extends InvoiceFields {
+  /** null when metadata carries no catalog_entity_id — caller resolves via stripe_customer_id. */
+  catalogEntityId: string | null;
+}
+
+// Investor side of the invoice mirror (Prompt 874) — see invoiceEffectFromEvent
+// above for the shared field-extraction reasoning; this mirrors it with the
+// firm's metadata key instead of the org's, same mutual-exclusivity guard.
+export function investorInvoiceEffectFromEvent(
+  event: { type?: string; data?: { object?: Record<string, unknown> } },
+): InvestorInvoiceEffect | null {
+  const obj = (event.data?.object ?? {}) as Record<string, unknown>;
+  const fields = extractInvoiceFields(event.type, obj);
+  if (!fields) return null;
+  const meta = invoiceMetadataOf(obj);
+  if (meta.org_id && !meta.catalog_entity_id) return null;
+  return { ...fields, catalogEntityId: meta.catalog_entity_id ?? null };
 }

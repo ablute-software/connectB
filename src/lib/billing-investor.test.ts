@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   investorPriceIdFor, investorTierForPriceId, investorPlanForSubscription,
   investorBillingEffectFromEvent, billingEffectFromEvent,
+  investorInvoiceEffectFromEvent, invoiceEffectFromEvent,
   type InvestorStripePriceMap, type StripePriceMap,
 } from './billing';
 import { INVESTOR_PLANS, INVESTOR_PLAN_TO_MATCHDEAL_TIER, MATCHDEAL_TIER_TO_INVESTOR_PLAN } from './plans';
@@ -147,6 +148,60 @@ describe('founder and investor events never cross over on the shared webhook', (
     };
     expect(billingEffectFromEvent(investorEvent, FOUNDER_PRICES)).toBeNull();
     expect(investorBillingEffectFromEvent(investorEvent, PRICES)).toMatchObject({ catalogEntityId: 'firm-1', tier: 'pro_scout' });
+  });
+});
+
+describe('investorInvoiceEffectFromEvent (Prompt 874 — invoice mirror, investor side)', () => {
+  it('invoice.paid extracts the firm invoice and sets next_payment_due_at from period_end', () => {
+    const event = {
+      type: 'invoice.paid',
+      data: {
+        object: {
+          id: 'in_f1', customer: 'cus_firm_1', subscription: 'sub_firm_1',
+          amount_due: 13000, amount_paid: 13000, currency: 'eur', status: 'paid',
+          period_end: 1738368000, status_transitions: { paid_at: 1735689650 },
+          metadata: { catalog_entity_id: 'firm-1' },
+        },
+      },
+    };
+    const effect = investorInvoiceEffectFromEvent(event);
+    expect(effect).toMatchObject({
+      catalogEntityId: 'firm-1', stripeInvoiceId: 'in_f1', amountPaidCents: 13000,
+      status: 'paid', lastPaymentStatus: 'paid',
+      nextPaymentDueAt: new Date(1738368000 * 1000).toISOString(),
+    });
+  });
+
+  it('invoice.payment_failed marks failed and leaves next_payment_due_at null', () => {
+    const event = {
+      type: 'invoice.payment_failed',
+      data: { object: { id: 'in_f2', amount_due: 13000, amount_paid: 0, status: 'open', metadata: { catalog_entity_id: 'firm-1' } } },
+    };
+    const effect = investorInvoiceEffectFromEvent(event);
+    expect(effect?.lastPaymentStatus).toBe('failed');
+    expect(effect?.nextPaymentDueAt).toBeNull();
+  });
+
+  it('returns a null catalogEntityId (not the whole effect) when metadata names no firm', () => {
+    const event = { type: 'invoice.paid', data: { object: { id: 'in_f3', amount_due: 100, amount_paid: 100, status: 'paid' } } };
+    expect(investorInvoiceEffectFromEvent(event)?.catalogEntityId).toBeNull();
+  });
+
+  it('defers to the founder side when metadata names an org and no firm', () => {
+    const event = {
+      type: 'invoice.paid',
+      data: { object: { id: 'in_f4', amount_due: 100, amount_paid: 100, status: 'paid', metadata: { org_id: 'o1' } } },
+    };
+    expect(investorInvoiceEffectFromEvent(event)).toBeNull();
+  });
+
+  it('founder and investor invoice mappers never cross over, same as the subscription mappers', () => {
+    const founderInvoice = { type: 'invoice.paid', data: { object: { id: 'in_x', amount_due: 100, amount_paid: 100, status: 'paid', metadata: { org_id: 'o1' } } } };
+    const investorInvoice = { type: 'invoice.paid', data: { object: { id: 'in_y', amount_due: 100, amount_paid: 100, status: 'paid', metadata: { catalog_entity_id: 'firm-1' } } } };
+    expect(investorInvoiceEffectFromEvent(founderInvoice)).toBeNull();
+    expect(invoiceEffectFromEvent(founderInvoice)).toMatchObject({ orgId: 'o1' });
+    expect(invoiceEffectFromEvent(investorInvoice)).toBeNull();
+    expect(investorInvoiceEffectFromEvent(investorInvoice)).toMatchObject({ catalogEntityId: 'firm-1' });
   });
 });
 
