@@ -6661,3 +6661,180 @@ permanently, confirmed both in the full flow and in an isolated repro.
 Screenshots sent to the user directly.
 
 Branch `claude/prompt-882-guided-discipline`.
+
+---
+
+## Prompt 585 Phase 1 — evidence is the unit: catalog_evidence, the topic taxonomy, the deterministic matcher, and the backfill
+
+Prompt 585 is a five-phase spec (evidence table → topic signal/person
+priority → the person evidence page → an AI hook-suggestion service →
+measurement). This entry covers Phase 1 only — schema, taxonomy, matcher,
+backfill — which the prompt's own §H explicitly allows to ship with no new
+UI visible yet. Phases 2-5 are tracked separately; Phase 4 (AI hook
+suggestions) must not merge before Phase 3 per the prompt's own ordering.
+
+**Discrepancies found against the prompt's own text, checked against the
+real schema before writing anything** (flagged to Nuno before building,
+not silently reconciled):
+- **Taxonomy: 5 groups / 51 sectors, not "6 groups / 56 sectors."**
+  `src/lib/sector-taxonomy.ts`'s real `SECTOR_TAXONOMY` has exactly 5
+  groups and 51 sectors (counted programmatically). `topic_taxonomy`'s
+  level 1/2 mirror that real file, not the prompt's stale numbers.
+- **`match_components jsonb` / `match_formula_version` don't exist.**
+  They're a *proposed, explicitly unbuilt* design in
+  `MATCHING_ENGINE_SPEC.md` (that file's own first line: "Nothing in this
+  document is implemented"). The only live scoring is
+  `catalog_match_score()`, a plain int with no persisted components, and
+  no `service_role` auth branch (only `is_org_member() or
+  is_platform_admin()`). Nuno's decision for Phase 2: add `topic_signal`
+  as a capped additive bonus directly onto that live int, not build the
+  full persisted-components system as a prerequisite.
+- **The "561 privacy line" (name/title/LinkedIn always visible, email
+  gated) doesn't exist for `catalog_people`** — there's no email column on
+  that table at all. `accepts_cold_contact` is a different system
+  entirely (`matchdeal_profiles`, an investor's own MatchDeal profile).
+  The "On Sherlock Deal" badge and Message/Share-documents shortcuts §D
+  describes as already on `/catalog-people/[id]` aren't there either —
+  that page is a plain 3-field read-only view today. Nuno's decision for
+  Phase 3: the evidence page's contact/path section reuses only what's
+  real (`entities.submission_channel_type`, `matchdeal_profiles
+  .accepts_cold_contact` when present, LinkedIn always shown) — no new
+  privacy/email system invented.
+- 0147 doesn't define `catalog_entity_enrichment_sources` (that's
+  entirely 0146; 0147 is an unrelated RLS security fix). `hook_status`
+  lives on `catalog_people`, not `catalog_people_research`.
+  `catalog_person_apply_field` no longer writes to `people` (removed
+  post-consensus-hardening — the pattern is now read-time overlay via
+  `catalog-person-overlay.ts`, a 2026-09-06 decision). The generic
+  `/api/backoffice/contributions/[id]/review` route does not handle
+  `subject_type='catalog_person'` — only the dedicated
+  `/api/backoffice/catalog/people/[id]/quarantine` route does. `is_test`
+  and `is_internal` are two separate columns (0139, 0316) with different
+  semantics; the consensus-exclusion pattern checks both.
+- No GDPR-erase migration numbered "870" exists; the real, current
+  function is `erase_gdpr_person()`
+  (`20260908_article14_catalog_erase_suppression_and_delivery_gate.sql`,
+  superseding `0321`). Phase-1-relevant only as a pointer for the GDPR
+  extension task still pending (§I).
+
+**§A — `catalog_evidence`.** New table: `person_id`/`entity_id` (at least
+one required), `kind`, `title`, `url` (not null — "no url, no row" is
+enforced by a DB constraint, not just app logic), `published_at`,
+`excerpt` (≤600 chars), `language`, `polarity`, `strength` (1-4),
+`is_personal`, `origin`, `status`, `created_by_org_id`, `verified_by`/
+`verified_at`, `provenance jsonb`. `source_domain` and `content_hash` are
+generated columns (the latter unique-indexed for idempotent re-import).
+RLS mirrors `catalog_people_research_read` (0146 l.251-260) exactly —
+admin, or an org member whose org has the linked entity/person in
+`catalog_deliveries` — plus a `quarantined` row stays visible to the org
+that proposed it. Write is admin/service-role only; a founder's "propose
+evidence" write will go through a service-role API route in Phase 3, same
+as every other privileged write in this codebase, never a direct
+RLS-permitted insert. `catalog_evidence_topics` (tags) follows the same
+shape, readable wherever its parent evidence row is readable.
+
+**§B — `topic_taxonomy`.** Seed in `src/lib/topic-taxonomy.seed.ts` (the
+source of truth; the migration inserts a static snapshot generated from
+it once). 5 groups (depth 1) + 51 sectors (depth 2, slug matching a
+kebab-cased real sector name) + a deep sub-tree (depth 3-4, 17 nodes)
+under Health & Life Sciences only, per Nuno's decision: oncology by
+cancer type (prostate/breast/colorectal/lung), diagnostics by modality
+(early detection/biomarkers/biosensors/urinalysis/imaging), digital
+health by population (remote monitoring/women's/men's health/aging),
+devices by form factor (wearables/IVD/point of care) — mirrors the
+prompt's own worked example. 73 rows total. Synonyms are en/pt/es for
+every node in the deep sub-tree (matches the Verify section's own test
+languages); fr/de added only where an unambiguous term exists rather than
+guessed — a disclosed v1 scope line, not silently incomplete. `org_topics`
+derives from `orgs.sectors` (19 rows backfilled across the orgs that have
+sectors set); its primary key includes `source`, not just
+`(org_id, topic_id)` as the prompt's own text literally says — a founder
+removing a `dictionary`-sourced suggestion must not also delete a
+`declared` row for the same topic if one exists, so both can coexist.
+
+**Matcher — `src/lib/topic-matcher.ts`.** Deterministic, zero AI: NFD
+diacritics-strip, word-boundary regex per synonym, longest match wins at
+any overlapping span ("maior correspondência primeiro"), one match per
+topic (earliest position). Single-word synonyms also match a naive
+plural/singular variant; multi-word synonyms match exactly as seeded
+(pluralizing "breast cancer" was judged disproportionate effort for the
+gain — disclosed, not silently skipped). 10 unit tests: pt/en/es,
+diacritics, the known-accepted "cancer in Cancer Research UK" false
+positive (documented, not fixed — per the prompt's own note), longest-
+match-wins, plural/singular, zero tags on unrelated text, one tag per
+topic even with a repeated synonym, word-boundary safety.
+
+**Dictionary tagging at the DB layer.** A second implementation,
+`catalog_tag_evidence_dictionary()` (SQL, using the `unaccent` extension —
+already installed), does the same job for the insert-time trigger path
+and the one-time backfill run, since the backfill couldn't shell out to
+the TS runtime against production. Disclosed simplification versus the TS
+reference matcher: the SQL version does not suppress a broader topic when
+a more specific overlapping child topic also matched — it tags both. A
+real, bounded v1 gap, not silently glossed over.
+
+**AI fallback — `src/lib/evidence-tagging.ts` +
+`/api/backoffice/catalog/evidence-tagging/run`.** claude-haiku-4-5,
+forced tool call, output restricted to real `topic_taxonomy` slugs
+(`parseEvidenceTaggingOutput` rejects and reports any slug the model
+invents — never creates a new topic). Admin-triggered, not on a cron yet
+("não correr o worker sobre produção neste prompt — o Nuno dispara").
+7 unit tests for the pure prompt-builder/validator. **Not run against
+production**: this remote session has no `ANTHROPIC_API_KEY` — the same
+environmental gap noted in earlier prompts this session. The Verify
+section's "custo real de uma amostra de 50 evidências" could not be
+measured here; the route is built, tested, and ready for Nuno (or a
+session with the key) to trigger.
+
+**Backfill, run against production (`wkjcaoqdvhykrfacsylr`):**
+- `catalog_entity_enrichment_sources` → evidence: 3,504 candidates (rows
+  with a non-empty `source_url`), 3,350 inserted (154 were exact
+  re-imports of an already-idempotent row, correctly no-opped by the
+  `content_hash` unique index). By kind: 1,942 `bio` (from `team_page`
+  sources), 1,408 `other` (from `web_search` sources — mapped
+  conservatively since the source type alone doesn't reveal a more
+  specific kind).
+- `catalog_people_research.bio_raw` → evidence, kind `bio`: 1,637
+  non-empty bios, 0 skipped for having no derivable url (every one had
+  either a primary-affiliation entity website or a LinkedIn url) — all
+  1,637 created.
+- **Portfolio (§A's `investment`-kind evidence): none created.** Checked
+  the real schema first: `matchdeal_profiles.portfolio_companies` is a
+  single free-text column (migration 0053), not a structured
+  per-company table with per-company sectors. Per the prompt's own rule
+  ("se não existir estrutura, não inventar"), no rows were fabricated.
+- **Total `catalog_evidence`: 4,987 rows.**
+- Dictionary tagging pass over all 4,987: **921 tagged** (1,785 tag rows
+  — some evidence got 2+ tags), **4,066 zero-tag**. Of those, **622**
+  meet the ≥300-char threshold and are now queued in
+  `evidence_tagging_queue` for the AI fallback; the remaining 3,444 are
+  mostly the generic, excerpt-less `team_page`/`web_search` backfill rows
+  and correctly cost nothing.
+
+**Verified:** `tsc`/`vitest`/`eslint`/`build` all green by exit code
+(3,696 tests, 247 files — 18 new: 10 matcher + 7 tagging-parser + a
+prompt-builder test, plus 0 regressions). `npm run verify:migrations`
+clean (no numbering collision on 0344). Schema confirmed live via direct
+query (5 new tables, expected column counts) after every `apply_migration`
+step. The local migration file
+(`supabase/migrations/0344_catalog_evidence_topics_and_taxonomy.sql`) was
+updated to include everything actually run against production (the
+dictionary-tagging function, the AI-queue population, and the one-time
+backfill invocation), applied in pieces via the Supabase MCP tools because
+a single-statement apply of the full 700+-line file exceeded that tool's
+own timeout more than once (the per-row PL/pgSQL loop version of the
+dictionary pass timed out at ~4,987 rows; replaced with the set-based CTE
+form that actually completed).
+
+**Not done yet, tracked separately:** Phase 2 (topic signal, person
+priority, the lightweight match-score adjustment, the entity-header "who
+to contact" block), Phase 3 (the person evidence page rebuild, founder
+propose-evidence flow, back-office evidence queue), Phase 4 (hook
+suggestions — must not merge before Phase 3), Phase 5 (contact-outcome
+measurement, back-office no-link/outcomes panels), and the GDPR-erase
+extension for the three new tables this prompt adds across its phases.
+
+Branch `claude/prompt-585-people-evidence-hooks`. Migration 0344 is the
+final one applied so far; next free number per `verify:migrations` is
+0345 at time of writing (resweep again before any further migration in
+this branch).
