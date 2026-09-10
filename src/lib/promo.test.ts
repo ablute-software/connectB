@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   promoEligibility, computeBenefitEndsAt, benefitStillActive, isRedemptionCurrentlyActive, discountedPriceEur,
-  normalizeDiscountForKind, normalizePromoCodeInput, generatePromoCode, buildOutreachPromoCode,
+  normalizeDiscountForKind, normalizePromoCodeInput, generatePromoCode, buildOutreachPromoCode, isOutreachArchived,
+  emailLockBlocksRedemption,
   type OutreachCategory,
 } from './promo';
 
@@ -237,5 +238,57 @@ describe('buildOutreachPromoCode', () => {
     const a = buildOutreachPromoCode('Fábrica de Startups', 'program', 100, noneTaken);
     const b = buildOutreachPromoCode('Fábrica de Startups', 'program', 100, noneTaken);
     expect(a).toBe(b);
+  });
+});
+
+describe('emailLockBlocksRedemption (Prompt 876 §B — Nuno: "caso seja associado um email o promo code só possa ser redimido com uma conta através desse email")', () => {
+  it('no lock at all -> never blocks', () => {
+    expect(emailLockBlocksRedemption(null, 'anyone@example.com')).toBe(false);
+    expect(emailLockBlocksRedemption(undefined, 'anyone@example.com')).toBe(false);
+  });
+
+  it('matching email -> allowed', () => {
+    expect(emailLockBlocksRedemption('founder@startup.com', 'founder@startup.com')).toBe(false);
+  });
+
+  it('case-insensitive match -> allowed (Supabase auth emails are not guaranteed one case)', () => {
+    expect(emailLockBlocksRedemption('Founder@Startup.com', 'founder@startup.com')).toBe(false);
+    expect(emailLockBlocksRedemption('founder@startup.com', 'FOUNDER@STARTUP.COM')).toBe(false);
+  });
+
+  it('a different email -> blocked', () => {
+    expect(emailLockBlocksRedemption('founder@startup.com', 'someone-else@startup.com')).toBe(true);
+  });
+
+  it('locked but the user has no email at all -> blocked, never treated as a match', () => {
+    expect(emailLockBlocksRedemption('founder@startup.com', null)).toBe(true);
+    expect(emailLockBlocksRedemption('founder@startup.com', undefined)).toBe(true);
+  });
+});
+
+describe('isOutreachArchived (Prompt 876 §D — the "Arquivo" sub-tab)', () => {
+  it('never archives a target with no code at all', () => {
+    expect(isOutreachArchived(null, 0, NOW)).toBe(false);
+  });
+
+  it('archives a past-deadline code that was never redeemed', () => {
+    expect(isOutreachArchived({ redeemable_until: '2026-01-01T00:00:00Z', max_redemptions: null }, 0, NOW)).toBe(true);
+  });
+
+  it('does NOT archive a past-deadline code that WAS redeemed — it already served its purpose', () => {
+    expect(isOutreachArchived({ redeemable_until: '2026-01-01T00:00:00Z', max_redemptions: null }, 1, NOW)).toBe(false);
+  });
+
+  it('does not archive a code whose deadline is still in the future', () => {
+    expect(isOutreachArchived({ redeemable_until: '2027-01-01T00:00:00Z', max_redemptions: null }, 0, NOW)).toBe(false);
+  });
+
+  it('archives once max_redemptions is reached, regardless of the deadline', () => {
+    expect(isOutreachArchived({ redeemable_until: null, max_redemptions: 3 }, 3, NOW)).toBe(true);
+    expect(isOutreachArchived({ redeemable_until: null, max_redemptions: 3 }, 2, NOW)).toBe(false);
+  });
+
+  it('a live code with no deadline and no redemption cap is never archived', () => {
+    expect(isOutreachArchived({ redeemable_until: null, max_redemptions: null }, 0, NOW)).toBe(false);
   });
 });

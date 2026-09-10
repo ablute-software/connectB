@@ -19,7 +19,13 @@ const STATUSES = ['to_contact', 'contacted', 'replied', 'no_reply', 'declined'];
 // moment a founder redeems the generated code) — locked the instant
 // promo_code_id is set.
 const OFFER_FIELDS = ['kind', 'discount_pct', 'applicable_plans', 'redeemable_until', 'benefit_duration_months', 'max_redemptions'] as const;
-const EDITABLE_ALWAYS = ['name', 'category', 'website', 'email', 'phone', 'status', 'contacted_on', 'notes'] as const;
+const EDITABLE_ALWAYS = [
+  'name', 'category', 'website', 'email', 'phone', 'status', 'contacted_on', 'notes',
+  // Prompt 876 §A — the recipient/contact-person/program-info fields are not
+  // part of the issued offer (OFFER_FIELDS above) and stay editable even
+  // once a code exists, same as name/website/etc.
+  'recipient_name', 'recipient_email', 'contact_person_name', 'program_info',
+] as const;
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   const auth = await requirePlatformAdmin();

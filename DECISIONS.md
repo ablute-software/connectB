@@ -6175,3 +6175,77 @@ the SQL.
 (Prompt 874, days old, no backfill) and currently renders NO bars at all —
 no real customer has a paid invoice yet. This is not padded and not a bug;
 the chart's own empty-state and caption say so.
+
+---
+
+## Prompt 876 — the attachment schema's own literal template would have hard-failed on its first real upload
+
+**The bug, and why it matters more than usual.** The prompt's own SQL
+template for `promo_outreach_attachments.malware_scan_status` listed four
+values: `'not_scanned','pending','clean','flagged'`. Migration 0244
+(25/08/2026) replaced this app's VirusTotal strategy app-wide with a
+hash-only lookup and, in that same migration, widened EVERY existing
+`malware_scan_status` check constraint in the schema to also accept
+`'local_only'` — the ordinary, honest outcome for a private file VT has
+never seen, or whenever `VIRUSTOTAL_API_KEY` isn't configured at all
+(unknown in this schema's env-var list; unlike Stripe/Supabase, nothing
+confirms it's set in production). `scanWithVirusTotal()` — the function this
+prompt's own instruction says to call "exactly like the support-attachment
+route does" — returns `'local_only'` as its default, not-configured-case
+result. A four-value constraint here would not have degraded gracefully; it
+would have hard-failed the INSERT on the very first real upload through this
+route, in whichever of the two likelier production states actually holds
+(no VirusTotal key, or a genuinely new private file). Caught by reading
+0244's own reasoning before writing the migration, not by testing after the
+fact — the five-value set (`not_scanned, pending, clean, local_only,
+flagged`) was used from the start, and confirmed empirically afterward by
+inserting a real `local_only` row and a real `pending` row into the live
+table, both accepted.
+
+**Three drop-zones, not the two the prompt itself suggested.** Nuno named
+contracts as their own category of document ("documentos como contratos"),
+and the schema already carries a dedicated `'contract'` label. Collapsing
+upload UI into "Proof of publicity" / "Other documents" (the prompt's own
+suggested simplification) would have made `'contract'` practically
+unreachable from the UI the very feature exists to serve. Kept as three
+zones instead — Proof of publicity / Contract / Other — a small, deliberate
+deviation, not a silent narrowing.
+
+**Recipient/contact/program-info editing lives in one panel with the
+attachments, not only in CreateForm.** The prompt's own scope named
+CreateForm explicitly for these four fields but also, separately, asked for
+"a small panel" for documents (Part C). Since an EXISTING row needs
+somewhere to edit these fields too (not just at creation), and Part C
+already needed a per-row detail surface, both live in one "Details &
+documents" modal rather than doubling the number of per-row affordances or
+widening the already-16-column table further. Flagged here as the
+consolidation it is, not discovered later as scope creep.
+
+**No second promo-redemption entry point exists.** Searched every call site
+of `promo_codes`/`normalizePromoCodeInput` in `src/` (21 files) before
+writing the email-lock check: `/api/promo/redeem/route.ts` is the only place
+in the entire codebase that ever inserts into `promo_redemptions` — checkout
+(`/api/stripe/checkout/route.ts`) only ever reads an ALREADY-redeemed row to
+apply its Stripe coupon, never creates one, and no signup/onboarding flow
+touches promo codes at all. The email lock needed adding in exactly one
+place.
+
+**Verification against real data, and what couldn't be run.** This sandbox
+has no dev server with an authenticated admin session and no way to sign in
+as two different real accounts, so the prompt's own "redeem from a
+different email, then a matching one" end-to-end test could not run through
+the actual HTTP+auth path. Instead: the case-insensitive comparison was
+pulled out into a pure `emailLockBlocksRedemption()` (fully unit-tested,
+including the "locked but the user has no email at all" edge case), and the
+route's exact lookup query was run against a real `zz-test-876-email-lock`
+fixture, confirming it resolves the locked email correctly. The archive
+derivation (`isOutreachArchived`, already unit-tested with 6 cases) was
+checked against three real fixture rows built to exercise each branch
+(never-expired-and-unredeemed, expired-and-unused, max-redemptions-reached)
+— the GET route's exact query was replicated by hand and matched every
+expected `is_archived` value. All fixtures (attachments, codes, redemptions,
+targets) were deleted afterward: `promo_outreach_targets`/`promo_codes`/
+`promo_outreach_attachments` have no `is_test` filter anywhere in this app,
+so leaving them would have permanently shown fake rows on the real outreach
+table and on Prompt 875's Marketing Overview dashboard — the same class of
+gap that prompt's own report already flagged and fixed for `billing_invoices`.

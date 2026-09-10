@@ -7,7 +7,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { can, type OrgRole } from '@/lib/permissions';
-import { promoEligibility, computeBenefitEndsAt, normalizePromoCodeInput, type PromoKind } from '@/lib/promo';
+import { promoEligibility, computeBenefitEndsAt, normalizePromoCodeInput, emailLockBlocksRedemption, type PromoKind } from '@/lib/promo';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
 import { grantPioneerBadgeAndReferrals } from '@/lib/pioneer-server';
@@ -20,6 +20,9 @@ const REASON_MESSAGE: Record<string, string> = {
   inactive: 'That code is no longer active.',
   expired: 'That code has expired.',
   redemption_limit_reached: 'That code has reached its redemption limit.',
+  // Prompt 876 §B — Nuno's exact requirement: "caso seja associado um email
+  // o promo code só possa ser redimido com uma conta através desse email."
+  email_locked: 'This code is reserved for a specific email address. Sign in with that account to redeem it.',
 };
 
 export async function POST(req: Request) {
@@ -53,6 +56,24 @@ export async function POST(req: Request) {
 
   const reason = promoEligibility(promo, redemptionCount ?? 0, new Date());
   if (reason) return NextResponse.json({ ok: false, error: REASON_MESSAGE[reason] ?? 'That code can’t be used.' }, { status: 400 });
+
+  // Prompt 876 §B — a hard security gate, not a UI hint: when an outreach
+  // target locked this code to a specific recipient email, only an account
+  // signed in with THAT email may redeem it. The lock lives on
+  // promo_outreach_targets, not on promo_codes itself (this route never
+  // otherwise reads that table) — queried here, right after the promo
+  // lookup, grouped with every other eligibility check above rather than
+  // bolted on at the bottom. Case-insensitive: Supabase auth emails aren't
+  // guaranteed to be stored in one case.
+  const { data: lockedTarget } = await admin
+    .from('promo_outreach_targets')
+    .select('recipient_email')
+    .eq('promo_code_id', promo!.id)
+    .not('recipient_email', 'is', null)
+    .maybeSingle();
+  if (emailLockBlocksRedemption(lockedTarget?.recipient_email, user.email)) {
+    return NextResponse.json({ ok: false, error: REASON_MESSAGE.email_locked }, { status: 400 });
+  }
 
   // Prompt 854 §C.2 guard 3 — nothing stopped self-redemption before the
   // pyramid existed; a pyramid makes that worth closing, so it's checked
