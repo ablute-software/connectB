@@ -126,9 +126,13 @@ describe('nextBestAction — parqueado nao pode gritar "ready for first contact"
     expect(nextBestAction(db(e), 'e1', NOW)).toBe("Passed. Sherlock hasn't found a structural reason to reopen this yet — set your own note below, or leave it closed.");
   });
 
-  it('not_contacted sem pessoa nenhuma: pede para adicionar um contacto', () => {
+  // Prompt 880 — a corrected 879: "add a contact" is a data-setup task, not
+  // a next action toward this investor, so the banner shows nothing at all
+  // (undefined) rather than a setup instruction; the note moved to the
+  // People & Team tab instead.
+  it('not_contacted sem pessoa nenhuma: banner nao mostra nada (nota fica em People & Team)', () => {
     const e = entity({ status: 'not_contacted' });
-    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Add a contact person first — pre-flight needs one to check.');
+    expect(nextBestAction(db(e), 'e1', NOW)).toBeUndefined();
   });
 });
 
@@ -153,8 +157,9 @@ describe('nextBestAction — not_contacted mostra o resultado do preflight (254)
     const p = person({ hook_status: 'to_research', do_not_contact: true });
     // do_not_contact tambem bloqueia dnc — mas nextContactPerson ja filtra
     // do_not_contact fora da lista de candidatos, portanto este p NUNCA e
-    // escolhido: sem ninguem contactavel, cai no caso "adicionar contacto".
-    expect(nextBestAction(db(e, [], [], [], [], [p]), 'e1', NOW)).toBe('Add a contact person first — pre-flight needs one to check.');
+    // escolhido: sem ninguem contactavel, cai no caso "sem pessoa" (Prompt
+    // 880 — o banner nao mostra nada; a nota fica em People & Team).
+    expect(nextBestAction(db(e, [], [], [], [], [p]), 'e1', NOW)).toBeUndefined();
   });
 
   it('escolhe o mais senior CONTACTAVEL, nao so o rank 1 literal', () => {
