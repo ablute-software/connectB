@@ -20,6 +20,11 @@ interface Affiliation {
 interface QuarantineEntry { id: string; org: string; isTest: boolean; value: unknown; status: string; createdAt: string }
 interface QuarantineValue { value: unknown; realOrgCount: number; entries: QuarantineEntry[] }
 interface QuarantineField { field: string; verifiedCount: number; entries: QuarantineEntry[]; values: QuarantineValue[] }
+interface EvidenceRow {
+  id: string; kind: string; title: string; url: string; excerpt: string | null; publishedAt: string | null;
+  polarity: string; strength: number; status: string; origin: string; proposedByOrg: string | null;
+  verifiedAt: string | null; createdAt: string;
+}
 interface Dossier {
   person: {
     id: string; fullName: string; entityId: string | null; linkedinUrl: string | null; linkedinVerified: boolean;
@@ -33,6 +38,7 @@ interface Dossier {
   } | null;
   affiliations: Affiliation[];
   quarantine: QuarantineField[];
+  evidence: EvidenceRow[];
   manualLinks: { linkedin: string; google: string; teamPage: string | null; crunchbase: string; dealroom: string };
   activity: { totalInteractions: number; orgsInteracted: number; lastContactedAt: string | null; repliesReceived: number };
 }
@@ -109,6 +115,7 @@ function PersonDossierContent({ id }: { id: string }) {
   const [researching, setResearching] = useState(false);
   const [researchState, setResearchState] = useState<{ state: string; detail?: string } | null>(null);
   const [decidingKey, setDecidingKey] = useState<string | null>(null);
+  const [decidingEvidenceId, setDecidingEvidenceId] = useState<string | null>(null);
   // Prompt 595 §D — developer field editing.
   const [editingField, setEditingField] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -185,9 +192,29 @@ function PersonDossierContent({ id }: { id: string }) {
     }
   }
 
+  async function decideEvidence(evidenceId: string, decision: 'approve' | 'reject') {
+    setDecidingEvidenceId(evidenceId);
+    try {
+      const reviewerNotes = decision === 'reject' ? window.prompt('Reason for rejecting (optional):') ?? undefined : undefined;
+      const res = await fetch(`/api/backoffice/catalog/people/${id}/evidence/${evidenceId}/decide`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ decision, reviewerNotes }),
+      });
+      const body = await res.json();
+      if (!body.ok) throw new Error(body.error ?? 'Could not save the decision.');
+      load();
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setDecidingEvidenceId(null);
+    }
+  }
+
   if (err) return <Card title="Person"><p className="text-sm text-[#B00000]">{err}</p></Card>;
   if (!data) return <Card title="Person"><p className="text-sm text-gray-400">Loading…</p></Card>;
-  const { person, research, affiliations, quarantine, manualLinks, activity } = data;
+  const { person, research, affiliations, quarantine, evidence, manualLinks, activity } = data;
+  const pendingEvidence = evidence.filter((e) => e.status === 'quarantined');
+  const reviewedEvidence = evidence.filter((e) => e.status !== 'quarantined');
   const primary = affiliations.find((a) => a.isPrimary) ?? affiliations[0];
   // Prompt 599 §3 — counts the affiliations card states plainly.
   const currentCount = affiliations.filter((a) => a.current).length;
@@ -408,6 +435,61 @@ function PersonDossierContent({ id }: { id: string }) {
               </li>
             ))}
           </ul>
+        )}
+      </Card>
+
+      {/* §G.1 — Evidence quarantine. Its own queue, not folded into "What
+          startups know" above: each row is already a complete claim (a
+          catalog_evidence row), not a (field, value) needing grouping —
+          see migration 0347's header comment for why this doesn't reuse
+          the generic contributions/consensus machinery. */}
+      <Card title={`Evidence (${evidence.length})`}>
+        {evidence.length === 0 ? <p className="text-sm text-gray-400">No evidence on file yet.</p> : (
+          <div className="space-y-4">
+            {pendingEvidence.length > 0 && (
+              <div>
+                <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-amber-700">Pending review ({pendingEvidence.length})</p>
+                <ul className="space-y-2">
+                  {pendingEvidence.map((e) => {
+                    const busy = decidingEvidenceId === e.id;
+                    return (
+                      <li key={e.id} className="rounded-lg border border-amber-100 bg-amber-50/50 p-2.5 text-sm">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <a href={e.url} target="_blank" rel="noreferrer" className="font-medium text-[#0E7490] hover:underline">{e.title}</a>
+                            <p className="text-[11px] text-gray-500">
+                              {e.kind.replace('_', ' ')} · proposed by {e.proposedByOrg ?? '(unknown org)'} · {e.createdAt.slice(0, 10)}
+                            </p>
+                            {e.excerpt && <p className="mt-1 text-xs italic text-gray-600">“{e.excerpt}”</p>}
+                          </div>
+                          <div className="flex shrink-0 gap-1.5">
+                            <button disabled={busy} onClick={() => decideEvidence(e.id, 'approve')}
+                              className="rounded bg-[#0E7490] px-2 py-0.5 text-[11px] font-medium text-white disabled:opacity-40">Approve → catalog</button>
+                            <button disabled={busy} onClick={() => decideEvidence(e.id, 'reject')}
+                              className="rounded border border-gray-300 bg-white px-2 py-0.5 text-[11px] text-gray-600 hover:bg-gray-100 disabled:opacity-40">Reject</button>
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+            {reviewedEvidence.length > 0 && (
+              <div>
+                <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Reviewed ({reviewedEvidence.length})</p>
+                <ul className="space-y-1 text-xs text-gray-500">
+                  {reviewedEvidence.map((e) => (
+                    <li key={e.id}>
+                      <span className={e.status === 'verified' || e.status === 'found' ? 'text-green-700' : e.status === 'rejected' ? 'text-gray-400 line-through' : 'text-gray-400'}>{e.status}</span>
+                      {' · '}<a href={e.url} target="_blank" rel="noreferrer" className="text-[#0E7490] hover:underline">{e.title}</a>
+                      {' · '}{e.origin}{e.proposedByOrg ? ` (${e.proposedByOrg})` : ''}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
         )}
       </Card>
 

@@ -151,6 +151,26 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     };
   }
 
+  // §G.1 — the evidence quarantine queue lives here, on the dossier: admin
+  // sees every status (RLS's founder-facing read policy stops at found/
+  // verified/own-quarantined; this route runs on the service-role client,
+  // which bypasses RLS entirely, so rejected/erased rows are visible here
+  // too — useful for "did we already reject this exact link").
+  const { data: evidenceRaw } = await admin
+    .from('catalog_evidence')
+    .select('id, kind, title, url, excerpt, published_at, polarity, strength, status, origin, created_by_org_id, verified_at, created_at, orgs:created_by_org_id(name, is_test)')
+    .eq('person_id', id)
+    .order('created_at', { ascending: false });
+  const evidence = (evidenceRaw ?? []).map((e) => {
+    const org = e.orgs as unknown as { name: string; is_test: boolean } | null;
+    return {
+      id: e.id, kind: e.kind, title: e.title, url: e.url, excerpt: e.excerpt, publishedAt: e.published_at,
+      polarity: e.polarity, strength: e.strength, status: e.status, origin: e.origin,
+      proposedByOrg: org ? `${org.name}${org.is_test ? ' (test)' : ''}` : null,
+      verifiedAt: e.verified_at, createdAt: e.created_at,
+    };
+  });
+
   return NextResponse.json({
     ok: true,
     person: {
@@ -172,6 +192,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     } : null,
     affiliations,
     quarantine,
+    evidence,
     manualLinks,
     activity,
   });

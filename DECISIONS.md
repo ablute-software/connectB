@@ -7014,3 +7014,154 @@ tables this prompt adds across its phases.
 Branch `claude/prompt-585-people-evidence-hooks`. Migration 0346 is the
 final one applied so far; next free number per `verify:migrations` is
 0347 (resweep again before any further migration in this branch).
+
+## Prompt 585 Phase 3 — the person evidence page, founder propose flow, back-office evidence queue
+
+Migration `0347_catalog_evidence_founder_propose_and_consensus.sql`, applied
+to production. Scope per §H: page §D, `EntityPeoplePanel` reorder, founder
+quarantine propose flow, back-office §G.1. The hook button §D's own text
+puts in the header is NOT built here — Phase 4 isn't merged yet, and §H's
+own ordering forbids it ("não mesclar a fase 4 sem a 3").
+
+**Deliberate deviation from §D.3's literal text, disclosed here:** the
+prompt says to create "uma contribution `catalog_person`" to reuse the
+existing 3-org consensus machinery (`contributions` table +
+`catalog_person_check_consensus()` + `catalog_person_apply_field()`,
+migrations 0322/0328/0336). Read that code first (research agent + direct
+file reads) and concluded it doesn't fit: `catalog_person_apply_field()`'s
+entire job is writing one value onto one `catalog_people`/
+`catalog_people_research` field — it has no notion of "apply an evidence
+row", and `contributions.subject_type` is hardcoded to `'catalog_person'`
+inside the trigger, so reusing it would mean smuggling a URL through a
+system built for single-field claims. Built instead: a parallel,
+purpose-built mechanism directly on `catalog_evidence` —
+`catalog_evidence_normalize_url()` (lowercase, strip scheme, trailing
+slash, query string) + `catalog_evidence_consensus_check()` (an AFTER
+INSERT trigger, same `is_test = false and is_internal = false` join and
+3-distinct-org threshold as the reference, verifying every matching
+quarantined row and writing one `admin_audit_log` entry) — same
+externally observable behavior the prompt asks for, without contorting a
+system built for a different shape of claim. Verified live against a
+zz-test fixture (3 non-test orgs, same URL in 3 different formats —
+`https://Example.com/…/?utm_source=x`, `http://example.com/…/`,
+`https://example.com/…` — all normalizing to `example.com/zztest-
+consensus`): 2 orgs → both still `quarantined`; the 3rd insert →
+all 3 rows flip to `verified` in the same instant, one audit row with
+`org_count: 3` and all 3 evidence ids. Fixture destroyed after.
+
+**Why the zz-test fixture orgs for this one test were `is_test = false`,
+unlike every other zz-test fixture this session:** the mechanism being
+tested explicitly excludes `is_test`/`is_internal` orgs from the count —
+testing it with the usual `is_test = true` convention would make the
+count structurally unable to reach 3, proving nothing. These are fresh,
+`zz-test-`-prefixed rows that touch no real entity; the `is_test` column
+choice here is a test-design necessity, not a departure from "don't
+write test data to real records."
+
+**Admin approve/reject (§G.1)** is its own route,
+`/api/backoffice/catalog/people/[id]/evidence/[evidenceId]/decide`,
+modeled 1:1 on the existing `/quarantine` route's shape
+(`requirePlatformAdmin()`, `logAdminAction` with a `{from, to}` detail) —
+also NOT folded into the "What startups know" `contributions`-driven
+card, for the same reason as above. Surfaced as its own "Evidence" card
+on the existing back-office person dossier
+(`src/app/backoffice/catalog/people/[id]/page.tsx`), pending items first
+with Approve/Reject buttons, reviewed items below in a flat log —
+deliberately NOT grouped by (field, value) the way "What startups know"
+is, because each `catalog_evidence` row is already a complete, standalone
+claim; grouping would add structure the data doesn't need.
+
+**Scope trimmed, disclosed, not silently dropped:** §D.2's "admin edits
+every field of every evidence row, creates new evidence directly, edits
+tags" was NOT built this phase — only Approve/Reject. The core workflow
+(founder proposes → consensus or admin decides → shows on the person
+page) is what unblocks the product loop; full inline CRUD editing is
+comparatively low-value polish, deferred to a dedicated pass. Likewise,
+§G.1's "fila de quarentena" is per-person (on the dossier an admin
+already navigates to), not a separate cross-person global queue page —
+matching the EXISTING precedent that "What startups know" itself has no
+global queue page either, only this same per-person surface.
+
+**§D's "On Sherlock Deal" badge and photos:** neither built. The badge's
+underlying signal (`platform_member_id` on `catalog_people`) doesn't
+exist — confirmed against the live schema — so no proxy was fabricated.
+Photos stay unbuilt per decision 2 (no photos in v1); the founder-facing
+evidence-kind picker (`FOUNDER_EVIDENCE_KINDS`,
+`src/lib/catalog-evidence-propose.ts`) never offers `kind='photo'`.
+
+**Founder propose flow** (`POST /api/catalog-people/[id]/evidence/propose`):
+guards org membership, then that the person has a CURRENT affiliation
+with an entity actually in the org's own `catalog_deliveries` (never lets
+an org propose evidence about an arbitrary person outside their
+pipeline); validates via `validateEvidenceProposal()`
+(`src/lib/catalog-evidence-propose.ts`, unit-tested) — url required and
+must be absolute http/https (no live "does it respond" fetch — §A's own
+text offers that as an "or" alternative, and skipping a server-side
+outbound fetch here avoids an SSRF-shaped surface on a route any org
+member can call); inserts `status='quarantined'`, `origin='founder'`,
+`strength=2` (the prompt's own §A strength table puts a founder's
+say-so at "participation/mention" level, not the interview-quote-level
+4 an admin might later raise it to). Runs `catalog_tag_evidence_dictionary()`
+on the new row immediately (this route is the first REAL evidence writer
+this session — Phase 1's own gap note said dictionary tagging "is not yet
+wired into a live evidence-writer"; that gap is now closed for this one
+path), queuing for AI fallback only when 0 tags AND ≥300 chars, exactly
+mirroring Phase 1's backfill logic. Needed one additional grant this
+migration: `catalog_tag_evidence_dictionary()` had no grant to
+`service_role` (the one-time Phase 1 backfill ran as `postgres` via the
+MCP tool, which bypasses grants) — added here since a real route now
+calls it as `service_role`.
+
+**`/catalog-people/[id]` rebuild** (§D): header (name, primary title/firm,
+LinkedIn, a new `seniorityRankLabel()` helper —
+`src/lib/seniority-rank-label.ts`, unit-tested, since no rank→label
+mapping existed anywhere in the codebase before this); "Why this person"
+(calls `catalog_topic_signal` directly in person mode — no need to
+resolve `catalog_person_priority` for this view, since the signal itself
+doesn't depend on which entity — rendering the 3-way verdict §C.2
+defines: "interest" when `score > 0`, "mention" when there's contributing
+evidence below threshold, "no signal" when there's none, plus
+`watch_outs`); Evidence (the full per-person timeline, kind chip +
+verbatim excerpt + honest status label + topic-tag chips, sorted by
+`published_at` desc — a single sorted list rather than a group-by-kind UI
+toggle, a reasonable reading of "agrupável" that doesn't add UI
+complexity the prompt doesn't strictly require); Background (kept from
+291); Affiliations (kept from 291, unchanged); Attention (kill words +
+research-level watch-outs, distinct from the evidence-derived
+`watch_outs` shown in "Why this person"); Contact and path (LinkedIn +
+`catalog_entity_contact_context` (Phase 2's own RPC) + the org's private
+`entities.submission_channel_type`, for the one current affiliation, if
+any, this org has actually delivered — "reuse only what's real",
+unchanged from Phase 2's decision, extended here to a second surface).
+
+**`EntityPeoplePanel.tsx`** (§D.1): now fetches `catalog_person_priority`
+for `(org_id, entity_id)` alongside the existing affiliations query and
+sorts by `rank_position` (unranked/ineligible people keep their original
+relative order, stable-sorted after everyone ranked); shows an "Interest"
+chip + the stored justification's text under a person's name when
+`score > 0`. The name already linked to `/catalog-people/[id]` since
+Prompt 291 — unchanged.
+
+**Verified:** `tsc`/`vitest`/`eslint`/`build` all green by exit code
+(3,709 tests, 249 files — 13 new: 5 `seniorityRankLabel` + 8
+`validateEvidenceProposal`, 0 regressions). `npm run verify:migrations`
+clean (no new numbering collision; the pre-existing 0339 collision is
+unrelated, from before this session's own work). zz-test DB verification:
+the 3-org consensus mechanism (above, both the 2-org negative case and
+the 3-org positive case); `catalog_evidence_normalize_url()` against 3
+differently-formatted real-looking URLs, confirmed identical output.
+Not independently re-verified this phase (already covered in Phase 1/2's
+own zz-test passes, unchanged by this one): `catalog_topic_signal`'s
+scoring rules, `catalog_person_priority`'s eligibility/ordering rules.
+
+**Not done yet, tracked separately, per Nuno's own "stop after Phase 2
+for a check-in" instruction (asked again before Phase 4):** Phase 4 (hook
+suggestion service §F — must not merge before this phase per §H's own
+ordering; no quota enforcement per Nuno's explicit "não aplicar limites
+para já" answer), Phase 5 (contact-outcome measurement, back-office
+no-link/outcomes panels), and the GDPR-erase extension for the three new
+tables/systems this prompt adds across its phases.
+
+Branch `claude/prompt-585-people-evidence-hooks`. Migration 0347 is the
+final one applied so far; next free number per `verify:migrations` is
+0348 (resweep again before any further migration in this branch).

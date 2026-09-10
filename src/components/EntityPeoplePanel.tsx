@@ -38,6 +38,10 @@ type PersonRow = {
     catalog_people_research: { hook: string | null } | { hook: string | null }[] | null;
     catalog_entity_enrichment_sources: { id: string }[] | null;
   } | null;
+  // Prompt 585 §D.1 — catalog_person_priority (migration 0345). Absent
+  // for anyone not eligible (rank 9/null, do_not_contact, or rank 4
+  // without a qualifying topic signal) — that's not an error, just no row.
+  priority?: { rankPosition: number; score: number; justification: string | null };
 };
 
 type PanelState =
@@ -132,10 +136,34 @@ export function EntityPeoplePanel({ entityId, onShowsKeyPeopleFallback, onPerson
         .eq('current', true);
       if (cancelled) return;
       if (rowsErr) { setState({ kind: 'error' }); return; }
-      setState({ kind: 'ready', people: (rows ?? []) as unknown as PersonRow[] });
+
+      // Prompt 585 §D.1 — order by catalog_person_priority (Sherlock's own
+      // "who to contact first" ranking, migration 0345) rather than
+      // whatever order the affiliations query happened to return. Anyone
+      // without a priority row (not eligible — see the type comment above)
+      // sorts after everyone ranked, keeping their original relative order.
+      const { data: priorityRows } = await sb
+        .from('catalog_person_priority')
+        .select('person_id, rank_position, score, justification')
+        .eq('org_id', db.org.id).eq('entity_id', catalogId);
+      const priorityByPersonId = new Map((priorityRows ?? []).map((p) => [
+        p.person_id as string,
+        { rankPosition: p.rank_position as number, score: Number(p.score), justification: p.justification as string | null },
+      ]));
+
+      const people = ((rows ?? []) as unknown as PersonRow[]).map((r) => {
+        const pid = r.catalog_people?.id;
+        return pid ? { ...r, priority: priorityByPersonId.get(pid) } : r;
+      });
+      people.sort((a, b) => {
+        const ra = a.priority?.rankPosition ?? Number.MAX_SAFE_INTEGER;
+        const rb = b.priority?.rankPosition ?? Number.MAX_SAFE_INTEGER;
+        return ra - rb;
+      });
+      setState({ kind: 'ready', people });
     })();
     return () => { cancelled = true; };
-  }, [entityId]);
+  }, [entityId, db.org.id]);
 
   const showCatalogPeople = state.kind === 'ready' && state.people.length > 0;
   // Prompt 262 §3 — the catalog (live, more reliable) always wins when it
@@ -238,7 +266,13 @@ export function EntityPeoplePanel({ entityId, onShowsKeyPeopleFallback, onPerson
                       LinkedIn
                     </a>
                   )}
+                  {row.priority && row.priority.score > 0 && (
+                    <span className="rounded-full bg-cyan-50 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-700">Interest</span>
+                  )}
                 </div>
+                {row.priority?.justification && row.priority.score > 0 && (
+                  <p className="mt-0.5 text-xs text-gray-500">{row.priority.justification}</p>
+                )}
                 {hook && <p className="mt-1 text-sm italic text-gray-600">“{hook}”</p>}
               </li>
             );
