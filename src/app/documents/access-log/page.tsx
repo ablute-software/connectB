@@ -1,11 +1,13 @@
 'use client';
-// Prompt 603 commitments 3 and 4 — the founder's own view of every document
-// access (document_views: who, when, how long, how many pages) and of every
-// time the Sherlock team entered this workspace (the Developer Viewer's own
-// audit lines: when, for how long). Records that already existed; this is
-// the window the commitments promise.
+// The founder's own view of every DOCUMENT access (document_views: who, when,
+// how long, how many pages).
+//
+// Prompt 886/877 — this page used to also list "Sherlock team access to this
+// workspace" (the Developer Viewer's viewer_enter/viewer_exit lines). By
+// Nuno's decision, an authorised admin viewing an account is logged internally
+// and is not shown to the organisation, so that section is removed and the
+// route no longer returns it. Document views are unaffected.
 import { useEffect, useState } from 'react';
-import { reasonForDisplay } from '@/lib/viewer-reason';
 import Link from 'next/link';
 import { Card } from '@/components/ui';
 
@@ -40,7 +42,7 @@ export default function AccessLogPage() {
         <h1 className="text-lg font-bold">Access log</h1>
         <Link href="/documents" className="text-xs text-[#0E7490] hover:underline">← Documents &amp; Vault Data Room</Link>
       </div>
-      <p className="text-sm text-gray-500">Every time a document of yours is opened, and every time our team entered your workspace. Both are recorded automatically; neither can be edited.</p>
+      <p className="text-sm text-gray-500">Every time a document of yours is opened — who, when, how long, and how many pages. Recorded automatically; it cannot be edited.</p>
       {err && <p className="text-sm text-[#B00000]">{err}</p>}
       {!log && !err && <p className="text-sm text-gray-400">Loading…</p>}
       {log && !log.available && <p className="text-sm text-gray-400">Not available in this workspace yet.</p>}
@@ -66,25 +68,6 @@ export default function AccessLogPage() {
               </div>
             )}
           </Card>
-          <div id="team">
-            <Card title={`Sherlock team access to this workspace (${log.teamAccess.length})`}>
-              <p className="mb-2 text-xs text-gray-500">Our staff can open a read-only view of a workspace to resolve a support request or investigate a fault. Every entry is logged with the reason, the time and the duration, and shown here.</p>
-              {log.teamAccess.length === 0 ? <p className="text-sm text-gray-400">Nobody from our team has entered this workspace.</p> : (
-                <ul className="space-y-2 text-sm text-gray-700">
-                  {log.teamAccess.map((t) => (
-                    <li key={t.id}>
-                      <div>{fmt(t.enteredAt)} — {t.durationMs != null ? `for ${duration(t.durationMs, null)}` : 'duration not recorded'}</div>
-                      {/* Prompt 611 §B — the reason, which is what commitment 4
-                          promises and what these lines did not carry until now.
-                          Visits recorded before that say so; nothing is
-                          back-filled. */}
-                      <div className={t.reason ? 'text-xs text-gray-600' : 'text-xs italic text-gray-400'}>{reasonForDisplay(t.reason)}</div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Card>
-          </div>
         </>
       )}
     </div>

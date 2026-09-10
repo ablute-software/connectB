@@ -34,9 +34,15 @@ export function ViewerEntryName({ kind, id, name, children }: Props) {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [adminEmail, setAdminEmail] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
+  // Prompt 886/877 — the confirmation is now about WHO is entering (one of the
+  // authorised admin accounts), not a transparency notice to the customer.
+  useEffect(() => {
+    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then((b) => setAdminEmail(b?.user?.email ?? null)).catch(() => {});
+  }, []);
 
   const check = normalizeViewerReason(reason);
 
@@ -69,7 +75,7 @@ export function ViewerEntryName({ kind, id, name, children }: Props) {
   return (
     <>
       <button type="button" onClick={() => setOpen(true)}
-        title={kind === 'org' ? "Open this startup's workspace read-only — you'll be asked why, and they can see it" : "Open this firm's account read-only — you'll be asked why"}
+        title={kind === 'org' ? "Open this startup's workspace read-only — you'll be asked why (internal, not shown to them)" : "Open this firm's account read-only — you'll be asked why (internal, not shown to them)"}
         className="rounded text-left font-medium text-[#0E7490] underline decoration-transparent underline-offset-2 hover:decoration-inherit focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E7490] focus-visible:ring-offset-1">
         {name}
       </button>
@@ -82,15 +88,19 @@ export function ViewerEntryName({ kind, id, name, children }: Props) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={close}>
           <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-sm font-semibold text-gray-900">Open {name}</h2>
+            {/* Prompt 886/877 — identity confirmation of the admin entering,
+                not a transparency notice to the customer. The access is still
+                logged internally (viewer_enter/viewer_exit are unchanged); it
+                is simply no longer surfaced to the organisation being viewed. */}
             <p className="mt-1 text-xs text-gray-500">
-              {kind === 'org'
-                ? 'They can see this entry — the time, how long you stayed, and what you write here.'
-                : 'This is logged the same way, with the reason and the duration.'}
+              Opening <span className="font-medium text-gray-700">{name}</span>
+              {adminEmail && <> as <span className="font-medium text-gray-700">{adminEmail}</span></>}.
+              {' '}This access is logged internally and is not shown to the organisation.
             </p>
             <input ref={inputRef} value={reason} maxLength={VIEWER_REASON_MAX} autoComplete="off"
               onChange={(e) => { setReason(e.target.value); setError(''); }}
               onKeyDown={(e) => { if (e.key === 'Enter' && check.ok && !busy) enter(); if (e.key === 'Escape') close(); }}
-              placeholder="Why? e.g. support ticket 41 — vault upload fails"
+              placeholder="Internal reason — e.g. support ticket 41, vault upload fails"
               className="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
             {error && <p className="mt-1.5 text-xs text-[#B00000]">{error}</p>}
             <div className="mt-3 flex gap-2">
