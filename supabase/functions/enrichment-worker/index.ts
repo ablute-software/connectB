@@ -95,6 +95,8 @@ import { DOMParser } from 'https://deno.land/x/deno_dom@v0.1.45/deno-dom-wasm.ts
 import { hookContainsKillWord, stripSpecialCategoryFields } from './special-category.ts';
 // Prompt 638 §3.2 — rule (a) of the hook bar, checked by code before the write.
 import { hookIsAboutTheFund } from './hook-rules.ts';
+// Prompt 642 §4 — the worker never writes over a human-stamped field and never null over a value.
+import { isHumanVerified, stripHumanVerified, withoutNulls } from './human-guard.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -872,7 +874,7 @@ async function isEmailVerifiedColumnAvailable(): Promise<boolean> {
 async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry, batchId: string) {
   const { data: entity, error: entityErr } = await supabase
     .from('catalog_entities')
-    .select('id, name, website, is_test, hq_country')
+    .select('id, name, website, is_test, hq_country, verified_fields, team_page_url')
     .eq('id', job.target_id)
     .single();
   if (entityErr || !entity) throw new Error(`entity_not_found: ${entityErr?.message ?? job.target_id}`);
@@ -941,9 +943,14 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
     return { url: candidate, page: fetched, text };
   };
 
-  const sitemapCandidate = await discoverTeamPageUrlViaSitemap(homepageUrl);
-  telemetry.webCalls += 1;
-  let hit = await tryCandidate(sitemapCandidate, true);
+  // Prompt 642 §4 / 627 §6.1 — a team page already on the row (33 of them written by
+  // hand on 2026-09-09) is the first candidate, not a value to rediscover.
+  let hit: TeamHit | null = await tryCandidate(entity.team_page_url ?? null, true);
+  if (!hit) {
+    const sitemapCandidate = await discoverTeamPageUrlViaSitemap(homepageUrl);
+    telemetry.webCalls += 1;
+    hit = await tryCandidate(sitemapCandidate, true);
+  }
 
   if (!hit) hit = await tryCandidate(discoverTeamPageUrl(homepage.html, homepageUrl), true);
 
@@ -1001,9 +1008,11 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
   // otherwise the 150 entities that legitimately have no reachable team page
   // pay for the full cascade again on every future run.
   if (!dryRun) {
-    await supabase.from('catalog_entities')
-      .update({ team_page_url: hit?.url ?? null, team_page_checked_at: new Date().toISOString() })
-      .eq('id', entity.id);
+    // Prompt 642 §4 — a human-stamped team_page_url is neither replaced nor nulled;
+    // only the checked-at timestamp moves.
+    const teamPatch: Record<string, unknown> = { team_page_checked_at: new Date().toISOString() };
+    if (!isHumanVerified(entity.verified_fields, 'team_page_url')) teamPatch.team_page_url = hit?.url ?? null;
+    await supabase.from('catalog_entities').update(teamPatch).eq('id', entity.id);
   }
 
   if (!hit) return { status: 'skipped', reason: lastReject ?? 'team_page_not_found' };
@@ -1082,8 +1091,12 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
     // answer — better than a code we guessed from a word we did not know.
     if (normalisedCountry) fundPatch.hq_country = normalisedCountry;
   }
-  if (Object.keys(fundPatch).length) {
-    await supabase.from('catalog_entities').update(fundPatch).eq('id', entity.id);
+  // Prompt 642 §4 — nothing a human stamped in verified_fields is refreshed by the model;
+  // what carries no level (AI-written or empty) is refreshed as before.
+  const fundGuard = stripHumanVerified(fundPatch, entity.verified_fields as Record<string, unknown> | null);
+  if (fundGuard.protectedKeys.length) console.log(`[human-guard] entity ${entity.id}: kept human-verified ${fundGuard.protectedKeys.join(', ')}`);
+  if (Object.keys(fundGuard.kept).length) {
+    await supabase.from('catalog_entities').update(fundGuard.kept).eq('id', entity.id);
   }
   if (submissionChannel) {
     await supabase.from('catalog_entity_enrichment_sources').insert({
@@ -1201,6 +1214,7 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
       personId = (existingByName as any)?.person_id ?? null;
     }
 
+    let humanRecorded = false;
     const personPatch: Record<string, unknown> = { full_name: p.full_name, entity_id: entity.id, updated_at: new Date().toISOString() };
     // linkedinUrl only ever reaches here via pickMatchingLinkedinCandidate —
     // a code-verified candidate, never the model's raw string (D1 estendido)
@@ -1214,6 +1228,15 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
     if (bioRaw) personPatch.enrichment_status = 'enriched';
 
     if (personId) {
+      // Prompt 642 §4 — a person a human recorded (source_kind = 'manual': the 640 import,
+      // an admin) keeps their name, firm and LinkedIn; the model may only fill a blank
+      // LinkedIn and mark the enrichment.
+      const { data: existingPerson } = await supabase.from('catalog_people').select('source_kind, linkedin_url').eq('id', personId).maybeSingle();
+      humanRecorded = existingPerson?.source_kind === 'manual';
+      if (humanRecorded) {
+        delete personPatch.full_name; delete personPatch.entity_id;
+        if (existingPerson?.linkedin_url) { delete personPatch.linkedin_url; delete personPatch.linkedin_verified; }
+      }
       await supabase.from('catalog_people').update(personPatch).eq('id', personId);
     } else {
       const { data: created, error: createErr } = await supabase.from('catalog_people').insert(personPatch).select('id').single();
@@ -1221,12 +1244,20 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
       personId = created.id;
     }
 
-    await supabase
-      .from('catalog_person_affiliations')
-      .upsert(
-        { person_id: personId, entity_id: entity.id, title: title ?? null, kind: 'other', is_primary: true, current: true },
-        { onConflict: 'person_id,entity_id,kind' },
-      );
+    // Prompt 643 §2 — one affiliation row per (person, firm) whatever its kind, and one
+    // primary per person: the old upsert keyed on kind='other' inserted a second row (and a
+    // second primary) beside an imported 'partner' row. Prompt 642 §4 — a human-recorded
+    // title is kept; the page's title only fills or refreshes a machine one.
+    const { data: existingAff } = await supabase.from('catalog_person_affiliations').select('id, title')
+      .eq('person_id', personId).eq('entity_id', entity.id).order('is_primary', { ascending: false }).limit(1).maybeSingle();
+    if (existingAff) {
+      if (title && !humanRecorded && existingAff.title !== title) {
+        await supabase.from('catalog_person_affiliations').update({ title, current: true }).eq('id', existingAff.id);
+      }
+    } else {
+      const { count: primaries } = await supabase.from('catalog_person_affiliations').select('id', { count: 'exact', head: true }).eq('person_id', personId).eq('is_primary', true);
+      await supabase.from('catalog_person_affiliations').insert({ person_id: personId, entity_id: entity.id, title: title ?? null, kind: 'other', is_primary: (primaries ?? 0) === 0, current: true });
+    }
     affiliationsCreated.push(personId!); // sempre nao-nulo aqui: ramo if era truthy, ramo else fez `continue` antes se falhou
 
     // Prompt 284 §2 — email is independent of bio: a person can have one
@@ -1370,8 +1401,11 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
   if (entity?.is_test) return { status: 'skipped', reason: 'is_test entity, skipped by policy' };
 
   const { data: affiliation } = await supabase.from('catalog_person_affiliations').select('title').eq('person_id', person.id).eq('is_primary', true).maybeSingle();
-  const { data: existingResearch } = await supabase.from('catalog_people_research').select('bio_raw').eq('person_id', person.id).maybeSingle();
+  const { data: existingResearch } = await supabase.from('catalog_people_research').select('bio_raw, verified_fields').eq('person_id', person.id).maybeSingle();
   const bioRaw = existingResearch?.bio_raw ?? null;
+  // Prompt 642 §4 — what a human stamped on this person; the model writes around it.
+  const humanFields = (existingResearch?.verified_fields ?? {}) as Record<string, unknown>;
+  const humanHook = isHumanVerified(humanFields, 'hook');
   // Prompt 638 §3.1 — a job the bio_only sweep enqueued stops after the bio
   // path, and stops SOFT: the person stays eligible for the mixed sweep.
   const bioOnly = job.mode === 'bio_only';
@@ -1462,19 +1496,24 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
   // confident enough. This is the ONLY branch that ever touches the web,
   // so most people with a decent existing bio never reach it at all.
   if (bioResult && bioResult.confidence >= BIO_HOOK_CONFIDENCE_THRESHOLD) {
-    await supabase.from('catalog_people_research').upsert({
-      person_id: person.id, hook: bioResult.hook, hook_source: 'bio',
+    // Prompt 642 §4 — never over a human-stamped field, never null over a value.
+    const bioGuard = stripHumanVerified(withoutNulls({
+      hook: bioResult.hook, hook_source: 'bio',
       background: bioResult.background, intro_path: bioResult.introPath,
-      watch_outs: bioResult.watchOuts, kill_words: bioResult.killWords,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'person_id' });
+      watch_outs: bioResult.watchOuts, kill_words: bioResult.killWords.length ? bioResult.killWords : null,
+    }), humanFields);
+    if (bioGuard.protectedKeys.length) guardRejections.push(`human_verified:${bioGuard.protectedKeys.join('+')}`);
+    if (Object.keys(bioGuard.kept).length) {
+      await supabase.from('catalog_people_research').upsert({ person_id: person.id, ...bioGuard.kept, updated_at: new Date().toISOString() }, { onConflict: 'person_id' });
+    }
+    const wroteBioHook = 'hook' in bioGuard.kept;
     await supabase.from('catalog_people').update({
-      hook_status: 'researched', enrichment_status: 'enriched',
+      ...(wroteBioHook || humanHook ? { hook_status: 'researched' } : {}), enrichment_status: 'enriched',
       enriched_at: new Date().toISOString(), enrichment_stale_after: addDays(new Date(), 90).toISOString(),
     }).eq('id', person.id);
     return {
-      status: 'done', reason: null, hookWritten: true, hookSource: 'bio', usedWebFallback: false,
-      outcome: { path: 'bio', mode: job.mode ?? 'mixed', bio_confidence: bioConfidenceRaw, bio_hook_supported: bioHookSupported, guard_rejections: guardRejections, hook_written: true, hook_source: 'bio' },
+      status: 'done', reason: null, hookWritten: wroteBioHook, hookSource: wroteBioHook ? 'bio' : null, usedWebFallback: false,
+      outcome: { path: 'bio', mode: job.mode ?? 'mixed', bio_confidence: bioConfidenceRaw, bio_hook_supported: bioHookSupported, guard_rejections: guardRejections, hook_written: wroteBioHook, hook_source: wroteBioHook ? 'bio' : null },
     };
   }
 
@@ -1486,12 +1525,14 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
   // kept — they cost €0.003 and are true whether or not a hook was found.
   if (bioOnly) {
     if (bioResult) {
-      const keep: Record<string, unknown> = { person_id: person.id, updated_at: new Date().toISOString() };
-      if (bioResult.background) keep.background = bioResult.background;
-      if (bioResult.introPath) keep.intro_path = bioResult.introPath;
-      if (bioResult.watchOuts) keep.watch_outs = bioResult.watchOuts;
-      if (bioResult.killWords.length) keep.kill_words = bioResult.killWords;
-      if (Object.keys(keep).length > 2) await supabase.from('catalog_people_research').upsert(keep, { onConflict: 'person_id' });
+      const keepGuard = stripHumanVerified(withoutNulls({
+        background: bioResult.background, intro_path: bioResult.introPath, watch_outs: bioResult.watchOuts,
+        kill_words: bioResult.killWords.length ? bioResult.killWords : null,
+      }), humanFields);
+      if (keepGuard.protectedKeys.length) guardRejections.push(`human_verified:${keepGuard.protectedKeys.join('+')}`);
+      if (Object.keys(keepGuard.kept).length) {
+        await supabase.from('catalog_people_research').upsert({ person_id: person.id, ...keepGuard.kept, updated_at: new Date().toISOString() }, { onConflict: 'person_id' });
+      }
     }
     return {
       status: 'done', reason: bioRaw ? 'bio_inconclusive' : 'bio_only_no_bio', hookWritten: false, hookSource: null, usedWebFallback: false,
@@ -1716,25 +1757,29 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
   // (bio-grounded, just not hook-confident) values when the web synthesis
   // came back null for them, rather than discarding a real fact the bio
   // already supported.
-  const researchPatch: Record<string, unknown> = {
+  // Prompt 642 §4 — a key the model did not return is omitted, never written as null over a
+  // value (the `?? null` of 1719-1732 was exactly that); a key a human stamped leaves the
+  // patch; hook_source travels with hook.
+  const webGuard = stripHumanVerified(withoutNulls({
     intro_path: result.intro_path ?? bioResult?.introPath ?? null,
     watch_outs: result.watch_outs ?? bioResult?.watchOuts ?? null,
-    kill_words: (result.kill_words?.length ? result.kill_words : bioResult?.killWords) ?? [],
+    kill_words: result.kill_words?.length ? result.kill_words : (bioResult?.killWords?.length ? bioResult.killWords : null),
     background: result.background ?? bioResult?.background ?? null,
     email_guess: result.email_guess ?? null,
     email_guess_confidence: result.email_guess_confidence ?? null,
+    hook: hasReadSource && result.hook ? result.hook : null,
     hook_source: hasReadSource && result.hook ? 'web' : null,
-    updated_at: new Date().toISOString(),
-  };
-  if (hasReadSource && result.hook) {
-    researchPatch.hook = result.hook;
+  }), humanFields);
+  if (webGuard.protectedKeys.length) guardRejections.push(`human_verified:${webGuard.protectedKeys.join('+')}`);
+  const wroteWebHook = 'hook' in webGuard.kept;
+  if (Object.keys(webGuard.kept).length) {
+    await supabase.from('catalog_people_research').upsert({ person_id: person.id, ...webGuard.kept, updated_at: new Date().toISOString() }, { onConflict: 'person_id' });
   }
-  await supabase.from('catalog_people_research').upsert({ person_id: person.id, ...researchPatch }, { onConflict: 'person_id' });
 
   await supabase
     .from('catalog_people')
     .update({
-      hook_status: hasReadSource && result.hook ? 'researched' : 'none_found',
+      hook_status: wroteWebHook || humanHook ? 'researched' : 'none_found',
       enrichment_status: 'enriched',
       enriched_at: new Date().toISOString(),
       enrichment_stale_after: addDays(new Date(), 90).toISOString(), // Camada 2 = 90 dias
@@ -1745,8 +1790,8 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
     status: 'done',
     reason: null,
     hasReadSource,
-    hookWritten: hasReadSource && !!result.hook,
-    hookSource: hasReadSource && result.hook ? 'web' : null,
+    hookWritten: wroteWebHook,
+    hookSource: wroteWebHook ? 'web' : null,
     usedWebFallback: true,
     triedBioFirst: !!bioRaw,
     sourcesFound: sourceUrls.size,
@@ -1754,7 +1799,7 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
     reusedExistingSources: !isFreshSearch,
     outcome: {
       path: 'web', mode: job.mode ?? 'mixed', bio_confidence: bioConfidenceRaw, bio_hook_supported: bioHookSupported,
-      guard_rejections: guardRejections, hook_written: hasReadSource && !!result.hook, hook_source: hasReadSource && result.hook ? 'web' : null,
+      guard_rejections: guardRejections, hook_written: wroteWebHook, hook_source: wroteWebHook ? 'web' : null,
       sources_found: sourceUrls.size, sources_read: readSources.length, reused_existing_sources: !isFreshSearch,
     },
   };
