@@ -12,7 +12,7 @@ export function useResearchNeeded() {
   // and must never appear in the founder's task list. They are no longer
   // generated (catalog-delivery-core) nor kept (data migration); filter here
   // too so any straggler or legacy row can't resurface on this tab.
-  const research = db.tasks.filter((t) => !t.done && t.kind === 'research' && t.action_type !== 'research_hook')
+  const research = db.tasks.filter((t) => !t.done && t.kind === 'research' && t.action_type !== 'research_hook' && !t.title.startsWith('Research hook:'))
     .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''));
   return { research };
 }
