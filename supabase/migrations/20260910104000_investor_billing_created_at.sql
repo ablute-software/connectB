@@ -1,0 +1,14 @@
+-- Prompt 877 — Ficha do cliente needs a real "signup date" for an investor
+-- customer, and nothing in the schema has one today: investor_billing
+-- (0287) is upsert-only, tracking only `updated_at`. Add `created_at`.
+--
+-- No historical backfill was possible, and it's worth stating exactly why
+-- rather than leaving that implicit: investor_billing has ZERO rows in
+-- production today (confirmed by direct count before writing this), so
+-- there is nothing to backfill FROM — no `billing_invoices` row exists yet
+-- for any `catalog_entity_id` either (Prompt 874's own invoice mirror has
+-- only ever recorded 'org'-kind rows so far). Every future row this table
+-- gets from this point on carries a real, accurate `created_at`; there is
+-- no plausible-looking historical date fabricated for a past that doesn't
+-- exist here.
+alter table investor_billing add column if not exists created_at timestamptz not null default now();

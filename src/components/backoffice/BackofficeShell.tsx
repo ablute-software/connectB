@@ -181,6 +181,11 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
     // /api/backoffice/market-companies's own header). Not the same feature
     // as Review's "Competitor intel" tab, which tracks investor_investments.
     item('data-market', 'Market companies', '/backoffice/market-companies', { icon: '▦', group: 3 }),
+    // Prompt 877 — one customer list spanning both schemas (orgs the
+    // startup side, catalog_entities/investor_billing the investor side),
+    // discriminated by the same kind: 'org' | 'investor_entity' convention
+    // ViewerEntryName.tsx already uses for exactly this two-schema split.
+    item('data-ficha-cliente', 'Ficha do cliente', '/backoffice/ficha-cliente', { icon: '▦', group: 3 }),
 
     // Prompt 854 §B.1 — a new group, one insertion after Data rather than a
     // renumbering of Insight/System: runs are contiguous by ARRAY ORDER, and
