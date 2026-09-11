@@ -57,7 +57,9 @@ import { useStore } from '@/lib/store';
 import { normaliseShareEmail, shouldOfferShareByEmail } from '@/lib/share-by-email';
 import { useConfirm } from '@/lib/confirm';
 import { Card } from '@/components/ui';
-import { computeCellEffect, findEffectiveGrantAmong, type CellEffect, type MatrixGrant } from '@/lib/people-access-matrix';
+import {
+  computeCellEffect, findEffectiveGrantAmong, CELL_EFFECT_LABEL, CELL_EFFECT_STYLE, type MatrixGrant,
+} from '@/lib/people-access-matrix';
 import { grantStatus } from '@/lib/access-grants';
 import type { RegisteredIdentity } from '@/lib/data-room-access-relationships';
 import {
@@ -79,20 +81,9 @@ const SECTION_ORDER: (PortalSection | 'uncategorized')[] = [
   'start_here', 'product_market', 'traction_commercial', 'financial', 'team_governance', 'round_terms', 'uncategorized',
 ];
 
-const EFFECT_STYLE: Record<CellEffect, string> = {
-  shared: 'bg-green-100 text-green-800',
-  shared_pending_nda: 'bg-amber-100 text-amber-800',
-  shared_pending_confirmation: 'bg-amber-100 text-amber-800',
-  not_shared: 'bg-gray-100 text-gray-400',
-  no_effect_private: 'bg-gray-50 text-gray-300 italic',
-};
-// Deliberately English (this workspace's UI language), but the 4 states are
-// exactly the spec's own 4 ("Vê" / "Vê após NDA" / "Não vê" / "Sem efeito —
-// documento privado") — same meanings, not a 5th invented state.
-const EFFECT_LABEL: Record<CellEffect, string> = {
-  shared: '✓ Can view', shared_pending_nda: 'Can view after NDA', shared_pending_confirmation: 'Awaiting confirmation',
-  not_shared: "Can't view", no_effect_private: 'No effect — private document',
-};
+// Prompt 669 §3 — CELL_EFFECT_STYLE/CELL_EFFECT_LABEL now live in
+// people-access-matrix.ts, imported above, so WhoHasAccessPanel.tsx reads the
+// exact same vocabulary for the same computeCellEffect states.
 
 function fmtDate(iso?: string | null) {
   return iso ? new Date(iso).toLocaleDateString() : undefined;
@@ -497,7 +488,7 @@ export function PeopleAccessPanel({ onShareByEmail }: {
     const ownLive = ownGrants.filter((g) => grantStatus(g, now) !== 'expired');
     const pendingTarget = grantTargets.some((t) => t.kind === kind && t.id === id);
 
-    const badgeCls = `shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${EFFECT_STYLE[effect]}`;
+    const badgeCls = `shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${CELL_EFFECT_STYLE[effect]}`;
 
     return (
       <span className="flex shrink-0 flex-wrap items-center justify-end gap-1">
@@ -507,17 +498,17 @@ export function PeopleAccessPanel({ onShareByEmail }: {
             Expired grant{dateHint(expired)}
           </span>
         ) : effect === 'no_effect_private' ? (
-          <span className={badgeCls}>{EFFECT_LABEL[effect]}</span>
+          <span className={badgeCls}>{CELL_EFFECT_LABEL[effect]}</span>
         ) : effect === 'not_shared' ? (
           <button type="button" disabled={!canGrant}
             title={canGrant ? `Add "${name}" to what ${selectedName} can see` : 'No known recipient in this relationship yet'}
             onClick={() => toggleGrantTarget({ kind, id, name })}
             className={`${badgeCls} ${canGrant ? 'cursor-pointer hover:ring-1 hover:ring-[#0E7490]' : 'cursor-not-allowed'} ${pendingTarget ? 'ring-1 ring-[#0E7490]' : ''}`}>
-            {pendingTarget ? '+ Selected' : EFFECT_LABEL[effect]}
+            {pendingTarget ? '+ Selected' : CELL_EFFECT_LABEL[effect]}
           </button>
         ) : (
           <span className={badgeCls}>
-            {EFFECT_LABEL[effect]}
+            {CELL_EFFECT_LABEL[effect]}
             {/* Where the access actually comes from. A document covered by a
                 folder grant has no grant of its own to revoke — saying so
                 is the honest answer, and points at the control that does

@@ -12,6 +12,25 @@ import type { TreeFolder } from './data-room';
 
 export type CellEffect = 'shared' | 'shared_pending_nda' | 'shared_pending_confirmation' | 'not_shared' | 'no_effect_private';
 
+// Prompt 669 §3 — pulled out of PeopleAccessPanel.tsx (where these lived
+// un-exported) so WhoHasAccessPanel.tsx can show the exact same 4 states in
+// the exact same words/colors, rather than inventing its own vocabulary for
+// what is the same computeCellEffect result. Deliberately English (this
+// workspace's UI language), but the 4 states are exactly the spec's own 4
+// ("Vê" / "Vê após NDA" / "Não vê" / "Sem efeito — documento privado") — same
+// meanings, not a 5th invented state.
+export const CELL_EFFECT_STYLE: Record<CellEffect, string> = {
+  shared: 'bg-green-100 text-green-800',
+  shared_pending_nda: 'bg-amber-100 text-amber-800',
+  shared_pending_confirmation: 'bg-amber-100 text-amber-800',
+  not_shared: 'bg-gray-100 text-gray-400',
+  no_effect_private: 'bg-gray-50 text-gray-300 italic',
+};
+export const CELL_EFFECT_LABEL: Record<CellEffect, string> = {
+  shared: '✓ Can view', shared_pending_nda: 'Can view after NDA', shared_pending_confirmation: 'Awaiting confirmation',
+  not_shared: "Can't view", no_effect_private: 'No effect — private document',
+};
+
 export interface MatrixGrant extends GrantStatusInput {
   person_id?: string;
   document_id?: string;
