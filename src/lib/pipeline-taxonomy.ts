@@ -67,7 +67,7 @@ export type PipelineCard = {
   /** Right-hand context line on the group header (§2). Empty for the roll-up. */
   context: string;
   /** Semantic tone; the UI layer maps it to concrete classes. */
-  tone: 'slate' | 'blue' | 'amber' | 'muted' | 'rose' | 'cyan';
+  tone: 'slate' | 'blue' | 'amber' | 'green' | 'rose' | 'cyan';
   /** total − passed; overlaps the buckets, is not a drop target, has no group. */
   rollup?: boolean;
   /** A `›` funnel arrow is drawn AFTER this card. */
@@ -83,7 +83,7 @@ export const PIPELINE_CARDS: PipelineCard[] = [
   { key: 'not_contacted', label: 'Not contacted', context: 'Start outreach', tone: 'slate', arrowAfter: true },
   { key: 'contacted', label: 'Contacted', context: 'Active discussions', tone: 'blue', arrowAfter: true },
   { key: 'diligence', label: 'Due diligence', context: 'Materials under review', tone: 'amber', sepAfter: true },
-  { key: 'active', label: 'Active', context: '', tone: 'muted', rollup: true },
+  { key: 'active', label: 'Active', context: '', tone: 'green', rollup: true },
   { key: 'passed', label: 'Passed', context: 'Closed — no longer in play', tone: 'rose' },
   { key: 'frozen', label: 'Frozen', context: 'Parked — revisit later', tone: 'cyan' },
 ];

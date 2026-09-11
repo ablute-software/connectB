@@ -18,6 +18,8 @@ import { useConfirmWithFields } from '@/lib/confirm';
 import { useParkEntity } from '@/lib/use-park-entity';
 import { dropDialog, planDrop, planUndo, UNDO_WINDOW_MS, type DropTarget } from '@/lib/pipeline-drop';
 import { PipelineDropTarget } from '@/components/pipeline/PipelineDropTarget';
+import { PipelineFunnel } from '@/components/pipeline/PipelineFunnel';
+import { pipelineCounts, pipelineGroupForStatus, type PipelineCardKey } from '@/lib/pipeline-taxonomy';
 import { usePipelineRowDrag, useReducedMotion } from '@/components/pipeline/usePipelineRowDrag';
 import { CoachMark } from '@/components/onboarding/CoachMark';
 import { PageTour } from '@/components/onboarding/PageTour';
@@ -602,6 +604,10 @@ export default function PipelinePage() {
   // Plain component state, nothing persisted — PipelinePage remounts on
   // route change, so it defaults back to closed with no extra logic.
   const [summaryOpen, setSummaryOpen] = useState(false);
+  // Prompt 650 Phase 1 — the funnel card the founder has filtered to (null =
+  // no card filter). When set it drives the list directly via the taxonomy
+  // (Phase 2 will replace the older frozenView grouping entirely).
+  const [cardFilter, setCardFilter] = useState<PipelineCardKey | null>(null);
   // Prompt 107 B.5 — which delivered entities are currently a suspended
   // investor. Derived at read time, never a mass write to `entities` (see
   // /api/pipeline/suspended-investors's own header for why).
@@ -806,6 +812,9 @@ export default function PipelinePage() {
   // This advice used to live only on the Vault; Nuno moved it here (the
   // pipeline summary) and to the dossier. Founder-side, never investor-facing.
   const vaultAccessSummary = useMemo(() => vaultAccessAdviceFromDb(db).inConversationWithoutAccess, [db]);
+  // Prompt 650 Phase 1 — the six funnel counts, from the one taxonomy. The five
+  // buckets sum to the account total; Active is the roll-up (total − passed).
+  const funnelCounts = useMemo(() => pipelineCounts(db.entities.map((e) => e.status)), [db.entities]);
 
   const rows = useMemo(() => {
     let list = [...db.entities];
@@ -821,7 +830,17 @@ export default function PipelinePage() {
     // "not a fit for us" decision therefore leaves the active list the way
     // frozen rows do — it is not a candidate for outreach — and never
     // disappears: it is counted and reachable under Passed.
-    list = list.filter((e) => entityViews.get(e.id) === frozenView);
+    // Prompt 650 Phase 1 — a funnel card, when one is selected, drives the list
+    // straight from the taxonomy (Active = everyone except passed), overriding
+    // the older frozenView grouping; with no card selected the existing
+    // active/frozen/passed view still applies unchanged.
+    if (cardFilter) {
+      list = list.filter((e) => cardFilter === 'active'
+        ? pipelineGroupForStatus(e.status) !== 'passed'
+        : pipelineGroupForStatus(e.status) === cardFilter);
+    } else {
+      list = list.filter((e) => entityViews.get(e.id) === frozenView);
+    }
     if (q) list = list.filter((e) => e.name.toLowerCase().includes(q.toLowerCase())
       || e.sectors.some((s) => s.toLowerCase().includes(q.toLowerCase())));
     if (wave.length) list = list.filter((e) => wave.includes(String(e.wave)));
@@ -845,7 +864,7 @@ export default function PipelinePage() {
         || (a.wave ?? 9) - (b.wave ?? 9) || (fitOrder[a.fit_score ?? 'low'] - fitOrder[b.fit_score ?? 'low']);
     });
     return list;
-  }, [db, q, wave, status, sectors, country, sortKey, sortDir, interestedEntityIds, activeThreadEntityIds, frozenView, entityViews, deadEndIds]);
+  }, [db, q, wave, status, sectors, country, sortKey, sortDir, interestedEntityIds, activeThreadEntityIds, frozenView, entityViews, deadEndIds, cardFilter]);
 
   const countries = Array.from(new Set(db.entities.map((e) => e.hq_country).filter(Boolean))) as string[];
   const sectorOptions = Array.from(new Set(db.entities.flatMap((e) => e.sectors))).sort();
@@ -1086,6 +1105,9 @@ export default function PipelinePage() {
       <PageTour pageKey="guide_pipeline" />
       <div className="md:shrink-0"><PipelineUnlockBadge unlock={unlock} /></div>
       <div className="md:shrink-0"><PipelineTopUpBanner unlock={unlock} onDelivered={refreshUnlock} /></div>
+      {/* Prompt 650 Phase 1 — the six-card funnel, one vocabulary, counts that
+          add up. Clicking a card filters the list to that bucket. */}
+      <PipelineFunnel counts={funnelCounts} activeFilter={cardFilter} onFilter={setCardFilter} />
       {noneClassified && <div className="md:shrink-0"><EmptyCompanyBlock variant="banner" unlock={unlock} onDelivered={refreshUnlock} /></div>}
       {/* Prompt 880 §4 — shown only when the header "Summary" toggle is on. */}
       {summaryOpen && (
