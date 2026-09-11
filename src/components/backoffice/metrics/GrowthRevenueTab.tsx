@@ -4,14 +4,15 @@ import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui';
 import { PeriodPicker, type Period } from './PeriodPicker';
 import { MetricDrillDown, type DrillDownSeries } from './MetricDrillDown';
+// Prompt 855 §B — one revenue payload shape, not a hand-kept copy. Type-only
+// import (erased at build), so this client component never pulls the
+// server-only metrics library into its bundle.
+import type { RevenueBreakdown } from '@/lib/backoffice-metrics';
 
 interface GrowthData {
   acquisition: { completedRegistrations: number; bySource: Record<string, number> };
   plans: { free: number; paid: number; byPlan: Record<string, number>; upgrades: number; downgrades: number; cancellations: number };
-  revenue: {
-    mrr: number; mrrPotential: number; mrrBilled: number; arr: number; arrPotential: number; arrBilled: number; netNewMrr: number;
-    startupRevenue: number; investorRevenue: number; arpa: number; discountsValue: number;
-  };
+  revenue: RevenueBreakdown;
   promo: { totalRedemptions: number; byPartner: Record<string, number>; activationRatePct: number | null };
 }
 

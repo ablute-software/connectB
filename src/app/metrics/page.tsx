@@ -221,7 +221,7 @@ function OverviewTab() {
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Revenue</h2>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <Stat
-                label="MRR — billed · at plan · list"
+                label="MRR — billed · at plan"
                 value={`${fmtEurReal(data.revenue.mrrBilled)} billed · ${fmtEurReal(data.revenue.mrr)} at plan`}
                 onClick={() => setDrillDown({
                   title: 'MRR — billed vs. at plan vs. list price',
