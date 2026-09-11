@@ -63,6 +63,7 @@
 // 'server-only'` — the caller does the two reads, this decides. Every rule
 // below is unit-tested in pipeline-eligibility.test.ts.
 import { isProfileGateComplete, type ProfileGateOrg } from './pipeline-unlock';
+import { isVisibleToOthers, type ModerationStatus } from './account-moderation';
 
 export type EligibilityOrg = ProfileGateOrg & {
   id: string;
@@ -82,6 +83,10 @@ export type EligibilityOrg = ProfileGateOrg & {
   // never spoke: suspend/delete wrote only moderation_status, and nothing here
   // read it. Absent-means-active, like every other field above.
   moderation_status?: string | null;
+  // Prompt 857 §B, migration 0315. The clock on a timed suspension. Absent/null
+  // = an indefinite suspension (or none); a past value means the suspension has
+  // expired. Read together with moderation_status via isVisibleToOthers.
+  moderation_suspended_until?: string | null;
 };
 
 export type EligibilityStartupProfile = {
@@ -94,7 +99,9 @@ export function filterEligibleOrgs(
   orgs: EligibilityOrg[],
   startupProfiles: EligibilityStartupProfile[],
   viewerIsTest: boolean,
+  now: Date = new Date(),
 ): string[] {
+  const nowIso = now.toISOString();
   const profileByOrg = new Map(startupProfiles.map((p) => [p.membership_id, p]));
   return orgs
     .filter((org) => {
@@ -127,18 +134,21 @@ export function filterEligibleOrgs(
       // column means "never list this", a permanent property, and making one
       // field answer two questions is what would make undo hard.
       //
-      // Prompt 850 §A asked for isVisibleToOthers here instead ("use that
-      // pure function — do not write a second predicate"), which would also
-      // let a TIME-BOXED suspension expire on its own, exactly as
-      // isLoginBlocked already does for the same account. Nuno's decision on
-      // 07/09, when the two landed together: keep 571's strict form. So a
-      // suspension only lifts here when a developer undoes it, even if the
-      // founder's own login has already been restored by the clock. The two
-      // halves of "suspended" therefore disagree by design, not by accident
-      // — if that is ever revisited, isVisibleToOthers (account-moderation.ts)
-      // is the one-line replacement, and moderation_suspended_until is the
-      // column it needs adding back to EligibilityOrg.
-      if ((org.moderation_status ?? 'active') !== 'active') return false;
+      // Prompt 857 §B — Nuno's decision (11/09, via Prompt 655) REVERSES the
+      // 07/09 strict form recorded here before: a timed suspension lifts
+      // EVERYWHERE when its clock runs out. The DB functions
+      // (matchdeal_profile_discovery_excluded, catalog_top_matches) already
+      // expire it (857 §A); this must agree with them — the deck RPC and this
+      // filter are meant to never disagree about who is listable. isVisibleToOthers
+      // is the one predicate, reused, not a second one: 'active' stays listable,
+      // a 'suspended' account is out only while moderation_suspended_until is
+      // null (indefinite) or still in the future, 'deleted' is always out. Both
+      // halves of "suspended" now agree, and change together if ever revisited.
+      if (!isVisibleToOthers(
+        (org.moderation_status ?? 'active') as ModerationStatus,
+        org.moderation_suspended_until ?? null,
+        nowIso,
+      )) return false;
       // The founder's own nine-field gate — the same one that unlocks their
       // Pipeline — reused, never reimplemented.
       return isProfileGateComplete(org);

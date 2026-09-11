@@ -170,3 +170,27 @@ describe('filterEligibleOrgs', () => {
     expect(run([{ ...complete, id: 'org-a', moderation_status: 'active' }], [])).toEqual(['org-a']);
   });
 });
+
+// Prompt 857 §B — Nuno's decision (11/09): a timed suspension lifts everywhere
+// on expiry, matching the DB functions. Same four cases as the SQL fixture.
+describe('filterEligibleOrgs — timed suspension expiry (Prompt 857 §B)', () => {
+  const NOW = new Date('2026-09-11T12:00:00Z');
+  const susp = (over: Partial<EligibilityOrg>): EligibilityOrg => ({ ...complete, id: 'org-s', ...over });
+  const only = (org: EligibilityOrg) => filterEligibleOrgs([org], [], false, NOW);
+
+  it('an expired timed suspension is listable again', () => {
+    expect(only(susp({ moderation_status: 'suspended', moderation_suspended_until: '2026-09-10T00:00:00Z' }))).toEqual(['org-s']);
+  });
+  it('a still-running timed suspension stays out', () => {
+    expect(only(susp({ moderation_status: 'suspended', moderation_suspended_until: '2026-09-20T00:00:00Z' }))).toEqual([]);
+  });
+  it('an indefinite suspension (no clock) stays out', () => {
+    expect(only(susp({ moderation_status: 'suspended', moderation_suspended_until: null }))).toEqual([]);
+  });
+  it('deleted stays out regardless of clock', () => {
+    expect(only(susp({ moderation_status: 'deleted', moderation_suspended_until: '2026-09-10T00:00:00Z' }))).toEqual([]);
+  });
+  it('active is listable', () => {
+    expect(only(susp({ moderation_status: 'active' }))).toEqual(['org-s']);
+  });
+});

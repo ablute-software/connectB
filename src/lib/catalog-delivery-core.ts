@@ -31,6 +31,7 @@ import { fitBucketFromScore } from './catalog-fit-bucket';
 import { catalogContactFields, waveForRank } from './catalog-delivery-mapping';
 import { preferDeclaredList, preferDeclaredValue, resolveClaimedInvestorProfile } from './claimed-investor-profile';
 import { PIPELINE_ADD_NOTE_CONTENT } from './recent-activity';
+import { isVisibleToOthers, type ModerationStatus } from './account-moderation';
 
 export interface CatalogDeliveryResult {
   delivered: number;
@@ -77,16 +78,19 @@ export async function deliverCatalogMatches(
     // or the cross-org threshold, moderation-actions.ts) must not reach a
     // new org's pipeline.
     //
-    // Prompt 850 §A had proposed routing this through isVisibleToOthers, so a
-    // TIME-BOXED suspension would expire on its own here. Deliberately NOT
-    // taken when 850 landed (07/09): Nuno chose the strict form for the
-    // startup side (pipeline-eligibility.ts), and applying the lenient one
-    // here would recreate exactly the drift that decision rejected, only
-    // mirrored — a suspended STARTUP out until a developer undoes it, a
-    // suspended FIRM back on the clock. Both sides stay strict, and both
-    // change together if that is ever revisited.
-    const moderationStatus = c.moderation_status as string | null | undefined;
-    if (moderationStatus && moderationStatus !== 'active') continue;
+    // Prompt 857 §B — Nuno's decision (11/09, via Prompt 655) REVERSES the
+    // 07/09 strict form that used to be described here: a timed suspension
+    // lifts EVERYWHERE when its clock runs out. This must match
+    // catalog_top_matches, which already returns a firm whose
+    // moderation_suspended_until has passed (857 §A) — leaving this step strict
+    // would silently undo that DB fix at the very next line. Same
+    // isVisibleToOthers predicate the startup side (pipeline-eligibility.ts) now
+    // uses, so both halves of "suspended" agree and change together.
+    if (!isVisibleToOthers(
+      (c.moderation_status ?? 'active') as ModerationStatus,
+      (c.moderation_suspended_until as string | null | undefined) ?? null,
+      new Date().toISOString(),
+    )) continue;
     const id = crypto.randomUUID();
     deliveredIds.push(c.id as string);
     // Prompt 407 §A/§B.1 — a claimed, complete investor profile's own
