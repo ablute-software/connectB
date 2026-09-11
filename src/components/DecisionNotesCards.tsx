@@ -25,9 +25,11 @@ import { categoryLabel } from './NotAFitAction';
 
 const CARD = 'flex-1 min-w-0 rounded-xl border p-3';
 const TITLE = 'text-[10px] font-semibold uppercase tracking-wide';
-// Two lines, exactly: 2 × 18px. The one number that makes the cards equal.
-const TEXT = 'mt-1 max-h-[36px] overflow-y-auto whitespace-pre-wrap text-[13px] leading-[18px]';
-const DATE = 'mt-1 text-[10px]';
+// Two lines, exactly: 2 × 18px. The one number that keeps the side-by-side
+// cards equal height — the reason text, now the card's main content, scrolls
+// inside rather than growing the card.
+const REASON = 'max-h-[36px] overflow-y-auto whitespace-pre-wrap text-[13px] leading-[18px]';
+const DATE = 'text-[10px]';
 
 function isoDate(iso: string | null | undefined): string | null {
   return iso ? iso.slice(0, 10) : null;
@@ -68,14 +70,19 @@ const TONE: Record<DecisionNote['kind'], { card: string; title: string; text: st
 export function DecisionNoteCard({ note }: { note: DecisionNote }) {
   const tone = TONE[note.kind];
   const date = isoDate(note.recordedAt);
+  // Prompt 654 §2 — the reason text is the card's main content; the category is
+  // a small side label, shown only when there is a real one. 42 of 46 passes
+  // carry no category and 4 carry 'other' — all 46 carry hand-written reason
+  // text — so an empty label or a bare "Other" would spotlight the empty field
+  // and bury the one that is always there. No category (or 'other') → the
+  // reason stands alone, no orphan tag.
+  const showCategory = !!note.category && note.category !== 'other';
   return (
     <div className={`${CARD} ${tone.card}`}>
       <div className="flex items-start gap-1.5">
-        <span className={`${TITLE} ${tone.title}`}>
-          {tone.label}{note.category ? `: ${categoryLabel(note.category)}` : ''}
-        </span>
+        <p className={`${REASON} ${tone.text} flex-1`}>{note.text}</p>
         {(note.onEdit || note.onRevert) && (
-          <span className="ml-auto flex shrink-0 items-center gap-2">
+          <span className="flex shrink-0 items-center gap-2">
             {note.onEdit && (
               <button onClick={note.onEdit} title="Edit this note"
                 className="text-[11px] text-gray-300 hover:text-gray-700">✎</button>
@@ -87,12 +94,19 @@ export function DecisionNoteCard({ note }: { note: DecisionNote }) {
           </span>
         )}
       </div>
-      <p className={`${TEXT} ${tone.text}`}>{note.text}</p>
-      {(date || note.source) && (
-        <p className={`${DATE} ${tone.date}`}>
-          {date ? `Recorded ${date}` : 'Recorded'}{note.source ? `, ${note.source}` : ''}
-        </p>
-      )}
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className={`${TITLE} ${tone.title}`}>{tone.label}</span>
+        {showCategory && (
+          <span className={`rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] font-semibold ${tone.title}`}>
+            {categoryLabel(note.category)}
+          </span>
+        )}
+        {(date || note.source) && (
+          <span className={`${DATE} ${tone.date} ml-auto`}>
+            {date ? `Recorded ${date}` : 'Recorded'}{note.source ? `, ${note.source}` : ''}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
