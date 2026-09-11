@@ -6853,3 +6853,18 @@ describe block and the stage_change regression test). `npm run
 verify:migrations` clean, 0351 free.
 
 Migration 0351. Branch `claude/prompt-883-dormant-confirmation`.
+
+**Addendum — a real gap in the read-site audit above, caught in review.**
+`TodayPanel.tsx` has a SECOND list this migration's audit missed: `thisWeek`
+(the "This week" rail, line ~128) read `db.tasks` directly, with no
+`source !== 'automation_dormant'` exclusion — only `overdue` had it. Not an
+interactive bug (that row renders as plain text, no checkbox, confirmed by
+reading its JSX before fixing) but a real instance of "Today no longer
+shows this task type at all" not actually holding: a not-yet-due
+`automation_dormant` task would still surface there, duplicating the
+Actions Required card with no way to act on it from that spot. Fixed with
+the same `&& t.source !== 'automation_dormant'` clause already applied to
+`overdue`; `openFollowUps` (the third `db.tasks` read in this file) was
+already safe by construction (`kind === 'follow_up'`, never `'admin'`).
+Re-validated: `tsc`/`vitest` (3773/3773)/`build`/`eslint` all green by exit
+code.

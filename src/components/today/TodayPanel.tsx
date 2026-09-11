@@ -120,8 +120,14 @@ export function TodayPanel() {
     ...liveOverdue.map((e) => ({ kind: 'live' as const, ...e })),
   ].sort((a, b) => b.daysOverdue - a.daysOverdue || a.wave - b.wave || a.fitRank - b.fitRank);
   const unclassified = db.interactions.filter((i) => i.direction === 'in' && (!i.classification || i.classification === 'unclear'));
+  // Prompt 883 §2 (gap found in review) — same exclusion as `overdue`
+  // above: this second list is read-only text with no checkbox, but a
+  // not-yet-due 'automation_dormant' task would still surface here,
+  // duplicating (confusingly, with no action) the Actions Required card
+  // that now owns this decision exclusively.
   const thisWeek = db.tasks.filter((t) => !t.done && t.due_at && new Date(t.due_at) >= now
-    && new Date(t.due_at) < new Date(now.getTime() + 7 * 24 * 3600 * 1000))
+    && new Date(t.due_at) < new Date(now.getTime() + 7 * 24 * 3600 * 1000)
+    && t.source !== 'automation_dormant')
     .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? '')).slice(0, 6);
   // P106 §3 — see OverviewPanel.tsx's identical fix for the full rationale.
   const roundTarget = db.org.round_target_eur;
