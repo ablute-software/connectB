@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { FOLLOW_UP_STALE_AFTER_DAYS, planAutomationRulesTick, type AutomationRulesTickInput, type OpenTaskSlice } from './automation-rules-tick';
+import {
+  DORMANT_DECLINE_SUPPRESS_MONTHS, FOLLOW_UP_STALE_AFTER_DAYS, dormantDeclineSuppressed,
+  planAutomationRulesTick, type AutomationRulesTickInput, type OpenTaskSlice,
+} from './automation-rules-tick';
 import type { Entity, Interaction, Person } from './types';
 
 const NOW = new Date('2026-08-31T09:00:00.000Z');
@@ -176,6 +179,94 @@ describe('planAutomationRulesTick — o tecto por corrida', () => {
   it('o que corta são os threads mais antigos, não os mais recentes', () => {
     const plan = planAutomationRulesTick(input({ db, maxPerTick: 3 }));
     expect(plan.tasks.map((t) => t.entity_id)).toEqual(['e0', 'e1', 'e2']);
+  });
+});
+
+// Prompt 883 §3 — Decline suppresses re-proposing the identical decision
+// for 6 months, unless a new interaction clears it first.
+describe('dormantDeclineSuppressed', () => {
+  // Day 15 on purpose — every month has one, so setMonth arithmetic here
+  // never hits the Jan-31-minus-a-month-has-no-31st overflow trap that
+  // NOW (2026-08-31) would (setMonth(-6) from the 31st rolls INTO March,
+  // since February has no 31st — a real pitfall this test avoids by
+  // construction rather than by accident).
+  const REF = new Date('2026-08-15T09:00:00.000Z');
+  const monthsAgo = (n: number) => { const d = new Date(REF); d.setMonth(d.getMonth() - n); return d.toISOString(); };
+
+  it('never suppressed when the entity was never declined', () => {
+    expect(dormantDeclineSuppressed({ id: 'e1', dormant_decline_at: undefined }, [], REF)).toBe(false);
+  });
+
+  it('suppressed right after a decline, with no interaction since', () => {
+    const e = { id: 'e1', dormant_decline_at: monthsAgo(1) };
+    expect(dormantDeclineSuppressed(e, [], REF)).toBe(true);
+  });
+
+  it('cleared by ANY real interaction logged after the decline, in or out, even inside the 6-month window', () => {
+    const e = { id: 'e1', dormant_decline_at: monthsAgo(2) };
+    const inbound = { entity_id: 'e1', occurred_at: monthsAgo(1), channel: 'email' } as Pick<Interaction, 'entity_id' | 'occurred_at' | 'channel'>;
+    expect(dormantDeclineSuppressed(e, [inbound], REF)).toBe(false);
+  });
+
+  it('ignores an interaction logged BEFORE the decline — that silence is what got declined', () => {
+    const e = { id: 'e1', dormant_decline_at: monthsAgo(1) };
+    const before = { entity_id: 'e1', occurred_at: monthsAgo(2), channel: 'email' } as Pick<Interaction, 'entity_id' | 'occurred_at' | 'channel'>;
+    expect(dormantDeclineSuppressed(e, [before], REF)).toBe(true);
+  });
+
+  it('ignores an interaction on a DIFFERENT entity', () => {
+    const e = { id: 'e1', dormant_decline_at: monthsAgo(1) };
+    const other = { entity_id: 'e2', occurred_at: monthsAgo(0), channel: 'email' } as Pick<Interaction, 'entity_id' | 'occurred_at' | 'channel'>;
+    expect(dormantDeclineSuppressed(e, [other], REF)).toBe(true);
+  });
+
+  // Caught live against real Supabase rows (see DECISIONS.md): Decline's
+  // own logSystemNote writes an interactions row (channel='stage_change')
+  // dated right at/after dormant_decline_at — without this exclusion it
+  // would count as its own "new interaction" and self-clear immediately.
+  it('a stage_change row (the decline\'s own system note) does NOT count as a clearing interaction', () => {
+    const e = { id: 'e1', dormant_decline_at: monthsAgo(1) };
+    const ownNote = { entity_id: 'e1', occurred_at: monthsAgo(1), channel: 'stage_change' } as Pick<Interaction, 'entity_id' | 'occurred_at' | 'channel'>;
+    expect(dormantDeclineSuppressed(e, [ownNote], REF)).toBe(true);
+  });
+
+  it(`the floor lifts on its own after ${DORMANT_DECLINE_SUPPRESS_MONTHS} months, even with zero interactions`, () => {
+    const e = { id: 'e1', dormant_decline_at: monthsAgo(DORMANT_DECLINE_SUPPRESS_MONTHS) };
+    expect(dormantDeclineSuppressed(e, [], REF)).toBe(false);
+  });
+
+  it('still suppressed one day short of the floor', () => {
+    const d = new Date(REF); d.setMonth(d.getMonth() - DORMANT_DECLINE_SUPPRESS_MONTHS); d.setDate(d.getDate() + 1);
+    const e = { id: 'e1', dormant_decline_at: d.toISOString() };
+    expect(dormantDeclineSuppressed(e, [], REF)).toBe(true);
+  });
+});
+
+describe('planAutomationRulesTick — Decline suppresses re-proposing (Prompt 883 §3)', () => {
+  it('não propõe dormente de novo para uma entidade declinada há pouco, sem novo contacto', () => {
+    const plan = planAutomationRulesTick(input({
+      db: {
+        entities: [entity({ id: 'e1', dormant_decline_at: daysAgo(10) })],
+        people: [person({ id: 'p1', entity_id: 'e1' })],
+        interactions: [out('e1', 'p1', daysAgo(40)), out('e1', 'p1', daysAgo(20))],
+      },
+    }));
+    expect(plan.tasks).toHaveLength(0);
+    expect(plan.skipped.declinedRecently).toBe(1);
+  });
+
+  it('volta a propor assim que uma nova interação é registada depois do decline', () => {
+    const plan = planAutomationRulesTick(input({
+      db: {
+        entities: [entity({ id: 'e1', dormant_decline_at: daysAgo(60) })],
+        people: [person({ id: 'p1', entity_id: 'e1' })],
+        // Segundo silêncio inteiramente DEPOIS do decline (daysAgo(60)).
+        interactions: [out('e1', 'p1', daysAgo(40)), out('e1', 'p1', daysAgo(20))],
+      },
+    }));
+    expect(plan.tasks).toHaveLength(1);
+    expect(plan.tasks[0].source).toBe('automation_dormant');
+    expect(plan.skipped.declinedRecently).toBe(0);
   });
 });
 

@@ -133,9 +133,18 @@ export function AgendaPanel() {
     setApDateOpen(false);
   }
 
+  // Prompt 883 §2 — 'automation_dormant' tasks have the same plain
+  // checkbox (+ this panel's own "Mark done"/"not done" popup button) that
+  // let a founder silently close the dormant-decision task without
+  // deciding anything — exactly the bug fixed in Today. That decision
+  // lives ONLY in Actions Required now, so it's excluded from every
+  // interactive surface here (grid, rail, popup, ICS export, type counts),
+  // not just re-labelled.
+  const agendaTasks = useMemo(() => db.tasks.filter((t) => t.source !== 'automation_dormant'), [db.tasks]);
+
   const visibleTasks = useMemo(
-    () => typeFilter === 'all' ? db.tasks : db.tasks.filter((t) => t.action_type === typeFilter),
-    [db.tasks, typeFilter]
+    () => typeFilter === 'all' ? agendaTasks : agendaTasks.filter((t) => t.action_type === typeFilter),
+    [agendaTasks, typeFilter]
   );
 
   const days = useMemo(() => {
@@ -159,7 +168,7 @@ export function AgendaPanel() {
     .sort((a, b) => (b.due_at! > a.due_at! ? 1 : -1)).slice(0, 20);
 
   function exportICS() {
-    const blob = new Blob([toICS(db.tasks.filter((t) => !t.done), now)], { type: 'text/calendar' });
+    const blob = new Blob([toICS(agendaTasks.filter((t) => !t.done), now)], { type: 'text/calendar' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = 'ablute-agenda.ics'; a.click();
   }
@@ -178,10 +187,10 @@ export function AgendaPanel() {
         <div className="flex flex-wrap gap-1.5">
           <button onClick={() => setTypeFilter('all')}
             className={`rounded-full px-2.5 py-1 text-xs font-medium ${typeFilter === 'all' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-            All ({db.tasks.length})
+            All ({agendaTasks.length})
           </button>
           {ACTION_TYPES.map((at) => {
-            const count = db.tasks.filter((t) => t.action_type === at).length;
+            const count = agendaTasks.filter((t) => t.action_type === at).length;
             return (
               <button key={at} onClick={() => setTypeFilter(at)}
                 className={`rounded-full px-2.5 py-1 text-xs font-medium ${typeFilter === at ? 'ring-2 ring-offset-1 ring-gray-400' : 'hover:opacity-80'} ${ACTION_TYPE_COLOR[at]}`}>

@@ -78,7 +78,14 @@ export function TodayPanel() {
   const now = new Date();
   const caps = outboundCounts(db);
 
-  const overdue = db.tasks.filter((t) => !t.done && t.due_at && new Date(t.due_at) < now && t.kind !== 'research')
+  // Prompt 883 §2 — 'automation_dormant' tasks used to surface here with
+  // only a plain checkbox, so ticking it closed the task WITHOUT deciding
+  // anything (the same bug Prompt 220 §B already fixed once for
+  // interest_level_request). That decision now lives ONLY in Actions
+  // Required (its own Confirm/Decline/Dismiss card) — excluded here so
+  // Today can never again offer the silent no-op.
+  const overdue = db.tasks.filter((t) => !t.done && t.due_at && new Date(t.due_at) < now && t.kind !== 'research'
+    && t.source !== 'automation_dormant')
     .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''));
 
   // Prompt 414 §2 — Today used to only ever show a Sherlock advice once it

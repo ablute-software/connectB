@@ -193,3 +193,28 @@ export function dismissNoteContent(source: DismissSource, now: Date): string {
 export function dismissDormantReason(now: Date): string {
   return `Dismissed Sherlock's suggestion on ${isoDay(now)}.`;
 }
+
+// Prompt 883 §3 — the Confirm action on the automation's "Decide: mark X
+// dormant" task. Deliberately NOT dismissNoteContent/dismissDormantReason:
+// those say "Dismissed", which is honest for parking FROM a suggestion the
+// founder is declining/ignoring, but Confirm is the opposite — the founder
+// is AGREEING with the proposal. Reusing "Dismissed" wording here would
+// misdescribe the one thing this whole prompt exists to fix (a silent
+// no-op that never said what actually happened).
+export function dormantConfirmationNoteContent(now: Date): string {
+  return `Confirmed — marked dormant after no reply following the follow-up, on ${isoDay(now)}.`;
+}
+
+export function dormantConfirmationReason(now: Date): string {
+  return `Confirmed dormant — no reply after the follow-up (${isoDay(now)}).`;
+}
+
+// Prompt 883 §3 — the Decline action: the founder rejects the proposal.
+// Entity status is untouched (planPark/parkEntity are never called here),
+// so unlike Confirm this writes no status change — only a history note,
+// for the same reason use-park-entity.ts's own header comment gives for
+// every other exit path: a decision with no trace is not a decision
+// anyone can find again later.
+export function dormantDeclineNoteContent(now: Date): string {
+  return `Declined — kept active despite no reply after the follow-up, on ${isoDay(now)}.`;
+}

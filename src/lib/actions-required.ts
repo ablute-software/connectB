@@ -15,7 +15,7 @@ import { isRevisitTitle } from './exit-effects';
 
 export interface ActionItem {
   key: string;
-  kind: 'interest_request' | 'unread_message' | 'access_request' | 'unclassified_reply' | 'overdue_revisit';
+  kind: 'interest_request' | 'unread_message' | 'access_request' | 'unclassified_reply' | 'overdue_revisit' | 'dormant_confirmation';
   label: string;
   detail?: string;
   // Ausente só no interest_request — esse age INLINE (Approve/Deny no
@@ -25,6 +25,13 @@ export interface ActionItem {
   at?: string;
   // Só nos interest_request: o id do pedido, para o decide inline.
   requestId?: string;
+  // Prompt 883 — só em dormant_confirmation: o id da task (para as três
+  // ações Confirm/Decline/Dismiss) e o entity_id/person_id de contexto,
+  // já que este item não tem entityHref genérico (a card é interactive,
+  // não um simples link).
+  taskId?: string;
+  entityId?: string;
+  personId?: string;
 }
 
 export interface FounderActionsInput {
@@ -51,6 +58,22 @@ export function founderActionsRequired(input: FounderActionsInput): { items: Act
       label: `${r.investorName} requested direct contact (level 3)`,
       at: r.requestedAt,
       entityHref: r.entityId ? `/entities/${r.entityId}` : undefined,
+    });
+  }
+
+  // Prompt 883 — the dormant-decision task the second-silence automation
+  // creates. Same predicate automation-rules-tick.ts's own hasOpenDormant
+  // guard uses (!done && source === 'automation_dormant'), so the two can
+  // never disagree about what still counts as pending — plus excluding a
+  // Dismiss (§3: stays open/undone for the automation's own idempotency,
+  // but stops appearing here). This decision lives ONLY here now — Today
+  // no longer shows this task type at all (TodayPanel.tsx's mergedOverdue).
+  for (const t of input.tasks.filter((t) => !t.done && t.source === 'automation_dormant' && !t.confirmation_dismissed_at)) {
+    items.push({
+      key: `dormant:${t.id}`, kind: 'dormant_confirmation',
+      label: t.title, at: t.due_at,
+      taskId: t.id, entityId: t.entity_id, personId: t.person_id,
+      entityHref: t.entity_id ? `/entities/${t.entity_id}` : undefined,
     });
   }
 
