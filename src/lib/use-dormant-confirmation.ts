@@ -41,7 +41,7 @@ export function useDormantConfirmation() {
   // Decline — rejects the proposal. No entity-status effect; the note is
   // the only record this decision leaves. dormant_decline_at is read by
   // automation-rules-tick.ts to suppress re-proposing the identical
-  // decision for 6 months (migration 0351).
+  // decision for 6 months (migration 20260911200000).
   function declineDormant(target: DormantConfirmationTarget, now: Date = new Date()): void {
     logSystemNote(target.entityId, dormantDeclineNoteContent(now));
     updateEntity(target.entityId, { dormant_decline_at: now.toISOString() });

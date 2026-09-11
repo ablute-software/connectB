@@ -7100,3 +7100,97 @@ notification). `npm run verify:migrations` clean, 0352 free across every
 remote branch.
 
 Migration 0352. Branch `claude/prompt-884-today-redesign`.
+
+## Prompt 885 — Merge 883 + 884 into `main`, after fixing a migration-numbering mismatch
+
+Nuno had already reviewed and approved both 883 and 884 independently — this
+prompt is purely about getting them into `main` safely, not re-litigating
+either feature. Feature logic untouched.
+
+**What was actually true, checked directly rather than assumed.** The
+prompt's own framing said `main` had "advanced by dozens of commits...
+since these branches forked" — literally true by commit count (`git
+rev-list --count 277a316..origin/main` → 4, not dozens, but real), and the
+important part checked out exactly as claimed: `git diff --name-only
+277a316 origin/main` → 6 files touched on `main` since the fork, zero
+overlap with the 27 files the 883/884 stack touched (`comm -12` on the two
+sorted file lists → empty). `main`'s tip (`b1da65d`, "Prompt 650 Phase 2",
+confirmed via `mcp__github__get_commit` against the real GitHub API, not
+just local `git` — the local clone's remote-tracking ref needed an
+explicit `git fetch origin main` to stop showing a stale ref first)
+already carries the timestamp-style migration convention; the last
+old-style sequential file on `main` really is `0343_promo_outreach_
+targets.sql`, matching the prompt's claim exactly.
+
+**Migration rename** — content byte-for-byte identical (confirmed: `git
+diff --cached -M` on the two `git mv`s showed `0 insertions(+), 0
+deletions(-)`), only the filename and internal cross-reference comments
+changed:
+- `0351_dormant_confirmation_decline_dismiss.sql` →
+  `20260911200000_dormant_confirmation_decline_dismiss.sql`
+- `0352_meeting_task_prepared_at.sql` →
+  `20260911201000_meeting_task_prepared_at.sql`
+
+Both timestamps checked against every remote branch's migration tree
+(`for b in $(git branch -r | ...); do git ls-tree -r --name-only
+"origin/$b" -- supabase/migrations; done | grep -oE
+'2026091120[0-9]{4}'`) immediately before committing the rename — empty
+result, no collision anywhere. (Highest timestamp on any branch at the
+time of picking these was `20260911094000`; picked `20260911200000`/
+`...201000` for comfortable margin the same day.)
+
+**A real subtlety checked and ruled out**: production's migration ledger
+(`mcp__Supabase__list_migrations`) already recorded these two applies
+under its own auto-generated timestamp versions (`20260911145628`
+"dormant_confirmation_decline_dismiss", `20260911155538`
+"meeting_task_prepared_at") — NOT "0351"/"0352". The ledger's `version`
+column is assigned by `apply_migration` at apply time, independent of the
+local filename; this repo already has many examples of a local file's
+naming not lexically matching its own ledger version (e.g.
+`0344_catalog_evidence_topics_and_taxonomy.sql` recorded as ledger version
+`20260910152745`). So renaming the local files needed no corresponding
+ledger change — there was never a mismatch to reconcile there, only the
+filename's own sort position relative to other files in the directory.
+
+**References fixed** — grepped the whole repo for `0351`/`0352` (excluding
+one false positive, a phone-number-normalization example literal
+`00351223123321` in an unrelated migration). Three real comment references
+updated: `src/lib/use-dormant-confirmation.ts:44`, `src/lib/types.ts`
+(two: `dormant_decline_at`'s and `confirmation_dismissed_at`'s own doc
+comments), and the renamed `20260911201000_...` file's own header comment
+(originally said "Prompt 883's own migration 0351" — a comment, not the
+DDL itself, which is unchanged: still one `alter table tasks add column if
+not exists prepared_at timestamptz;`). **Not rewritten**: this DECISIONS.md
+file's own 883/884 entries above, which correctly record "Migration 0351"/
+"Migration 0352" as the literal truth at the time they were written —
+matching this file's own established practice elsewhere of appending
+corrections rather than rewriting history. This entry is the pointer for
+anyone who searches "0351" or "0352" later and needs the current filename.
+
+**Integration**: `git checkout -b claude/prompt-885-merge-883-884-to-main
+origin/claude/prompt-884-today-redesign` (884's branch already contains
+all of 883's commits) then `git rebase origin/main` — all 3 commits
+replayed with **zero conflicts** (`Successfully rebased and updated
+refs/heads/...`), confirmed post-rebase via `git merge-base --is-ancestor
+origin/main HEAD`. The migration rename + reference fixes landed as one
+additional commit on top, rather than rewriting the original 883/884
+commits — simpler, and the prompt only required a clean end state, not a
+specific commit shape.
+
+**Validated** on the final, rebased+renamed state: `tsc` EXIT=0. `vitest`
+EXIT=0 (3791/3791, unchanged from the 884 report — no test asserts a
+literal filename). `eslint` (worktree-safe invocation) EXIT=0, 0 errors.
+`npm run build` EXIT=0. `npm run verify:migrations`: no collision on
+either new filename against any remote branch (the 0289/0292/0339
+same-number collisions the tool flags are pre-existing and unrelated to
+this prompt, as in the 884 report).
+
+**Merged into `main`** with a merge commit, matching this repo's own most
+recent convention for landing a self-contained feature ("Merge Prompt
+NNN: <summary>" — checked the last several real merges into `main`, e.g.
+"Merge Prompt 882: ...", "Merge Prompt 880: ..."). Pushed directly to
+`origin/main` (this repo auto-deploys `main` to production via Vercel — no
+separate deploy step taken or needed).
+
+[Merge commit hash, production re-verification results, and cleanup
+confirmation recorded below once the merge and post-merge checks complete.]
