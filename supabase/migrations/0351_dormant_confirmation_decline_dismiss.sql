@@ -1,0 +1,31 @@
+-- Prompt 883 — the "Decide: mark {entity} dormant" task (created by
+-- automation-rules-tick.ts's second-silence rule, source =
+-- 'automation_dormant') had only a plain checkbox, so ticking it just
+-- called toggleTask and closed the task WITHOUT deciding anything — the
+-- exact bug Prompt 220 §B already fixed once for interest_level_request
+-- tasks, never fixed here. This migration adds the two columns the new
+-- three-way Confirm/Decline/Dismiss flow (Actions Required) needs.
+--
+-- entities.dormant_decline_at — when a founder explicitly declined the
+-- automation's proposal (as opposed to Confirm, which sets status =
+-- 'dormant', or Dismiss, which touches neither). `tasks` has no completion
+-- timestamp of any kind (confirmed against the live schema before writing
+-- this), so this lives on `entities` instead: it is read by
+-- automation-rules-tick.ts's own isSecondSilence branch, keyed off the
+-- ENTITY, not the closed task, to suppress re-proposing the identical
+-- decision for 6 months — unless a new interaction is logged for that
+-- entity in the meantime, which clears the suppression regardless of the
+-- window (a fresh silence cycle became possible the moment contact
+-- resumed).
+alter table entities add column if not exists dormant_decline_at timestamptz;
+
+-- tasks.confirmation_dismissed_at — Nuno's own definition, verbatim: "an
+-- option to simply not appear there anymore." No decision, no entity
+-- effect, no automation effect — the task stays open/undone (done stays
+-- false) so hasOpenDormant keeps suppressing a duplicate; this column only
+-- ever affects what founderActionsRequired() surfaces. Deliberately a
+-- SEPARATE column from `done`: `done` already means "closed, one way or
+-- another" everywhere else `tasks` is read, and setting it here would make
+-- a dismissed-but-unresolved item indistinguishable from a genuinely
+-- closed one on every other surface that reads `tasks`.
+alter table tasks add column if not exists confirmation_dismissed_at timestamptz;

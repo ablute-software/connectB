@@ -6661,3 +6661,195 @@ permanently, confirmed both in the full flow and in an isolated repro.
 Screenshots sent to the user directly.
 
 Branch `claude/prompt-882-guided-discipline`.
+
+## Prompt 883 — Confirmation card (Confirm/Decline/Dismiss) for the dormant-decision task
+
+**The bug, confirmed by reading the code together with Nuno.** The
+"Decide: mark {entity} dormant — no reply after the follow-up" task
+(`automation-rules-tick.ts`'s second-silence rule, `source:
+'automation_dormant'`) had only its plain row checkbox as a control.
+Ticking it called `toggleTask` and nothing else — the exact silent no-op
+`TodayPanel.tsx`'s own "Prompt 220 §B" comment describes having fixed
+once already, for `interest_level_request` tasks, never fixed here. Worse:
+the one OTHER control already wired to this task — Today's "Dismiss"
+button — actually called `parkEntity()`, which DOES set `status =
+'dormant'`. So the UI had it backwards: the button labelled like a no-op
+had the real, permanent effect, and the real-looking control (the
+checkbox) did nothing.
+
+**Migration 0351** — two columns:
+- `entities.dormant_decline_at timestamptz` — set when the founder
+  explicitly Declines. `tasks` has no completion timestamp of any kind
+  (checked against the live schema first), so this lives on the entity,
+  read by `automation-rules-tick.ts`'s own guard.
+- `tasks.confirmation_dismissed_at timestamptz` — Dismiss, "an option to
+  simply not appear there anymore" (Nuno, verbatim). Deliberately NOT
+  `done` — `done` already means closed, one way or another, everywhere
+  else `tasks` is read.
+
+**Three distinct actions** (`src/lib/use-dormant-confirmation.ts`,
+`src/lib/exit-effects.ts`'s new `dormantConfirmationNoteContent` /
+`dormantConfirmationReason` / `dormantDeclineNoteContent`):
+- **Confirm** — `logSystemNote` + `setEntityStatus(id, 'dormant', reason)`
+  + `toggleTask`, with its OWN honest copy — not
+  `dismissNoteContent`/`dismissDormantReason`, which say "Dismissed" and
+  would misdescribe a founder AGREEING with the proposal. Deliberately
+  does not run `planPark`'s full disposition loop over the entity's other
+  tasks (no revisit task, no rescheduling) — the prompt's own text names
+  the mechanism as exactly `setEntityStatus` + `logSystemNote`, and
+  running `planPark` risked double-toggling this same task: its title
+  contains "no reply", which `answersByParking`'s regex already matches on
+  "reply".
+- **Decline** — `logSystemNote` (honest "Declined — kept active…" wording)
+  + `updateEntity({ dormant_decline_at })` + `toggleTask`. No entity-status
+  change.
+- **Dismiss** — `updateTask({ confirmation_dismissed_at })` only. No note,
+  no entity effect, no automation effect; `done` stays `false` so the
+  automation's own idempotency guard keeps seeing it as unresolved.
+
+**`src/lib/actions-required.ts`** — new `ActionItem` kind
+`dormant_confirmation`, sourced from `input.tasks` with the SAME predicate
+`hasOpenDormant` uses (`!done && source === 'automation_dormant'`), plus
+excluding a Dismiss (`!confirmation_dismissed_at`) — the two guards can
+never disagree about what's still open.
+
+**Today (`TodayPanel.tsx`) no longer shows this task type at all** —
+excluded from `mergedOverdue`. (Prompt 884's "Other" card, referenced in
+the prompt text, does not exist yet anywhere in this codebase — confirmed
+by grep; nothing to exclude there yet, but it must carry the same
+exclusion once it's built.)
+
+**Read-site audit — every other place `automation_dormant` tasks could
+surface, and what was done:**
+| site | risk | action |
+|---|---|---|
+| `AgendaPanel.tsx` (month grid, OVERDUE/DUE TODAY/THIS WEEK/COMPLETED rail, task detail popup, ICS export, type-filter counts) | same interactive checkbox + "Mark done" button as Today had | **excluded** — new `agendaTasks` filter (`source !== 'automation_dormant'`), every `db.tasks` read in the file now routes through it |
+| `pipeline/page.tsx`'s `nextAction`/"Next action" column | read-only `<span>` text, no checkbox/click handler on that cell | left as-is — read-only is fine per the prompt's own instruction |
+| `relationship.ts`'s `getNextStepTask` | grepped — not called from anywhere else in the codebase currently | left as-is, no live surface |
+| `ReminderPopup.tsx`/`InvestorReminderPopup.tsx` (via `ReminderPopupView`/`dueReminders`) | filtered internally by `reminder_at`; `automation_dormant` tasks never get one set | safe by construction, no change |
+| `sherlock-next.ts`/`OverviewPanel.tsx`'s `followupsDue` | filtered by `kind === 'follow_up'`; this task's kind is `'admin'` | safe by construction, no change |
+| `SherlockInsightBanner.tsx`'s `pendingInterestTask` | filtered by `source === 'interest_level_request'` | safe by construction, no change |
+| `api/portal/today`, `api/portal/document-requests` (investor portal) | separate data-access domain, unrelated filters/markers | confirmed no leak, no change |
+
+**Confirmation card (`ActionsRequiredPanel.tsx`)** — new
+`DormantConfirmationCard`, scoped to this one `ActionItem` kind only (the
+panel had zero other multi-select machinery, confirmed before touching
+it). Per-row checkbox + select-all, each row ALSO keeps its own inline
+Confirm/Decline/Dismiss buttons (same pattern this file already uses for
+`interest_request`) so a single pending item is never stranded — a
+bulk toolbar (`Confirm (n)`/`Decline (n)`/`Dismiss (n)`) additionally
+appears at the card header once 2+ rows are checked, exactly as asked.
+Confirm and Decline both keep the existing one-line `useConfirm()` step
+before firing — even in bulk — since both have a real, recorded effect;
+Dismiss never asks, per the prompt's own exemption.
+
+### A real bug found and fixed by the live DB test (not a synthetic unit test)
+
+Verifying Decline's 6-month suppression against REAL Supabase rows (not
+just synthetic fixtures) surfaced a genuine defect: `declineDormant()`
+itself calls `logSystemNote`, which inserts an `interactions` row
+(`channel = 'stage_change'`) recording the decline. That row's own
+`occurred_at` lands at — or a heartbeat after — `dormant_decline_at`
+(same `now()` inside one transaction in the test fixture; a fresh
+`new Date()` a moment later in the real client code). Without excluding
+it, `dormantDeclineSuppressed()`'s own "any interaction since the decline
+clears it" check would see the decline's OWN bookkeeping note as a
+qualifying interaction and self-clear the suppression it had just set —
+on every single Decline, immediately, defeating the whole feature. Fixed
+by excluding `channel === 'stage_change'` — the codebase's own existing
+marker for internal bookkeeping (`logSystemNote`, `setRelationshipStage`),
+never a real outbound/inbound message. Confirmed live below, and a
+dedicated regression test was added
+(`automation-rules-tick.test.ts`: "a stage_change row (the decline's own
+system note) does NOT count as a clearing interaction").
+
+### zz-test DB verification — concrete ids, real before/after data
+
+Fixture: org `zz-test-883-dormant` (`77777777-7777-4777-8777-777777770000`),
+6 entities + 6 `automation_dormant` tasks, in production
+(`wkjcaoqdvhykrfacsylr`).
+
+**Confirm** — entity `77777777-…-770001` ("zz-test-883 Confirm Fund"),
+task `77777777-…-770101`.
+- BEFORE: `status='contacted'`, `dormant_decline_at=NULL`, task `done=false`.
+- Ran the exact SQL-equivalent of `confirmDormant()`.
+- AFTER (literal): `status='dormant'`, `dormant_since='2026-09-11
+  15:10:31.549041+00'`, `dormant_reason='Confirmed dormant — no reply
+  after the follow-up (2026-09-11).'`; task `done=true`; new interaction
+  `77777777-…-770301` (`out`/`stage_change`, same timestamp):
+  `'Confirmed — marked dormant after no reply following the follow-up, on
+  2026-09-11.'`
+
+**Decline** — entity `77777777-…-770002` ("zz-test-883 Decline Fund"),
+task `77777777-…-770102`, person `77777777-…-770202`, with two real
+second-silence interactions (`77777777-…-770201` at 2026-08-02,
+`77777777-…-770203` at 2026-08-22, both `out`/`email`).
+- Ran the exact SQL-equivalent of `declineDormant()`.
+- AFTER (literal): entity `status='contacted'` — **unchanged** — with
+  `dormant_decline_at='2026-09-11 15:10:43.30894+00'`; task `done=true`;
+  new interaction `77777777-…-770302` (`out`/`stage_change`, same
+  timestamp): `'Declined — kept active despite no reply after the
+  follow-up, on 2026-09-11.'`
+- **Tick re-evaluation, against the real production function
+  (`dormantDeclineSuppressed`/`planAutomationRulesTick`) fed the literal
+  fetched rows above** (a throwaway `_zz-verify-883-tick.test.ts`, run
+  once via `npx vitest run`, output captured here, then deleted —
+  never committed):
+  - `dormantDeclineSuppressed` at `now=2026-09-11T15:11:00Z` (moments
+    after the decline, real rows only) → **`true`** (suppressed; the
+    `stage_change` note does not self-clear it — the bug above, fixed).
+  - Same, at `now=2026-10-15` (~1 month later, still no real contact) →
+    **`true`**.
+  - A real, non-`stage_change` interaction logged
+    (`77777777-…-770204`, `out`/`email`, `2026-09-11 15:12:40.863404+00`,
+    `'zz-test outbound 3 (after decline — fresh contact)'`) →
+    `dormantDeclineSuppressed` at `now=2026-09-11T15:13:00Z` → **`false`**
+    (cleared).
+  - Full `planAutomationRulesTick` run, real entity + real interactions,
+    `now=2026-09-27` (16 days after the decline's own note, so it clears
+    rules.ts's own unrelated 14-day "last outbound" window — a
+    pre-existing rules.ts characteristic, out of scope to touch): **0
+    tasks created, `skipped.declinedRecently=1`.**
+  - Full `planAutomationRulesTick` run, real entity + real interactions +
+    the fresh contact, `now=2026-09-26` (15 days after the fresh
+    contact): **`skipped.declinedRecently=0`, 1 task created**
+    (`source: 'automation_dormant'`, `entity_id:
+    '77777777-…-770002'`) — normal second-silence logic resumed.
+  - All 5 assertions in this throwaway run passed (`Test Files 1 passed
+    (1)`, `Tests 5 passed (5)`).
+
+**Dismiss** — task `77777777-…-770103` ("zz-test-883 Dismiss Fund").
+- Ran the exact SQL-equivalent of `dismissDormant()`.
+- AFTER (literal): `confirmation_dismissed_at='2026-09-11
+  15:13:45.028655+00'`, `done` **still `false`** — confirmed untouched,
+  which is what keeps the automation's own `hasOpenDormant` guard (unchanged
+  by this prompt) seeing the entity as still having an open decision, so a
+  fresh tick creates no duplicate. `founderActionsRequired()` excluding a
+  dismissed-but-open task is covered by a dedicated unit test (`actions-
+  required.test.ts`: "a dismissed task disappears here even though it is
+  still open/undone").
+
+**Bulk Confirm** — 3 entities/tasks (`77777777-…-770004/5/6`, "zz-test-883
+Bulk Fund A/B/C").
+- Ran the exact SQL-equivalent of `runBulk('confirm')` — one insert
+  statement across all 3 interactions, one update across all 3 entities,
+  one update across all 3 tasks (matching the single `await confirm()`
+  call the code makes ONCE before the loop, not per-row — verified by
+  reading `runBulk()` itself, not re-derived here).
+- AFTER (literal, all 3): `status='dormant'`,
+  `dormant_since='2026-09-11 15:13:58.898516+00'` (identical timestamp —
+  one batch), tasks `done=true`.
+
+**Cleanup**: all rows deleted after capturing the proof above — org
+`77777777-7777-4777-8777-777777770000` and everything under it
+(6 entities, 6 tasks, 8 interactions, 1 person). Confirmed 0 rows remain
+(`select count(*) from orgs where id=…` → 0). The throwaway
+`_zz-verify-883-tick.test.ts` was deleted from disk, never staged.
+
+**Validated**: `tsc`/`vitest`/`build`/`eslint` all green by exit code
+(3773 tests, 253 files — 15 new: 4 in `actions-required.test.ts`, 11 in
+`automation-rules-tick.test.ts` including the `dormantDeclineSuppressed`
+describe block and the stage_change regression test). `npm run
+verify:migrations` clean, 0351 free.
+
+Migration 0351. Branch `claude/prompt-883-dormant-confirmation`.

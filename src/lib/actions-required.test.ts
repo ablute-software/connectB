@@ -73,6 +73,56 @@ describe('founderActionsRequired', () => {
     }));
     expect(items[0].kind).toBe('interest_request');
   });
+
+  // Prompt 883 §1 — the "Decide: mark {entity} dormant" task, surfaced as
+  // its own ActionItem kind so Confirm/Decline/Dismiss have somewhere to
+  // live. §1's own requirement: the SAME predicate automation-rules-
+  // tick.ts's hasOpenDormant guard uses (!done && source ===
+  // 'automation_dormant'), so the two can never disagree.
+  describe('dormant_confirmation', () => {
+    it('surfaces an open automation_dormant task, carrying taskId/entityId/personId', () => {
+      const { items } = founderActionsRequired(base({
+        tasks: [task({
+          id: 'td1', title: 'Decide: mark Nina Capital dormant — no reply after the follow-up',
+          kind: 'admin', action_type: 'other', source: 'automation_dormant',
+          entity_id: 'e1', person_id: 'p1', due_at: '2026-08-10T00:00:00Z',
+        })],
+      }));
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({
+        kind: 'dormant_confirmation', taskId: 'td1', entityId: 'e1', personId: 'p1',
+        label: 'Decide: mark Nina Capital dormant — no reply after the follow-up',
+        entityHref: '/entities/e1',
+      });
+    });
+
+    it('never surfaces a done task', () => {
+      const { items } = founderActionsRequired(base({
+        tasks: [task({ id: 'td1', kind: 'admin', action_type: 'other', source: 'automation_dormant', entity_id: 'e1', done: true })],
+      }));
+      expect(items).toHaveLength(0);
+    });
+
+    it('never surfaces a task of a different source, even with the same title shape', () => {
+      const { items } = founderActionsRequired(base({
+        tasks: [task({ id: 'td1', kind: 'admin', action_type: 'other', source: 'manual', entity_id: 'e1' })],
+      }));
+      expect(items).toHaveLength(0);
+    });
+
+    // §3 Dismiss — "an option to simply not appear there anymore": the task
+    // stays open/undone (so the automation's own idempotency guard keeps
+    // seeing it as pending), but it must vanish from this list.
+    it('a dismissed task disappears here even though it is still open/undone', () => {
+      const { items } = founderActionsRequired(base({
+        tasks: [task({
+          id: 'td1', kind: 'admin', action_type: 'other', source: 'automation_dormant',
+          entity_id: 'e1', done: false, confirmation_dismissed_at: '2026-08-11T00:00:00Z',
+        })],
+      }));
+      expect(items).toHaveLength(0);
+    });
+  });
 });
 
 describe('investorActionsRequired', () => {
