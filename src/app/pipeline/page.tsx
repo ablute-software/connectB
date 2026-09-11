@@ -1287,21 +1287,29 @@ export default function PipelinePage() {
         {/* Prompt 880 §4 — the right group is right-aligned by the Summary
             button's ml-auto now (it sits between the country filter and this),
             so Frozen no longer carries ml-auto or it would split the two. */}
-        <PipelineDropTarget target="frozen"
-          label={cardFilter === 'frozen' ? '❄ Showing frozen' : `❄ Frozen (${funnelCounts.frozen})`}
-          title="Not moving right now — either an impasse, or fell through the cracks. Drag a row here to freeze it."
-          count={funnelCounts.frozen} active={cardFilter === 'frozen'}
-          onClick={() => setCardFilter((v) => v === 'frozen' ? null : 'frozen')}
-          armed={drag.active} open={drag.over === 'frozen'} pulse={dropPulse === 'frozen'} reducedMotion={reducedMotion} />
+        {/* Prompt 663 — the drop targets are landing zones during a drag only;
+            the funnel's Frozen/Passed cards own the persistent count and the
+            filter, so the toolbar no longer duplicates them. Phase 4 moves the
+            drop onto the cards themselves. */}
+        {drag.active && (
+          <PipelineDropTarget target="frozen"
+            label={`❄ Frozen (${funnelCounts.frozen})`}
+            title="Not moving right now — either an impasse, or fell through the cracks. Drag a row here to freeze it."
+            count={funnelCounts.frozen} active={cardFilter === 'frozen'}
+            onClick={() => setCardFilter((v) => v === 'frozen' ? null : 'frozen')}
+            armed={drag.active} open={drag.over === 'frozen'} pulse={dropPulse === 'frozen'} reducedMotion={reducedMotion} />
+        )}
         {/* Prompt 852 §C — both directions of "no" in one view, each row
             labelled with which way it went. Same shape as the three above;
             hidden at 0 like Reported, and kept visible while it IS the
             active view so toggling back off never needs a second control. */}
         {/* Prompt 647 — also shown while a row is being dragged, even at 0:
             a door has to exist to be dropped on. */}
-        {(funnelCounts.passed > 0 || cardFilter === 'passed' || drag.active) && (
+        {/* Prompt 663 — landing zone during a drag only (see the Frozen note
+            above); the funnel's Passed card owns the persistent count. */}
+        {drag.active && (
           <PipelineDropTarget target="passed"
-            label={cardFilter === 'passed' ? '✕ Showing passed' : `✕ Passed (${funnelCounts.passed})`}
+            label={`✕ Passed (${funnelCounts.passed})`}
             title="Decided, either way — they passed, or you ruled them out. Drag a row here to mark it passed."
             count={funnelCounts.passed} active={cardFilter === 'passed'}
             onClick={() => setCardFilter((v) => v === 'passed' ? null : 'passed')}
@@ -1472,8 +1480,10 @@ export default function PipelinePage() {
                       </span>
                     )}
                     {/* Prompt 659 — temperature marker: recency of the last
-                        touch, three steps, with the exact days (661 §1). */}
-                    {temp && (
+                        touch, three steps, with the exact days (661 §1). Prompt
+                        663 — only on active-band rows; a Passed/Frozen row is
+                        off the board, so its recency is noise, not a signal. */}
+                    {temp && isActiveGroup && (
                       <span className={`ml-1.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${TEMP_META[temp].cls}`}
                         title={`${TEMP_META[temp].word} — last touch ${relSummary.daysSinceLastTouch}d ago`}>
                         <span className="inline-block h-1.5 w-1.5 rounded-full bg-current" />{relSummary.daysSinceLastTouch}d
