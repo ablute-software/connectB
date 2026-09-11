@@ -6661,3 +6661,83 @@ permanently, confirmed both in the full flow and in an isolated repro.
 Screenshots sent to the user directly.
 
 Branch `claude/prompt-882-guided-discipline`.
+
+## Prompt 660 — Pipeline temperature marker, Fase 2 (wiring Prompt 659's decision)
+
+Prompt 659 (`d29129e`) wrote and tested `pipeline-temperature.ts`
+(`pipelineTemperature()`, warm ≤14d / cooling 15-60d / cold >60d /
+never-contacted → no marker) but never wired it into the Pipeline UI — a
+reviewer's SQL-against-production verification note (Prompt 660,
+2026-09-11) flagged three things worth fixing at the point of wiring
+rather than after. All three addressed here; concrete production
+confirmation for each is below.
+
+**§1 — "the only warm marker on screen is the internal QA test account."**
+Investigated, per the user's explicit instruction, WITHOUT removing
+anything (the removal decision is Nuno's, sought in parallel by the
+reviewer). Confirmed exactly why: `entities` rows
+`a07a96eb-a5ac-49b3-be8f-5c60d8c70ecd` ("ablute_ — Internal QA") and
+`c8ff10dd-e52e-4263-85a8-1a60730f8476` ("nunomarujo@gmail.com —
+Individual investor", the same id CLAUDE.md's own "never verify against
+production" section names as a prior real-data-touched entity) are two of
+the four rows migration `0304_matchdeal_write_paths_skip_test_investors.sql`
+(Prompt 556) already documented by exact id/date and explicitly deferred
+cleaning up ("tied to Part F" — never done). That migration's own guard
+(`if exists (select 1 from catalog_entities where id = p_catalog_id and
+is_test) then return null`) already stops this from ever happening again;
+these two are pure leftover. Confirmed live: both entities' interactions
+are `direction='in', channel='web_form', content='Investor expressed
+interest via Pipeline.'` (the exact fingerprint of the pre-fix path), and
+both trace via `catalog_deliveries` (`quota_exempt=true, via_pack=null` —
+the documented fingerprint) to a `catalog_entities` row with `is_test =
+true` (`af230215-aca9-40ac-bcd0-dc679e1825aa` /
+`f2a94a65-3489-4b50-827f-9d3b5b521322`). **Answer: exclusion is trivial** —
+a principled `is_test` join through `catalog_deliveries`, the exact
+pattern `catalog_top_matches` already uses everywhere else, not a name
+hack — but not applied here; that stays Nuno's call.
+
+**§2 — the day count baked into the marker text**, so the 20 Sept cliff
+(§below) reads as "9 days left on this batch" instead of an unexplained
+color flip. `temperatureLabel(t, days)` added to `pipeline-temperature.ts`
+→ `"Cooling · 51d"`.
+
+**§3 — scope.** Rendered only for `status in ('contacted',
+'in_conversation', 'diligence')` — the three "live" pipeline stages,
+matching the summary card's own vocabulary a few lines above in the same
+file. Not `not_contacted` (no marker anyway — no touch to measure),
+`passed`/`invested`/`dormant` (per the reviewer's own reasoning: "a
+relação acabou, a recência não é um sinal accionável").
+
+**Built**: `TemperatureBadge` (`RelationshipSummaryCard.tsx`, same file
+and pattern as the existing `HealthDot`/`WhoseTurnChip` — each already
+independently calls `relationshipSummary(db, entityId)`, so this follows
+the established, accepted per-row-recompute convention rather than adding
+a new one), colored distinctly from the unrelated "❄ Frozen" status icon
+used elsewhere on this exact row (a different axis entirely — recency vs.
+`entity.status === 'dormant'` — documented explicitly in-line so the two
+are never conflated later). Wired into `pipeline/page.tsx`'s name cell,
+right after the existing "★ Interested / ● In conversation" chip.
+
+**Live confirmation against production (`wkjcaoqdvhykrfacsylr`,
+read-only), 2026-09-11, replicating `relationshipSummary`'s own
+`channel <> 'stage_change'` last-real-touch rule exactly:**
+- Across every `contacted`/`in_conversation`/`diligence` entity in
+  ablute_'s pipeline, **exactly one** has `daysSinceLastTouch <= 14`:
+  `a07a96eb-a5ac-49b3-be8f-5c60d8c70ecd` — "ablute_ — Internal QA" itself
+  (last touch `2026-09-10`, 2 days). Zero real investors are warm —
+  confirms the reviewer's finding directly, on today's data, not last
+  week's.
+- The 20 Sept cliff: **13 rows** share the identical last-touch timestamp
+  `2026-07-22`, all landing at `days_since = 51` today and all crossing
+  `> 60` (cold) on **2026-09-20** — the exact date and count the review
+  named. `temperatureLabel` now shows `"Cooling · 51d"` on every one of
+  them today, so that date stops reading as a bug the moment it arrives.
+
+**Validated**: `tsc`/`vitest` (3765 tests, 254 files, +2 new for
+`temperatureLabel`)/`build`/`eslint` all green by exit code.
+
+Branch `claude/prompt-660-temperature-followups` (based on
+`claude/prompt-627-country-generalist-layer2`, which is where Prompt 659's
+work actually lives — `d29129e` is not reachable from `main` or from the
+`sherlockdeal-git-access-bek6d7` branch named in this session's own
+system-level instructions).

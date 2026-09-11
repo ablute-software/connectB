@@ -8,7 +8,7 @@ import { authEnabled, browserClient } from '@/lib/supabase';
 import { FitTag, StatusPill, Tooltip, WaveTag, fmtEur, statusLabel } from '@/components/ui';
 import pipelineMobile from './pipeline-mobile.module.css';
 import { LoadingState } from '@/components/workspace-shell/LoadingState';
-import { RelationshipCompactLine } from '@/components/RelationshipSummaryCard';
+import { RelationshipCompactLine, TemperatureBadge } from '@/components/RelationshipSummaryCard';
 import { hasAnythingToShow, isReachable, readinessChips, type ReadinessBreakdown } from '@/lib/readiness-strip';
 import { joinNames, vaultAccessAdviceFromDb } from '@/lib/vault-access-advice';
 import { ReawakeningQueue } from '@/components/ReawakeningQueue';
@@ -1434,6 +1434,15 @@ export default function PipelinePage() {
                       <span className="ml-1.5 inline-block rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600" title="This investor has suspended their own visibility — not accepting contact right now. Existing access is unaffected.">
                         Suspended
                       </span>
+                    )}
+                    {/* Prompt 660 (Fase 2 of 659's decision) — recency of
+                        the last real touch. Scoped to the three "live"
+                        statuses on purpose: on a passed/invested/dormant
+                        row the relationship is over, so "cold — 288 days"
+                        is noise, not a signal to act on (a reviewer's own
+                        finding, 2026-09-11 — see DECISIONS.md). */}
+                    {(e.status === 'contacted' || e.status === 'in_conversation' || e.status === 'diligence') && (
+                      <TemperatureBadge entityId={e.id} />
                     )}
                     {/* Prompt 852 §C — inside the Passed view every row says
                         WHICH WAY the "no" went. "They passed" is an investor

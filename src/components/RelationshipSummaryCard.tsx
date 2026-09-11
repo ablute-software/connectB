@@ -11,6 +11,7 @@ import {
   type WhoseTurn, type Health, type DealMessageTouch,
 } from '@/lib/relationship';
 import { planPark, planPass, planInvested, planSnooze, advanceConfirmation, type ExitPlan } from '@/lib/exit-effects';
+import { pipelineTemperature, temperatureLabel, type Temperature } from '@/lib/pipeline-temperature';
 
 // Prompt 415 §2 — promoted to a shared file (snooze-options.ts) so the
 // Sherlock Next Clue popup's "Leave for later" imports the SAME array
@@ -35,6 +36,19 @@ const HEALTH_DOT: Record<Health, string> = {
 };
 const HEALTH_LABEL: Record<Health, string> = {
   hot: 'Hot — meeting or diligence', warm: 'Warm — recent activity', stalled: 'Stalled — no movement in a while', none: '',
+};
+
+// Prompt 660 (Fase 2 of Prompt 659's decision) — recency of the last real
+// touch, a DIFFERENT axis from HEALTH_DOT above: that one reads the STAGE
+// (hot = meeting/diligence booked), this one reads TIME since the last
+// contact. Colors deliberately avoid ❄ / the "Frozen" palette used
+// elsewhere on this same Pipeline row (entity.status === 'dormant') — a
+// cold TEMPERATURE marker and a Frozen STATUS are unrelated concepts, and
+// reusing that icon/color would read as one.
+const TEMPERATURE_STYLE: Record<Temperature, string> = {
+  warm: 'bg-[#E8F4F8] text-[#0E7490]',
+  cooling: 'bg-amber-50 text-amber-700',
+  cold: 'bg-gray-100 text-gray-500',
 };
 
 // Prompt 197 C.1 — dealMessageTouches is optional and defaults to none, so
@@ -67,6 +81,26 @@ export function WhoseTurnChip({ entityId, dealMessageTouches = [], neutral = fal
   return (
     <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${neutral ? 'bg-gray-100 text-gray-400' : WHOSE_TURN_STYLE[s.whoseTurn]}`}>
       {WHOSE_TURN_LABEL[s.whoseTurn]}
+    </span>
+  );
+}
+
+// Prompt 660 — the Pipeline row's temperature marker (Prompt 659's
+// decision: warm ≤14d, cooling 15-60d, cold >60d, no marker for a
+// never-contacted entity). The caller decides WHICH rows are eligible to
+// show it at all (Pipeline: only the contacted/in_conversation/diligence
+// statuses — on a passed/frozen row the recency isn't an actionable
+// signal); this component only ever decides not to render when there is
+// no last touch to measure, same null-guard shape as HealthDot above.
+export function TemperatureBadge({ entityId }: { entityId: string }) {
+  const { db } = useStore();
+  const s = relationshipSummary(db, entityId);
+  const t = pipelineTemperature(s.daysSinceLastTouch);
+  if (!t || s.daysSinceLastTouch == null) return null;
+  return (
+    <span className={`ml-1.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${TEMPERATURE_STYLE[t]}`}
+      title={`${s.daysSinceLastTouch} day${s.daysSinceLastTouch === 1 ? '' : 's'} since the last touch`}>
+      {temperatureLabel(t, s.daysSinceLastTouch)}
     </span>
   );
 }

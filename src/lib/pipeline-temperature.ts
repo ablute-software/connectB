@@ -29,3 +29,15 @@ export function temperatureRank(t: Temperature | null): number {
     default: return 3;
   }
 }
+
+// Prompt 660 §2 — "o marcador mostrar os dias" (Nuno's reviewer, 2026-09-11):
+// 13 of ablute_'s 16 "cooling" rows share one last-touch date (a single bulk
+// outreach batch, 2026-07-22), so all 13 will flip to "cold" on the SAME
+// day (2026-09-20) — a cliff that reads as "the marker broke" without the
+// day count in view. Bare recommended text, e.g. "Cooling · 51d" — the
+// count alone (not the cutoff arithmetic) is what makes that day legible as
+// "nine days until this whole batch goes cold" instead of a color jump.
+const TEMPERATURE_NAME: Record<Temperature, string> = { warm: 'Warm', cooling: 'Cooling', cold: 'Cold' };
+export function temperatureLabel(t: Temperature, daysSinceLastTouch: number): string {
+  return `${TEMPERATURE_NAME[t]} · ${daysSinceLastTouch}d`;
+}
