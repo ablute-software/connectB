@@ -641,6 +641,11 @@ export interface TaskItem {
   // else tasks is read; this only ever affects founderActionsRequired()'s
   // own filter (migration 0351).
   confirmation_dismissed_at?: string | null;
+  // Prompt 884 — "Mark prepared" on a meeting 1-2 days out (migration
+  // 0352). A distinct concept from `done`: a meeting task is only ever
+  // marked done by a real logged summary (see Add meeting summary), never
+  // by preparing for it.
+  prepared_at?: string | null;
 }
 
 // Prompt 212 §B.1 — capital JÁ levantado, separado da ronda actual

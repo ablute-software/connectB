@@ -30,6 +30,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { fitBucketFromScore } from './catalog-fit-bucket';
 import { catalogContactFields, waveForRank } from './catalog-delivery-mapping';
 import { preferDeclaredList, preferDeclaredValue, resolveClaimedInvestorProfile } from './claimed-investor-profile';
+import { PIPELINE_ADD_NOTE_CONTENT } from './recent-activity';
 
 export interface CatalogDeliveryResult {
   delivered: number;
@@ -129,6 +130,21 @@ export async function deliverCatalogMatches(
   // reference was attempted before the referent existed.
   const { error: entityErr } = await admin.from('entities').insert(newEntities);
   if (entityErr) return { delivered: 0, deliveredIds: [], error: entityErr.message };
+
+  // Prompt 884 — a system-note marker (same channel/direction shape as the
+  // client-side logSystemNote in store-supabase.tsx, replicated here
+  // server-side since that hook only runs client-side) so the Today page's
+  // Recent activity feed has something real to read for "Added X to
+  // pipeline" — previously there was no queryable record of a catalog
+  // delivery at all. Best-effort: a failure here doesn't undo the entities
+  // that already exist and the founder can already see, only console.error's
+  // like every other secondary write in this function.
+  const { error: noteErr } = await admin.from('interactions').insert(newEntities.map((e) => ({
+    id: crypto.randomUUID(), org_id: orgId, entity_id: e.id as string,
+    occurred_at: new Date().toISOString(), direction: 'out', channel: 'stage_change',
+    content: PIPELINE_ADD_NOTE_CONTENT,
+  })));
+  if (noteErr) console.error('deliverCatalogMatches: pipeline-add activity note insert failed', noteErr);
 
   // Prompt 889 §2 — no more auto-task on delivery. Prompt 544 Part D created
   // one `research_hook` task per WAVE-1 row so a fresh pipeline wasn't a wall

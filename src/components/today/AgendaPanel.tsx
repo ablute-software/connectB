@@ -9,7 +9,21 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { Card, EntityLink } from '@/components/ui';
-import type { ActionType, TaskItem } from '@/lib/types';
+import type { ActionType, TaskItem, TaskKind } from '@/lib/types';
+
+// Prompt 884 — the "Add task" modal used to hardcode kind: 'meeting'
+// unconditionally, so there was no way to schedule a dated reminder that
+// wasn't tagged as a meeting; with the Today redesign's Meetings card
+// reading `kind === 'meeting'` specifically, that hardcode would have
+// filled the card with anything anyone scheduled by date. 'meeting'
+// stays FIRST and is still the default, so a founder who never touches
+// this selector gets byte-for-byte the old behavior.
+const TASK_KIND_OPTIONS: { value: TaskKind; label: string }[] = [
+  { value: 'meeting', label: 'Meeting' },
+  { value: 'follow_up', label: 'Follow-up' },
+  { value: 'research', label: 'Research' },
+  { value: 'admin', label: 'Other' },
+];
 import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL, ACTION_TYPES, followUpTaskDisplayTitle } from '@/lib/relationship';
 import { REMINDER_OPTIONS } from '@/lib/reminders';
 
@@ -75,6 +89,7 @@ export function AgendaPanel() {
   const [apTitle, setApTitle] = useState('');
   const [apTime, setApTime] = useState('09:00');
   const [apType, setApType] = useState<ActionType>('other');
+  const [apKind, setApKind] = useState<TaskKind>('meeting');
   const [apEntityId, setApEntityId] = useState('');
   const [apPersonId, setApPersonId] = useState('');
   const [apNotes, setApNotes] = useState('');
@@ -97,7 +112,7 @@ export function AgendaPanel() {
   }
 
   function resetApFields() {
-    setApTitle(''); setApTime('09:00'); setApType('other');
+    setApTitle(''); setApTime('09:00'); setApType('other'); setApKind('meeting');
     setApEntityId(''); setApPersonId(''); setApNotes(''); setApReminder('none');
   }
 
@@ -122,7 +137,7 @@ export function AgendaPanel() {
       : undefined;
     addTask({
       title: apTitle.trim(),
-      kind: 'meeting',
+      kind: apKind,
       action_type: apType,
       due_at: due.toISOString(),
       entity_id: apEntityId || undefined,
@@ -316,6 +331,13 @@ export function AgendaPanel() {
               <select value={apType} onChange={(e) => setApType(e.target.value as ActionType)}
                 className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm">
                 {ACTION_TYPES.map((at) => <option key={at} value={at}>{ACTION_TYPE_LABEL[at]}</option>)}
+              </select>
+              {/* Prompt 884 — the fix for the Agenda modal bug: without
+                  this, every dated task landed in the new Meetings card
+                  regardless of what it actually was. */}
+              <select value={apKind} onChange={(e) => setApKind(e.target.value as TaskKind)}
+                className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm">
+                {TASK_KIND_OPTIONS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
               </select>
               <div className="grid grid-cols-2 gap-2">
                 <select value={apEntityId} onChange={(e) => { setApEntityId(e.target.value); setApPersonId(''); }}
