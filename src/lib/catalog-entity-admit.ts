@@ -27,19 +27,53 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 export type AdmitResult =
   | { ok: true; entityId: string; created: boolean }
-  | { ok: false; reason: 'catalog_entity_not_found' | 'entity_insert_failed'; error?: string };
+  | { ok: false; reason: 'catalog_entity_not_found' | 'catalog_entity_is_test' | 'entity_insert_failed'; error?: string };
+
+// Prompt 669 §4 — who to name as the contact when this admission was
+// triggered by a specific person (e.g. "Add to pipeline" on a registered
+// investor's row). Optional: the referral caller has no such identity today
+// and keeps behaving exactly as before (a bare entity, no person under it).
+export interface AdmitRecipient { name?: string | null; email: string }
+
+// Confirmed in production, 2026-09-11: without a person row, "Add to
+// pipeline" left the founder unable to find the investor they just added by
+// the only name they know them by — the created entity is named after the
+// catalog FIRM record, never the individual. A best-effort insert; the
+// entity itself is what must exist, so a failure here is logged, not fatal.
+async function ensurePersonForRecipient(admin: SupabaseClient, orgId: string, entityId: string, recipient: AdmitRecipient): Promise<void> {
+  const email = recipient.email.trim().toLowerCase();
+  if (!email) return;
+  const { data: existing } = await admin.from('people').select('id').eq('entity_id', entityId).eq('email_verified', email).maybeSingle();
+  if (existing) return;
+  const { error } = await admin.from('people').insert({
+    org_id: orgId, entity_id: entityId, full_name: recipient.name?.trim() || email, email_verified: email,
+  });
+  if (error) console.error('[catalog-entity-admit] person insert failed:', error.message);
+}
 
 export async function admitCatalogEntityIntoPipeline(
-  admin: SupabaseClient, orgId: string, catalogEntityId: string,
+  admin: SupabaseClient, orgId: string, catalogEntityId: string, recipient?: AdmitRecipient,
 ): Promise<AdmitResult> {
   const { data: existingDelivery } = await admin.from('catalog_deliveries')
     .select('entity_id').eq('org_id', orgId).eq('catalog_id', catalogEntityId).maybeSingle();
   if (existingDelivery?.entity_id) {
+    // Idempotent path: the entity already exists, possibly from before this
+    // recipient parameter existed (or from the referral caller, which has
+    // none) — make sure the person who triggered THIS call is on it too.
+    if (recipient) await ensurePersonForRecipient(admin, orgId, existingDelivery.entity_id as string, recipient);
     return { ok: true, entityId: existingDelivery.entity_id as string, created: false };
   }
 
   const { data: catalogEntity } = await admin.from('catalog_entities').select('*').eq('id', catalogEntityId).maybeSingle();
   if (!catalogEntity) return { ok: false, reason: 'catalog_entity_not_found' };
+  // Prompt 669 §4 — confirmed in production: an investor's Sherlock account
+  // was linked to the "Test investor" catalog fixture (is_test=true, a QA
+  // row, not a real firm). Clicking "Add to pipeline" for that recipient
+  // created a REAL, live entity literally named "Test investor" in ablute_'s
+  // actual pipeline — with no way for the founder to find it (it isn't the
+  // person's name) and nothing real behind it once found. A test fixture
+  // must never become a live pipeline entity, whatever recipient triggered it.
+  if (catalogEntity.is_test) return { ok: false, reason: 'catalog_entity_is_test' };
 
   const emailDomain = catalogEntity.email ? (String(catalogEntity.email).split('@')[1]?.toLowerCase() ?? null) : null;
   // Migration 0049's identity-evidence rule: an entity with nothing that
@@ -57,6 +91,10 @@ export async function admitCatalogEntityIntoPipeline(
     sectors: catalogEntity.sectors, thesis: catalogEntity.thesis, fit_score: 'high', wave: 1,
     submission_channel_type: 'unknown', hard_filter_status: 'not_applicable', status: 'not_contacted',
     source: 'investor_invite',
+    // Prompt 669 §4 — was missing entirely: the new entity had no link back
+    // to the catalog row it came from, even though catalog_deliveries (below)
+    // links them the other way.
+    catalog_id: catalogEntityId,
   }).select('id').single();
   if (entityError || !newEntity) {
     return { ok: false, reason: 'entity_insert_failed', error: entityError?.message };
@@ -68,6 +106,8 @@ export async function admitCatalogEntityIntoPipeline(
   // The entity exists and is usable; a missing delivery row only costs the
   // "already in this pipeline" check next time, so it is logged, not fatal.
   if (deliveryError) console.error('[catalog-entity-admit] delivery row failed:', deliveryError.message);
+
+  if (recipient) await ensurePersonForRecipient(admin, orgId, newEntity.id as string, recipient);
 
   return { ok: true, entityId: newEntity.id as string, created: true };
 }

@@ -48,13 +48,25 @@ export async function POST(req: Request) {
 
   // Resolve the address to a registered investor's firm, server-side.
   let userId: string | null = null;
+  // Prompt 669 §4 — the recipient's own display name (Sherlock account
+  // metadata, falling back to the invite's own invited_name), so the entity
+  // this creates has a real person on it — see ensurePersonForRecipient.
+  let recipientName: string | null = null;
   for (let page = 1; page <= 20 && !userId; page++) {
     const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
     if (error) break;
-    userId = (data?.users ?? []).find((u) => u.email?.trim().toLowerCase() === recipient)?.id ?? null;
+    const match = (data?.users ?? []).find((u) => u.email?.trim().toLowerCase() === recipient);
+    if (match) { userId = match.id; recipientName = (match.user_metadata?.full_name as string | undefined) ?? null; }
     if ((data?.users?.length ?? 0) < 1000) break;
   }
   if (!userId) return NextResponse.json({ ok: false, error: 'No Sherlock account for that address.' }, { status: 404 });
+  if (!recipientName) {
+    const { data: namedGrant } = await admin.from('access_grants').select('invited_name')
+      .eq('org_id', orgId).is('revoked_at', null)
+      .or(`invited_email.eq.${recipient},grantee_email.eq.${recipient}`)
+      .not('invited_name', 'is', null).limit(1).maybeSingle();
+    recipientName = (namedGrant?.invited_name as string | undefined) ?? null;
+  }
 
   const { data: investorMember } = await admin.from('matchdeal_investor_members')
     .select('catalog_entity_id').eq('user_id', userId).eq('status', 'active')
@@ -62,7 +74,16 @@ export async function POST(req: Request) {
   const catalogEntityId = investorMember?.catalog_entity_id as string | undefined;
   if (!catalogEntityId) return NextResponse.json({ ok: false, error: 'That account is not linked to an investor firm.' }, { status: 404 });
 
-  const result = await admitCatalogEntityIntoPipeline(admin, orgId, catalogEntityId);
-  if (!result.ok) return NextResponse.json({ ok: false, error: result.reason }, { status: 500 });
+  const result = await admitCatalogEntityIntoPipeline(admin, orgId, catalogEntityId, { name: recipientName, email: recipient });
+  if (!result.ok) {
+    // Prompt 669 §4 — a clear, specific message for the one reason a founder
+    // can actually do something about: the investor's account is linked to a
+    // test/QA catalog fixture, not a real firm, so there is nothing real to
+    // add. Every other reason keeps the generic message it always had.
+    const error = result.reason === 'catalog_entity_is_test'
+      ? 'That account is linked to an internal test fixture, not a real firm — there is nothing real to add to your pipeline.'
+      : result.reason;
+    return NextResponse.json({ ok: false, error }, { status: result.reason === 'catalog_entity_is_test' ? 409 : 500 });
+  }
   return NextResponse.json({ ok: true, entityId: result.entityId, created: result.created });
 }
