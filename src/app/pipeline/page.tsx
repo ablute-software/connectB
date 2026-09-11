@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { FitTag, StatusPill, Tooltip, WaveTag, fmtEur, statusLabel } from '@/components/ui';
@@ -544,6 +545,7 @@ function sortValue(db: Db, key: SortKey, e: Entity): unknown {
 
 export default function PipelinePage() {
   useTrackPageView('/pipeline');
+  const router = useRouter();
   const { db, loading, markEntityVerified, askSherlock, setEntityStatus, setRelationshipStage, logSystemNote } = useStore();
   // Prompt 271 §3 / Prompt 272 / Prompt 513 §2 — this state is now ONLY
   // "a request is in flight for these entities". The verdict itself used
@@ -1417,7 +1419,25 @@ export default function PipelinePage() {
                 <tr key={e.id}
                   onPointerDown={drag.enabled ? (ev) => drag.onRowPointerDown(ev, e) : undefined}
                   onDragStart={drag.enabled ? (ev) => ev.preventDefault() : undefined}
-                  className={`border-b border-gray-100 align-top hover:bg-[#E8F4F8]/60 ${zebra} ${suspended ? 'opacity-50' : ''} ${hf ? 'border-l-2 border-l-[#B00000]' : ''} ${drag.enabled ? 'cursor-grab' : ''} ${drag.originId === e.id ? 'pipeline-drag-origin' : ''} ${leavingRow?.entity.id === e.id ? 'pipeline-row-collapse' : ''}`}>
+                  // Prompt 668 — the row's own cursor:grab implied the whole
+                  // row was interactive, but only the ~125×17px name link
+                  // actually opened the dossier; everywhere else (≈94% of
+                  // the row) a click silently did nothing. A stationary press
+                  // anywhere on the row now opens it. A real drag (6px+ of
+                  // movement) never reaches this handler at all — its own
+                  // click is swallowed by usePipelineRowDrag's
+                  // suppressNextClick before it bubbles here — so the two
+                  // gestures stop competing for the same pixels. A click on a
+                  // real control inside the row (the name link, a button, a
+                  // select) is that control's own, never a double-navigate;
+                  // a click that ends a text selection doesn't navigate
+                  // either, so selecting a sector/thesis word still works.
+                  onClick={(ev) => {
+                    if (window.getSelection()?.toString()) return;
+                    if ((ev.target as HTMLElement).closest('a, button, input, select, textarea, [data-no-drag]')) return;
+                    router.push(`/entities/${e.id}`);
+                  }}
+                  className={`border-b border-gray-100 align-top hover:bg-[#E8F4F8]/60 ${zebra} ${suspended ? 'opacity-50' : ''} ${hf ? 'border-l-2 border-l-[#B00000]' : ''} ${drag.enabled ? 'cursor-grab' : 'cursor-pointer'} ${drag.originId === e.id ? 'pipeline-drag-origin' : ''} ${leavingRow?.entity.id === e.id ? 'pipeline-row-collapse' : ''}`}>
                   <td data-col="name" data-label="Entity" className="break-words px-2 py-1.5 font-medium">
                     <Link href={`/entities/${e.id}`} className="text-gray-900 hover:text-[#0E7490]">
                       {e.name} {hf && <span title={e.hard_filter} className="text-[#B00000]">⚑</span>}
