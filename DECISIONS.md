@@ -6868,3 +6868,235 @@ the same `&& t.source !== 'automation_dormant'` clause already applied to
 already safe by construction (`kind === 'follow_up'`, never `'admin'`).
 Re-validated: `tsc`/`vitest` (3773/3773)/`build`/`eslint` all green by exit
 code.
+
+## Prompt 884 — Today redesign: Meetings / Overdue / Follow up / Other cards, the Agenda meeting-kind fix, and a real Recent activity feed
+
+Branch `claude/prompt-884-today-redesign`, off `claude/prompt-883-dormant-
+confirmation` (HEAD `6665a8e`) — this prompt's own text explicitly
+references "automation_dormant tasks" and "the dormant-decision task" and
+says not to touch `automation-rules-tick.ts` because that's "883's
+territory, already done or in flight separately", confirming this is the
+correct parent lineage (prompt numbers are not globally unique across this
+repo's many branches — verified via `git log origin/claude/prompt-883-
+dormant-confirmation --oneline`, not by number alone).
+
+**One source of card-membership truth.** `src/lib/today-cards.ts` —
+`meetingTasks`/`overdueTasks`/`followUpTasks`/`otherTasks`, all sharing
+`isTodayEligible` (`!done && source !== 'automation_dormant'`, Prompt 883's
+own exclusion, reused verbatim). `otherTasks` is computed by exclusion of
+the other three, so nothing can double-count or silently drop between
+cards — proven by a dedicated test (`today-cards.test.ts`: "every not-done,
+non-dormant task lands in EXACTLY one of the four cards"). 12 tests, all
+passing.
+
+**Migration 0352** — `tasks.prepared_at timestamptz`, applied to
+production. Confirmed via
+`select column_name, data_type from information_schema.columns where
+table_name='tasks' and column_name='prepared_at'` → `prepared_at |
+timestamp with time zone`. `npm run verify:migrations`: no collision on
+0352 across any remote branch (checked `git branch -r` for a 0352 file on
+any branch — none found); the tool's own "same number on two branches"
+list only flags 0289/0292/0339, all pre-existing and unrelated to this
+prompt.
+
+**Meetings card** (`MeetingsCard.tsx`) — date-grouped (`upcomingMeeting-
+Groups`: Today / Tomorrow / named weekday out to +2 days) plus a `missed-
+Meetings` bucket for anything whose `due_at` has already passed — a missed
+meeting is shown with a red "Missed" pill and "Add meeting summary", never
+silently dropped from view just because meetings are excluded from Overdue.
+"Add meeting summary" is the ONLY way a meeting task closes — it links to
+`/entities/{entityId}?rail=log&channel=meeting&taskId={taskId}&person=
+{personId}`, a deep link built from two new query params
+(`entities/[id]/page.tsx`) that prefill `RailLogForm`'s channel (`default-
+Channel`/`channelNonce` props, mirroring the existing `defaultDraft`/
+`draftNonce` pattern) and, in that page's `onSaved` callback — which only
+fires after `logInteraction()` has already run for real inside RailLogForm's
+own `save()` — call `toggleTask(taskId)`. This is deliberately not a
+checkbox: Prompt 883 already fixed the exact "checkbox closes a decision
+with no real action behind it" bug once (dormant confirmation), and this
+redesign must not reintroduce that shape for meetings. "Mark prepared" (the
++1/+2-day bucket) calls `updateTask(id, { prepared_at: new Date().toISO-
+String() })` directly — a genuinely different concept (preparing is not a
+substitute for the meeting happening), so no such conflation risk exists
+there.
+
+**Overdue card** — same `mergedOverdue` (task rows + `liveOverdueEntities`)
+as before, now built from `overdueTasks()` (today-cards.ts) instead of an
+inline filter, which additionally excludes `kind==='meeting'` (previously
+only `automation_dormant`/`done`/`kind==='research'` were excluded) — a
+meeting now lives ONLY in the Meetings card, overdue or not. Restyled each
+task row with a red "Overdue by N days" pill (reusing `daysOverdue`
+`mergedOverdue` already computes for its own sort, no new derivation). The
+`interest_level_request` Approve/Deny special-case and the `liveOverdue`
+"Reply now"/"Dismiss" rows are unchanged.
+
+**Follow up card (NEW)** — `FollowUpCard.tsx`, `followUpTasks()`: the two
+follow-up `action_type`s that are NOT yet overdue (`due_at` decides
+membership, never the subtitle). "Last outreach on…" is informational only,
+read from the most recent outbound (non-`stage_change`) interaction for the
+same entity/person — no existing helper computed this (checked `relation-
+ship.ts`; `followUpTaskDisplayTitle` only rewrites a task's own title, and
+`lastInteractionSummary` in `frozen-classifier.ts` computes something
+adjacent but isn't reused here since the person-scoping differs), so it's
+computed inline. A follow-up whose `due_at` moves into the past leaves this
+card and appears in Overdue instead — unit-tested, and reproduced against a
+real row below.
+
+**Other card (NEW)** — `OtherCard.tsx`, `otherTasks()`: whatever's left.
+Audited whether a `tasks.priority` field exists before building anything —
+it does not (checked `0001_init.sql` and every later migration touching
+`tasks`; confirmed nothing was ever added). Rather than inventing one
+silently, `otherTaskPriority()` derives High/Medium/Low from the linked
+entity's own `fit_score` (a real, already-scored signal) and returns
+`undefined` (no pill rendered) for a task with no entity or an unscored
+one — that absence is the honest answer, not a bug to paper over with a
+fake default.
+
+**Agenda modal kind-selector fix** — `saveAppointment()` in `AgendaPanel.tsx`
+hardcoded `kind: 'meeting'` for every task the "Add task" modal created,
+regardless of what the founder actually meant. Added an explicit `<select>`
+(`TASK_KIND_OPTIONS`: Meeting/Follow-up/Research/Other) defaulting to
+`'meeting'` via `useState<TaskKind>('meeting')`, reset on modal reopen —
+byte-for-byte the same task shape as before for anyone who never touches
+the new control.
+
+**Recent activity feed** (`src/lib/recent-activity.ts`, `buildRecentActi-
+vity()`, 6 tests) — four real event types, built from data that already
+existed:
+- *"Meeting completed with X"* — any interaction with `channel==='meeting'`
+  (the only way one now gets created, via the flow above).
+- *"Replied to X"* — any other outbound (`direction==='out'`) interaction,
+  excluding `channel==='stage_change'` (this codebase's internal system-
+  note channel, not a real outreach touch).
+- *"Added X to pipeline"* — `deliverCatalogMatches()` (`catalog-delivery-
+  core.ts`) previously left NO queryable record of a catalog delivery at
+  all. Now writes one `interactions` row per delivered entity right after
+  the `entities` insert succeeds (`channel:'stage_change'`, `content` ===
+  the literal marker `PIPELINE_ADD_NOTE_CONTENT`, exported from `recent-
+  activity.ts` so the write site and the read site can never drift apart),
+  best-effort (`console.error`s on failure, does not undo the entities that
+  already exist — matching this function's own existing error-handling
+  style for its secondary writes). Every OTHER `stage_change` note (park/
+  dismiss/dormant confirm-decline — all internal decisions, not "activity")
+  is correctly excluded by requiring the exact marker string, not just the
+  channel.
+- **"Updated note for X" — the prompt's own literal instruction (wire this
+  through `addCompanyFact()`) is architecturally impossible, and this is
+  flagged rather than forced.** `company_facts` (`CompanyFact` type,
+  `types.ts:1037`) has NO `entity_id` field at all — it's org-wide, not
+  per-entity (confirmed reading both `addCompanyFact` implementations,
+  `store-supabase.tsx`/`store-demo.tsx`) — while `interactions.entity_id`
+  is a NOT NULL foreign key, so `logSystemNote` (which requires an entity)
+  simply cannot be called from inside it. Implemented instead as a direct
+  read of `company_facts`, labelled **without** an entity name: "Updated
+  company fact: {category}". A real event, just not entity-scoped the way
+  the prompt assumed.
+- **"Marked X as warm" does not exist as a feature anywhere** (checked
+  `pipeline-temperature.ts`, Prompt 660's work — temperature is computed
+  live from days-since-touch, nothing is ever "marked") and is deliberately
+  left out of v1 rather than building a temperature-tagging feature just to
+  populate this feed, per the prompt's own explicit instruction.
+
+**Where "Added X to pipeline" actually lives** — `deliverCatalogMatches()`
+(`src/lib/catalog-delivery-core.ts:51`), a service-role function with
+exactly 3 call sites, all now covered by the same note-write: the founder-
+click route (`src/app/api/pipeline-unlock/deliver/route.ts:129`), the
+monthly cron (`src/lib/catalog-monthly-delivery-server.ts:108`), and the
+admin backfill script (`scripts/complement-dead-end-orgs.mjs:91`).
+
+**Right column reorder** — Outreach discipline (unchanged 3 stat rows +
+NEW "Meetings completed" row, `meetingsCompletedThisWeek()`: numerator =
+`kind==='meeting'` tasks due this week that are `done`, which — per this
+same redesign's own "Add meeting summary" decision above — only ever
+happens via a real logged summary, so "completed" already means "confirmed
+via the Log"; denominator = all such tasks due this week) → Round progress
+(unchanged) → Recent activity (NEW `RecentActivityCard.tsx`, last 5 events,
+real `View all activity →` link). The old "This week" preview card is
+removed — everything not-done and not-dormant is now visible somewhere in
+the main column's four cards, and Recent activity covers what already
+happened.
+
+**"View all activity" destination** — `/today/activity`
+(`src/app/today/activity/page.tsx`), every event `buildRecentActivity()`
+produces, paginated client-side over the already-loaded array using the
+same URL-state infra the back-office account tables use (`use-table-url-
+state.ts`/`queue-table-state.ts`). **Caught by the build, not by review**:
+`useTableUrlState` reads `useSearchParams()`, which Next's app router
+requires a `<Suspense>` boundary around — the first build attempt failed
+with `useSearchParams() should be wrapped in a suspense boundary` /
+`Export encountered errors on following paths: /today/activity/page`,
+exactly the failure class CLAUDE.md's own rule 5 exists to catch (a
+background `npm run build` run had ALSO returned a misleading "exited with
+code 0" notification for the *wrapper* shell, while the captured
+`BUILD_EXIT=1` line inside the log was the real, correct signal — read from
+the task's own output file, not trusted from the notification text).
+Fixed by wrapping the page in `<Suspense>`, the same pattern `backoffice/
+investors/page.tsx` already uses. Rebuilt clean: `BUILD_EXIT=0`, confirmed
+by grepping the second build log for "Export encountered errors" (absent)
+and finding `/today/activity` listed as a successfully generated static
+route.
+
+**Deliberate scope decisions, not silent changes:**
+- **"Unclassified replies" card kept as-is.** Not in Prompt 884's own
+  mockup/spec, but a working, unrelated feature (unmatched inbound replies
+  needing classification) — dropping it silently would be a regression the
+  prompt never asked for. Left in place, after the new Other card.
+- **Outreach discipline stays linear bars, not a donut.** The prompt's own
+  scope text only discusses which stats appear and their order, never
+  chart rendering technology — added the 4th "Meetings completed" row to
+  the existing bar-based card rather than introducing a new chart type on
+  our own initiative.
+- **No automation file touched**, confirmed both by never opening
+  `automation-rules-tick.ts`/`automation-rules-tick-server.ts`/`rules.ts`
+  this prompt and by `git diff --stat` against `origin/claude/prompt-883-
+  dormant-confirmation` for those three paths returning **empty**.
+
+**Real-DB verification (zz-test-884, all literal ids, production project
+`wkjcaoqdvhykrfacsylr`), cleaned up after:**
+- Org `11111111-8840-4000-8000-000000000884` ("zz-test-884-today-redesign"),
+  entity `22222222-…-884` ("zz-test-884-investor"), person
+  `33333333-…-884`, 3 tasks:
+  - `44444444-…-884` — `kind:'meeting'`, `due_at` = now + 2h. **"Add
+    meeting summary" flow**: inserted an `interactions` row via
+    `verification_insert_interaction()` (`channel:'meeting'`,
+    `direction:'out'`) → id `f08c7b4c-a997-4923-944f-6ec19ff15211`, then
+    (simulating `onSaved`'s `toggleTask` call, which only fires after that
+    real log succeeds) `update tasks set done=true`. AFTER: `done=true` —
+    confirmed by re-select.
+  - `55555555-…-884` — `kind:'meeting'`, `due_at` = now + 1d. **"Mark
+    prepared"**: `update tasks set prepared_at=now()`. AFTER:
+    `prepared_at='2026-09-11 16:21:45.229121+00'` (was `null`).
+  - `66666666-…-884` — `kind:'follow_up'`, `action_type:
+    'follow_up_no_reply'`, `due_at` = now + 3d (Follow up card membership).
+    **Follow up → Overdue transition**: `update tasks set due_at = now() -
+    interval '2 days'` → re-select shows `due_at='2026-09-09
+    16:21:50.310469+00'`, `(due_at < now())=true` — the exact real-column
+    transition `followUpTasks()`/`overdueTasks()` (already unit-tested
+    with this scenario) key off.
+  - **Pipeline-add marker**: `verification_insert_interaction()` with
+    `channel:'stage_change'`, `content:'Added to your pipeline via a
+    Sherlock catalog match.'` (the literal `PIPELINE_ADD_NOTE_CONTENT`
+    string) → id `0a3777cd-a533-484e-a2f1-6c3399c33551`. Re-selected both
+    interaction rows for the entity — `channel`/`content` match exactly
+    what `buildRecentActivity()` classifies as `meeting_completed`/
+    `added_to_pipeline` respectively, so the write shape and the read
+    classifier agree on real production data, not only in the unit test's
+    synthetic fixtures.
+- **Cleanup**: deleted interactions (2) → tasks (3) → people (1) →
+  entities (1) → org (1), in FK order. Re-queried all 5 counts by
+  `org_id`/`id` afterward: `{orgs:0, entities:0, people:0, tasks:0,
+  interactions:0}`.
+
+**Validated**: `tsc` EXIT=0. `vitest` EXIT=0 — 3791/3791 tests, 255 files
+(18 new: 12 in `today-cards.test.ts`, 6 in `recent-activity.test.ts`).
+`npx eslint --no-eslintrc --config .eslintrc.json --ext .js,.jsx,.ts,.tsx
+src` EXIT=0, 0 errors (264 pre-existing warnings, unrelated to this diff) —
+this run caught a real `react/no-unstable-nested-components` error from a
+`Row` component originally defined inside `MeetingsCard`'s render body,
+fixed by hoisting it to `MeetingRow`, a module-level component taking `db`/
+`updateTask` as props. `npm run build` EXIT=0 (after the Suspense fix
+above, read from the captured log line, not the background-task
+notification). `npm run verify:migrations` clean, 0352 free across every
+remote branch.
+
+Migration 0352. Branch `claude/prompt-884-today-redesign`.

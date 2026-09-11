@@ -47,10 +47,11 @@ import { useInterestRequests } from '@/lib/interest-requests-client';
 import type { DealMessage } from '@/components/deal-messages/DealThreadView';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { ReportFraudModal } from '@/components/ReportFraudModal';
+import type { Channel } from '@/lib/types';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
   const { id } = params;
-  const { db, loading, refreshFromServer, setInterest, markEntityVerified, updateEntity, resolveHardFilter } = useStore();
+  const { db, loading, refreshFromServer, setInterest, markEntityVerified, updateEntity, resolveHardFilter, toggleTask } = useStore();
   const entity = db.entities.find((e) => e.id === id);
   // Prompt 346 §B — this used to trust the client store blindly: an id not
   // found here was declared "Entity not found" outright, even for an
@@ -148,6 +149,16 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   // separate from logPrefill since it doesn't drive RailLogForm's §D.1
   // shimmer (see that component's own prop comment).
   const [logDraftPrefill, setLogDraftPrefill] = useState<{ direction?: 'out' | 'in'; date?: string; content?: string; nonce: number }>({ nonce: 0 });
+  // Prompt 884 — the Today redesign's "Add meeting summary" deep link
+  // (?rail=log&person=&channel=meeting&taskId=). Two separate pieces:
+  // the channel default (RailLogForm's own defaultChannel/channelNonce
+  // prop, same narrow shape as logDraftPrefill above) and the task to
+  // close once the log actually saves — "Closing a meeting task is not a
+  // checkbox" (the prompt's own words): this only ever fires from
+  // RailLogForm's onSaved, i.e. after logInteraction has already run for
+  // real, never from a bare checkbox.
+  const [logChannelPrefill, setLogChannelPrefill] = useState<{ channel?: Channel; nonce: number }>({ nonce: 0 });
+  const [pendingLogTaskId, setPendingLogTaskId] = useState<string | undefined>(undefined);
   // Prompt 578 §A — a temporary highlight on the rail card itself when the
   // page is landed on via ?rail=log (Pipeline's "Draft this message" and
   // similar deep links leave the founder unsure where to act). Local,
@@ -227,6 +238,9 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   const railDirection = searchParams.get('direction');
   const railDate = searchParams.get('date');
   const railContent = searchParams.get('content');
+  // Prompt 884 — the Meetings card's "Add meeting summary" link.
+  const railChannel = searchParams.get('channel');
+  const railTaskId = searchParams.get('taskId');
   // Prompt 410 §2.2/§2.4 / Prompt 415 §3 — the Sherlock Next Clue button's
   // own deep-link for a candidate with one obvious target button: scrolls
   // to the Sherlock Insight banner and asks it to draw the focus lupa
@@ -254,6 +268,11 @@ export default function EntityPage({ params }: { params: { id: string } }) {
           date: railDate ?? undefined, content: railContent ?? undefined, nonce: p.nonce + 1,
         }));
       }
+      // Prompt 884 — ?channel= (the Meetings card forces 'meeting') and
+      // ?taskId= (the specific task to close once this save really
+      // happens, via onSaved below — never a bare checkbox).
+      if (railChannel) setLogChannelPrefill((p) => ({ channel: railChannel as Channel, nonce: p.nonce + 1 }));
+      if (railTaskId) setPendingLogTaskId(railTaskId);
       setPanelMode('log');
       setRailHighlight(true);
     } else if (railMode === 'history') {
@@ -261,7 +280,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
       if (railClassify) setClassifyNonce((n) => n + 1);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [railMode, railPerson, railClassify, railDirection, railDate, railContent]);
+  }, [railMode, railPerson, railClassify, railDirection, railDate, railContent, railChannel, railTaskId]);
 
   // Prompt 578 §A — scrolls the rail into view once, then auto-dismisses
   // after ~8s. Dismiss-on-click/focus is wired directly on the rail card
@@ -1079,7 +1098,14 @@ export default function EntityPage({ params }: { params: { id: string } }) {
               {panelMode === 'log' && (
                 <RailLogForm entity={entity} defaultPersonId={logPrefill.personId} prefillNonce={logPrefill.nonce}
                   defaultDraft={logDraftPrefill} draftNonce={logDraftPrefill.nonce}
-                  onSaved={() => setPanelMode('history')} />
+                  defaultChannel={logChannelPrefill.channel} channelNonce={logChannelPrefill.nonce}
+                  onSaved={() => {
+                    setPanelMode('history');
+                    // Prompt 884 — the ONLY way a Meetings-card task closes:
+                    // after logInteraction has already run for real inside
+                    // RailLogForm's own save(), never a bare checkbox.
+                    if (pendingLogTaskId) { toggleTask(pendingLogTaskId); setPendingLogTaskId(undefined); }
+                  }} />
               )}
               {panelMode === 'message' && messaging.canMessage && messaging.investorCatalogEntityId && (
                 <>

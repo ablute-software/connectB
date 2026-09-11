@@ -164,6 +164,8 @@ export interface StoreApi {
     reminder_muted?: boolean; last_reminded_at?: string | null;
     // Prompt 883 — Dismiss on a dormant-confirmation task.
     confirmation_dismissed_at?: string | null;
+    // Prompt 884 — "Mark prepared" on a meeting task.
+    prepared_at?: string | null;
   }) => void;
   // Batch 3 B — edit Organisation data (name, sender, caps, onboarding
   // fields). Owner+admin only; enforced server-side in /api/org/update (the

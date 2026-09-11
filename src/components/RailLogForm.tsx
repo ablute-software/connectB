@@ -36,7 +36,7 @@ const CHANNELS: { v: Channel; l: string }[] = [
 const CLASSIFICATIONS: Classification[] = ['awaiting', 'interested', 'meeting_request', 'question', 'pass', 'out_of_office', 'bounce', 'unclear'];
 
 export function RailLogForm({
-  entity, defaultPersonId, prefillNonce, defaultDraft, draftNonce, onSaved,
+  entity, defaultPersonId, prefillNonce, defaultDraft, draftNonce, defaultChannel, channelNonce, onSaved,
 }: {
   entity: Entity;
   // Prompt 397 §A.4/§B.3.3 — the Sherlock Insight banner's "Log the first
@@ -55,6 +55,14 @@ export function RailLogForm({
   // which is specifically about the Insight banner's own suggestions.
   defaultDraft?: { direction?: 'out' | 'in'; date?: string; content?: string };
   draftNonce?: number;
+  // Prompt 884 — the Today redesign's "Add meeting summary" button: the
+  // channel must default to 'meeting', not the form's own usual
+  // 'linkedin_dm' default. Same narrow-reapply-only-on-nonce-bump shape as
+  // defaultDraft/draftNonce above, kept separate rather than folded into
+  // defaultDraft since it's a distinct entry point (the Meetings card, not
+  // the document-request review page) with its own trigger.
+  defaultChannel?: Channel;
+  channelNonce?: number;
   onSaved: () => void;
 }) {
   const { db, logInteraction, addDocument, addGrant, addCompanyFact, addTask } = useStore();
@@ -354,6 +362,14 @@ export function RailLogForm({
     if (defaultDraft.content) setContent(defaultDraft.content);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftNonce]);
+
+  // Prompt 884 — same narrow shape as the two effects above: only
+  // re-applies on a fresh nonce bump, never stomps a channel the founder
+  // already picked themselves.
+  useEffect(() => {
+    if (defaultChannel) setChannel(defaultChannel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channelNonce]);
 
   const person = people.find((p) => p.id === personId);
 
