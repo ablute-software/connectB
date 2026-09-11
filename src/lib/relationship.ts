@@ -154,6 +154,18 @@ export function relationshipSummary(
     : undefined;
 
   const stage = getStage(db, entityId);
+  // Prompt 657 §2.1 — the TEMPERATURE rule, written down so it survives the
+  // Pipeline rewrite (Prompt 650 turns "Warm" from a stage into a marker +
+  // sort). It is recency-based, and deliberately so:
+  //   none    — never contacted (no touches).
+  //   hot     — at a meeting or in diligence.
+  //   stalled — contacted, but the last touch is older than LOCK_DAYS (14d).
+  //   warm    — contacted and touched within the last LOCK_DAYS.
+  // Temperature is NOT interest. An investor who once replied "interested" but
+  // has gone quiet for months is `stalled` here, never `warm` — that is the
+  // point. (The old grouping's "Warm & interested" band conflated the two, so
+  // e.g. APEX Ventures showed as warm 288 days after its only touch; Prompt 650
+  // keeps interest as its own ★ marker and lets temperature mean recency.)
   let health: Health = 'none';
   if (touches.length > 0) {
     if (stage === 'meeting' || stage === 'diligence') health = 'hot';
