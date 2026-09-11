@@ -7420,3 +7420,152 @@ rather than silently left for someone to discover missing.
 Branch `claude/prompt-585-people-evidence-hooks`. Migration 0349 is the
 final one applied so far; next free number per `verify:migrations` is
 0350 (resweep again before any further migration in this branch).
+
+## §I — GDPR erase extension (migration 0350)
+
+Extends the real `erase_gdpr_person(p_claimant_email, p_admin_id, p_reason)`
+(still living in `20260908_article14_catalog_erase_suppression_and_delivery_gate.sql`,
+not a migration numbered "870") to also handle the three tables this
+prompt added: `catalog_evidence`, `hook_suggestions`,
+`catalog_person_priority`. `contact_outcomes` needed no change — its
+`person_id` FK was already `on delete set null` (0349's own design) and
+it never stored a name or any other PII-shaped field.
+
+**Two schema changes, both forced by facts checked against the live
+schema, not assumed:**
+1. `catalog_evidence.person_id` was `on delete cascade` (0344) — wrong
+   for a SOFT erase (§I wants the row to survive with `status='erased'`,
+   not be destroyed). Changed to `on delete set null`.
+2. `catalog_evidence_check` (`person_id is not null or entity_id is not
+   null`) widened to also allow `status = 'erased'` with both null, since
+   a person-only evidence row nulled by change #1 would otherwise violate
+   it.
+
+`title`/`url` stay `NOT NULL` (pre-existing, untouched by this prompt) so
+neither can literally become SQL null despite §I's "a null" wording.
+`title` gets the same placeholder `erase_gdpr_person()` already uses for
+`people.full_name` (`'[erased on request]'`); `url` gets a
+**per-row-unique** placeholder (`https://erased.invalid/<row id>`,
+RFC 2606's reserved `.invalid` TLD) rather than a repeated literal,
+because `url` feeds two `GENERATED ALWAYS AS (...) STORED` columns
+(`source_domain`, `content_hash`) and `content_hash` has a UNIQUE index —
+two erased rows sharing one placeholder `url` and one (null) `excerpt`
+would otherwise collide on it.
+
+`catalog_person_priority.person_id` was already `on delete cascade`
+(0345) — no code needed, only a count captured before the cascade fires.
+
+### A real bug found and fixed by the live test the user asked for
+
+First version of the function's own `hook_suggestions` update used one
+`UPDATE ... WHERE invalidated_at is null AND (target_kind='person' AND
+target_id=any(...) OR evidence_ids && ...)` and reported
+`hook_suggestions_invalidated: 1` even though the live fixture had two
+hook rows that both needed invalidating (one direct person-target, one
+citing the person's evidence). Root cause: the pre-existing Phase 4
+trigger `hook_suggestions_invalidate_on_evidence_removed` (migration
+0348) fires the instant the new soft-erase `UPDATE catalog_evidence SET
+status='erased'` runs (`'erased'` is one of the two statuses it watches),
+so it invalidates the evidence-citing hook **before** this function's own
+explicit `UPDATE hook_suggestions` runs later in the same transaction —
+that statement's `WHERE invalidated_at is null` then correctly excludes
+the already-handled row, so its own `row_count` only ever reflected the
+direct-target hook. Not a correctness bug (both rows really were
+invalidated) but a misleading number in the function's own report.
+**Fix:** narrowed the explicit `UPDATE` to only the direct
+`target_kind='person'` case (the trigger already fully owns the
+evidence-citing case as a side effect) and added a separate `SELECT
+count(*)` afterward that counts the true total across both mechanisms.
+Confirmed by the fresh fixture round below — `hook_suggestions_invalidated: 2`.
+
+### zz-test verification — round 2 (fresh fixture, corrected function), concrete ids
+
+*(Round 1, under the buggy count logic, used org `zz-test-585-gdpr`
+(`55555555-5555-4555-8555-555555555501`) and reported
+`hook_suggestions_invalidated: 1` against two actually-invalidated rows —
+that is the bug documented above, and its own fixture rows are included
+in the cleanup at the bottom of this section.)*
+
+**Fixture created** (org `zz-test-585-gdpr-v2`, id
+`66666666-6666-4666-8666-666666660000`):
+
+| table | id | key fields |
+|---|---|---|
+| `catalog_entities` | `66666666-6666-4666-8666-666666660010` | name `zz-test-585-gdpr-v2 Fund`, type `vc` |
+| `catalog_people` | `66666666-6666-4666-8666-666666660020` | `full_name = 'zz-test-585-gdpr-v2 Person'` |
+| `catalog_people_research` | person_id `...660020` | `email_verified = 'zz-test-585-gdpr-v2-claimant@example.com'` |
+| `catalog_evidence` #1 | `66666666-6666-4666-8666-666666660050` | person-only, `status='found'`, `title='zz-test evidence 1 (direct hook target)'`, `url='https://example.com/zz-test-585-v2-evidence-1'` |
+| `catalog_evidence` #2 | `66666666-6666-4666-8666-666666660051` | person-only, `status='found'`, `title='zz-test evidence 2 (cited by hook 2)'`, `url='https://example.com/zz-test-585-v2-evidence-2'` |
+| `catalog_evidence_topics` | evidence `...660050`, topic `ae2766a3-e2b8-4939-a24d-c3d270ba60c2` | confidence 0.9 |
+| `catalog_person_priority` | org `...660000` / person `...660020` / entity `...660010` | rank_position 1 |
+| `hook_suggestions` #1 | `66666666-6666-4666-8666-666666660080` | `target_kind='person'`, `target_id='...660020'` (direct target), `invalidated_at` NULL before |
+| `hook_suggestions` #2 | `66666666-6666-4666-8666-666666660081` | `target_kind='entity'`, `target_id='...660010'`, `evidence_ids=['...660051']` (cites evidence #2), `invalidated_at` NULL before |
+| `contact_outcomes` | `66666666-6666-4666-8666-666666660090` | `person_id='...660020'`, `hook_suggestion_id='...660080'`, `replied_at` NULL |
+
+**Call:**
+```sql
+select public.erase_gdpr_person(
+  'zz-test-585-gdpr-v2-claimant@example.com', null,
+  'zz-test verification for Prompt 585 §I — Phase 6 (v2, corrected count logic)'
+);
+```
+
+**Returned jsonb (literal, 2026-09-11T09:33:44.668794+00:00):**
+```json
+{
+  "reason": "zz-test verification for Prompt 585 §I — Phase 6 (v2, corrected count logic)",
+  "erased_at": "2026-09-11T09:33:44.668794+00:00",
+  "erased_by": null,
+  "people_rows": 0,
+  "orgs_affected": 0,
+  "suppressions_added": 1,
+  "catalog_people_rows": 1,
+  "evidence_rows_erased": 2,
+  "catalog_research_rows": 1,
+  "evidence_tags_deleted": 1,
+  "hook_suggestions_invalidated": 2,
+  "person_priority_rows_removed": 1
+}
+```
+
+**AFTER state, queried directly (literal):**
+- `catalog_people` where `id='...660020'` → **0 rows** (hard-deleted, matching the existing norm for this table).
+- `catalog_people_research` where `person_id='...660020'` → **0 rows** (hard-deleted).
+- `catalog_evidence` `...660050`: `status='erased'`, `title='[erased on request]'`, `url='https://erased.invalid/66666666-6666-4666-8666-666666660050'`, `excerpt=NULL`, `person_id=NULL` (soft-erased, survives).
+- `catalog_evidence` `...660051`: `status='erased'`, `title='[erased on request]'`, `url='https://erased.invalid/66666666-6666-4666-8666-666666660051'`, `excerpt=NULL`, `person_id=NULL` (soft-erased, survives — the same row a hook cites, see below).
+- `catalog_evidence_topics` for evidence `...660050`/`...660051` → **0 rows** (deleted by this migration's own logic).
+- `catalog_person_priority` where `person_id='...660020'` → **0 rows** (cascade via the already-correct FK).
+- `hook_suggestions` `...660080`: `invalidated_at='2026-09-11 09:33:44.668794+00'`, `invalidated_reason='person_erased'`, `hook_text=NULL` (this function's own explicit UPDATE).
+- `hook_suggestions` `...660081`: `invalidated_at='2026-09-11 09:33:44.668794+00'` (**identical timestamp — same transaction**), `invalidated_reason='evidence_removed'`, `hook_text='zz-test hook 2 (cites evidence 2)'` **not nulled** — invalidated by the pre-existing Phase 4 trigger as a side effect of the evidence soft-erase, not by this migration's own UPDATE (confirming the mechanism described in the bug writeup above: the trigger owns this row, and it doesn't null `hook_text`, only `invalidated_at`/`invalidated_reason`, which is Phase 4's own design, unchanged here).
+- `contact_outcomes` `...660090`: `person_id=NULL` (set null via 0349's pre-existing FK), `hook_suggestion_id='...660080'` still intact, `replied_at` still NULL — only the id, as §I requires.
+- `catalog_person_suppressions`: new row `76a77b07-694d-4618-8c67-f5d8b5291483`, `name_key='zz-test-585-gdpr-v2 person'`, `entity_id='...660010'`, `origin='gdpr_erase'`, `created_at='2026-09-11 09:33:44.668794+00'`.
+
+All three of the prompt's own record types (evidence, hook_suggestions,
+person_priority) plus the two secondary tables the extension touches
+(evidence_topics, contact_outcomes) behaved exactly as intended, and the
+one genuine defect the live test caught (the count-reporting bug above)
+was fixed and re-confirmed in this same round, not asserted from memory.
+
+**Fixture cleanup (both rounds), literal ids deleted after the proof
+above was captured:** `catalog_person_suppressions`
+(`05b85803-2d7b-493d-b28e-48a0bcc05aaa` round 1,
+`76a77b07-694d-4618-8c67-f5d8b5291483` round 2); `contact_outcomes`
+(`55555555-5555-4555-8555-555555550c01`,
+`66666666-6666-4666-8666-666666660090`); `hook_suggestions`
+(`55555555-5555-4555-8555-555555550001`,
+`55555555-5555-4555-8555-555555550002`,
+`66666666-6666-4666-8666-666666660080`,
+`66666666-6666-4666-8666-666666660081`); `catalog_evidence`
+(`55555555-5555-4555-8555-555555550ee1`,
+`55555555-5555-4555-8555-555555550ee2`,
+`66666666-6666-4666-8666-666666660050`,
+`66666666-6666-4666-8666-666666660051`); `catalog_entities`
+(`55555555-5555-4555-8555-555555555502`,
+`66666666-6666-4666-8666-666666660010`); `orgs`
+(`55555555-5555-4555-8555-555555555501`,
+`66666666-6666-4666-8666-666666660000`). `catalog_people`,
+`catalog_people_research` and `catalog_person_priority` rows for both
+rounds' test people were already gone — erased by the function call
+itself, not by manual cleanup.
+
+Migration 0350. Branch `claude/prompt-585-people-evidence-hooks`.
