@@ -2,6 +2,7 @@
 // Documents & Data Room — folder tree, documents with visibility attributes, grants, engagement
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/lib/store';
 import { normaliseShareEmail, shouldOfferShareByEmail } from '@/lib/share-by-email';
@@ -64,6 +65,17 @@ interface PendingAccessRequest {
   folderNames: string[]; documentNames: string[]; requestedAt: string;
 }
 
+// Prompt 669 §1 — a document request (kind='document', Prompt 372) carries
+// its actual ask in access_request_items, not on the request row itself, so
+// it can never be resolved by the plain Grant/Decline pair above (that route
+// only knows folder_ids/document_ids). This is /api/founder/document-
+// requests's own shape, trimmed to what the Vault needs to link out to the
+// real review page (/documents/requests/[id]) rather than act on it here.
+interface PendingDocumentRequest {
+  id: string; requesterName: string | null; requesterEmail: string | null;
+  message: string | null; requestedAt: string; itemCount: number;
+}
+
 export default function DocumentsPage() {
   useTrackPageView('/documents');
   const { db } = useStore();
@@ -108,6 +120,20 @@ function DocumentsPageInner() {
   // still-stalled piece, confirmed in scope by Nuno).
   const [pendingAccessRequests, setPendingAccessRequests] = useState<PendingAccessRequest[]>([]);
   const [requestActionId, setRequestActionId] = useState<string | null>(null);
+  // Prompt 669 §1 — the document-request cousin of the list above: same
+  // "founder hasn't answered yet" idea, resolved on its own review page
+  // instead of Grant/Decline here (see PendingDocumentRequest's own comment).
+  const [pendingDocumentRequests, setPendingDocumentRequests] = useState<PendingDocumentRequest[]>([]);
+  function loadPendingDocumentRequests() {
+    fetch('/api/founder/document-requests').then((r) => r.json())
+      .then((body: { requests?: { id: string; requesterName: string | null; requesterEmail: string | null; message: string | null; requestedAt: string; items?: unknown[] }[] }) => {
+        setPendingDocumentRequests((body.requests ?? []).map((r) => ({
+          id: r.id, requesterName: r.requesterName, requesterEmail: r.requesterEmail,
+          message: r.message, requestedAt: r.requestedAt, itemCount: r.items?.length ?? 0,
+        })));
+      }).catch(() => {});
+  }
+  useEffect(loadPendingDocumentRequests, []);
   // E5 drag-and-drop state. `dragDocId` is the document currently being
   // dragged (reorder within a folder, or move onto a folder node in the
   // tree); `dragOverDocId` / `dragOverFolderId` drive the drop-target
@@ -316,6 +342,9 @@ function DocumentsPageInner() {
   // default. Per-visit state, nothing persisted.
   const [addDocOpen, setAddDocOpen] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  // Prompt 669 §2 (Nuno) — "Access grants" collapses to just its title by
+  // default, same behaviour as "+ Add Document" above; expands on click.
+  const [accessGrantsOpen, setAccessGrantsOpen] = useState(false);
   // Grant Access rebuild (prompt 33 part 2 / 47) — stepped flow: entity
   // first (mandatory, never the reverse), then scope, then the same tree
   // picker as before. Unlike the old single-person flow, this one never
@@ -1451,8 +1480,26 @@ function DocumentsPageInner() {
             </div>
           )}
 
+          {/* Prompt 669 §2 (Nuno) — collapsed by default, same behaviour as
+              "+ Add Document" above; the pending-request count still shows on
+              the collapsed button so a founder never has to open it on
+              spec to notice something is waiting on them. */}
+          {!accessGrantsOpen ? (
+            <button type="button" onClick={() => setAccessGrantsOpen(true)}
+              className="w-full rounded-2xl border border-dashed border-gray-300 bg-white p-4 text-left text-sm font-medium text-[#0E7490] shadow-sm hover:border-[#0E7490] hover:bg-[#E8F4F8]">
+              Access grants
+              {(pendingAccessRequests.length + pendingDocumentRequests.length) > 0 && (
+                <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                  {pendingAccessRequests.length + pendingDocumentRequests.length} pending request{(pendingAccessRequests.length + pendingDocumentRequests.length) === 1 ? '' : 's'}
+                </span>
+              )}
+            </button>
+          ) : (
           <div data-tour-id="documents-grants">
-          <Card title="Access grants — the owner consents, access follows">
+          <Card title="Access grants" right={
+            <button type="button" onClick={() => setAccessGrantsOpen(false)} aria-label="Collapse" title="Collapse"
+              className="rounded-full border border-gray-300 px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-50">Close</button>
+          }>
             {resendMsg && <p className="mb-2 text-xs text-gray-500">{resendMsg}</p>}
 
             {/* P120 Block B.1 — Grant access is the first thing in this card,
@@ -1857,6 +1904,37 @@ function DocumentsPageInner() {
               )}
             </div>
 
+            {/* Prompt 669 §1 — a document request (kind='document') can
+                never be resolved by the Grant/Decline pair above (its ask
+                lives in access_request_items, not on this row); it links out
+                to the real per-item review flow instead of pretending a
+                single click here could answer it. */}
+            <div className="mt-4 border-t border-gray-100 pt-3">
+              <div className="mb-2 text-xs font-medium text-gray-500">
+                Document requests{pendingDocumentRequests.length > 0 && ` — ${pendingDocumentRequests.length}`}
+              </div>
+              {pendingDocumentRequests.length === 0 ? (
+                <p className="text-sm text-gray-400">No document requests waiting on a response right now.</p>
+              ) : (
+                <ul className="divide-y divide-gray-100 text-sm">
+                  {pendingDocumentRequests.map((r) => (
+                    <li key={r.id} className="flex items-center justify-between gap-3 py-2">
+                      <div>
+                        <div className="font-medium text-gray-800">{r.requesterName ?? r.requesterEmail ?? 'Unknown investor'}</div>
+                        <div className="text-xs text-gray-400">
+                          {r.itemCount} item{r.itemCount === 1 ? '' : 's'} requested · requested {new Date(r.requestedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                        </div>
+                      </div>
+                      <Link href={`/documents/requests/${r.id}`}
+                        className="shrink-0 rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">
+                        Review →
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
             {/* P120 Block B.2/B.3 — grants grouped by RELATIONSHIP (3
                 people, not 100 rows). Collapsed by default; expanding one
                 shows their individual grants with the existing per-grant
@@ -1980,6 +2058,7 @@ function DocumentsPageInner() {
             </div>
           </Card>
           </div>
+          )}
 
           {/* Prompt 278 §3 — tied to the Folders tree's own current
               selection (selFolder), not a standalone picker: empty/hidden

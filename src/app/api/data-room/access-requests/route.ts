@@ -32,8 +32,17 @@ export async function GET(req: Request) {
   if (!member) return NextResponse.json({ error: 'Not a member of this org.' }, { status: 403 });
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
+  // Prompt 669 §1 — scoped to kind='access' (the whole-request folder_ids/
+  // document_ids shape "Request again" writes, the only shape the Grant
+  // button below actually knows how to act on). A kind='document' request
+  // (Prompt 372) stores its content in access_request_items instead — this
+  // row's own folder_ids/document_ids are always empty for that kind, by
+  // design, not by omission — so it was showing up here with nothing to
+  // grant and a "Grant" click that could only ever fail with a 409.
+  // /api/founder/document-requests + /documents/requests/[id] is the real,
+  // working flow for that kind; documents/page.tsx links to it separately.
   const { data: rows, error } = await admin.from('access_requests').select('*')
-    .eq('org_id', orgId).eq('status', 'pending').order('requested_at', { ascending: true });
+    .eq('org_id', orgId).eq('status', 'pending').eq('kind', 'access').order('requested_at', { ascending: true });
   if (error) {
     // Same degrade-gracefully convention as every other capability-gated
     // table in this app: a missing table (pre-migration) reads as "nothing

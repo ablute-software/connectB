@@ -33,6 +33,19 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const { data: reqRow } = await admin.from('access_requests').select('*').eq('id', params.id).maybeSingle();
   if (!reqRow) return NextResponse.json({ ok: false, error: 'Request not found.' }, { status: 404 });
   if (reqRow.status !== 'pending') return NextResponse.json({ ok: false, error: `Already ${reqRow.status as string}.` }, { status: 409 });
+  // Prompt 669 §1 — this route only ever knows how to act on the whole-
+  // request folder_ids/document_ids a kind='access' row carries. A
+  // kind='document' row's actual content lives in access_request_items
+  // instead, which this route has never read — sending one here always
+  // produced the confusing "no folders or documents to grant" 409, no
+  // matter what the requester actually asked for. The GET list the founder-
+  // side "Pending requests" panel reads is now filtered to kind='access'
+  // too, so this should be unreachable from the app's own UI; kept as a
+  // clear guard against any other caller or a future regression of that
+  // filter, and against a client still caching the old, unfiltered list.
+  if (reqRow.kind === 'document') {
+    return NextResponse.json({ ok: false, error: 'This is a document request — respond to it from that request’s own review page (Documents → the request link), not here.' }, { status: 409 });
+  }
 
   const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).eq('org_id', reqRow.org_id as string).maybeSingle();
   if (!member) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
