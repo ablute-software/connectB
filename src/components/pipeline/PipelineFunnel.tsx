@@ -15,7 +15,7 @@ import { PIPELINE_CARDS, type PipelineCardKey, type PipelineCounts } from '@/lib
 // The prototype's stage palette (foreground + wash), kept here so the funnel
 // reads as its own system without pulling a whole design-token layer into the
 // app. Active's chip is green; its card is the muted roll-up treatment.
-const TONE: Record<string, { fg: string; wash: string }> = {
+export const TONE: Record<string, { fg: string; wash: string }> = {
   slate: { fg: '#5d7280', wash: '#eef3f6' },
   blue: { fg: '#1d6fd4', wash: '#e9f2fd' },
   amber: { fg: '#b4670c', wash: '#fdf3e6' },
@@ -24,7 +24,7 @@ const TONE: Record<string, { fg: string; wash: string }> = {
   cyan: { fg: '#0e7490', wash: '#e6f5fa' },
 };
 
-const ICON: Record<PipelineCardKey, string> = {
+export const ICON: Record<PipelineCardKey, string> = {
   not_contacted: '👥', contacted: '💬', diligence: '📄', active: '✈', passed: '✕', frozen: '❄',
 };
 

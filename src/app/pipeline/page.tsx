@@ -1,6 +1,6 @@
 'use client';
 // Pipeline (home) — dense sortable/filterable entity table
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
@@ -18,8 +18,9 @@ import { useConfirmWithFields } from '@/lib/confirm';
 import { useParkEntity } from '@/lib/use-park-entity';
 import { dropDialog, planDrop, planUndo, UNDO_WINDOW_MS, type DropTarget } from '@/lib/pipeline-drop';
 import { PipelineDropTarget } from '@/components/pipeline/PipelineDropTarget';
-import { PipelineFunnel } from '@/components/pipeline/PipelineFunnel';
-import { pipelineCounts, pipelineGroupForStatus, type PipelineCardKey } from '@/lib/pipeline-taxonomy';
+import { PipelineFunnel, TONE, ICON } from '@/components/pipeline/PipelineFunnel';
+import { pipelineCounts, pipelineGroupForStatus, PIPELINE_CARDS, PIPELINE_GROUPS, type PipelineCardKey, type PipelineGroupKey } from '@/lib/pipeline-taxonomy';
+import { pipelineTemperature, type Temperature } from '@/lib/pipeline-temperature';
 import { usePipelineRowDrag, useReducedMotion } from '@/components/pipeline/usePipelineRowDrag';
 import { CoachMark } from '@/components/onboarding/CoachMark';
 import { PageTour } from '@/components/onboarding/PageTour';
@@ -77,6 +78,14 @@ const SORT_COLUMNS = [
   { key: 'next_action', label: 'Next action', width: '13%' },
 ] as const;
 type SortKey = typeof SORT_COLUMNS[number]['key'];
+
+// Prompt 650/659 — the temperature marker's look, one per step. A colored dot
+// plus the exact days since the last touch (661 §1), the word in the tooltip.
+const TEMP_META: Record<Temperature, { cls: string; word: string }> = {
+  warm: { cls: 'bg-orange-100 text-orange-700', word: 'warm' },
+  cooling: { cls: 'bg-amber-50 text-amber-700', word: 'cooling' },
+  cold: { cls: 'bg-slate-100 text-slate-500', word: 'cold' },
+};
 const SORT_KEYS = SORT_COLUMNS.map((c) => c.key) as SortKey[];
 
 // Generic nulls-last comparator so every column sorts sensibly without a
@@ -592,7 +601,8 @@ export default function PipelinePage() {
   // (frozen-view-grouping.ts), never inline here: three separate places
   // used to derive it and two consecutive prompts corrected only one of
   // them.
-  const [frozenView, setFrozenView] = useState<PipelineView>('none');
+  // Prompt 650 Phase 2 — the frozenView single-view state is gone; Passed and
+  // Frozen are bands now, and the funnel card's cardFilter narrows the list.
   const [sortKey, setSortKey] = useState<SortKey>('wave');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [addInvestorOpen, setAddInvestorOpen] = useState(false);
@@ -608,6 +618,13 @@ export default function PipelinePage() {
   // no card filter). When set it drives the list directly via the taxonomy
   // (Phase 2 will replace the older frozenView grouping entirely).
   const [cardFilter, setCardFilter] = useState<PipelineCardKey | null>(null);
+  // Prompt 650 Phase 2 — which of the five list bands are collapsed.
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<PipelineGroupKey>>(new Set());
+  const toggleGroup = useCallback((g: PipelineGroupKey) => setCollapsedGroups((prev) => {
+    const next = new Set(prev);
+    if (next.has(g)) next.delete(g); else next.add(g);
+    return next;
+  }), []);
   // Prompt 107 B.5 — which delivered entities are currently a suspended
   // investor. Derived at read time, never a mass write to `entities` (see
   // /api/pipeline/suspended-investors's own header for why).
@@ -830,16 +847,14 @@ export default function PipelinePage() {
     // "not a fit for us" decision therefore leaves the active list the way
     // frozen rows do — it is not a candidate for outreach — and never
     // disappears: it is counted and reachable under Passed.
-    // Prompt 650 Phase 1 — a funnel card, when one is selected, drives the list
-    // straight from the taxonomy (Active = everyone except passed), overriding
-    // the older frozenView grouping; with no card selected the existing
-    // active/frozen/passed view still applies unchanged.
+    // Prompt 650 Phase 2 — the five bands show every entity; the old
+    // frozenView single-view filter is gone (Passed and Frozen are bands now).
+    // A funnel card, when selected, narrows to its bucket (Active = everyone
+    // except passed).
     if (cardFilter) {
       list = list.filter((e) => cardFilter === 'active'
         ? pipelineGroupForStatus(e.status) !== 'passed'
         : pipelineGroupForStatus(e.status) === cardFilter);
-    } else {
-      list = list.filter((e) => entityViews.get(e.id) === frozenView);
     }
     if (q) list = list.filter((e) => e.name.toLowerCase().includes(q.toLowerCase())
       || e.sectors.some((s) => s.toLowerCase().includes(q.toLowerCase())));
@@ -864,7 +879,7 @@ export default function PipelinePage() {
         || (a.wave ?? 9) - (b.wave ?? 9) || (fitOrder[a.fit_score ?? 'low'] - fitOrder[b.fit_score ?? 'low']);
     });
     return list;
-  }, [db, q, wave, status, sectors, country, sortKey, sortDir, interestedEntityIds, activeThreadEntityIds, frozenView, entityViews, deadEndIds, cardFilter]);
+  }, [db, q, wave, status, sectors, country, sortKey, sortDir, interestedEntityIds, activeThreadEntityIds, deadEndIds, cardFilter]);
 
   const countries = Array.from(new Set(db.entities.map((e) => e.hq_country).filter(Boolean))) as string[];
   const sectorOptions = Array.from(new Set(db.entities.flatMap((e) => e.sectors))).sort();
@@ -907,7 +922,10 @@ export default function PipelinePage() {
   // (282) didn't lose any granularity — it only moved it from the header
   // into this per-row pill (pillLabelForFrozenState).
   function frozenPillLabel(e: Entity): string | undefined {
-    if (frozenView === 'none') return undefined;
+    // Prompt 650 Phase 2 — the frozen sub-state (Stale / no-reply / not-a-fit /
+    // never-contacted) is the true state for a row in the Frozen band; show it
+    // there, and keep StatusPill's plain default everywhere else.
+    if (pipelineGroupForStatus(e.status) !== 'frozen') return undefined;
     const state = entityFrozenStates.get(e.id);
     return state ? pillLabelForFrozenState(state) : undefined;
   }
@@ -963,7 +981,10 @@ export default function PipelinePage() {
     return true;
   }, [db, rows, confirmWithFields, logSystemNote, setEntityStatus, setRelationshipStage, applyExitPlan, reducedMotion, showDropToast]);
 
-  const drag = usePipelineRowDrag({ enabled: !loading && frozenView === 'none', reducedMotion, onDrop: handleDrop });
+  // Prompt 650 Phase 2 — drag works across all bands now (the list is no longer
+  // scoped to one view); the drop targets still freeze/pass, and Phase 4 moves
+  // them onto the cards.
+  const drag = usePipelineRowDrag({ enabled: !loading, reducedMotion, onDrop: handleDrop });
   const displayRows = useMemo(() => {
     if (!leavingRow || rows.some((r) => r.id === leavingRow.entity.id)) return rows;
     const list = [...rows];
@@ -1267,30 +1288,23 @@ export default function PipelinePage() {
             button's ml-auto now (it sits between the country filter and this),
             so Frozen no longer carries ml-auto or it would split the two. */}
         <PipelineDropTarget target="frozen"
-          label={frozenView === 'frozen' ? '❄ Showing frozen' : `❄ Frozen (${frozenCount})`}
+          label={cardFilter === 'frozen' ? '❄ Showing frozen' : `❄ Frozen (${funnelCounts.frozen})`}
           title="Not moving right now — either an impasse, or fell through the cracks. Drag a row here to freeze it."
-          count={frozenCount} active={frozenView === 'frozen'}
-          onClick={() => setFrozenView((v) => v === 'frozen' ? 'none' : 'frozen')}
+          count={funnelCounts.frozen} active={cardFilter === 'frozen'}
+          onClick={() => setCardFilter((v) => v === 'frozen' ? null : 'frozen')}
           armed={drag.active} open={drag.over === 'frozen'} pulse={dropPulse === 'frozen'} reducedMotion={reducedMotion} />
-        {(reportedCount > 0 || frozenView === 'reported') && (
-          <button onClick={() => setFrozenView((v) => v === 'reported' ? 'none' : 'reported')}
-            title="Not real investors — flagged with evidence (fraud report)."
-            className={`rounded-lg border px-2.5 py-1.5 text-sm font-medium ${frozenView === 'reported' ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
-            {frozenView === 'reported' ? '🚨 Showing reported' : `🚨 Reported (${reportedCount})`}
-          </button>
-        )}
         {/* Prompt 852 §C — both directions of "no" in one view, each row
             labelled with which way it went. Same shape as the three above;
             hidden at 0 like Reported, and kept visible while it IS the
             active view so toggling back off never needs a second control. */}
         {/* Prompt 647 — also shown while a row is being dragged, even at 0:
             a door has to exist to be dropped on. */}
-        {(passedCount > 0 || frozenView === 'passed' || drag.active) && (
+        {(funnelCounts.passed > 0 || cardFilter === 'passed' || drag.active) && (
           <PipelineDropTarget target="passed"
-            label={frozenView === 'passed' ? '✕ Showing passed' : `✕ Passed (${passedCount})`}
+            label={cardFilter === 'passed' ? '✕ Showing passed' : `✕ Passed (${funnelCounts.passed})`}
             title="Decided, either way — they passed, or you ruled them out. Drag a row here to mark it passed."
-            count={passedCount} active={frozenView === 'passed'}
-            onClick={() => setFrozenView((v) => v === 'passed' ? 'none' : 'passed')}
+            count={funnelCounts.passed} active={cardFilter === 'passed'}
+            onClick={() => setCardFilter((v) => v === 'passed' ? null : 'passed')}
             armed={drag.active} open={drag.over === 'passed'} pulse={dropPulse === 'passed'} reducedMotion={reducedMotion} />
         )}
         {/* Prompt 271 §3 / Prompt 282 — bulk ask moved to the Stale view
@@ -1308,7 +1322,7 @@ export default function PipelinePage() {
             minutes, confirmed in ai_call_log. At 0 the button disappears
             rather than offering a no-op; re-asking one entity is the row's
             own explicit "Ask Sherlock again". */}
-        {frozenView === 'frozen' && bulkAskIds.length > 0 && (
+        {cardFilter === 'frozen' && bulkAskIds.length > 0 && (
           <button onClick={() => askSherlockFor(bulkAskIds)}
             className="rounded-lg bg-[#0f5132] px-2.5 py-1.5 text-sm font-medium text-white hover:bg-[#0c4028]">
             Ask Sherlock — evaluate all ({bulkAskIds.length})
@@ -1391,8 +1405,35 @@ export default function PipelinePage() {
           {/* Prompt 647 — rows are draggable in the active view; the class
               only switches off the long-press callout on touch (§1.1). */}
           <tbody className={drag.enabled ? 'pipeline-drag-rows' : undefined}>
-            {displayRows.map((e, i) => {
+            {/* Prompt 650 Phase 2 — the five taxonomy bands, in order. Each is a
+                collapsible header row spanning the table, then its rows. An empty
+                band is hidden unless the funnel is filtered to it. */}
+            {PIPELINE_GROUPS.map((groupKey) => {
+              const groupRows = displayRows.filter((e) => pipelineGroupForStatus(e.status) === groupKey);
+              if (groupRows.length === 0 && cardFilter !== groupKey) return null;
+              const groupCard = PIPELINE_CARDS.find((c) => c.key === groupKey)!;
+              const groupTone = TONE[groupCard.tone];
+              const isCollapsed = collapsedGroups.has(groupKey);
+              return (
+                <Fragment key={groupKey}>
+                  <tr className="border-t border-gray-200">
+                    <td colSpan={SORT_COLUMNS.length} className="p-0">
+                      <button type="button" onClick={() => toggleGroup(groupKey)}
+                        className="flex w-full items-center gap-2 px-2 py-2 text-left" style={{ background: groupTone.wash }}>
+                        <span className="text-[13px]" aria-hidden>{ICON[groupKey]}</span>
+                        <span className="text-[13px] font-extrabold tracking-tight" style={{ color: groupTone.fg }}>{groupCard.label}</span>
+                        <span className="text-[11.5px] font-semibold text-gray-500">{groupRows.length} investors</span>
+                        {groupCard.context && <span className="ml-auto text-[11.5px] font-semibold" style={{ color: groupTone.fg }}>{groupCard.context}</span>}
+                        <span className={`text-[10px] text-gray-500 ${groupCard.context ? 'ml-2' : 'ml-auto'}`}>{isCollapsed ? '▸' : '▾'}</span>
+                      </button>
+                    </td>
+                  </tr>
+                  {!isCollapsed && groupRows.map((e, i) => {
               const task = nextAction(db, e);
+              const rowGroup = pipelineGroupForStatus(e.status);
+              const isActiveGroup = rowGroup !== 'passed' && rowGroup !== 'frozen';
+              const relSummary = relationshipSummary(db, e.id);
+              const temp = pipelineTemperature(relSummary.daysSinceLastTouch);
               const overdue = task?.due_at && new Date(task.due_at) < new Date();
               const hf = e.hard_filter_status === 'open';
               const suspended = suspendedEntityIds.has(e.id);
@@ -1430,6 +1471,14 @@ export default function PipelinePage() {
                         {interested ? '★ Interested' : '● In conversation'}
                       </span>
                     )}
+                    {/* Prompt 659 — temperature marker: recency of the last
+                        touch, three steps, with the exact days (661 §1). */}
+                    {temp && (
+                      <span className={`ml-1.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${TEMP_META[temp].cls}`}
+                        title={`${TEMP_META[temp].word} — last touch ${relSummary.daysSinceLastTouch}d ago`}>
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-current" />{relSummary.daysSinceLastTouch}d
+                      </span>
+                    )}
                     {suspended && (
                       <span className="ml-1.5 inline-block rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600" title="This investor has suspended their own visibility — not accepting contact right now. Existing access is unaffected.">
                         Suspended
@@ -1442,7 +1491,7 @@ export default function PipelinePage() {
                         founder's own decision renders its own label below,
                         with the note and Revert behind the ⓘ. One view, two
                         labels — never one number that hides the direction. */}
-                    {frozenView === 'passed' && !liveDecisions.has(e.id) && (
+                    {rowGroup === 'passed' && !liveDecisions.has(e.id) && (
                       <span className="ml-1.5 inline-block rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600"
                         title="This investor passed on you.">
                         {THEY_PASSED_LABEL}
@@ -1508,12 +1557,12 @@ export default function PipelinePage() {
                         delivered before the 3 Sept rule and has no reachable
                         person yet. Shown in the active view only, and not for
                         a row the founder is already engaged with (band 1). */}
-                    {frozenView === 'none' && deadEndIds.has(e.id) && !inBand1 && (
+                    {isActiveGroup && deadEndIds.has(e.id) && !inBand1 && (
                       <div className="mt-0.5 text-[10px] text-amber-600" title="Delivered before the reachable-contact rule. It stays on your list, but it is not shown as an active recommendation until it has a person to contact.">
                         No one to contact yet
                       </div>
                     )}
-                    <RelationshipCompactLine entityId={e.id} neutral={frozenView !== 'none'} />
+                    <RelationshipCompactLine entityId={e.id} neutral={!isActiveGroup} />
                     {/* E2 — a previously-passed/dormant investor that carries a
                         reopen trigger has resurfaced via the reopen doctrine;
                         say WHY it's back so the row isn't just a greyed name.
@@ -1538,7 +1587,7 @@ export default function PipelinePage() {
                         the whole breakdown in a table cell; 'hold_for_hook'
                         and 'not_worth_it' never reach that queue, so this
                         IS the only place their reasoning is ever shown. */}
-                    {frozenView === 'frozen' && entityFrozenStates.get(e.id) === 'stand_by' && (
+                    {rowGroup === 'frozen' && entityFrozenStates.get(e.id) === 'stand_by' && (
                       <NeglectAskCell
                         state={askStateFor(e.id)}
                         asking={askingIds.includes(e.id)}
@@ -1566,13 +1615,16 @@ export default function PipelinePage() {
                             frozen view for the same reason as the whose-turn
                             chip above: the frozen state is the dominant
                             signal there, not a stale due date. */}
-                        {task.due_at && <span className={overdue && frozenView === 'none' ? 'ml-1 font-semibold text-[#B00000]' : 'ml-1 text-gray-400'}>
+                        {task.due_at && <span className={overdue && isActiveGroup ? 'ml-1 font-semibold text-[#B00000]' : 'ml-1 text-gray-400'}>
                           · {task.due_at.slice(5, 10)}
                         </span>}
                       </span>
                     ) : <span className="text-gray-300">—</span>}
                   </td>
                 </tr>
+              );
+            })}
+                </Fragment>
               );
             })}
           </tbody>
