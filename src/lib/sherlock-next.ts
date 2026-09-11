@@ -20,6 +20,7 @@ import { isProfileGateComplete } from './pipeline-unlock';
 import { passReasonAlert } from './rules';
 import { vaultStrength } from './vault-strength';
 import { chooseFirstMessageTarget, type FirstMessageCandidate } from './first-message-target';
+import { deriveSubmissionChannelType } from './catalog-delivery-mapping';
 
 export type SherlockNextKind =
   | 'interest_request' | 'cap_table_request' | 'unclassified_reply' | 'follow_up_overdue' | 'task_due_today'
@@ -103,6 +104,11 @@ function firstMessageCandidate(db: Db, e: Db['entities'][number]): FirstMessageC
     peopleCount: people.length,
     hasHook: people.some((p) => !!p.hook),
     hasChannel: !!e.submission_channel || !!e.email,
+    // Prompt 853 §B — the delivered row's stored type, falling back to the
+    // in-memory derivation for older/test stores that predate the column.
+    channelType: e.submission_channel_type === 'form' || e.submission_channel_type === 'email'
+      ? e.submission_channel_type
+      : deriveSubmissionChannelType(e.submission_channel, e.email),
   };
 }
 

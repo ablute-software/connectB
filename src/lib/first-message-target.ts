@@ -27,6 +27,10 @@ export interface FirstMessageCandidate {
   hasHook: boolean;
   /** A submission form or a general inbox exists. */
   hasChannel: boolean;
+  /** The delivered row's channel type — an inbox to write to ('email'), a form
+   *  to submit ('form'), or unknown. Prompt 853 §B: the channel_only clue
+   *  branches on this so an email-only firm is never told to use a form. */
+  channelType: 'form' | 'email' | 'unknown';
 }
 
 export interface FirstMessageTarget {
@@ -95,7 +99,11 @@ export function chooseFirstMessageTarget(
   }
   return {
     entity, state,
-    label: `Next: submit to ${entity.name} through their form`,
+    // Prompt 853 §B — name the channel the firm actually has. An email-only
+    // firm (no form URL) must not be told to "submit through their form".
+    label: entity.channelType === 'email'
+      ? `Next: email ${entity.name}`
+      : `Next: submit to ${entity.name} through their form`,
     target: `/entities/${entity.id}`,
   };
 }

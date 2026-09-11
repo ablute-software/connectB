@@ -10,7 +10,7 @@ import {
 function c(over: Partial<FirstMessageCandidate> = {}): FirstMessageCandidate {
   return {
     id: 'e1', name: 'Firm', wave: 1, fitRank: 0, readiness: 50,
-    peopleCount: 2, hasHook: false, hasChannel: true, ...over,
+    peopleCount: 2, hasHook: false, hasChannel: true, channelType: 'form', ...over,
   };
 }
 
@@ -60,12 +60,21 @@ describe('chooseFirstMessageTarget', () => {
     expect(t?.target).toContain('tab=people');
   });
 
-  it('says submit through the form when there is no one to name', () => {
+  it('says submit through the form when there is no one to name and the channel is a form', () => {
     const t = chooseFirstMessageTarget([
-      c({ name: 'Kindred Capital', peopleCount: 0, hasChannel: true, hasHook: false }),
+      c({ name: 'Kindred Capital', peopleCount: 0, hasChannel: true, hasHook: false, channelType: 'form' }),
     ]);
     expect(t?.state).toBe('channel_only');
     expect(t?.label).toBe('Next: submit to Kindred Capital through their form');
+  });
+
+  it('Prompt 853 §B — says "email" for an email-only firm, never "through their form"', () => {
+    const t = chooseFirstMessageTarget([
+      c({ name: 'Newfund', peopleCount: 0, hasChannel: true, hasHook: false, channelType: 'email' }),
+    ]);
+    expect(t?.state).toBe('channel_only');
+    expect(t?.label).toBe('Next: email Newfund');
+    expect(t?.label).not.toContain('form');
   });
 
   it('never says "send your first message" to an entity without a hook', () => {
