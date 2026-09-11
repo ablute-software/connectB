@@ -7192,5 +7192,56 @@ NNN: <summary>" — checked the last several real merges into `main`, e.g.
 `origin/main` (this repo auto-deploys `main` to production via Vercel — no
 separate deploy step taken or needed).
 
-[Merge commit hash, production re-verification results, and cleanup
-confirmation recorded below once the merge and post-merge checks complete.]
+**Merge commit**: `46f7a7a5f06c11fc21b76e3c291f2bfe8d7de2d4`. Confirmed
+`main`'s real GitHub tip is this commit via `mcp__github__get_commit` (not
+just local `git`), and that it contains both 883's and 884's own commits
+(`git log --oneline main | grep -E "Prompt 883|Prompt 884"` shows the
+rebased `b58bdb85`/`aededf1f`/`d4b88ca8` — distinct SHAs from the original
+`fd849618`/`6665a8e3`/`a7ae01ef` since rebase replays commits, same
+content). Pushed with a plain `git push origin main` — `b1da65d4..
+46f7a7a5 main -> main`.
+
+**Post-merge production re-verification**, `zz-test-885-post-merge-check`
+(org `11111111-8850-4000-8000-000000000885`), fully cleaned up after:
+- `information_schema.columns` re-checked post-merge:
+  `entities.dormant_decline_at` / `tasks.confirmation_dismissed_at` /
+  `tasks.prepared_at` all present, all `timestamp with time zone`. (These
+  were already live from the original `apply_migration` calls during 883/
+  884's own work — merging the git history doesn't re-run them — so this
+  confirms they're still there and correctly typed, not a fresh apply.)
+- **Decline-suppression (883)**, end to end against the now-merged `main`'s
+  own code: entity `22222222-8850-4000-8000-000000000885`, an
+  `automation_dormant` task, a real `stage_change` decline note
+  (`verification_insert_interaction`) + `dormant_decline_at` set. Fetched
+  those exact rows back and ran the real `dormantDeclineSuppressed()` from
+  `src/lib/automation-rules-tick.ts` — on `main`, post-merge — against them
+  in a throwaway `_zz-verify-885-decline.test.ts` (`npx vitest run`, 2/2
+  passed, then deleted, never staged): **`true`** moments after the
+  decline (the note doesn't self-clear it — same fix as 883's own report),
+  **`false`** 7 months later (floor lifted regardless).
+- **Meetings-card check (884)**, end to end: task
+  `55555555-8850-4000-8000-000000000885` (`kind:'meeting'`, due in 1h) →
+  real `channel:'meeting'` interaction logged
+  (`verification_insert_interaction`) → `update tasks set done=true`
+  (simulating `onSaved`'s `toggleTask`, exactly as in 884's own report) →
+  re-selected: `done=true`.
+- **Cleanup**: `{orgs:1, entities:1, people:1, tasks:2, interactions:2}`
+  before, `{orgs:0, entities:0, people:0, tasks:0, interactions:0}` after
+  deleting in FK order (interactions → tasks → people → entities → org).
+
+**Validated** (on the rebased+renamed integration branch, before the
+merge — the merge commit's own tree is byte-identical to it, confirmed via
+`git diff --stat HEAD claude/prompt-885-merge-883-884-to-main` → empty):
+`tsc` EXIT=0. `vitest` EXIT=0 — 3796/3796 tests, 256 files (up from 884's
+own 3791/255 report purely because `main`'s own independent progress since
+the fork, Prompts 650/657/659, added its own file — none of it 885's).
+`eslint` (worktree-safe invocation) EXIT=0, 0 errors. `npm run build`
+EXIT=0 (checked via the captured `BUILD_EXIT=` line inside the background
+task's own log file, not the wrapper's notification — same discipline
+884's report used). `npm run verify:migrations`: no collision on either
+renamed filename against any of the 66 remote branches; the flagged
+0289/0292/0339 collisions are pre-existing and unrelated.
+
+Branch `claude/prompt-885-merge-883-884-to-main` (the rebased+renamed
+integration branch, kept pushed for the record) is now fully merged into
+`main` and can be deleted at any point without losing anything.
