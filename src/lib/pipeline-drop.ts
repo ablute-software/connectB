@@ -19,8 +19,14 @@
 // dropTargetAccepts keeps that rule in one place should the button return.
 import { dismissNoteContent, planPark, planPass, REVISIT_DAYS_DEFAULT, type ExitPlan } from './exit-effects';
 import type { Entity, EntityStatus, RelationshipStage, TaskItem } from './types';
+import { pipelineStageLabel } from './pipeline-taxonomy';
 
 export type DropTarget = 'frozen' | 'passed';
+
+// Prompt 671 — the friendly destination name, same vocabulary the funnel
+// cards and pipelineStageLabel already use ("Frozen", never the raw enum
+// value `dormant`).
+const DROP_TARGET_LABEL: Record<DropTarget, string> = { frozen: 'Frozen', passed: 'Passed' };
 
 /** Which header views take a dropped row. Reported needs evidence (277 A), never a drop; Stale is an alarm, not a shelf (§3, option A). */
 export function dropTargetAccepts(view: string | null | undefined): view is DropTarget {
@@ -70,15 +76,21 @@ function openTasks(n: number): string {
  * counts come from the same plan the commit will apply, so the dialog tells
  * the truth rather than an estimate. Frozen carries an editable revisit date
  * (default +30 days); Passed an optional reason.
+ *
+ * Prompt 671 — the first line now states the transition explicitly, in the
+ * exact friendly names the funnel cards use ("Contacted → Frozen"), never the
+ * raw enum. The rest of the message is unchanged from Prompt 647 — it already
+ * told the truth about consequences; it just never named the "from".
  */
 export function dropDialog(
-  target: DropTarget, entity: Pick<Entity, 'id' | 'name'>, tasks: TaskItem[], now: Date, revisitDays = REVISIT_DAYS_DEFAULT,
+  target: DropTarget, entity: Pick<Entity, 'id' | 'name' | 'status'>, tasks: TaskItem[], now: Date, revisitDays = REVISIT_DAYS_DEFAULT,
 ): DropDialog {
+  const transition = `${pipelineStageLabel(entity.status)} → ${DROP_TARGET_LABEL[target]}.`;
   if (target === 'frozen') {
     const plan = planPark(entity, tasks, now, revisitDays);
     const reDated = plan.dispositions.filter((d) => d.action === 'reschedule').length;
     const closed = plan.dispositions.filter((d) => d.action === 'done').length;
-    const lines = [`Parks this investor. Creates "Revisit ${entity.name}" on the date below.`];
+    const lines = [transition, `Parks this investor. Creates "Revisit ${entity.name}" on the date below.`];
     if (reDated > 0) lines.push(`${openTasks(reDated)} will be re-dated to that day.`);
     if (closed > 0) lines.push(`${openTasks(closed)} that asked for a reply will be closed — parking is the answer.`);
     if (reDated === 0 && closed === 0) lines.push('No open tasks to move.');
@@ -93,7 +105,7 @@ export function dropDialog(
   const closed = planPass(entity, tasks).dispositions.length;
   return {
     title: `Mark ${entity.name} as passed?`,
-    message: `Closes this relationship. ${closed > 0 ? `${openTasks(closed)} will be closed.` : 'No open tasks to close.'}`,
+    message: `${transition}\nCloses this relationship. ${closed > 0 ? `${openTasks(closed)} will be closed.` : 'No open tasks to close.'}`,
     confirmLabel: 'Pass',
     destructive: true,
     fields: [{ key: 'reason', label: 'Reason (optional)', type: 'text', placeholder: 'What they said, or why you are closing it' }],
@@ -124,18 +136,31 @@ export interface DropCommit {
   toast: string;
 }
 
-/** What a confirmed drop commits. The page applies it in this order: note, status, stage, plan. */
+/**
+ * What a confirmed drop commits. The page applies it in this order: note,
+ * status, stage, plan.
+ *
+ * Prompt 671 §1/§2 — the note now leads with the same explicit "current →
+ * new" transition the dialog showed, and, when the caller supplies one
+ * (pipeline/page.tsx resolves the current session's own email), names who
+ * dragged it — the founder-visible half of "who moved this to what state,
+ * when" (interactions.author_user_id, set by logSystemNote, is the durable
+ * half). Neither addition changes journey.ts's stageChangeAt parser: that
+ * only matches the literal "stage changed to X" phrase, never used here.
+ */
 export function planDrop(
-  target: DropTarget, entity: Pick<Entity, 'id' | 'name'>, tasks: TaskItem[], now: Date,
-  values: { revisit_date?: string; reason?: string } = {},
+  target: DropTarget, entity: Pick<Entity, 'id' | 'name' | 'status'>, tasks: TaskItem[], now: Date,
+  values: { revisit_date?: string; reason?: string } = {}, actorLabel?: string,
 ): DropCommit {
+  const transition = `${pipelineStageLabel(entity.status)} → ${DROP_TARGET_LABEL[target]}`;
+  const by = actorLabel ? ` — moved by ${actorLabel}` : '';
   if (target === 'frozen') {
     const plan = planPark(entity, tasks, now, revisitDaysFor(now, values.revisit_date));
     const day = plan.revisitTask ? plan.revisitTask.dueAt.slice(0, 10) : isoDay(now);
     return {
       status: 'dormant',
       dormantReason: 'Frozen — dragged from the Pipeline',
-      note: dismissNoteContent({ kind: 'manual', label: 'dragged onto Frozen in the Pipeline' }, now),
+      note: `${transition}${by}. ${dismissNoteContent({ kind: 'manual', label: 'dragged onto Frozen in the Pipeline' }, now)}`,
       plan,
       toast: `❄ ${entity.name} parked — revisit on ${day}.`,
     };
@@ -144,7 +169,7 @@ export function planDrop(
   return {
     status: 'passed',
     stage: 'decision',
-    note: `Passed by choice — dragged onto Passed in the Pipeline${reason ? ` (${reason})` : ''}. Marked passed on ${isoDay(now)}.`,
+    note: `${transition}${by}. Passed by choice — dragged onto Passed in the Pipeline${reason ? ` (${reason})` : ''}. Marked passed on ${isoDay(now)}.`,
     plan: planPass(entity, tasks),
     toast: reason ? `✕ ${entity.name} passed — reason recorded.` : `✕ ${entity.name} passed.`,
   };

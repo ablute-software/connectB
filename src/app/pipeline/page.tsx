@@ -933,7 +933,17 @@ export default function PipelinePage() {
     // written before the answer. Cancel returns the shadow to the row.
     const values = await confirmWithFields(dropDialog(target, entity, db.tasks, now));
     if (!values) return false;
-    const commit = planDrop(target, entity, db.tasks, now, values);
+    // Prompt 671 §2 — the founder-visible "who" on the history line itself
+    // (interactions.author_user_id, set inside logSystemNote below, is the
+    // durable half). Only fetched once confirmed — never on a cancelled drag.
+    let actorLabel: string | undefined;
+    if (authEnabled) {
+      try {
+        const { data: { user } } = await browserClient().auth.getUser();
+        actorLabel = user?.email ?? undefined;
+      } catch { /* the note still records correctly without a name */ }
+    }
+    const commit = planDrop(target, entity, db.tasks, now, values, actorLabel);
     const previous = { status: entity.status, stage: getStage(db, entity.id) };
     setLeavingRow({ entity, index: rows.findIndex((r) => r.id === entity.id) });
     // Same order as useParkEntity.parkEntity: the note first so the history

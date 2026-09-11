@@ -2100,9 +2100,14 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     // content does not parse as "Stage changed to X".
     logSystemNote(entityId: string, content: string) {
       const prev = dbRef.current;
+      // Prompt 671 §2 — attribute the row to whoever's session is actually
+      // writing it (userIdRef is already populated synchronously at load,
+      // same source editInteraction's edited_by already reads). Absent only
+      // if somehow called before the session resolves.
       const note: Interaction = {
         id: uuid(), entity_id: entityId, occurred_at: new Date().toISOString(),
         direction: 'out', channel: 'stage_change', content,
+        author_user_id: userIdRef.current ?? undefined,
       };
       commit({ ...prev, interactions: [...prev.interactions, note] });
       const o = orgIdRef.current;

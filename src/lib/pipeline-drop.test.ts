@@ -6,7 +6,7 @@ import type { Entity, TaskItem } from './types';
 // Prompt 647 — the decision behind the drag: what the dialog says, what a
 // confirmed drop commits, what Undo restores. The component only draws.
 
-const ENTITY = { id: 'e1', name: 'Indico Capital' } as Entity;
+const ENTITY = { id: 'e1', name: 'Indico Capital', status: 'contacted' } as Entity;
 const NOW = new Date('2026-09-10T10:00:00.000Z');
 
 function task(over: Partial<TaskItem> = {}): TaskItem {
@@ -39,6 +39,13 @@ describe('dropDialog — §2, the dialog tells the truth', () => {
     expect(d.destructive).toBe(false);
   });
 
+  // Prompt 671 — the confirmation must say the transition itself, in the
+  // exact friendly names the six funnel cards use, never the raw enum value.
+  it('Frozen: the first line states the transition in friendly names', () => {
+    const d = dropDialog('frozen', ENTITY, [], NOW);
+    expect(d.message.split('\n')[0]).toBe('Contacted → Frozen.');
+  });
+
   it('Frozen: the date field defaults to +30 days and cannot be set to today', () => {
     const d = dropDialog('frozen', ENTITY, [], NOW);
     expect(d.fields).toEqual([expect.objectContaining({ key: 'revisit_date', type: 'date', defaultValue: '2026-10-10', min: '2026-09-11' })]);
@@ -48,10 +55,15 @@ describe('dropDialog — §2, the dialog tells the truth', () => {
   it('Passed: counts the tasks planPass will close; the reason is optional', () => {
     const d = dropDialog('passed', ENTITY, [task({ id: 'a' }), task({ id: 'b', done: true })], NOW);
     expect(d.title).toBe('Mark Indico Capital as passed?');
-    expect(d.message).toBe('Closes this relationship. 1 open task will be closed.');
+    expect(d.message).toBe('Contacted → Passed.\nCloses this relationship. 1 open task will be closed.');
     expect(d.confirmLabel).toBe('Pass');
     expect(d.destructive).toBe(true);
     expect(d.fields).toEqual([expect.objectContaining({ key: 'reason', type: 'text' })]);
+  });
+
+  it('names the true current stage, not always "Contacted" — a dormant row shows Frozen as its own current stage', () => {
+    const d = dropDialog('passed', { ...ENTITY, status: 'dormant' }, [], NOW);
+    expect(d.message.split('\n')[0]).toBe('Frozen → Passed.');
   });
 
   it('never counts another entity’s tasks', () => {
@@ -72,12 +84,12 @@ describe('revisitDaysFor', () => {
 });
 
 describe('planDrop — what a confirmed drop commits', () => {
-  it('Frozen: dormant, the 527 note, planPark on the chosen date, a toast naming the date', () => {
+  it('Frozen: dormant, the 527 note leads with the transition, planPark on the chosen date, a toast naming the date', () => {
     const c = planDrop('frozen', ENTITY, [task({ id: 'a' })], NOW, { revisit_date: '2026-09-24' });
     expect(c.status).toBe('dormant');
     expect(c.stage).toBeUndefined();
     expect(c.dormantReason).toBe('Frozen — dragged from the Pipeline');
-    expect(c.note).toBe('Parked by choice — dragged onto Frozen in the Pipeline. Marked dormant on 2026-09-10.');
+    expect(c.note).toBe('Contacted → Frozen. Parked by choice — dragged onto Frozen in the Pipeline. Marked dormant on 2026-09-10.');
     expect(c.plan.revisitTask?.title).toBe('Revisit Indico Capital — frozen on 2026-09-10');
     expect(c.plan.revisitTask?.dueAt.slice(0, 10)).toBe('2026-09-24');
     expect(c.plan.dispositions).toEqual([expect.objectContaining({ taskId: 'a', action: 'reschedule' })]);
@@ -89,15 +101,29 @@ describe('planDrop — what a confirmed drop commits', () => {
     expect(c.status).toBe('passed');
     expect(c.stage).toBe('decision');
     expect(c.dormantReason).toBeUndefined();
-    expect(c.note).toBe('Passed by choice — dragged onto Passed in the Pipeline (Not doing medtech this year). Marked passed on 2026-09-10.');
+    expect(c.note).toBe('Contacted → Passed. Passed by choice — dragged onto Passed in the Pipeline (Not doing medtech this year). Marked passed on 2026-09-10.');
     expect(c.plan.dispositions.map((d) => d.action)).toEqual(['done', 'done']);
     expect(c.toast).toBe('✕ Indico Capital passed — reason recorded.');
   });
 
   it('Passed without a reason never claims one was recorded', () => {
     const c = planDrop('passed', ENTITY, [], NOW);
-    expect(c.note).toBe('Passed by choice — dragged onto Passed in the Pipeline. Marked passed on 2026-09-10.');
+    expect(c.note).toBe('Contacted → Passed. Passed by choice — dragged onto Passed in the Pipeline. Marked passed on 2026-09-10.');
     expect(c.toast).toBe('✕ Indico Capital passed.');
+  });
+
+  // Prompt 671 §2 — the founder-visible half of "who moved this, when": the
+  // note names the actor when the caller supplies one (pipeline/page.tsx
+  // resolves the current session's own email); silent (no dangling "by")
+  // when it can't.
+  it('names who dragged it when an actor label is supplied', () => {
+    const c = planDrop('frozen', ENTITY, [], NOW, {}, 'nuno@ablute.pt');
+    expect(c.note).toBe('Contacted → Frozen — moved by nuno@ablute.pt. Parked by choice — dragged onto Frozen in the Pipeline. Marked dormant on 2026-09-10.');
+  });
+
+  it('never invents an actor when none is supplied', () => {
+    const c = planDrop('passed', ENTITY, [], NOW);
+    expect(c.note).not.toContain('moved by');
   });
 });
 

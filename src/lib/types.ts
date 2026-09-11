@@ -593,6 +593,11 @@ export interface Interaction {
   // in history and in the back-office "Passes / Over" tab, struck through.
   reverted_at?: string;
   reverted_by?: string;
+  // Prompt 671 §2 — who logged this row, when the founder's own authenticated
+  // session wrote it (logSystemNote sets it; every other write path leaves it
+  // absent, same "nobody recorded it" honesty as the 524 pre-existing rows).
+  // Mirrors contributions.author_user_id (Prompt 572 §C.1).
+  author_user_id?: string;
 }
 
 export interface TaskItem {
