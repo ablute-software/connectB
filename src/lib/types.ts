@@ -454,6 +454,11 @@ export interface Entity {
   // "real evidence" apart from "evidence that doesn't actually prove this
   // entity" needs a human judgment call.
   unverified_stub_at?: string;
+  // Prompt 667 §5 (Nuno's decision) — a dev/QA fixture kept visible for
+  // testing (e.g. "ablute_ — Internal QA") but excluded from the Pipeline's
+  // six-card counts and temperature distribution. Migration 20260911210000.
+  // Absent/undefined reads as false — every pre-existing row is unaffected.
+  is_test?: boolean;
 }
 
 export interface Person {

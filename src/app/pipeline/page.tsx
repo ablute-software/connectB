@@ -28,7 +28,7 @@ import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
 import { useTrackPageView } from '@/lib/use-track-page-view';
 import { nextMonthlyDeliveryDate } from '@/lib/catalog-monthly-delivery';
 import { classifyEntityFrozenState, type EntityFrozenState } from '@/lib/frozen-classifier';
-import { pillLabelForFrozenState, pipelineViewForEntity, type PipelineView } from '@/lib/frozen-view-grouping';
+import { pillLabelForFrozenState } from '@/lib/frozen-view-grouping';
 import { liveDecisionByEntity, NOT_A_FIT_LABEL, THEY_PASSED_LABEL } from '@/lib/startup-investor-decision';
 import { NotAFitAction } from '@/components/NotAFitAction';
 import { useOrgCapability } from '@/lib/use-org-capability';
@@ -803,17 +803,10 @@ export default function PipelinePage() {
   // Prompt 852 §B — a courtesy, never the gate: /api/company/investor-decisions
   // checks the same capability itself on every write.
   const canDecideInvestors = useOrgCapability('investor_decisions');
-  const entityViews = useMemo(() => {
-    const m = new Map<string, PipelineView>();
-    for (const e of db.entities) {
-      m.set(e.id, pipelineViewForEntity({
-        frozenState: entityFrozenStates.get(e.id),
-        status: e.status,
-        hasLiveDecision: liveDecisions.has(e.id),
-      }));
-    }
-    return m;
-  }, [db.entities, entityFrozenStates, liveDecisions]);
+  // Prompt 667 §5/§663 — entityViews (the old single-view grouping) was last
+  // used only to feed the Summary card's redundant counts row, now removed.
+  // pipelineGroupForStatus (Phase 2's taxonomy) is the row/band/count source
+  // of truth everywhere else on this page.
 
   // Prompt 879 — delivered investors with nobody to contact (readiness says
   // no LinkedIn and no hook). Only entities the readiness call actually
@@ -831,7 +824,11 @@ export default function PipelinePage() {
   const vaultAccessSummary = useMemo(() => vaultAccessAdviceFromDb(db).inConversationWithoutAccess, [db]);
   // Prompt 650 Phase 1 — the six funnel counts, from the one taxonomy. The five
   // buckets sum to the account total; Active is the roll-up (total − passed).
-  const funnelCounts = useMemo(() => pipelineCounts(db.entities.map((e) => e.status)), [db.entities]);
+  // Prompt 667 §5 — a dev/QA fixture (is_test) is visible in the list but
+  // excluded from every count here, per Nuno's decision.
+  const funnelCounts = useMemo(
+    () => pipelineCounts(db.entities.filter((e) => !e.is_test).map((e) => e.status)),
+    [db.entities]);
 
   const rows = useMemo(() => {
     let list = [...db.entities];
@@ -883,22 +880,6 @@ export default function PipelinePage() {
 
   const countries = Array.from(new Set(db.entities.map((e) => e.hq_country).filter(Boolean))) as string[];
   const sectorOptions = Array.from(new Set(db.entities.flatMap((e) => e.sectors))).sort();
-  // Prompt 282/283 — counts matching the header buttons, all derived from
-  // the one grouping function so they can never drift from the row filter
-  // or the pill label above. Prompt 873 merged Frozen+Stale into one
-  // button/count — frozenCount now includes what used to be staleCount,
-  // via viewForFrozenState itself, not a separate fold here.
-  // Prompt 852 §C — a fourth count, from the same per-entity mapping the row
-  // filter uses, so the pill label and the list can never disagree. What each
-  // part counts: `passed` is BOTH directions of "no" — an investor pass
-  // (status 'passed') and the founder's own live decision — deliberately in
-  // one bucket for the header number and split by label inside the view.
-  const viewCounts = { frozen: 0, reported: 0, passed: 0, none: 0 };
-  for (const view of entityViews.values()) viewCounts[view]++;
-  const frozenCount = viewCounts.frozen;
-  // Named reportedCount, not blockedCount — that name is already taken by
-  // the unrelated catalog-quota "blocked" count further up (from the
-  // catalog_blocked_count() RPC, Prompt 123).
   // Prompt 529 — drives the height rule below. Counts ONLY rows the account
   // already has unlocked (`rows`, the rendered list), never the catalog rows
   // the plan's quota is holding back — those are the frosted panel's business
@@ -906,14 +887,6 @@ export default function PipelinePage() {
   // db.entities length either: `rows` is what is actually rendered under the
   // current view/wave filter, and that is what has to fit.
   const listExceedsCap = rows.length > PIPELINE_ROWS_WITHOUT_SCROLL_CAP;
-
-  const reportedCount = viewCounts.reported;
-  const passedCount = viewCounts.passed;
-  // Prompt 852 §C — the passed set joins this sum so "Active" stops counting
-  // rows nobody is pursuing. Both directions belong here: an investor who
-  // passed and an investor the founder ruled out are equally not candidates
-  // for outreach.
-  const notActivePipelineCount = frozenCount + reportedCount + passedCount;
 
   // Prompt 273 §3 / Prompt 282/283 — the row's Status pill shows the real
   // sub-class, not the raw 'dormant' status, but only inside the 3
@@ -1056,13 +1029,10 @@ export default function PipelinePage() {
       && askStateFor(e.id).autoAskable)
     .map((e) => e.id);
 
-  // Top-of-page summary — counts + up to 6 most-recently-updated relationships.
-  // "In talks" is in_conversation's display label here specifically (matches
-  // the landing page's own wording for this summary); the raw status value
-  // and its label everywhere else in the app (StatusPill etc.) are untouched.
-  const contactedCount = db.entities.filter((e) => e.status === 'contacted').length;
-  const inTalksCount = db.entities.filter((e) => e.status === 'in_conversation').length;
-  const diligenceCount = db.entities.filter((e) => e.status === 'diligence').length;
+  // Prompt 667 §5/§663 — the Activity card's own content: up to 6 most-
+  // recently-updated relationships needing a look. The counts that used to sit
+  // above this (Contacted/In talks/Diligence/Active/Frozen) are gone — the six
+  // funnel cards already show them, permanently, above.
   const updateCards = db.entities
     .map((e) => {
       const latest = db.interactions.filter((i) => i.entity_id === e.id).sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))[0];
@@ -1140,42 +1110,15 @@ export default function PipelinePage() {
           ×
         </button>
         <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Contacted</span>
-            <span className="text-lg font-bold text-gray-800">{contactedCount}</span>
-          </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">In talks</span>
-            <span className="text-lg font-bold text-[#0E7490]">{inTalksCount}</span>
-          </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Diligence</span>
-            <span className="text-lg font-bold text-amber-600">{diligenceCount}</span>
-          </div>
-          {/* Prompt 260 §2 — Active/Frozen, pushed to the right on the same
-              row (ml-auto, same pattern as the "See frozen" toggle further
-              down). Neutral colors on purpose: this is context ("how many
-              do I have"), not a metric to celebrate like the three above.
-              Prompt 273/277/282 — every dedicated view's entities subtracted
-              out, same as they're excluded from the row filter's 'none'
-              view: none of them are "active" just because they no longer
-              count as plain frozen. "Frozen" stays the umbrella label for
-              this one summary number on purpose — the toggle buttons below
-              (Frozen/Reported/Passed, since Prompt 873 merged Stale into
-              Frozen) are what the per-view breakdown is for; this top line
-              only needs "how many am I not actively pursuing right now". */}
-          <div className="ml-auto flex items-baseline gap-1.5">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Active</span>
-            <span className="text-lg font-bold text-gray-800">{db.entities.length - notActivePipelineCount}</span>
-          </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Frozen</span>
-            <span className="text-lg font-bold text-gray-500">{notActivePipelineCount}</span>
-          </div>
-        </div>
+        {/* Prompt 667 §5/§663 — the Contacted/In talks/Diligence/Active/Frozen
+            counts that used to open this card are gone: they said, in a third
+            vocabulary, exactly what the six funnel cards above already say in
+            the first — the very duplication Prompt 650 exists to remove. This
+            card's own content now starts with what the cards CAN'T show:
+            which specific relationships need attention, and the vault-access
+            nudge below. */}
         {updateCards.length > 0 && (
-          <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3">
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
             {updateCards.map(({ entity, tag, escalationTier }) => {
               const tier = escalationTier ? ESCALATION_TIER_CLASS[escalationTier] : null;
               return (
@@ -1247,13 +1190,17 @@ export default function PipelinePage() {
         {(q || wave.length > 0 || status.length > 0 || sectors.length > 0 || country) && (
           <button onClick={() => { setQ(''); setWave([]); setStatus([]); setSectors([]); setCountry(''); }} className="text-sm text-gray-500 hover:underline">Clear</button>
         )}
-        {/* Prompt 880 §4 — the Summary toggle, between the country filter and
-            the ❄ Frozen indicator (Nuno's placement). On/off shows/hides the
-            summary card; off by default. */}
+        {/* Prompt 880 §4 — the toggle, between the country filter and the
+            drop zones (Nuno's placement). On/off shows/hides the card below;
+            off by default. Prompt 667 §5/§663 — relabelled from "Summary" to
+            "Activity": the counts it used to show now live permanently in the
+            six funnel cards above, so this toggle's own content is only what
+            those cards can't show — specific relationships needing a look,
+            and the vault-access nudge. */}
         <button onClick={() => setSummaryOpen((v) => !v)}
-          title="Show the pipeline summary — counts and the investors that need attention"
+          title="Show recent activity and investors that need attention"
           className={`ml-auto rounded-lg border px-2.5 py-1.5 text-sm font-medium ${summaryOpen ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
-          Summary
+          Activity
         </button>
         {/* Prompt 257 §4 — pure visualization, no actions of its own: to
             unfreeze, open the dossier and use reactivation/reopen, already
@@ -1422,6 +1369,11 @@ export default function PipelinePage() {
               const groupCard = PIPELINE_CARDS.find((c) => c.key === groupKey)!;
               const groupTone = TONE[groupCard.tone];
               const isCollapsed = collapsedGroups.has(groupKey);
+              // Prompt 667 §5 — the band header count must equal what the funnel
+              // card says (the whole point of Phase 2 was one number, never two
+              // that can drift): a test fixture renders in the band but is not
+              // counted, same exclusion as funnelCounts.
+              const groupRealCount = groupRows.filter((e) => !e.is_test).length;
               return (
                 <Fragment key={groupKey}>
                   <tr className="border-t border-gray-200">
@@ -1430,7 +1382,7 @@ export default function PipelinePage() {
                         className="flex w-full items-center gap-2 px-2 py-2 text-left" style={{ background: groupTone.wash }}>
                         <span className="text-[13px]" aria-hidden>{ICON[groupKey]}</span>
                         <span className="text-[13px] font-extrabold tracking-tight" style={{ color: groupTone.fg }}>{groupCard.label}</span>
-                        <span className="text-[11.5px] font-semibold text-gray-500">{groupRows.length} investors</span>
+                        <span className="text-[11.5px] font-semibold text-gray-500">{groupRealCount} investors</span>
                         {groupCard.context && <span className="ml-auto text-[11.5px] font-semibold" style={{ color: groupTone.fg }}>{groupCard.context}</span>}
                         <span className={`text-[10px] text-gray-500 ${groupCard.context ? 'ml-2' : 'ml-auto'}`}>{isCollapsed ? '▸' : '▾'}</span>
                       </button>
@@ -1473,6 +1425,16 @@ export default function PipelinePage() {
                         <span title="You have a path to this investor" className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 align-middle" />
                       )}
                     </Link>
+                    {/* Prompt 667 §5 (Nuno's decision) — a visible marker
+                        distinguishing a dev/QA fixture from a real investor;
+                        excluded from every count above (funnel cards, band
+                        headers). First badge on the row, on purpose. */}
+                    {e.is_test && (
+                      <span className="ml-1.5 inline-block rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700"
+                        title="Internal test fixture — kept for QA, not a real investor. Excluded from every count on this page.">
+                        Test
+                      </span>
+                    )}
                     {inBand1 && (
                       <span className="ml-1.5 inline-block rounded-full border border-[#0E7490]/30 bg-[#E8F4F8] px-1.5 py-0.5 text-[10px] font-semibold text-[#0E7490]"
                         title={interested ? 'Expressed interest on the platform — hasn’t been actioned yet.' : 'A live relationship — diligence, an active thread, or recent back-and-forth.'}>
