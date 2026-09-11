@@ -400,6 +400,13 @@ export interface Entity {
   // a real auth.users id when Supabase-backed. Migration 0194.
   hard_filter_resolved_at?: string;
   hard_filter_resolved_by?: string;
+  // Prompt 883 — set when the founder explicitly DECLINES the automation's
+  // "mark dormant" proposal (as opposed to Confirm, which sets status to
+  // 'dormant' itself). Read by automation-rules-tick.ts to suppress
+  // re-proposing the identical decision for 6 months, unless a new
+  // interaction is logged for this entity in the meantime (migration
+  // 20260911200000).
+  dormant_decline_at?: string;
   // Prompt 285 §3 — migration 0200. Undefined on every row predating that
   // migration and on every self-report before this prompt; the app treats
   // missing the same as 'self_report' (the only thing that could have set
@@ -629,6 +636,17 @@ export interface TaskItem {
   // dismissed".
   reminder_muted?: boolean;
   last_reminded_at?: string | null;
+  // Prompt 883 — Dismiss on a 'automation_dormant' confirmation task: "an
+  // option to simply not appear there anymore" (Nuno, verbatim). Deliberately
+  // NOT `done` — done already means closed, one way or another, everywhere
+  // else tasks is read; this only ever affects founderActionsRequired()'s
+  // own filter (migration 20260911200000).
+  confirmation_dismissed_at?: string | null;
+  // Prompt 884 — "Mark prepared" on a meeting 1-2 days out (migration
+  // 20260911201000). A distinct concept from `done`: a meeting task is only ever
+  // marked done by a real logged summary (see Add meeting summary), never
+  // by preparing for it.
+  prepared_at?: string | null;
 }
 
 // Prompt 212 §B.1 — capital JÁ levantado, separado da ronda actual

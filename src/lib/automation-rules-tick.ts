@@ -7,7 +7,7 @@
 // `rules.ts` NÃO é tocado (CLAUDE.md: "keep rules.ts untouched — feed it live
 // data instead of seed data"). Este ficheiro só o alimenta e filtra o que ele
 // devolve.
-import type { ActionType, Db, TaskItem, TaskKind } from './types';
+import type { ActionType, Db, Entity, Interaction, TaskItem, TaskKind } from './types';
 import { LOCK_DAYS, buildFollowUpTask, outboundsAwaitingFollowUp, passReasonAlert } from './rules';
 
 // O tecto de obsolescência. `outboundsAwaitingFollowUp` é puro e genérico:
@@ -23,6 +23,15 @@ import { LOCK_DAYS, buildFollowUpTask, outboundsAwaitingFollowUp, passReasonAler
 // mesmo limiar que reopen-signals.ts (LOW_CONFIDENCE_NUDGE_DAYS) usa para
 // essa fronteira, não um número inventado aqui.
 export const FOLLOW_UP_STALE_AFTER_DAYS = 90;
+
+// Prompt 883 §3 — Decline suppresses re-proposing the identical decision
+// for 6 calendar months (setMonth, not a fixed day count — the prompt's
+// own wording), UNLESS a new interaction has been logged for that entity
+// since the decline, which clears the suppression regardless of the
+// window: a fresh silence cycle became possible the moment contact
+// resumed, and the 6-month floor is only meant to stop nagging about a
+// relationship nothing has touched.
+export const DORMANT_DECLINE_SUPPRESS_MONTHS = 6;
 
 // Estados terminais: um follow-up a quem já passou, já investiu ou já está
 // dormente contradiz as próprias regras de outreach (e a doutrina de
@@ -63,7 +72,7 @@ export interface AutomationRulesTickPlan {
   tasks: PlannedTask[];
   /** Quantas pendências `rules.ts` devolveu antes de qualquer filtro. */
   considered: number;
-  skipped: { stale: number; terminalStatus: number; doNotContact: number; alreadyOpen: number; disabled: number; overCap: number };
+  skipped: { stale: number; terminalStatus: number; doNotContact: number; alreadyOpen: number; disabled: number; overCap: number; declinedRecently: number };
   /** `passReasonAlert` avaliado sobre os mesmos dados. Ver o comentário em -server.ts. */
   passPattern: { category: string; count: number } | null;
 }
@@ -76,7 +85,7 @@ export function planAutomationRulesTick(input: AutomationRulesTickInput): Automa
   // alargar a assinatura de rules.ts, que é o que CLAUDE.md manda não fazer.
   const asDb = db as unknown as Db;
   const pending = outboundsAwaitingFollowUp(asDb, now);
-  const skipped = { stale: 0, terminalStatus: 0, doNotContact: 0, alreadyOpen: 0, disabled: 0, overCap: 0 };
+  const skipped = { stale: 0, terminalStatus: 0, doNotContact: 0, alreadyOpen: 0, disabled: 0, overCap: 0, declinedRecently: 0 };
 
   const staleCutoff = now.getTime() - FOLLOW_UP_STALE_AFTER_DAYS * 86_400_000;
   const hasOpenFollowUp = new Set(openTasks.filter((t) => t.kind === 'follow_up' && t.entity_id).map((t) => t.entity_id!));
@@ -99,6 +108,11 @@ export function planAutomationRulesTick(input: AutomationRulesTickInput): Automa
       // se propõe é a DECISÃO de marcar dormente, não outro contacto.
       if (!dormantEnabled) { skipped.disabled++; continue; }
       if (hasOpenDormant.has(entity.id)) { skipped.alreadyOpen++; continue; }
+      // Prompt 883 §3 — a founder who explicitly Declined this exact
+      // proposal already answered it; re-asking tomorrow would be the
+      // nag Decline exists to stop. asDb.interactions is the same slice
+      // rules.ts already reads, so no new Db field is needed here.
+      if (dormantDeclineSuppressed(entity, asDb.interactions, now)) { skipped.declinedRecently++; continue; }
       candidates.push({
         source: 'automation_dormant', kind: 'admin', action_type: 'other',
         title: `Decide: mark ${entity.name} dormant — no reply after the follow-up`,
@@ -134,6 +148,38 @@ export function planAutomationRulesTick(input: AutomationRulesTickInput): Automa
   skipped.overCap = candidates.length - tasks.length;
 
   return { tasks, considered: pending.length, skipped, passPattern: passReasonAlert(asDb) };
+}
+
+// Prompt 883 §3 — pure so the 6-month/interaction-clears-it logic is
+// testable without a Db. `entity`/`interactions` take only the fields
+// actually read, same discipline as RulesDbSlice above.
+//
+// Caught live (see DECISIONS.md): declineDormant() itself writes a
+// logSystemNote — an interactions row, channel='stage_change' — recording
+// the decline. That row's own occurred_at lands at (or a heartbeat after)
+// dormant_decline_at, so without excluding it, the decline would count as
+// its OWN "new interaction" and clear the suppression it had just set,
+// every single time. channel !== 'stage_change' is the fix: that channel
+// is already this codebase's own marker for internal bookkeeping
+// (logSystemNote, setRelationshipStage), never a real outbound/inbound
+// message — exactly the distinction "a fresh silence cycle became
+// possible" needs.
+export function dormantDeclineSuppressed(
+  entity: Pick<Entity, 'id' | 'dormant_decline_at'>,
+  interactions: Pick<Interaction, 'entity_id' | 'occurred_at' | 'channel'>[],
+  now: Date,
+): boolean {
+  if (!entity.dormant_decline_at) return false;
+  const declinedAt = new Date(entity.dormant_decline_at);
+  const windowEnds = new Date(declinedAt);
+  windowEnds.setMonth(windowEnds.getMonth() + DORMANT_DECLINE_SUPPRESS_MONTHS);
+  if (now.getTime() >= windowEnds.getTime()) return false; // 6 months passed — floor lifted regardless
+  // Any REAL interaction since the decline — in or out — means a fresh
+  // silence cycle is possible, so the suppression clears even inside the
+  // window. 'stage_change' excluded — see the caught-live note above.
+  const touchedSince = interactions.some((i) =>
+    i.entity_id === entity.id && i.channel !== 'stage_change' && new Date(i.occurred_at).getTime() > declinedAt.getTime());
+  return !touchedSince;
 }
 
 function dueAt(occurredAt: string): string {

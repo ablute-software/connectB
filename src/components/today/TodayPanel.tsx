@@ -20,6 +20,11 @@ import { useParkEntity } from '@/lib/use-park-entity';
 import { useConfirm } from '@/lib/confirm';
 import type { ActionType } from '@/lib/types';
 import { ReawakeningQueue } from '@/components/ReawakeningQueue';
+import { MeetingsCard } from '@/components/today/MeetingsCard';
+import { FollowUpCard } from '@/components/today/FollowUpCard';
+import { OtherCard } from '@/components/today/OtherCard';
+import { RecentActivityCard } from '@/components/today/RecentActivityCard';
+import { overdueTasks, followUpTasks, otherTasks, meetingsCompletedThisWeek } from '@/lib/today-cards';
 
 // Prompt 398 §2 — exported so ReadyToContactPanel.tsx/ResearchNeededPanel.tsx
 // (the two sections extracted out to their own top-level tabs) use the
@@ -78,8 +83,17 @@ export function TodayPanel() {
   const now = new Date();
   const caps = outboundCounts(db);
 
-  const overdue = db.tasks.filter((t) => !t.done && t.due_at && new Date(t.due_at) < now && t.kind !== 'research')
-    .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''));
+  // Prompt 883 §2 — 'automation_dormant' tasks used to surface here with
+  // only a plain checkbox, so ticking it closed the task WITHOUT deciding
+  // anything (the same bug Prompt 220 §B already fixed once for
+  // interest_level_request). That decision now lives ONLY in Actions
+  // Required (its own Confirm/Decline/Dismiss card) — excluded here so
+  // Today can never again offer the silent no-op.
+  // Prompt 884 — same filter, now shared with the Meetings/Follow up/Other
+  // cards via today-cards.ts (one source of card-membership truth). Also
+  // now excludes kind==='meeting': a meeting lives ONLY in the Meetings
+  // card, overdue or not (shown there as "Missed", never dropped).
+  const overdue = overdueTasks(db.tasks, now);
 
   // Prompt 414 §2 — Today used to only ever show a Sherlock advice once it
   // had become a TASK (i.e. the founder clicked Accept/Edit on the /log
@@ -113,9 +127,15 @@ export function TodayPanel() {
     ...liveOverdue.map((e) => ({ kind: 'live' as const, ...e })),
   ].sort((a, b) => b.daysOverdue - a.daysOverdue || a.wave - b.wave || a.fitRank - b.fitRank);
   const unclassified = db.interactions.filter((i) => i.direction === 'in' && (!i.classification || i.classification === 'unclear'));
-  const thisWeek = db.tasks.filter((t) => !t.done && t.due_at && new Date(t.due_at) >= now
-    && new Date(t.due_at) < new Date(now.getTime() + 7 * 24 * 3600 * 1000))
-    .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? '')).slice(0, 6);
+  // Prompt 884 — the Follow up and Other cards, same one source of
+  // card-membership truth as Overdue above (today-cards.ts). The old
+  // right-column "This week" preview is superseded by these two cards
+  // (everything not-done and not-dormant is now visible somewhere in the
+  // main column) plus the new Recent activity card, per this prompt's own
+  // stated right-column order.
+  const followUp = followUpTasks(db.tasks, now);
+  const other = otherTasks(db.tasks, now);
+  const meetingsCompleted = meetingsCompletedThisWeek(db.tasks, now);
   // P106 §3 — see OverviewPanel.tsx's identical fix for the full rationale.
   const roundTarget = db.org.round_target_eur;
   const roundSecured = db.org.round_secured_eur ?? 0;
@@ -158,6 +178,8 @@ export function TodayPanel() {
             by visiting Pipeline. Self-contained (own fetch, own store
             read) — no new logic, just a second place it renders. */}
         <ReawakeningQueue />
+
+        <MeetingsCard tasks={db.tasks} now={now} />
 
         <Card title={<span className="text-[#B00000]">Overdue ({mergedOverdue.length})</span>}>
           {dismissedNote && (
@@ -221,7 +243,13 @@ export function TodayPanel() {
                       </span>
                     ) : (
                       <span className="flex shrink-0 items-center gap-2">
-                        <span className="font-semibold text-[#B00000]">{t.due_at?.slice(0, 10)}</span>
+                        {/* Prompt 884 — "Overdue by N days", the mockup's own
+                            pill shape, reusing daysOverdue mergedOverdue
+                            already computed for sorting (no new derivation). */}
+                        <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-[#B00000]">
+                          Overdue by {entry.daysOverdue} day{entry.daysOverdue === 1 ? '' : 's'}
+                        </span>
+                        <span className="text-xs text-gray-400">{t.due_at?.slice(0, 10)}</span>
                         {/* Prompt 527 — only where there IS an entity to park.
                             A task with no entity_id has nothing to take out of
                             the pipeline, so no button rather than a dead one. */}
@@ -261,6 +289,13 @@ export function TodayPanel() {
           )}
         </Card>
 
+        <FollowUpCard tasks={followUp} now={now} />
+
+        <OtherCard tasks={other} now={now} />
+
+        {/* Prompt 884's own mockup does not include this card — kept as-is
+            (a working feature, not part of this redesign's scope) rather
+            than silently dropped. Flagged as a discrepancy in DECISIONS.md. */}
         <Card title={<span className="text-amber-700">Unclassified replies ({unclassified.length})</span>}>
           {unclassified.length === 0 ? <p className="text-sm text-gray-400">Inbox clear.</p> : (
             <ul className="divide-y divide-gray-100">
@@ -313,6 +348,21 @@ export function TodayPanel() {
                   style={{ width: `${followUpsOnTimePct}%` }} />
               </div>
             </div>
+            <div>
+              {/* Prompt 884 — numerator: kind==='meeting' tasks due this
+                  week that are done, which (per this same redesign's own
+                  decision) only ever happens via a real logged summary —
+                  see MeetingsCard's "Add meeting summary". Denominator: all
+                  such tasks due this week, done or not. */}
+              <div className="flex items-baseline justify-between text-xs">
+                <span className="font-medium text-gray-600">Meetings completed</span>
+                <span className="text-gray-500">{meetingsCompleted.done} / {meetingsCompleted.total}</span>
+              </div>
+              <div className="mt-1 h-2 overflow-hidden rounded bg-gray-100">
+                <div className="h-full bg-green-600"
+                  style={{ width: `${meetingsCompleted.total ? Math.round((meetingsCompleted.done / meetingsCompleted.total) * 100) : 0}%` }} />
+              </div>
+            </div>
           </div>
         </Card>
         </div>
@@ -333,19 +383,7 @@ export function TodayPanel() {
           )}
           <div className="mt-2 text-xs text-gray-500">{activeConvos} active conversation(s) · benchmark: a seed closes on 15–40.</div>
         </Card>
-        <Card title="This week">
-          {thisWeek.length === 0 ? <p className="text-sm text-gray-400">Nothing scheduled.</p> : (
-            <ul className="space-y-1.5 text-sm">
-              {thisWeek.map((t) => (
-                <li key={t.id} className="flex items-center gap-2">
-                  <ActionTypePill type={t.action_type} />
-                  <span className="flex-1 truncate">{followUpTaskDisplayTitle(t, now)}</span>
-                  <span className="shrink-0 text-xs text-gray-400">{t.due_at?.slice(5, 10)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
+        <RecentActivityCard now={now} />
       </div>
     </div>
   );

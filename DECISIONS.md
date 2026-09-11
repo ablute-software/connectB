@@ -6661,3 +6661,536 @@ permanently, confirmed both in the full flow and in an isolated repro.
 Screenshots sent to the user directly.
 
 Branch `claude/prompt-882-guided-discipline`.
+
+## Prompt 883 — Confirmation card (Confirm/Decline/Dismiss) for the dormant-decision task
+
+**The bug, confirmed by reading the code together with Nuno.** The
+"Decide: mark {entity} dormant — no reply after the follow-up" task
+(`automation-rules-tick.ts`'s second-silence rule, `source:
+'automation_dormant'`) had only its plain row checkbox as a control.
+Ticking it called `toggleTask` and nothing else — the exact silent no-op
+`TodayPanel.tsx`'s own "Prompt 220 §B" comment describes having fixed
+once already, for `interest_level_request` tasks, never fixed here. Worse:
+the one OTHER control already wired to this task — Today's "Dismiss"
+button — actually called `parkEntity()`, which DOES set `status =
+'dormant'`. So the UI had it backwards: the button labelled like a no-op
+had the real, permanent effect, and the real-looking control (the
+checkbox) did nothing.
+
+**Migration 0351** — two columns:
+- `entities.dormant_decline_at timestamptz` — set when the founder
+  explicitly Declines. `tasks` has no completion timestamp of any kind
+  (checked against the live schema first), so this lives on the entity,
+  read by `automation-rules-tick.ts`'s own guard.
+- `tasks.confirmation_dismissed_at timestamptz` — Dismiss, "an option to
+  simply not appear there anymore" (Nuno, verbatim). Deliberately NOT
+  `done` — `done` already means closed, one way or another, everywhere
+  else `tasks` is read.
+
+**Three distinct actions** (`src/lib/use-dormant-confirmation.ts`,
+`src/lib/exit-effects.ts`'s new `dormantConfirmationNoteContent` /
+`dormantConfirmationReason` / `dormantDeclineNoteContent`):
+- **Confirm** — `logSystemNote` + `setEntityStatus(id, 'dormant', reason)`
+  + `toggleTask`, with its OWN honest copy — not
+  `dismissNoteContent`/`dismissDormantReason`, which say "Dismissed" and
+  would misdescribe a founder AGREEING with the proposal. Deliberately
+  does not run `planPark`'s full disposition loop over the entity's other
+  tasks (no revisit task, no rescheduling) — the prompt's own text names
+  the mechanism as exactly `setEntityStatus` + `logSystemNote`, and
+  running `planPark` risked double-toggling this same task: its title
+  contains "no reply", which `answersByParking`'s regex already matches on
+  "reply".
+- **Decline** — `logSystemNote` (honest "Declined — kept active…" wording)
+  + `updateEntity({ dormant_decline_at })` + `toggleTask`. No entity-status
+  change.
+- **Dismiss** — `updateTask({ confirmation_dismissed_at })` only. No note,
+  no entity effect, no automation effect; `done` stays `false` so the
+  automation's own idempotency guard keeps seeing it as unresolved.
+
+**`src/lib/actions-required.ts`** — new `ActionItem` kind
+`dormant_confirmation`, sourced from `input.tasks` with the SAME predicate
+`hasOpenDormant` uses (`!done && source === 'automation_dormant'`), plus
+excluding a Dismiss (`!confirmation_dismissed_at`) — the two guards can
+never disagree about what's still open.
+
+**Today (`TodayPanel.tsx`) no longer shows this task type at all** —
+excluded from `mergedOverdue`. (Prompt 884's "Other" card, referenced in
+the prompt text, does not exist yet anywhere in this codebase — confirmed
+by grep; nothing to exclude there yet, but it must carry the same
+exclusion once it's built.)
+
+**Read-site audit — every other place `automation_dormant` tasks could
+surface, and what was done:**
+| site | risk | action |
+|---|---|---|
+| `AgendaPanel.tsx` (month grid, OVERDUE/DUE TODAY/THIS WEEK/COMPLETED rail, task detail popup, ICS export, type-filter counts) | same interactive checkbox + "Mark done" button as Today had | **excluded** — new `agendaTasks` filter (`source !== 'automation_dormant'`), every `db.tasks` read in the file now routes through it |
+| `pipeline/page.tsx`'s `nextAction`/"Next action" column | read-only `<span>` text, no checkbox/click handler on that cell | left as-is — read-only is fine per the prompt's own instruction |
+| `relationship.ts`'s `getNextStepTask` | grepped — not called from anywhere else in the codebase currently | left as-is, no live surface |
+| `ReminderPopup.tsx`/`InvestorReminderPopup.tsx` (via `ReminderPopupView`/`dueReminders`) | filtered internally by `reminder_at`; `automation_dormant` tasks never get one set | safe by construction, no change |
+| `sherlock-next.ts`/`OverviewPanel.tsx`'s `followupsDue` | filtered by `kind === 'follow_up'`; this task's kind is `'admin'` | safe by construction, no change |
+| `SherlockInsightBanner.tsx`'s `pendingInterestTask` | filtered by `source === 'interest_level_request'` | safe by construction, no change |
+| `api/portal/today`, `api/portal/document-requests` (investor portal) | separate data-access domain, unrelated filters/markers | confirmed no leak, no change |
+
+**Confirmation card (`ActionsRequiredPanel.tsx`)** — new
+`DormantConfirmationCard`, scoped to this one `ActionItem` kind only (the
+panel had zero other multi-select machinery, confirmed before touching
+it). Per-row checkbox + select-all, each row ALSO keeps its own inline
+Confirm/Decline/Dismiss buttons (same pattern this file already uses for
+`interest_request`) so a single pending item is never stranded — a
+bulk toolbar (`Confirm (n)`/`Decline (n)`/`Dismiss (n)`) additionally
+appears at the card header once 2+ rows are checked, exactly as asked.
+Confirm and Decline both keep the existing one-line `useConfirm()` step
+before firing — even in bulk — since both have a real, recorded effect;
+Dismiss never asks, per the prompt's own exemption.
+
+### A real bug found and fixed by the live DB test (not a synthetic unit test)
+
+Verifying Decline's 6-month suppression against REAL Supabase rows (not
+just synthetic fixtures) surfaced a genuine defect: `declineDormant()`
+itself calls `logSystemNote`, which inserts an `interactions` row
+(`channel = 'stage_change'`) recording the decline. That row's own
+`occurred_at` lands at — or a heartbeat after — `dormant_decline_at`
+(same `now()` inside one transaction in the test fixture; a fresh
+`new Date()` a moment later in the real client code). Without excluding
+it, `dormantDeclineSuppressed()`'s own "any interaction since the decline
+clears it" check would see the decline's OWN bookkeeping note as a
+qualifying interaction and self-clear the suppression it had just set —
+on every single Decline, immediately, defeating the whole feature. Fixed
+by excluding `channel === 'stage_change'` — the codebase's own existing
+marker for internal bookkeeping (`logSystemNote`, `setRelationshipStage`),
+never a real outbound/inbound message. Confirmed live below, and a
+dedicated regression test was added
+(`automation-rules-tick.test.ts`: "a stage_change row (the decline's own
+system note) does NOT count as a clearing interaction").
+
+### zz-test DB verification — concrete ids, real before/after data
+
+Fixture: org `zz-test-883-dormant` (`77777777-7777-4777-8777-777777770000`),
+6 entities + 6 `automation_dormant` tasks, in production
+(`wkjcaoqdvhykrfacsylr`).
+
+**Confirm** — entity `77777777-…-770001` ("zz-test-883 Confirm Fund"),
+task `77777777-…-770101`.
+- BEFORE: `status='contacted'`, `dormant_decline_at=NULL`, task `done=false`.
+- Ran the exact SQL-equivalent of `confirmDormant()`.
+- AFTER (literal): `status='dormant'`, `dormant_since='2026-09-11
+  15:10:31.549041+00'`, `dormant_reason='Confirmed dormant — no reply
+  after the follow-up (2026-09-11).'`; task `done=true`; new interaction
+  `77777777-…-770301` (`out`/`stage_change`, same timestamp):
+  `'Confirmed — marked dormant after no reply following the follow-up, on
+  2026-09-11.'`
+
+**Decline** — entity `77777777-…-770002` ("zz-test-883 Decline Fund"),
+task `77777777-…-770102`, person `77777777-…-770202`, with two real
+second-silence interactions (`77777777-…-770201` at 2026-08-02,
+`77777777-…-770203` at 2026-08-22, both `out`/`email`).
+- Ran the exact SQL-equivalent of `declineDormant()`.
+- AFTER (literal): entity `status='contacted'` — **unchanged** — with
+  `dormant_decline_at='2026-09-11 15:10:43.30894+00'`; task `done=true`;
+  new interaction `77777777-…-770302` (`out`/`stage_change`, same
+  timestamp): `'Declined — kept active despite no reply after the
+  follow-up, on 2026-09-11.'`
+- **Tick re-evaluation, against the real production function
+  (`dormantDeclineSuppressed`/`planAutomationRulesTick`) fed the literal
+  fetched rows above** (a throwaway `_zz-verify-883-tick.test.ts`, run
+  once via `npx vitest run`, output captured here, then deleted —
+  never committed):
+  - `dormantDeclineSuppressed` at `now=2026-09-11T15:11:00Z` (moments
+    after the decline, real rows only) → **`true`** (suppressed; the
+    `stage_change` note does not self-clear it — the bug above, fixed).
+  - Same, at `now=2026-10-15` (~1 month later, still no real contact) →
+    **`true`**.
+  - A real, non-`stage_change` interaction logged
+    (`77777777-…-770204`, `out`/`email`, `2026-09-11 15:12:40.863404+00`,
+    `'zz-test outbound 3 (after decline — fresh contact)'`) →
+    `dormantDeclineSuppressed` at `now=2026-09-11T15:13:00Z` → **`false`**
+    (cleared).
+  - Full `planAutomationRulesTick` run, real entity + real interactions,
+    `now=2026-09-27` (16 days after the decline's own note, so it clears
+    rules.ts's own unrelated 14-day "last outbound" window — a
+    pre-existing rules.ts characteristic, out of scope to touch): **0
+    tasks created, `skipped.declinedRecently=1`.**
+  - Full `planAutomationRulesTick` run, real entity + real interactions +
+    the fresh contact, `now=2026-09-26` (15 days after the fresh
+    contact): **`skipped.declinedRecently=0`, 1 task created**
+    (`source: 'automation_dormant'`, `entity_id:
+    '77777777-…-770002'`) — normal second-silence logic resumed.
+  - All 5 assertions in this throwaway run passed (`Test Files 1 passed
+    (1)`, `Tests 5 passed (5)`).
+
+**Dismiss** — task `77777777-…-770103` ("zz-test-883 Dismiss Fund").
+- Ran the exact SQL-equivalent of `dismissDormant()`.
+- AFTER (literal): `confirmation_dismissed_at='2026-09-11
+  15:13:45.028655+00'`, `done` **still `false`** — confirmed untouched,
+  which is what keeps the automation's own `hasOpenDormant` guard (unchanged
+  by this prompt) seeing the entity as still having an open decision, so a
+  fresh tick creates no duplicate. `founderActionsRequired()` excluding a
+  dismissed-but-open task is covered by a dedicated unit test (`actions-
+  required.test.ts`: "a dismissed task disappears here even though it is
+  still open/undone").
+
+**Bulk Confirm** — 3 entities/tasks (`77777777-…-770004/5/6`, "zz-test-883
+Bulk Fund A/B/C").
+- Ran the exact SQL-equivalent of `runBulk('confirm')` — one insert
+  statement across all 3 interactions, one update across all 3 entities,
+  one update across all 3 tasks (matching the single `await confirm()`
+  call the code makes ONCE before the loop, not per-row — verified by
+  reading `runBulk()` itself, not re-derived here).
+- AFTER (literal, all 3): `status='dormant'`,
+  `dormant_since='2026-09-11 15:13:58.898516+00'` (identical timestamp —
+  one batch), tasks `done=true`.
+
+**Cleanup**: all rows deleted after capturing the proof above — org
+`77777777-7777-4777-8777-777777770000` and everything under it
+(6 entities, 6 tasks, 8 interactions, 1 person). Confirmed 0 rows remain
+(`select count(*) from orgs where id=…` → 0). The throwaway
+`_zz-verify-883-tick.test.ts` was deleted from disk, never staged.
+
+**Validated**: `tsc`/`vitest`/`build`/`eslint` all green by exit code
+(3773 tests, 253 files — 15 new: 4 in `actions-required.test.ts`, 11 in
+`automation-rules-tick.test.ts` including the `dormantDeclineSuppressed`
+describe block and the stage_change regression test). `npm run
+verify:migrations` clean, 0351 free.
+
+Migration 0351. Branch `claude/prompt-883-dormant-confirmation`.
+
+**Addendum — a real gap in the read-site audit above, caught in review.**
+`TodayPanel.tsx` has a SECOND list this migration's audit missed: `thisWeek`
+(the "This week" rail, line ~128) read `db.tasks` directly, with no
+`source !== 'automation_dormant'` exclusion — only `overdue` had it. Not an
+interactive bug (that row renders as plain text, no checkbox, confirmed by
+reading its JSX before fixing) but a real instance of "Today no longer
+shows this task type at all" not actually holding: a not-yet-due
+`automation_dormant` task would still surface there, duplicating the
+Actions Required card with no way to act on it from that spot. Fixed with
+the same `&& t.source !== 'automation_dormant'` clause already applied to
+`overdue`; `openFollowUps` (the third `db.tasks` read in this file) was
+already safe by construction (`kind === 'follow_up'`, never `'admin'`).
+Re-validated: `tsc`/`vitest` (3773/3773)/`build`/`eslint` all green by exit
+code.
+
+## Prompt 884 — Today redesign: Meetings / Overdue / Follow up / Other cards, the Agenda meeting-kind fix, and a real Recent activity feed
+
+Branch `claude/prompt-884-today-redesign`, off `claude/prompt-883-dormant-
+confirmation` (HEAD `6665a8e`) — this prompt's own text explicitly
+references "automation_dormant tasks" and "the dormant-decision task" and
+says not to touch `automation-rules-tick.ts` because that's "883's
+territory, already done or in flight separately", confirming this is the
+correct parent lineage (prompt numbers are not globally unique across this
+repo's many branches — verified via `git log origin/claude/prompt-883-
+dormant-confirmation --oneline`, not by number alone).
+
+**One source of card-membership truth.** `src/lib/today-cards.ts` —
+`meetingTasks`/`overdueTasks`/`followUpTasks`/`otherTasks`, all sharing
+`isTodayEligible` (`!done && source !== 'automation_dormant'`, Prompt 883's
+own exclusion, reused verbatim). `otherTasks` is computed by exclusion of
+the other three, so nothing can double-count or silently drop between
+cards — proven by a dedicated test (`today-cards.test.ts`: "every not-done,
+non-dormant task lands in EXACTLY one of the four cards"). 12 tests, all
+passing.
+
+**Migration 0352** — `tasks.prepared_at timestamptz`, applied to
+production. Confirmed via
+`select column_name, data_type from information_schema.columns where
+table_name='tasks' and column_name='prepared_at'` → `prepared_at |
+timestamp with time zone`. `npm run verify:migrations`: no collision on
+0352 across any remote branch (checked `git branch -r` for a 0352 file on
+any branch — none found); the tool's own "same number on two branches"
+list only flags 0289/0292/0339, all pre-existing and unrelated to this
+prompt.
+
+**Meetings card** (`MeetingsCard.tsx`) — date-grouped (`upcomingMeeting-
+Groups`: Today / Tomorrow / named weekday out to +2 days) plus a `missed-
+Meetings` bucket for anything whose `due_at` has already passed — a missed
+meeting is shown with a red "Missed" pill and "Add meeting summary", never
+silently dropped from view just because meetings are excluded from Overdue.
+"Add meeting summary" is the ONLY way a meeting task closes — it links to
+`/entities/{entityId}?rail=log&channel=meeting&taskId={taskId}&person=
+{personId}`, a deep link built from two new query params
+(`entities/[id]/page.tsx`) that prefill `RailLogForm`'s channel (`default-
+Channel`/`channelNonce` props, mirroring the existing `defaultDraft`/
+`draftNonce` pattern) and, in that page's `onSaved` callback — which only
+fires after `logInteraction()` has already run for real inside RailLogForm's
+own `save()` — call `toggleTask(taskId)`. This is deliberately not a
+checkbox: Prompt 883 already fixed the exact "checkbox closes a decision
+with no real action behind it" bug once (dormant confirmation), and this
+redesign must not reintroduce that shape for meetings. "Mark prepared" (the
++1/+2-day bucket) calls `updateTask(id, { prepared_at: new Date().toISO-
+String() })` directly — a genuinely different concept (preparing is not a
+substitute for the meeting happening), so no such conflation risk exists
+there.
+
+**Overdue card** — same `mergedOverdue` (task rows + `liveOverdueEntities`)
+as before, now built from `overdueTasks()` (today-cards.ts) instead of an
+inline filter, which additionally excludes `kind==='meeting'` (previously
+only `automation_dormant`/`done`/`kind==='research'` were excluded) — a
+meeting now lives ONLY in the Meetings card, overdue or not. Restyled each
+task row with a red "Overdue by N days" pill (reusing `daysOverdue`
+`mergedOverdue` already computes for its own sort, no new derivation). The
+`interest_level_request` Approve/Deny special-case and the `liveOverdue`
+"Reply now"/"Dismiss" rows are unchanged.
+
+**Follow up card (NEW)** — `FollowUpCard.tsx`, `followUpTasks()`: the two
+follow-up `action_type`s that are NOT yet overdue (`due_at` decides
+membership, never the subtitle). "Last outreach on…" is informational only,
+read from the most recent outbound (non-`stage_change`) interaction for the
+same entity/person — no existing helper computed this (checked `relation-
+ship.ts`; `followUpTaskDisplayTitle` only rewrites a task's own title, and
+`lastInteractionSummary` in `frozen-classifier.ts` computes something
+adjacent but isn't reused here since the person-scoping differs), so it's
+computed inline. A follow-up whose `due_at` moves into the past leaves this
+card and appears in Overdue instead — unit-tested, and reproduced against a
+real row below.
+
+**Other card (NEW)** — `OtherCard.tsx`, `otherTasks()`: whatever's left.
+Audited whether a `tasks.priority` field exists before building anything —
+it does not (checked `0001_init.sql` and every later migration touching
+`tasks`; confirmed nothing was ever added). Rather than inventing one
+silently, `otherTaskPriority()` derives High/Medium/Low from the linked
+entity's own `fit_score` (a real, already-scored signal) and returns
+`undefined` (no pill rendered) for a task with no entity or an unscored
+one — that absence is the honest answer, not a bug to paper over with a
+fake default.
+
+**Agenda modal kind-selector fix** — `saveAppointment()` in `AgendaPanel.tsx`
+hardcoded `kind: 'meeting'` for every task the "Add task" modal created,
+regardless of what the founder actually meant. Added an explicit `<select>`
+(`TASK_KIND_OPTIONS`: Meeting/Follow-up/Research/Other) defaulting to
+`'meeting'` via `useState<TaskKind>('meeting')`, reset on modal reopen —
+byte-for-byte the same task shape as before for anyone who never touches
+the new control.
+
+**Recent activity feed** (`src/lib/recent-activity.ts`, `buildRecentActi-
+vity()`, 6 tests) — four real event types, built from data that already
+existed:
+- *"Meeting completed with X"* — any interaction with `channel==='meeting'`
+  (the only way one now gets created, via the flow above).
+- *"Replied to X"* — any other outbound (`direction==='out'`) interaction,
+  excluding `channel==='stage_change'` (this codebase's internal system-
+  note channel, not a real outreach touch).
+- *"Added X to pipeline"* — `deliverCatalogMatches()` (`catalog-delivery-
+  core.ts`) previously left NO queryable record of a catalog delivery at
+  all. Now writes one `interactions` row per delivered entity right after
+  the `entities` insert succeeds (`channel:'stage_change'`, `content` ===
+  the literal marker `PIPELINE_ADD_NOTE_CONTENT`, exported from `recent-
+  activity.ts` so the write site and the read site can never drift apart),
+  best-effort (`console.error`s on failure, does not undo the entities that
+  already exist — matching this function's own existing error-handling
+  style for its secondary writes). Every OTHER `stage_change` note (park/
+  dismiss/dormant confirm-decline — all internal decisions, not "activity")
+  is correctly excluded by requiring the exact marker string, not just the
+  channel.
+- **"Updated note for X" — the prompt's own literal instruction (wire this
+  through `addCompanyFact()`) is architecturally impossible, and this is
+  flagged rather than forced.** `company_facts` (`CompanyFact` type,
+  `types.ts:1037`) has NO `entity_id` field at all — it's org-wide, not
+  per-entity (confirmed reading both `addCompanyFact` implementations,
+  `store-supabase.tsx`/`store-demo.tsx`) — while `interactions.entity_id`
+  is a NOT NULL foreign key, so `logSystemNote` (which requires an entity)
+  simply cannot be called from inside it. Implemented instead as a direct
+  read of `company_facts`, labelled **without** an entity name: "Updated
+  company fact: {category}". A real event, just not entity-scoped the way
+  the prompt assumed.
+- **"Marked X as warm" does not exist as a feature anywhere** (checked
+  `pipeline-temperature.ts`, Prompt 660's work — temperature is computed
+  live from days-since-touch, nothing is ever "marked") and is deliberately
+  left out of v1 rather than building a temperature-tagging feature just to
+  populate this feed, per the prompt's own explicit instruction.
+
+**Where "Added X to pipeline" actually lives** — `deliverCatalogMatches()`
+(`src/lib/catalog-delivery-core.ts:51`), a service-role function with
+exactly 3 call sites, all now covered by the same note-write: the founder-
+click route (`src/app/api/pipeline-unlock/deliver/route.ts:129`), the
+monthly cron (`src/lib/catalog-monthly-delivery-server.ts:108`), and the
+admin backfill script (`scripts/complement-dead-end-orgs.mjs:91`).
+
+**Right column reorder** — Outreach discipline (unchanged 3 stat rows +
+NEW "Meetings completed" row, `meetingsCompletedThisWeek()`: numerator =
+`kind==='meeting'` tasks due this week that are `done`, which — per this
+same redesign's own "Add meeting summary" decision above — only ever
+happens via a real logged summary, so "completed" already means "confirmed
+via the Log"; denominator = all such tasks due this week) → Round progress
+(unchanged) → Recent activity (NEW `RecentActivityCard.tsx`, last 5 events,
+real `View all activity →` link). The old "This week" preview card is
+removed — everything not-done and not-dormant is now visible somewhere in
+the main column's four cards, and Recent activity covers what already
+happened.
+
+**"View all activity" destination** — `/today/activity`
+(`src/app/today/activity/page.tsx`), every event `buildRecentActivity()`
+produces, paginated client-side over the already-loaded array using the
+same URL-state infra the back-office account tables use (`use-table-url-
+state.ts`/`queue-table-state.ts`). **Caught by the build, not by review**:
+`useTableUrlState` reads `useSearchParams()`, which Next's app router
+requires a `<Suspense>` boundary around — the first build attempt failed
+with `useSearchParams() should be wrapped in a suspense boundary` /
+`Export encountered errors on following paths: /today/activity/page`,
+exactly the failure class CLAUDE.md's own rule 5 exists to catch (a
+background `npm run build` run had ALSO returned a misleading "exited with
+code 0" notification for the *wrapper* shell, while the captured
+`BUILD_EXIT=1` line inside the log was the real, correct signal — read from
+the task's own output file, not trusted from the notification text).
+Fixed by wrapping the page in `<Suspense>`, the same pattern `backoffice/
+investors/page.tsx` already uses. Rebuilt clean: `BUILD_EXIT=0`, confirmed
+by grepping the second build log for "Export encountered errors" (absent)
+and finding `/today/activity` listed as a successfully generated static
+route.
+
+**Deliberate scope decisions, not silent changes:**
+- **"Unclassified replies" card kept as-is.** Not in Prompt 884's own
+  mockup/spec, but a working, unrelated feature (unmatched inbound replies
+  needing classification) — dropping it silently would be a regression the
+  prompt never asked for. Left in place, after the new Other card.
+- **Outreach discipline stays linear bars, not a donut.** The prompt's own
+  scope text only discusses which stats appear and their order, never
+  chart rendering technology — added the 4th "Meetings completed" row to
+  the existing bar-based card rather than introducing a new chart type on
+  our own initiative.
+- **No automation file touched**, confirmed both by never opening
+  `automation-rules-tick.ts`/`automation-rules-tick-server.ts`/`rules.ts`
+  this prompt and by `git diff --stat` against `origin/claude/prompt-883-
+  dormant-confirmation` for those three paths returning **empty**.
+
+**Real-DB verification (zz-test-884, all literal ids, production project
+`wkjcaoqdvhykrfacsylr`), cleaned up after:**
+- Org `11111111-8840-4000-8000-000000000884` ("zz-test-884-today-redesign"),
+  entity `22222222-…-884` ("zz-test-884-investor"), person
+  `33333333-…-884`, 3 tasks:
+  - `44444444-…-884` — `kind:'meeting'`, `due_at` = now + 2h. **"Add
+    meeting summary" flow**: inserted an `interactions` row via
+    `verification_insert_interaction()` (`channel:'meeting'`,
+    `direction:'out'`) → id `f08c7b4c-a997-4923-944f-6ec19ff15211`, then
+    (simulating `onSaved`'s `toggleTask` call, which only fires after that
+    real log succeeds) `update tasks set done=true`. AFTER: `done=true` —
+    confirmed by re-select.
+  - `55555555-…-884` — `kind:'meeting'`, `due_at` = now + 1d. **"Mark
+    prepared"**: `update tasks set prepared_at=now()`. AFTER:
+    `prepared_at='2026-09-11 16:21:45.229121+00'` (was `null`).
+  - `66666666-…-884` — `kind:'follow_up'`, `action_type:
+    'follow_up_no_reply'`, `due_at` = now + 3d (Follow up card membership).
+    **Follow up → Overdue transition**: `update tasks set due_at = now() -
+    interval '2 days'` → re-select shows `due_at='2026-09-09
+    16:21:50.310469+00'`, `(due_at < now())=true` — the exact real-column
+    transition `followUpTasks()`/`overdueTasks()` (already unit-tested
+    with this scenario) key off.
+  - **Pipeline-add marker**: `verification_insert_interaction()` with
+    `channel:'stage_change'`, `content:'Added to your pipeline via a
+    Sherlock catalog match.'` (the literal `PIPELINE_ADD_NOTE_CONTENT`
+    string) → id `0a3777cd-a533-484e-a2f1-6c3399c33551`. Re-selected both
+    interaction rows for the entity — `channel`/`content` match exactly
+    what `buildRecentActivity()` classifies as `meeting_completed`/
+    `added_to_pipeline` respectively, so the write shape and the read
+    classifier agree on real production data, not only in the unit test's
+    synthetic fixtures.
+- **Cleanup**: deleted interactions (2) → tasks (3) → people (1) →
+  entities (1) → org (1), in FK order. Re-queried all 5 counts by
+  `org_id`/`id` afterward: `{orgs:0, entities:0, people:0, tasks:0,
+  interactions:0}`.
+
+**Validated**: `tsc` EXIT=0. `vitest` EXIT=0 — 3791/3791 tests, 255 files
+(18 new: 12 in `today-cards.test.ts`, 6 in `recent-activity.test.ts`).
+`npx eslint --no-eslintrc --config .eslintrc.json --ext .js,.jsx,.ts,.tsx
+src` EXIT=0, 0 errors (264 pre-existing warnings, unrelated to this diff) —
+this run caught a real `react/no-unstable-nested-components` error from a
+`Row` component originally defined inside `MeetingsCard`'s render body,
+fixed by hoisting it to `MeetingRow`, a module-level component taking `db`/
+`updateTask` as props. `npm run build` EXIT=0 (after the Suspense fix
+above, read from the captured log line, not the background-task
+notification). `npm run verify:migrations` clean, 0352 free across every
+remote branch.
+
+Migration 0352. Branch `claude/prompt-884-today-redesign`.
+
+## Prompt 885 — Merge 883 + 884 into `main`, after fixing a migration-numbering mismatch
+
+Nuno had already reviewed and approved both 883 and 884 independently — this
+prompt is purely about getting them into `main` safely, not re-litigating
+either feature. Feature logic untouched.
+
+**What was actually true, checked directly rather than assumed.** The
+prompt's own framing said `main` had "advanced by dozens of commits...
+since these branches forked" — literally true by commit count (`git
+rev-list --count 277a316..origin/main` → 4, not dozens, but real), and the
+important part checked out exactly as claimed: `git diff --name-only
+277a316 origin/main` → 6 files touched on `main` since the fork, zero
+overlap with the 27 files the 883/884 stack touched (`comm -12` on the two
+sorted file lists → empty). `main`'s tip (`b1da65d`, "Prompt 650 Phase 2",
+confirmed via `mcp__github__get_commit` against the real GitHub API, not
+just local `git` — the local clone's remote-tracking ref needed an
+explicit `git fetch origin main` to stop showing a stale ref first)
+already carries the timestamp-style migration convention; the last
+old-style sequential file on `main` really is `0343_promo_outreach_
+targets.sql`, matching the prompt's claim exactly.
+
+**Migration rename** — content byte-for-byte identical (confirmed: `git
+diff --cached -M` on the two `git mv`s showed `0 insertions(+), 0
+deletions(-)`), only the filename and internal cross-reference comments
+changed:
+- `0351_dormant_confirmation_decline_dismiss.sql` →
+  `20260911200000_dormant_confirmation_decline_dismiss.sql`
+- `0352_meeting_task_prepared_at.sql` →
+  `20260911201000_meeting_task_prepared_at.sql`
+
+Both timestamps checked against every remote branch's migration tree
+(`for b in $(git branch -r | ...); do git ls-tree -r --name-only
+"origin/$b" -- supabase/migrations; done | grep -oE
+'2026091120[0-9]{4}'`) immediately before committing the rename — empty
+result, no collision anywhere. (Highest timestamp on any branch at the
+time of picking these was `20260911094000`; picked `20260911200000`/
+`...201000` for comfortable margin the same day.)
+
+**A real subtlety checked and ruled out**: production's migration ledger
+(`mcp__Supabase__list_migrations`) already recorded these two applies
+under its own auto-generated timestamp versions (`20260911145628`
+"dormant_confirmation_decline_dismiss", `20260911155538`
+"meeting_task_prepared_at") — NOT "0351"/"0352". The ledger's `version`
+column is assigned by `apply_migration` at apply time, independent of the
+local filename; this repo already has many examples of a local file's
+naming not lexically matching its own ledger version (e.g.
+`0344_catalog_evidence_topics_and_taxonomy.sql` recorded as ledger version
+`20260910152745`). So renaming the local files needed no corresponding
+ledger change — there was never a mismatch to reconcile there, only the
+filename's own sort position relative to other files in the directory.
+
+**References fixed** — grepped the whole repo for `0351`/`0352` (excluding
+one false positive, a phone-number-normalization example literal
+`00351223123321` in an unrelated migration). Three real comment references
+updated: `src/lib/use-dormant-confirmation.ts:44`, `src/lib/types.ts`
+(two: `dormant_decline_at`'s and `confirmation_dismissed_at`'s own doc
+comments), and the renamed `20260911201000_...` file's own header comment
+(originally said "Prompt 883's own migration 0351" — a comment, not the
+DDL itself, which is unchanged: still one `alter table tasks add column if
+not exists prepared_at timestamptz;`). **Not rewritten**: this DECISIONS.md
+file's own 883/884 entries above, which correctly record "Migration 0351"/
+"Migration 0352" as the literal truth at the time they were written —
+matching this file's own established practice elsewhere of appending
+corrections rather than rewriting history. This entry is the pointer for
+anyone who searches "0351" or "0352" later and needs the current filename.
+
+**Integration**: `git checkout -b claude/prompt-885-merge-883-884-to-main
+origin/claude/prompt-884-today-redesign` (884's branch already contains
+all of 883's commits) then `git rebase origin/main` — all 3 commits
+replayed with **zero conflicts** (`Successfully rebased and updated
+refs/heads/...`), confirmed post-rebase via `git merge-base --is-ancestor
+origin/main HEAD`. The migration rename + reference fixes landed as one
+additional commit on top, rather than rewriting the original 883/884
+commits — simpler, and the prompt only required a clean end state, not a
+specific commit shape.
+
+**Validated** on the final, rebased+renamed state: `tsc` EXIT=0. `vitest`
+EXIT=0 (3791/3791, unchanged from the 884 report — no test asserts a
+literal filename). `eslint` (worktree-safe invocation) EXIT=0, 0 errors.
+`npm run build` EXIT=0. `npm run verify:migrations`: no collision on
+either new filename against any remote branch (the 0289/0292/0339
+same-number collisions the tool flags are pre-existing and unrelated to
+this prompt, as in the 884 report).
+
+**Merged into `main`** with a merge commit, matching this repo's own most
+recent convention for landing a self-contained feature ("Merge Prompt
+NNN: <summary>" — checked the last several real merges into `main`, e.g.
+"Merge Prompt 882: ...", "Merge Prompt 880: ..."). Pushed directly to
+`origin/main` (this repo auto-deploys `main` to production via Vercel — no
+separate deploy step taken or needed).
+
+[Merge commit hash, production re-verification results, and cleanup
+confirmation recorded below once the merge and post-merge checks complete.]

@@ -9,7 +9,21 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { Card, EntityLink } from '@/components/ui';
-import type { ActionType, TaskItem } from '@/lib/types';
+import type { ActionType, TaskItem, TaskKind } from '@/lib/types';
+
+// Prompt 884 — the "Add task" modal used to hardcode kind: 'meeting'
+// unconditionally, so there was no way to schedule a dated reminder that
+// wasn't tagged as a meeting; with the Today redesign's Meetings card
+// reading `kind === 'meeting'` specifically, that hardcode would have
+// filled the card with anything anyone scheduled by date. 'meeting'
+// stays FIRST and is still the default, so a founder who never touches
+// this selector gets byte-for-byte the old behavior.
+const TASK_KIND_OPTIONS: { value: TaskKind; label: string }[] = [
+  { value: 'meeting', label: 'Meeting' },
+  { value: 'follow_up', label: 'Follow-up' },
+  { value: 'research', label: 'Research' },
+  { value: 'admin', label: 'Other' },
+];
 import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL, ACTION_TYPES, followUpTaskDisplayTitle } from '@/lib/relationship';
 import { REMINDER_OPTIONS } from '@/lib/reminders';
 
@@ -75,6 +89,7 @@ export function AgendaPanel() {
   const [apTitle, setApTitle] = useState('');
   const [apTime, setApTime] = useState('09:00');
   const [apType, setApType] = useState<ActionType>('other');
+  const [apKind, setApKind] = useState<TaskKind>('meeting');
   const [apEntityId, setApEntityId] = useState('');
   const [apPersonId, setApPersonId] = useState('');
   const [apNotes, setApNotes] = useState('');
@@ -97,7 +112,7 @@ export function AgendaPanel() {
   }
 
   function resetApFields() {
-    setApTitle(''); setApTime('09:00'); setApType('other');
+    setApTitle(''); setApTime('09:00'); setApType('other'); setApKind('meeting');
     setApEntityId(''); setApPersonId(''); setApNotes(''); setApReminder('none');
   }
 
@@ -122,7 +137,7 @@ export function AgendaPanel() {
       : undefined;
     addTask({
       title: apTitle.trim(),
-      kind: 'meeting',
+      kind: apKind,
       action_type: apType,
       due_at: due.toISOString(),
       entity_id: apEntityId || undefined,
@@ -133,9 +148,18 @@ export function AgendaPanel() {
     setApDateOpen(false);
   }
 
+  // Prompt 883 §2 — 'automation_dormant' tasks have the same plain
+  // checkbox (+ this panel's own "Mark done"/"not done" popup button) that
+  // let a founder silently close the dormant-decision task without
+  // deciding anything — exactly the bug fixed in Today. That decision
+  // lives ONLY in Actions Required now, so it's excluded from every
+  // interactive surface here (grid, rail, popup, ICS export, type counts),
+  // not just re-labelled.
+  const agendaTasks = useMemo(() => db.tasks.filter((t) => t.source !== 'automation_dormant'), [db.tasks]);
+
   const visibleTasks = useMemo(
-    () => typeFilter === 'all' ? db.tasks : db.tasks.filter((t) => t.action_type === typeFilter),
-    [db.tasks, typeFilter]
+    () => typeFilter === 'all' ? agendaTasks : agendaTasks.filter((t) => t.action_type === typeFilter),
+    [agendaTasks, typeFilter]
   );
 
   const days = useMemo(() => {
@@ -159,7 +183,7 @@ export function AgendaPanel() {
     .sort((a, b) => (b.due_at! > a.due_at! ? 1 : -1)).slice(0, 20);
 
   function exportICS() {
-    const blob = new Blob([toICS(db.tasks.filter((t) => !t.done), now)], { type: 'text/calendar' });
+    const blob = new Blob([toICS(agendaTasks.filter((t) => !t.done), now)], { type: 'text/calendar' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = 'ablute-agenda.ics'; a.click();
   }
@@ -178,10 +202,10 @@ export function AgendaPanel() {
         <div className="flex flex-wrap gap-1.5">
           <button onClick={() => setTypeFilter('all')}
             className={`rounded-full px-2.5 py-1 text-xs font-medium ${typeFilter === 'all' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-            All ({db.tasks.length})
+            All ({agendaTasks.length})
           </button>
           {ACTION_TYPES.map((at) => {
-            const count = db.tasks.filter((t) => t.action_type === at).length;
+            const count = agendaTasks.filter((t) => t.action_type === at).length;
             return (
               <button key={at} onClick={() => setTypeFilter(at)}
                 className={`rounded-full px-2.5 py-1 text-xs font-medium ${typeFilter === at ? 'ring-2 ring-offset-1 ring-gray-400' : 'hover:opacity-80'} ${ACTION_TYPE_COLOR[at]}`}>
@@ -307,6 +331,13 @@ export function AgendaPanel() {
               <select value={apType} onChange={(e) => setApType(e.target.value as ActionType)}
                 className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm">
                 {ACTION_TYPES.map((at) => <option key={at} value={at}>{ACTION_TYPE_LABEL[at]}</option>)}
+              </select>
+              {/* Prompt 884 — the fix for the Agenda modal bug: without
+                  this, every dated task landed in the new Meetings card
+                  regardless of what it actually was. */}
+              <select value={apKind} onChange={(e) => setApKind(e.target.value as TaskKind)}
+                className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm">
+                {TASK_KIND_OPTIONS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
               </select>
               <div className="grid grid-cols-2 gap-2">
                 <select value={apEntityId} onChange={(e) => { setApEntityId(e.target.value); setApPersonId(''); }}

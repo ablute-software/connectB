@@ -823,6 +823,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     updateTask(id: string, patch: {
       reminder_at?: string | null; snoozed_until?: string | null; due_at?: string; notes?: string | null;
       reminder_muted?: boolean; last_reminded_at?: string | null;
+      confirmation_dismissed_at?: string | null;
     }) {
       const prev = dbRef.current;
       const tasks = prev.tasks.map((t) => t.id === id ? { ...t, ...patch } : t);
