@@ -3,6 +3,15 @@
 // a STANDARDIZED taxonomy (shared vocabulary across all investors) plus an
 // "outro…" free-text escape. Sectors and geographies are multi-value; stage
 // is a min–max range. Writes go through the generic updateEntity patch.
+//
+// Prompt 677 — investigated a report that Geos showed "none" for a row
+// whose invests_in_geographies was confirmed non-empty in production (no
+// stale-catalog-value or RLS/trigger cause found; the add-outro-save-reload
+// cycle reproduced correctly against equivalent data). The one real gap
+// found: entity.invests_in_geographies.join(...) had no null guard — every
+// row seen so far has a real array, but a NULL one (nothing backfilled it
+// yet) would throw here rather than read as empty. Guarded defensively;
+// not a confirmed fix for the reported symptom, disclosed as such.
 import { useState } from 'react';
 import type { Entity, Stage } from '@/lib/types';
 import { GEOGRAPHIES, SECTORS, STAGE_OPTIONS } from '@/lib/taxonomy';
@@ -55,7 +64,7 @@ export function EntityClassificationEditor({ entity, onUpdate, sectorsPrefill, s
   // own field is still empty — a confirm-or-adjust starting point instead of
   // making them retype what the investor already told the platform.
   function startSectors() { setSectors(entity.sectors.length > 0 ? entity.sectors : sectorsPrefill ?? []); setEditing('sectors'); }
-  function startGeos() { setGeos(entity.invests_in_geographies); setEditing('geos'); }
+  function startGeos() { setGeos(entity.invests_in_geographies ?? []); setEditing('geos'); }
   function startStage() {
     setStageMin(entity.stage_min ?? stagePrefill?.min ?? '');
     setStageMax(entity.stage_max ?? stagePrefill?.max ?? '');
@@ -77,7 +86,7 @@ export function EntityClassificationEditor({ entity, onUpdate, sectorsPrefill, s
               <button onClick={() => setEditing(null)} className="text-[11px] text-gray-500">Cancel</button>
             </div>
           </span>
-        ) : <>{entity.invests_in_geographies.join(', ') || '—'}{pencil(startGeos)}</>}
+        ) : <>{(entity.invests_in_geographies ?? []).join(', ') || '—'}{pencil(startGeos)}</>}
       </div>
       <div>
         Sectors: {editing === 'sectors' ? (

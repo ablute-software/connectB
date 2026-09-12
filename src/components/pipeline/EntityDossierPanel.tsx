@@ -78,6 +78,15 @@ export function EntityDossierPanel({ entityId, onClose }: {
   const [messaging, setMessaging] = useState<{ canMessage: boolean; investorCatalogEntityId: string | null; messages: { senderSide: string; createdAt: string }[] }>(
     { canMessage: false, investorCatalogEntityId: null, messages: [] },
   );
+  // Prompt 677 §2 — "Thesis — their own words" had no edit affordance at
+  // all: the text shown was always the generic catalog-matched summary
+  // (catalog_entities.thesis), never a real quote, and there was no way to
+  // put one there. Same pencil-icon-opens-a-box pattern already used for
+  // Sectors/Stage (EntityClassificationEditor), writing through the same
+  // updateEntity -> entities.thesis path — an org-level override over the
+  // shared catalog value, exactly like those other fields.
+  const [editingThesis, setEditingThesis] = useState(false);
+  const [thesisDraft, setThesisDraft] = useState('');
 
   // Reset tab-local UI state whenever the panel switches to a different
   // investor — otherwise "Approach & Log" could stay open on Log mode with
@@ -85,7 +94,7 @@ export function EntityDossierPanel({ entityId, onClose }: {
   useEffect(() => {
     setTab('overview'); setLogMode('history'); setClassifyNonce(0);
     setFocusInteraction({ id: '', nonce: 0 }); setLogPrefill({ nonce: 0 });
-    setAddingPerson(false);
+    setAddingPerson(false); setEditingThesis(false);
   }, [entityId]);
 
   useEffect(() => {
@@ -261,7 +270,13 @@ export function EntityDossierPanel({ entityId, onClose }: {
                     : summaryPrefill.website ? <a className="text-[#0E7490] hover:underline" href={summaryPrefill.website} target="_blank" rel="noreferrer">{summaryPrefill.website.replace('https://', '')}</a> : '—'}
                     {entity.website && <VerBadge state={entity.website_verified ? 'verified' : 'missing'} label={entity.website_verified ? '' : 'unverified'} />}
                   </div>
-                  <div>Sectors: {entity.sectors.length ? entity.sectors.join(', ') : summaryPrefill.sectors?.join(', ') || '—'}</div>
+                  {/* Prompt 677 — this used to duplicate EntityClassificationEditor's
+                      own "Sectors" line below it (a plain, non-editable,
+                      no-prefill copy sitting right above the real, editable
+                      one) — found while investigating that prompt's Geos
+                      report. EntityClassificationEditor already renders
+                      Sectors (with prefill + pencil), Geos, and Stage; this
+                      dl only needs Website/Check on top of it. */}
                   <EntityClassificationEditor entity={entity} onUpdate={(patch) => updateEntity(entity.id, patch)}
                     sectorsPrefill={summaryPrefill.sectors} stagePrefill={{ min: summaryPrefill.stageMin, max: summaryPrefill.stageMax }} />
                   <div>Check: {entity.check_min_eur != null || entity.check_max_eur != null
@@ -270,9 +285,31 @@ export function EntityDossierPanel({ entityId, onClose }: {
                   </div>
                 </dl>
                 <div className="space-y-2 text-sm text-gray-600">
-                  {(entity.thesis || summaryPrefill.thesis) && (
-                    <div><div className="text-xs text-gray-500">Thesis — their own words</div><p className="italic">&ldquo;{entity.thesis ?? summaryPrefill.thesis}&rdquo;</p></div>
-                  )}
+                  <div>
+                    <div className="text-xs text-gray-500">
+                      Thesis — their own words
+                      {!editingThesis && (
+                        <button onClick={() => { setThesisDraft(entity.thesis ?? ''); setEditingThesis(true); }}
+                          title="Edit" className="ml-1 text-[11px] text-gray-300 hover:text-cyan-700">✎</button>
+                      )}
+                    </div>
+                    {editingThesis ? (
+                      <div className="mt-1">
+                        <textarea value={thesisDraft} onChange={(e) => setThesisDraft(e.target.value)} autoFocus rows={3}
+                          placeholder="Paste the investor's own words — from their site, a call, an email…"
+                          className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs not-italic" />
+                        <div className="mt-1 flex gap-2">
+                          <button onClick={() => { updateEntity(entity.id, { thesis: thesisDraft.trim() || undefined }); setEditingThesis(false); }}
+                            className="rounded bg-[#0E7490] px-2 py-0.5 text-[11px] font-medium text-white">Save</button>
+                          <button onClick={() => setEditingThesis(false)} className="text-[11px] text-gray-500">Cancel</button>
+                        </div>
+                      </div>
+                    ) : entity.thesis || summaryPrefill.thesis ? (
+                      <p className="italic">&ldquo;{entity.thesis ?? summaryPrefill.thesis}&rdquo;</p>
+                    ) : (
+                      <p className="text-gray-400">No quote on file yet.</p>
+                    )}
+                  </div>
                   {entity.network_cluster_notes && <div><div className="text-xs text-gray-500">Network notes</div><p>{entity.network_cluster_notes}</p></div>}
                 </div>
               </div>
