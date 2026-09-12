@@ -1434,8 +1434,11 @@ function PipelinePageInner() {
           before this prompt. */}
       <div className={openEntityId ? 'grid grid-cols-1 items-start gap-3 min-[900px]:grid-cols-[minmax(270px,340px)_1fr]' : ''}>
       <div className={openEntityId ? 'min-w-0 max-[899px]:hidden' : 'min-w-0'}>
+      {/* Prompt 675 §2 — a faint background shift (white -> #F8FAFC) while the
+          panel is open, so the eye reads "focus moved to the panel" without
+          losing legibility or disabling clicks/↑↓ on the still-usable list. */}
       <div data-tour-id="pipeline-list"
-        className={`overflow-x-auto overflow-y-auto border border-gray-100 bg-white shadow-sm ${listExceedsCap ? 'max-h-[75vh]' : ''} ${blockedCount > 0 ? 'rounded-t-2xl border-b-0' : 'rounded-2xl'}`}>
+        className={`overflow-x-auto overflow-y-auto border border-gray-100 shadow-sm ${openEntityId ? 'bg-[#F8FAFC]' : 'bg-white'} ${listExceedsCap ? 'max-h-[75vh]' : ''} ${blockedCount > 0 ? 'rounded-t-2xl border-b-0' : 'rounded-2xl'}`}>
         {/* table-fixed + explicit column widths (colgroup) so the table
             holds to the container's width at every wave filter setting
             instead of growing with content and forcing horizontal scroll;
@@ -1774,7 +1777,24 @@ function PipelinePageInner() {
       </div>
       </div>
       {openEntityId && (
-        /* Prompt 672 — a DEFINITE height (not max-height) is what makes the
+        <>
+        {/* Prompt 675 §2 — the slide-in on open; a plain CSS transition
+            can't animate a value an element never had before it existed
+            (there's no "previous state" for a just-mounted node to
+            transition from), so this is a @keyframes animation applied via
+            a class instead. Skipped entirely under reduced motion, same as
+            the loading magnifier's own guard. */}
+        <style>{`
+          @keyframes sd-dossier-panel-enter-x {
+            from { opacity: 0; transform: translateX(16px); }
+            to   { opacity: 1; transform: translateX(0); }
+          }
+          .sd-dossier-panel-enter { animation: sd-dossier-panel-enter-x 200ms ease-out; }
+          @media (prefers-reduced-motion: reduce) {
+            .sd-dossier-panel-enter { animation: none; }
+          }
+        `}</style>
+        {/* Prompt 672 — a DEFINITE height (not max-height) is what makes the
            panel's own internal overflow-y-auto (EntityDossierPanel's tab
            body) actually scroll: h-full on that inner div only resolves
            against an ancestor with a real height, never against one bounded
@@ -1784,10 +1804,22 @@ function PipelinePageInner() {
            width, not only above 900px, so the full-screen mobile panel keeps
            its header/tabs in view while its own body scrolls, the same way
            the prototype's own pbody class (max-height plus overflow auto)
-           does. */
-        <aside className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm h-[calc(100vh-24px)] min-[900px]:sticky min-[900px]:top-3">
+           does.
+
+           Prompt 675 §2 — the panel used to read as just another white
+           column next to the (also white) list, with nothing marking "this
+           opened in front of the page." Three cues now say so at a glance,
+           no text needed: a shadow along the left edge (a drawer that
+           opened, not a sibling column), the same left-accent-bar motif
+           already used for flagged rows elsewhere on this page (there it's
+           red for "not a fit for us"; here it's brand teal for "this is the
+           open panel"), and a brief slide-in on mount
+           (sd-dossier-panel-enter, defined in the <style> block above) so
+           the arrival itself is visible even before the color registers. */}
+        <aside className="sd-dossier-panel-enter flex min-w-0 flex-col overflow-hidden rounded-2xl border border-gray-100 border-l-[3px] border-l-[#0E7490] bg-white shadow-[-12px_0_32px_rgba(15,23,42,0.08)] h-[calc(100vh-24px)] min-[900px]:sticky min-[900px]:top-3">
           <EntityDossierPanel entityId={openEntityId} onClose={closeDossier} />
         </aside>
+        </>
       )}
       </div>
 

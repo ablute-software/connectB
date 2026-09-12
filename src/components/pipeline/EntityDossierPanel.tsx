@@ -169,8 +169,11 @@ export function EntityDossierPanel({ entityId, onClose }: {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-white">
-      {/* Header */}
-      <div className="shrink-0 border-b border-gray-100 px-4 pt-3">
+      {/* Header — Prompt 675 §2: a faintly distinct background (not the
+          same white as the content below) plus its own divider, so this
+          reads as its own block — name, stage pills, tabs — rather than a
+          plain continuation of the page. */}
+      <div className="shrink-0 border-b border-gray-100 bg-[#FAFBFC] px-4 pt-3">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             {/* Prompt 672 — below ~900px the panel takes over the whole
