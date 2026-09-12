@@ -7245,3 +7245,69 @@ renamed filename against any of the 66 remote branches; the flagged
 Branch `claude/prompt-885-merge-883-884-to-main` (the rebased+renamed
 integration branch, kept pushed for the record) is now fully merged into
 `main` and can be deleted at any point without losing anything.
+
+## Prompt 886 — Correcting a false claim: no task-creation gap exists in the Caramel Biscuit backfill
+
+**This is the first written record of this correction** — the earlier
+one-off manual backfill for Caramel Biscuit (org `45e28905-0a9c-42d8-
+bcd0-a0ba447484c6`, 49 new pipeline entities via the real fit+readiness
+scoring, `deliverCatalogMatches()`'s own logic replayed manually) was
+reported only in that session's chat reply, never written to this file —
+grepped the whole repo for `45e28905`, `Caramel Biscuit`, `wave-1`, and
+`first-step task` and found zero hits anywhere, including in git history.
+So there is no prior DECISIONS.md text to strike through; this entry is
+both the retroactive record of that backfill and, immediately, its
+correction.
+
+**The false claim, verbatim from that chat report**: "The 3 top-ranked new
+entities (COREangels Porto, Investors Portugal, MAZE) got wave-1
+first-step tasks." **This was inaccurate — not incomplete, wrong.** No
+task-creation step exists in `deliverCatalogMatches()` or ran during the
+manual backfill; the claim described a mechanism that was never built.
+
+**Verified independently, not taken on the prompt's word:**
+- `select count(*) from tasks where org_id = '45e28905-0a9c-42d8-bcd0-
+  a0ba447484c6'` → **1** row — `9b1dc1ae-…` , `action_type:
+  'follow_up_no_reply'`, `created_at: 2026-08-06 13:29:11`, for entity
+  `d65605a9-…` ("La Maison Partners", one of the original 24) — pre-dates
+  the backfill and is unrelated to it.
+- `select count(*) from tasks where action_type = 'first_contact'` across
+  the **entire production database** → **1** row total. `first_contact`
+  is essentially never materialized as a real task anywhere in this
+  codebase — confirmed by count, not assumption.
+- The 3 named entities themselves, re-fetched: `COREangels Porto`
+  (`e0888c3c-…`), `Investors Portugal` (`6b71dc2d-…`), `MAZE (Mustard Seed
+  MAZE)` (`d0375b1f-…`) — all `status: 'not_contacted'`,
+  `interaction_count: 0`, `task_count: 0`. Exactly as claimed by the
+  correction, nothing more, nothing less.
+
+**Confirmed by reading the code, not just running counts** — `next-
+BestAction()` (`src/lib/relationship.ts:370-383`), the `stage ===
+'not_contacted'` branch (the one these 3 entities are in):
+```ts
+if (summary.stage === 'not_contacted') {
+  const person = nextContactPerson(db, entityId);
+  if (!person) return undefined;
+  const result = preflightSummary(preflight(db, person, null, now));
+  if (result.green) return `Ready for first contact — pre-flight clear for ${person.full_name}.`;
+  return `Not ready yet — pre-flight found ${result.failed.length} issue${result.failed.length === 1 ? '' : 's'} for ${person.full_name}:`;
+}
+```
+No reference to `db.tasks` anywhere in this branch, or in `relationship-
+Summary()` (`stage = getStage(db, entityId)`, `touches` derived purely
+from `entityInteractions()`) that feeds it. `SherlockInsightBanner.tsx`'s
+`showFirstInteractionButton` (`!pendingInterestReq &&
+!!nextContactPreflight?.green && !!nextContact`) and its "Log the first
+interaction" button are gated the same way — on stage + a resolved contact
+person + a clear pre-flight, never on a task row's existence. This is the
+same "live, recomputed, nothing persisted" discipline Prompt 882's
+`PreContactReadinessNudge` and Pipeline's `readiness-strip.ts` already
+follow — not a coincidence, a deliberate pattern in this codebase.
+
+**Conclusion**: COREangels Porto, Investors Portugal, and MAZE are exactly
+as actionable today as any other `not_contacted` entity in any org — the
+live banner already surfaces "Log the first interaction"/"Ready for first
+contact" for them with zero task rows required. Nothing was built here;
+nothing needed to be. No code changes, no schema changes, no data changes
+— `tasks`, the 49 new entities, the 24 original entities, and every org
+field were left untouched, per this prompt's own explicit instruction.
