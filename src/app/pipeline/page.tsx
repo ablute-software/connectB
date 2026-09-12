@@ -1,10 +1,11 @@
 'use client';
 // Pipeline (home) — dense sortable/filterable entity table
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useStore } from '@/lib/store';
+import { EntityDossierPanel } from '@/components/pipeline/EntityDossierPanel';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { FitTag, StatusPill, Tooltip, WaveTag, fmtEur, statusLabel } from '@/components/ui';
 import pipelineMobile from './pipeline-mobile.module.css';
@@ -543,10 +544,39 @@ function sortValue(db: Db, key: SortKey, e: Entity): unknown {
   }
 }
 
+// Prompt 672 (650 Phase 3) — the dossier panel needs its own shareable,
+// reloadable URL per investor (?entity=<id>). useSearchParams() opts this
+// route out of static rendering, which needs a Suspense boundary around
+// anything that calls it or `next build` fails loudly (see CLAUDE.md's own
+// account of Prompt 570 — the exact "useSearchParams() should be wrapped in
+// a suspense boundary" failure). /app/auth/confirm/page.tsx already uses
+// this split (Inner + Suspense wrapper); reused verbatim here.
 export default function PipelinePage() {
+  return (
+    <Suspense fallback={<LoadingState label="Loading your pipeline…" />}>
+      <PipelinePageInner />
+    </Suspense>
+  );
+}
+
+function PipelinePageInner() {
   useTrackPageView('/pipeline');
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { db, loading, markEntityVerified, askSherlock, setEntityStatus, setRelationshipStage, logSystemNote } = useStore();
+  // Prompt 672 — the dossier panel's own state lives entirely in the URL:
+  // ?entity=<id> is what makes each investor shareable/reloadable, not a
+  // useState that a reload would erase. Pushed on open (so Back leaves the
+  // dossier, same as leaving any other page); replaced on ↑/↓ navigation
+  // between investors (see the keyboard effect below) so arrowing through
+  // ten investors doesn't leave ten Back-button stops.
+  const openEntityId = searchParams.get('entity');
+  const openDossier = useCallback((id: string) => router.push(`/pipeline?entity=${id}`, { scroll: false }), [router]);
+  const closeDossier = useCallback(() => router.push('/pipeline', { scroll: false }), [router]);
+  // Prompt 672 — filters collapse behind a dot-icon while the panel is open
+  // (the list only has ~300px left); collapsed by default each time the
+  // panel opens, same as the prototype's own body.panel-open behaviour.
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
   // Prompt 271 §3 / Prompt 272 / Prompt 513 §2 — this state is now ONLY
   // "a request is in flight for these entities". The verdict itself used
   // to live here too, which was the whole bug: 'hold_for_hook' and
@@ -976,6 +1006,46 @@ export default function PipelinePage() {
     list.splice(Math.min(Math.max(leavingRow.index, 0), list.length), 0, leavingRow.entity);
     return list;
   }, [rows, leavingRow]);
+
+  // Prompt 672 — the exact set of entity ids the founder can currently see,
+  // in on-screen order: same group membership/collapse rule the render loop
+  // below applies, so ↑/↓ only ever lands on a row that's actually visible
+  // (a collapsed band, or a band hidden entirely because it's empty and not
+  // the active card filter, is never a stop).
+  const visibleRowIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const groupKey of PIPELINE_GROUPS) {
+      const groupRows = displayRows.filter((e) => pipelineGroupForStatus(e.status) === groupKey);
+      if (groupRows.length === 0 && cardFilter !== groupKey) continue;
+      if (collapsedGroups.has(groupKey)) continue;
+      for (const e of groupRows) ids.push(e.id);
+    }
+    return ids;
+  }, [displayRows, cardFilter, collapsedGroups]);
+
+  // Prompt 672 — Esc closes the dossier; ↑/↓ move between investors without
+  // closing it (both skipped while typing in a form field, same guard the
+  // prototype's own keydown handler uses). Kept as one document-level
+  // listener rather than per-row handlers, since the dossier can be open
+  // while focus is anywhere on the page (including inside the panel itself).
+  useEffect(() => {
+    function onKeyDown(ev: KeyboardEvent) {
+      if (ev.key === 'Escape') {
+        if (openEntityId) closeDossier();
+        return;
+      }
+      if (!openEntityId || (ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp')) return;
+      const active = document.activeElement;
+      if (active && /INPUT|TEXTAREA|SELECT/.test(active.tagName)) return;
+      const i = visibleRowIds.indexOf(openEntityId);
+      if (i < 0) return;
+      ev.preventDefault();
+      const next = visibleRowIds[Math.min(Math.max(i + (ev.key === 'ArrowDown' ? 1 : -1), 0), visibleRowIds.length - 1)];
+      if (next && next !== openEntityId) router.replace(`/pipeline?entity=${next}`, { scroll: false });
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [openEntityId, visibleRowIds, router, closeDossier]);
   const personCandidates = db.entities.filter((e) => isPersonCandidate(db, e));
   const noEntities = db.entities.length === 0;
   const noneClassified = !noEntities && db.entities.every((e) => e.wave == null);
@@ -1182,25 +1252,46 @@ export default function PipelinePage() {
       <div className="flex flex-wrap items-center gap-2 md:shrink-0">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by name or sector…"
           className="w-56 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
-        <MultiSelectFilter label="Wave" selected={wave} onChange={setWave}
-          options={[1, 2, 3].map((w) => ({ value: String(w), label: `Wave ${w}` }))} />
-        <div data-tour-id="pipeline-filters">
-          {/* Prompt 257 §4 — 'dormant' dropped from this list: the dedicated
-              "See frozen" toggle below now owns that dimension exclusively,
-              so there's exactly one way to ask for frozen entities, not two
-              that could disagree. */}
-          <MultiSelectFilter label="Status" selected={status} onChange={setStatus}
-            options={['not_contacted', 'contacted', 'in_conversation', 'diligence', 'passed', 'invested']
-              .map((s) => ({ value: s, label: statusLabel[s as keyof typeof statusLabel] }))} />
-        </div>
-        <MultiSelectFilter label="Sectors" selected={sectors} onChange={setSectors}
-          options={sectorOptions.map((s) => ({ value: s, label: s }))} />
-        <select value={country} onChange={(e) => setCountry(e.target.value)} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
-          <option value="">All countries</option>
-          {countries.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        {(q || wave.length > 0 || status.length > 0 || sectors.length > 0 || country) && (
-          <button onClick={() => { setQ(''); setWave([]); setStatus([]); setSectors([]); setCountry(''); }} className="text-sm text-gray-500 hover:underline">Clear</button>
+        {/* Prompt 672 — with the panel open the list is ~320px, too narrow
+            for four filter controls beside it; they collapse behind this
+            icon (a dot when one is actually set) and reopen inline on
+            click. Search stays visible either way, same as the prototype's
+            own .tb-search/.filters-full split. */}
+        {openEntityId && !filtersExpanded && (
+          <button onClick={() => setFiltersExpanded(true)} title="Filters"
+            className="relative rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm text-gray-600 hover:bg-gray-50">
+            ⚙ Filters
+            {(wave.length > 0 || status.length > 0 || sectors.length > 0 || country) && (
+              <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[#0E7490]" />
+            )}
+          </button>
+        )}
+        {(!openEntityId || filtersExpanded) && (
+          <>
+            <MultiSelectFilter label="Wave" selected={wave} onChange={setWave}
+              options={[1, 2, 3].map((w) => ({ value: String(w), label: `Wave ${w}` }))} />
+            <div data-tour-id="pipeline-filters">
+              {/* Prompt 257 §4 — 'dormant' dropped from this list: the dedicated
+                  "See frozen" toggle below now owns that dimension exclusively,
+                  so there's exactly one way to ask for frozen entities, not two
+                  that could disagree. */}
+              <MultiSelectFilter label="Status" selected={status} onChange={setStatus}
+                options={['not_contacted', 'contacted', 'in_conversation', 'diligence', 'passed', 'invested']
+                  .map((s) => ({ value: s, label: statusLabel[s as keyof typeof statusLabel] }))} />
+            </div>
+            <MultiSelectFilter label="Sectors" selected={sectors} onChange={setSectors}
+              options={sectorOptions.map((s) => ({ value: s, label: s }))} />
+            <select value={country} onChange={(e) => setCountry(e.target.value)} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
+              <option value="">All countries</option>
+              {countries.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            {(q || wave.length > 0 || status.length > 0 || sectors.length > 0 || country) && (
+              <button onClick={() => { setQ(''); setWave([]); setStatus([]); setSectors([]); setCountry(''); }} className="text-sm text-gray-500 hover:underline">Clear</button>
+            )}
+            {openEntityId && (
+              <button onClick={() => setFiltersExpanded(false)} className="text-sm text-gray-400 hover:underline">Hide filters</button>
+            )}
+          </>
         )}
         {/* Prompt 880 §4 — the toggle, between the country filter and the
             drop zones (Nuno's placement). On/off shows/hides the card below;
@@ -1334,6 +1425,15 @@ export default function PipelinePage() {
           The frosted catalog panel is unchanged and still the immediate next
           sibling, so it continues to sit directly under the last unlocked row.
           It was never hiding these rows and does not start now. */}
+      {/* Prompt 672 — the dossier panel pushes the list, never overlays it: a
+          two-column grid while open (list ~270-340px, panel takes the rest),
+          matching the prototype's own split. Below ~900px (its breakpoint
+          too) the list is hidden outright and the panel alone fills the
+          space, with its own back button — never squeezed to something
+          unreadable. Closed, this is exactly the single column it was
+          before this prompt. */}
+      <div className={openEntityId ? 'grid grid-cols-1 items-start gap-3 min-[900px]:grid-cols-[minmax(270px,340px)_1fr]' : ''}>
+      <div className={openEntityId ? 'min-w-0 max-[899px]:hidden' : 'min-w-0'}>
       <div data-tour-id="pipeline-list"
         className={`overflow-x-auto overflow-y-auto border border-gray-100 bg-white shadow-sm ${listExceedsCap ? 'max-h-[75vh]' : ''} ${blockedCount > 0 ? 'rounded-t-2xl border-b-0' : 'rounded-2xl'}`}>
         {/* table-fixed + explicit column widths (colgroup) so the table
@@ -1346,29 +1446,41 @@ export default function PipelinePage() {
             de ser tabela: `pipelineMobile.cards` transforma cada <tr> num
             card. O <colgroup> fica — é inerte quando as colunas não estão em
             display:table-cell — e as classes de tabela passam a `md:`. */}
-        <table className={`text-sm md:w-full md:table-fixed ${pipelineMobile.cards}`}>
-          <colgroup>
-            {SORT_COLUMNS.map((c) => <col key={c.key} style={{ width: c.width }} />)}
-          </colgroup>
-          <thead>
-            <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500">
-              {SORT_COLUMNS.map((c) => {
-                const headerButton = (
-                  <Tooltip text={`Sort by ${c.label.toLowerCase()}.`} side="bottom">
-                    <button onClick={() => toggleSort(c.key)}
-                      className={`flex items-center gap-1 font-medium uppercase tracking-wide hover:text-gray-700 ${sortKey === c.key ? 'text-[#0E7490]' : ''}`}>
-                      {c.label} {sortKey === c.key && <span className="text-[10px]">{sortDir === 'asc' ? '▲' : '▼'}</span>}
-                    </button>
-                  </Tooltip>
-                );
-                return (
-                  <th key={c.key} className="px-2 py-1.5">
-                    {c.key === 'wave' ? <CoachMark itemKey="waves">{headerButton}</CoachMark> : headerButton}
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
+        {/* Prompt 672 — while the dossier panel is open, every column but
+            name/status is hidden (below) and the list is ~320px: table-fixed
+            plus this colgroup's percentage widths would then reserve the
+            hidden columns' width as blank space rather than releasing it,
+            since table-layout:fixed sizes by the colgroup regardless of which
+            cells are actually visible. Dropping both while the panel is open
+            switches the table to normal (auto) layout, so the two remaining
+            columns size to their own content instead. */}
+        <table className={`text-sm md:w-full ${openEntityId ? '' : 'md:table-fixed'} ${pipelineMobile.cards}`}>
+          {!openEntityId && (
+            <colgroup>
+              {SORT_COLUMNS.map((c) => <col key={c.key} style={{ width: c.width }} />)}
+            </colgroup>
+          )}
+          {!openEntityId && (
+            <thead>
+              <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500">
+                {SORT_COLUMNS.map((c) => {
+                  const headerButton = (
+                    <Tooltip text={`Sort by ${c.label.toLowerCase()}.`} side="bottom">
+                      <button onClick={() => toggleSort(c.key)}
+                        className={`flex items-center gap-1 font-medium uppercase tracking-wide hover:text-gray-700 ${sortKey === c.key ? 'text-[#0E7490]' : ''}`}>
+                        {c.label} {sortKey === c.key && <span className="text-[10px]">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                      </button>
+                    </Tooltip>
+                  );
+                  return (
+                    <th key={c.key} className="px-2 py-1.5">
+                      {c.key === 'wave' ? <CoachMark itemKey="waves">{headerButton}</CoachMark> : headerButton}
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+          )}
           {/* Prompt 647 — rows are draggable in the active view; the class
               only switches off the long-press callout on touch (§1.1). */}
           <tbody className={drag.enabled ? 'pipeline-drag-rows' : undefined}>
@@ -1395,8 +1507,11 @@ export default function PipelinePage() {
                         <span className="text-[13px]" aria-hidden>{ICON[groupKey]}</span>
                         <span className="text-[13px] font-extrabold tracking-tight" style={{ color: groupTone.fg }}>{groupCard.label}</span>
                         <span className="text-[11.5px] font-semibold text-gray-500">{groupRealCount} investors</span>
-                        {groupCard.context && <span className="ml-auto text-[11.5px] font-semibold" style={{ color: groupTone.fg }}>{groupCard.context}</span>}
-                        <span className={`text-[10px] text-gray-500 ${groupCard.context ? 'ml-2' : 'ml-auto'}`}>{isCollapsed ? '▸' : '▾'}</span>
+                        {/* Prompt 672 — dropped along with every other
+                            non-essential column while the panel is open;
+                            same reasoning as the row's own hidden columns. */}
+                        {groupCard.context && !openEntityId && <span className="ml-auto text-[11.5px] font-semibold" style={{ color: groupTone.fg }}>{groupCard.context}</span>}
+                        <span className={`text-[10px] text-gray-500 ${groupCard.context && !openEntityId ? 'ml-2' : 'ml-auto'}`}>{isCollapsed ? '▸' : '▾'}</span>
                       </button>
                     </td>
                   </tr>
@@ -1445,16 +1560,35 @@ export default function PipelinePage() {
                   onClick={(ev) => {
                     if (window.getSelection()?.toString()) return;
                     if ((ev.target as HTMLElement).closest('a, button, input, select, textarea, [data-no-drag]')) return;
-                    router.push(`/entities/${e.id}`);
+                    openDossier(e.id);
                   }}
-                  className={`border-b border-gray-100 align-top hover:bg-[#E8F4F8]/60 ${zebra} ${suspended ? 'opacity-50' : ''} ${hf ? 'border-l-2 border-l-[#B00000]' : ''} ${drag.enabled ? 'cursor-grab' : 'cursor-pointer'} ${drag.originId === e.id ? 'pipeline-drag-origin' : ''} ${leavingRow?.entity.id === e.id ? 'pipeline-row-collapse' : ''}`}>
+                  className={`border-b border-gray-100 align-top hover:bg-[#E8F4F8]/60 ${openEntityId === e.id ? 'bg-[#E8F4F8]' : zebra} ${suspended ? 'opacity-50' : ''} ${hf ? 'border-l-2 border-l-[#B00000]' : ''} ${drag.enabled ? 'cursor-grab' : 'cursor-pointer'} ${drag.originId === e.id ? 'pipeline-drag-origin' : ''} ${leavingRow?.entity.id === e.id ? 'pipeline-row-collapse' : ''}`}>
                   <td data-col="name" data-label="Entity" className="break-words px-2 py-1.5 font-medium">
-                    <Link href={`/entities/${e.id}`} className="text-gray-900 hover:text-[#0E7490]">
+                    {/* Prompt 672 — this link used to be the row's own,
+                        separate route to /entities/[id]; the row-wide click
+                        above (668) opened the same page too, so the two never
+                        diverged. Both now open the dossier panel instead —
+                        deliberately never two different destinations from the
+                        same row again (the duplicate "Summary" button,
+                        Prompt 663/667, is exactly the failure mode this
+                        avoids). No path in the Pipeline still opens the old
+                        full-page /entities/[id] from a row click. */}
+                    <Link href={`/pipeline?entity=${e.id}`} scroll={false} className="text-gray-900 hover:text-[#0E7490]">
                       {e.name} {hf && <span title={e.hard_filter} className="text-[#B00000]">⚑</span>}
                       {pathfinderEntityIds.has(e.id) && (
                         <span title="You have a path to this investor" className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 align-middle" />
                       )}
                     </Link>
+                    {/* Prompt 672 — the shrunk (~320px) list shows name,
+                        "type · location" and the stage pill only; this line
+                        is the "type · location" half, shown only once the
+                        panel narrows the list (it would duplicate the
+                        separate Type/HQ columns otherwise). */}
+                    {openEntityId && (
+                      <div className="mt-0.5 text-[11px] text-gray-500">
+                        {e.type.replace('_', ' ')} · {[e.hq_city, e.hq_country].filter(Boolean).join(', ') || '—'}
+                      </div>
+                    )}
                     {/* Prompt 667 §5 (Nuno's decision) — a visible marker
                         distinguishing a dev/QA fixture from a real investor;
                         excluded from every count above (funnel cards, band
@@ -1597,19 +1731,25 @@ export default function PipelinePage() {
                       />
                     )}
                   </td>
-                  <td data-col="type" data-label="Type" className="break-words px-2 py-1.5 text-gray-500">{e.type.replace('_', ' ')}</td>
-                  <td data-col="hq" data-label="HQ" className="break-words px-2 py-1.5 text-gray-500">{e.hq_city ? `${e.hq_city}, ` : ''}{e.hq_country}</td>
-                  <td data-col="check" data-label="Check" className="break-words px-2 py-1.5 text-gray-500">{fmtEur(e.check_min_eur)}–{fmtEur(e.check_max_eur)}</td>
-                  <td data-col="sectors" data-label="Sectors" className="px-2 py-1.5">
+                  {/* Prompt 672 — the shrunk list shows only name, "type ·
+                      location" and the stage pill (already folded into the
+                      name cell above, and the status cell below); every
+                      other column is real content that simply has no room
+                      in ~320px, so it's hidden rather than truncated to
+                      nothing. */}
+                  <td data-col="type" data-label="Type" className={`break-words px-2 py-1.5 text-gray-500 ${openEntityId ? 'hidden' : ''}`}>{e.type.replace('_', ' ')}</td>
+                  <td data-col="hq" data-label="HQ" className={`break-words px-2 py-1.5 text-gray-500 ${openEntityId ? 'hidden' : ''}`}>{e.hq_city ? `${e.hq_city}, ` : ''}{e.hq_country}</td>
+                  <td data-col="check" data-label="Check" className={`break-words px-2 py-1.5 text-gray-500 ${openEntityId ? 'hidden' : ''}`}>{fmtEur(e.check_min_eur)}–{fmtEur(e.check_max_eur)}</td>
+                  <td data-col="sectors" data-label="Sectors" className={`px-2 py-1.5 ${openEntityId ? 'hidden' : ''}`}>
                     {e.sectors.slice(0, 2).map((s) => (
                       <span key={s} className="mb-1 mr-1 inline-block rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600">{s}</span>
                     ))}
                     {e.sectors.length > 2 && <span className="text-[11px] text-gray-400">+{e.sectors.length - 2}</span>}
                   </td>
-                  <td data-col="fit" data-label="Fit" className="px-2 py-1.5"><FitTag fit={e.fit_score} /></td>
-                  <td data-col="wave" data-label="Wave" className="px-2 py-1.5"><WaveTag wave={e.wave} /></td>
+                  <td data-col="fit" data-label="Fit" className={`px-2 py-1.5 ${openEntityId ? 'hidden' : ''}`}><FitTag fit={e.fit_score} /></td>
+                  <td data-col="wave" data-label="Wave" className={`px-2 py-1.5 ${openEntityId ? 'hidden' : ''}`}><WaveTag wave={e.wave} /></td>
                   <td data-col="status" data-label="Status" className="px-2 py-1.5"><StatusPill status={e.status} labelOverride={frozenPillLabel(e)} /></td>
-                  <td data-col="next_action" data-label="Next action" className="break-words px-2 py-1.5">
+                  <td data-col="next_action" data-label="Next action" className={`break-words px-2 py-1.5 ${openEntityId ? 'hidden' : ''}`}>
                     {task ? (
                       <span className="text-xs">
                         <span className="text-gray-700">{followUpTaskDisplayTitle(task)}</span>
@@ -1631,6 +1771,24 @@ export default function PipelinePage() {
             })}
           </tbody>
         </table>
+      </div>
+      </div>
+      {openEntityId && (
+        /* Prompt 672 — a DEFINITE height (not max-height) is what makes the
+           panel's own internal overflow-y-auto (EntityDossierPanel's tab
+           body) actually scroll: h-full on that inner div only resolves
+           against an ancestor with a real height, never against one bounded
+           only by max-height with auto content height (confirmed live —
+           without this the aside just grew to fit all five tabs' worth of
+           content and only the page itself scrolled). Bounded at every
+           width, not only above 900px, so the full-screen mobile panel keeps
+           its header/tabs in view while its own body scrolls, the same way
+           the prototype's own pbody class (max-height plus overflow auto)
+           does. */
+        <aside className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm h-[calc(100vh-24px)] min-[900px]:sticky min-[900px]:top-3">
+          <EntityDossierPanel entityId={openEntityId} onClose={closeDossier} />
+        </aside>
+      )}
       </div>
 
       {/* Blocked-by-plan panel — Prompt 192 (corrects 188 §2, which put
