@@ -1,27 +1,19 @@
-// Prompt 603 §B — the commitments, as data, so the page, the acceptance
-// version and the links live together. Same discipline as terms.ts: a
-// material change to this text is a NEW version (a new file and a bump of
-// COMMITMENTS_VERSION in lib/commitments.ts), never a silent edit — the
-// version accepted by each person must stay resolvable.
+// Prompt 604 §C — the commitments, as data, in the marketing voice Nuno
+// asked for. Prompt 603 delivered these in a more "legal" register; Prompt
+// 604 replaced every body with this literal text — "Não reescrever, não
+// encurtar, não reordenar" — because the page is advertising ("é apenas
+// publicidade disfarçada, tipo 'nós damos, esta é a nossa forma de
+// funcionar para tua segurança e conforto'"), not the contract. The Terms
+// are the contract, already accepted at signup.
 //
-// NOT LEGAL ADVICE, and not yet reviewed by a lawyer: the interstitial that
-// shows this is behind COMMITMENTS_GATE_ENABLED (lib/commitments.ts) until
-// the review and the open answers in §C of the prompt.
-//
-// NINE, not ten. Prompt 604 §A asked for the AI-training promise to leave the
-// STRUCTURE ("sai da estrutura, não fica como espaço vazio à espera de ser
-// reactivado sem se verificar o contrato"), and Nuno was literal: "entre as
-// claims retira a nº 6 totalmente." Prompt 603 had instead left it dormant
-// behind an AI_TRAINING_LINE_CONFIRMED flag, which is precisely the waiting
-// blank that sentence forbade — and the flag's own name was the trap: it read
-// as "flip me", when what it actually required was going and reading the AI
-// provider's contract. Removed in Prompt 608. If that day comes, the promise
-// gets written then, with the contract in hand; it is one line of text, not
-// work saved.
-//
-// The numbering deliberately keeps its gap (…5, 7…). `n` identifies a
-// commitment inside a PUBLISHED version that people have accepted by name;
-// renumbering would silently turn today's 7 into yesterday's 6.
+// NINE, contiguously numbered 1-9. Prompt 608 had kept a deliberate gap at 6
+// (…5, 7…) so a REMOVED entry (the AI-training promise) couldn't silently
+// shift a later commitment's identity for someone who had ACCEPTED A
+// VERSIONED RECORD naming it. Prompt 604 §A removed that record entirely —
+// registration is now a plain "seen" mark on the account (see
+// lib/commitments.ts), not a per-commitment, per-version acceptance — so the
+// thing the gap was protecting no longer exists, and 604's own literal text
+// numbers 1-9 with no gap. Renumbered here for that reason, not by oversight.
 export interface Commitment {
   n: number;
   title: string;
@@ -30,19 +22,16 @@ export interface Commitment {
   link?: { href: string; label: string };
   /**
    * Prompt 606 — which of the page's three sections this belongs to.
-   *
-   * Structural only: no wording changes here, 604's text is closed. The
-   * grouping lives in the DATA rather than being sliced by index in the page.
-   * The immediate reason was the dormant commitment 6, now gone (608 §D), but
-   * the reason that outlives it is the larger one: slicing by index breaks on
-   * ANY future edit to the list, not only on that one.
+   * Structural only, in the DATA rather than sliced by index in the page —
+   * that survives any future edit to the list, not only the one that
+   * motivated it.
    */
   group: CommitmentGroup;
 }
 
 export type CommitmentGroup = 'who_sees' | 'how_we_handle' | 'you_control';
 
-/** Section headings, in render order. */
+/** Section headings, in render order — verbatim from Prompt 604 §C. */
 export const COMMITMENT_GROUPS: { key: CommitmentGroup; label: string }[] = [
   { key: 'who_sees', label: 'Who can see it' },
   { key: 'how_we_handle', label: 'How we handle it' },
@@ -52,8 +41,9 @@ export const COMMITMENT_GROUPS: { key: CommitmentGroup; label: string }[] = [
 /**
  * The controller named in the Terms. Prompt 624 §B — this used to be its own
  * literal here, which is how the same fact came to be written in three places
- * and findable in none. Re-exported rather than removed so the page's import
- * does not change; the value now has exactly one definition.
+ * and findable in none. Re-exported rather than removed so this file's own
+ * consumers (this page, /legal/subprocessors) don't need to change import
+ * paths; the value now has exactly one definition.
  */
 export { CONTROLLER_LEGAL_NAME as CONTROLLER_NAME } from '../../lib/controller';
 
@@ -61,53 +51,63 @@ export const COMMITMENTS_V1: Commitment[] = [
   {
     group: 'who_sees',
     n: 1, title: 'Your documents are yours.',
-    body: 'We never share a document or any information about your company with anyone unless you explicitly choose to. The only exception is a binding legal obligation — a court order or a lawful request we cannot refuse. If that ever happens and we are permitted to tell you, we will.',
+    body: "We don't share a document, or anything about your company, unless you choose to. The only thing that ever overrides that is a court order we're legally bound to obey — and if we're allowed to tell you, we will.",
   },
   {
     group: 'who_sees',
     n: 2, title: 'You decide who sees what.',
-    body: 'Access to your documents is granted by you, person by person. You can change it or revoke it at any time, and it takes effect immediately.',
+    body: 'Access is something you give, one person at a time, and take back whenever you want. Change it and it applies at once — no request, no waiting on us.',
     link: { href: '/documents', label: 'Manage access in the Vault' },
   },
   {
     group: 'who_sees',
-    n: 3, title: 'You can see every access.',
-    body: 'Every time a document of yours is opened, it is recorded — who, and when. That record is yours to inspect.',
+    n: 3, title: 'You see every time a document is opened.',
+    body: 'Who opened it, and when. It sits in your workspace, for you to look at whenever you feel like it.',
     link: { href: '/documents/access-log', label: 'Open the access log' },
   },
   {
     group: 'how_we_handle',
-    n: 4, title: 'Our team does not browse your content.',
-    body: 'Access by our staff is restricted to what is needed to run and support the service — resolving a support request, investigating a fault. Every such access is logged with the reason and the duration, and it is visible to you. We do not read your documents out of curiosity, and we never do it to inform anyone else\'s decisions.',
-    link: { href: '/documents/access-log#team', label: 'See team access on your workspace' },
+    // Prompt 604 §C's literal text for this one promises "where you can see
+    // it too" for OUR TEAM's own access to a workspace. That was true when
+    // 604 was written: /documents/access-log showed a "Sherlock team
+    // access" section built from viewer_enter/viewer_exit. Prompt 886/877
+    // (2026-09-10, Nuno's decision, repeated from 877) reversed it: an
+    // authorised admin opening a customer's workspace is logged INTERNALLY
+    // and is deliberately NOT disclosed to the customer, and that section
+    // was removed from this same page. The literal text is kept here
+    // unedited, per 604's own "não reescrever" — but the link that used to
+    // back up "where you can see it too" is deliberately omitted rather than
+    // pointed at a page that no longer shows what the sentence promises. The
+    // sentence itself now needs a decision: soften it, or restore some form
+    // of visibility. Flagged in NEXT_STEPS.md; not resolved here.
+    n: 4, title: "We don't read your documents out of curiosity.",
+    body: "Our team reaches your workspace only to fix something or to answer you, and when that happens it's recorded with the reason and the time, where you can see it too.",
   },
   {
     group: 'how_we_handle',
-    n: 5, title: 'Automated processing works for you, not on you.',
-    body: 'To make the product work, our systems read your documents to produce extractions and summaries for your own workspace. That processing serves you. It is not used to reveal your content to anyone else.',
+    n: 5, title: 'The engine works for you.',
+    body: "It reads your documents to build your summaries and your data room, inside your workspace, for your use. That's the only reason it ever opens them.",
   },
   {
     group: 'how_we_handle',
-    n: 7, title: 'We use a short list of suppliers, and they work under contract.',
-    body: 'Running the service requires infrastructure: hosting, email delivery, payments, AI processing. These suppliers process your data only on our instructions, cannot use it for their own purposes, and are bound by data-protection agreements. The current list is published, and we tell you before it changes.',
+    n: 6, title: 'Our suppliers work for us, not on your data.',
+    body: 'Running this takes hosting, email, payments and AI processing. Those suppliers handle your data only to keep the service running, never for their own ends, and we tell you before that list changes.',
     link: { href: '/legal/subprocessors', label: 'The current list of suppliers' },
   },
   {
     group: 'you_control',
-    n: 8, title: 'We protect your data with appropriate measures — and we tell you if something goes wrong.',
-    body: 'No one can promise a system will never be breached. What we can promise: encryption in transit and at rest, access limited to those who need it, and, if a breach affects your data, notification to the supervisory authority within 72 hours and to you without undue delay.',
+    n: 7, title: 'If anything ever goes wrong, you hear it from us.',
+    body: "Your data is encrypted on the way in and where it rests, and access is kept narrow. In the unlikely event something were breached, you'd hear it from us quickly and directly.",
   },
   {
     group: 'you_control',
-    n: 9, title: 'You keep your rights, and we make them usable.',
-    body: 'Access, correct, export, restrict, object, or delete — from inside the app, not by writing a letter. Closing your account ends access immediately; what we retain afterwards, and for how long, is stated on that screen before you confirm.',
+    n: 8, title: 'Leaving is as easy as arriving.',
+    body: "Export what's yours, correct what's wrong, or close the account — all from inside the app. Before you confirm, we tell you plainly what stays behind and for how long.",
     link: { href: '/privacy-request', label: 'Make a data-rights request' },
   },
   {
     group: 'you_control',
-    n: 10, title: 'Aggregate insight, never your content.',
-    body: 'We study how the product is used to improve it, and we publish statistics about the market. Neither ever exposes your documents, your identity, or anything traceable to your company.',
+    n: 9, title: 'We learn from patterns, never from your content.',
+    body: 'What we study is how the product gets used, and what we publish about the market is aggregate. Your documents, your name and your numbers stay out of both.',
   },
 ];
-
-export const COMMITMENTS_FOOTNOTE = 'This page summarises how we work. The Privacy Policy and Terms are the documents that govern the relationship — this is the plain-language version, not a replacement.';

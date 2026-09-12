@@ -1,13 +1,23 @@
 'use client';
 // Prompt 603 §C — the page between signup and the first workspace access:
 // our commitments, in plain language, with every feature-naming commitment
-// linking to the feature. Shown once per version (terms_acceptances,
-// version 'commitments-1.0'); no countdown, no forced scroll — the record of
-// who accepted which version, when, is what has value.
+// linking to the feature.
 //
-// Reachable at any time (Settings and the footer can link here); the
-// automatic redirect after signup is behind COMMITMENTS_GATE_ENABLED until
-// the text passes legal review (lib/commitments.ts).
+// Reachable at any time (linked from Help & support — Prompt 604 §A's own
+// recommendation, taken); the automatic redirect after signup is behind
+// COMMITMENTS_GATE_ENABLED until the text passes legal review
+// (lib/commitments.ts).
+//
+// Prompt 604 — Nuno's correction to the register: this is advertising ("é
+// apenas publicidade disfarçada"), not a second contract. It no longer
+// records an ACCEPTANCE with a version in terms_acceptances (that table is
+// the real Terms & Conditions'); it marks the account as having SEEN the
+// page — one boolean, org_members.commitments_seen, via
+// /api/commitments/seen. No version stamp is shown on screen, and the
+// closing line that used to point at "the Privacy Policy governs this" is
+// gone — replaced (already, per 604 §C's own literal text) by the lighter
+// line below it: this isn't the small print, the founder has already been
+// through that at signup.
 //
 // Prompt 606 — the visual layer. The page is about documents, so the shape is
 // a DOCUMENT: a portrait sheet on a full field of brand teal. 4px corner, not
@@ -22,32 +32,30 @@ import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { BRAND_NAME } from '@/lib/brand';
-import { getCommitments, COMMITMENTS_VERSION } from '@/lib/commitments';
-import { COMMITMENTS_FOOTNOTE, CONTROLLER_NAME, COMMITMENT_GROUPS } from '@/content/commitments/v1';
+import { getCommitments } from '@/lib/commitments';
+import { COMMITMENT_GROUPS } from '@/content/commitments/v1';
 
 function CommitmentsInner() {
   const sp = useSearchParams();
   const next = sp.get('next') && sp.get('next')!.startsWith('/') ? sp.get('next')! : '/pipeline';
-  const [status, setStatus] = useState<{ needsAcceptance: boolean; gateEnabled: boolean; acceptedVersion: string | null } | null>(null);
+  const [status, setStatus] = useState<{ shouldShow: boolean; gateEnabled: boolean; seen: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const commitments = getCommitments();
 
   useEffect(() => {
-    fetch('/api/commitments/status', { cache: 'no-store' }).then((r) => r.json()).then(setStatus).catch(() => setStatus({ needsAcceptance: false, gateEnabled: false, acceptedVersion: null }));
+    fetch('/api/commitments/status', { cache: 'no-store' }).then((r) => r.json()).then(setStatus).catch(() => setStatus({ shouldShow: false, gateEnabled: false, seen: false }));
   }, []);
 
-  async function accept() {
+  async function markSeen() {
     setBusy(true); setErr('');
     try {
-      const res = await fetch('/api/commitments/accept', { method: 'POST' });
+      const res = await fetch('/api/commitments/seen', { method: 'POST' });
       const body = await res.json();
-      if (!body.ok) { setErr(body.error ?? 'Could not record your acceptance.'); return; }
+      if (!body.ok) { setErr(body.error ?? 'Could not record that you saw this.'); return; }
       window.location.href = next;
     } finally { setBusy(false); }
   }
-
-  const alreadyAccepted = status?.acceptedVersion === COMMITMENTS_VERSION;
 
   return (
     <div className="commitments-field min-h-screen px-4 py-[120px] pb-[140px]">
@@ -113,18 +121,12 @@ function CommitmentsInner() {
         </div>
 
         {/* Roman, not italic (§C, minor): system-font italic is synthesised and
-            reads as dirty at this size. Lighter colour carries the aside. */}
+            reads as dirty at this size. Lighter colour carries the aside.
+            Prompt 604 §A — this line IS the replacement for the removed
+            "the Privacy Policy governs this" clause: a light mention that the
+            small print has already been dealt with, not a repeat of it. */}
         <p className="commitments-aside mt-9 text-[14px] leading-[1.65]">
           This isn&apos;t the small print — you&apos;ve already been through that. It&apos;s simply how we work.
-        </p>
-
-        <p className="commitments-fine mt-8 text-[12px] leading-[1.6]">
-          {COMMITMENTS_FOOTNOTE} Data controller: {CONTROLLER_NAME}. Read the{' '}
-          <Link href="/terms" className="commitments-link underline underline-offset-2">Terms</Link> and the{' '}
-          <Link href="/legal/subprocessors" className="commitments-link underline underline-offset-2">list of suppliers</Link>.
-        </p>
-        <p className="commitments-fine mt-2 text-[12px]">
-          Version {COMMITMENTS_VERSION}. Your acceptance is recorded with the version, the date and the email on the account.
         </p>
       </div>
 
@@ -134,15 +136,15 @@ function CommitmentsInner() {
           button is reachable at any scroll position, on any laptop. */}
       <div className="commitments-bar fixed inset-x-0 bottom-0 z-10 px-4 py-4">
         <div className="mx-auto flex w-full max-w-[660px] flex-wrap items-center gap-3">
-          {alreadyAccepted ? (
+          {status?.seen ? (
             <>
               <Link href={next} className="commitments-cta inline-flex items-center justify-center rounded-[7px] px-[26px] py-[14px] text-[14.5px] font-[650]">
                 Take me to my workspace
               </Link>
-              <span className="commitments-onfield text-xs opacity-80">You accepted this version on record.</span>
+              <span className="commitments-onfield text-xs opacity-80">You&apos;ve already seen this.</span>
             </>
           ) : (
-            <button disabled={busy || !status} onClick={accept}
+            <button disabled={busy || !status} onClick={markSeen}
               className="commitments-cta inline-flex items-center justify-center rounded-[7px] px-[26px] py-[14px] text-[14.5px] font-[650] disabled:opacity-40">
               {busy ? 'Recording…' : 'Take me to my workspace'}
             </button>

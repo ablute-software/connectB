@@ -69,7 +69,17 @@ export function HelpSupportWidget({ source, className, open: controlledOpen, onO
             </div>
             <ContactForm source={source} defaultName={defaultName} defaultEmail={defaultEmail}
               showContext={source === 'founder_app'} />
-            <Link href="/terms" target="_blank" className="mt-3 block text-xs text-gray-400 hover:underline">
+            {/* Prompt 604 §A — Nuno's own recommendation, taken: "é um bom
+                activo de marketing e custa uma rota." Founder-only: the
+                page's language ("you're about to bring your company's
+                documents in…") is written for the customer whose data we
+                process, not for an investor browsing a data room. */}
+            {source === 'founder_app' && (
+              <Link href="/welcome/commitments" className="mt-3 block text-xs text-gray-400 hover:underline">
+                Our commitments to you
+              </Link>
+            )}
+            <Link href="/terms" target="_blank" className="mt-1 block text-xs text-gray-400 hover:underline">
               Terms &amp; Conditions
             </Link>
           </div>
