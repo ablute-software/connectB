@@ -7311,3 +7311,89 @@ contact" for them with zero task rows required. Nothing was built here;
 nothing needed to be. No code changes, no schema changes, no data changes
 — `tasks`, the 49 new entities, the 24 original entities, and every org
 field were left untouched, per this prompt's own explicit instruction.
+
+## Prompt 678 (12/09/2026) — Vensana Capital: dedup reconfirmed, three schema/data calls made and recorded
+
+An external research tool (no DB access of its own) produced a dossier on
+a new investor, "Vensana Capital" — 1 entity, 2 people (Justin Klein, Kirk
+Nielsen), 9 rich content records with quotes, translations, attribution,
+locators and "reading for research" notes. Its own dedup only checked
+against its own prior 10 Excel batches, not the real database, so before
+touching anything this session re-ran the dedup against production
+directly: zero `catalog_entities`/`entities` rows match "vensana" by name
+or website; zero `catalog_people`/`people` rows match "Justin Klein" or
+"Kirk Nielsen" by full name (the closest surname collisions — Saul Klein,
+Isabel Klein, Elizabeth Klein, three differently-first-named Nielsens,
+Robin Klein, Benjamin Kleinschnitz — are all confirmed different people).
+Genuinely new. Every source URL in the dossier was independently spot-
+checked live; the `vensanacap.com` domain sits behind Cloudflare and 403s a
+bare user agent, which briefly looked like dead links until a real browser
+UA/Accept header confirmed all pages resolve.
+
+**Three calls the prompt explicitly left to this session, made and recorded here so the next "Global lote N" batch doesn't re-litigate them:**
+
+1. **Where the 9 rich content records live: `catalog_evidence.provenance`
+   jsonb, not new columns, not a new table.** `catalog_evidence` already
+   has the right shape for the parts every batch needs as real, queryable
+   columns (title, url, published_at, excerpt, kind, polarity, strength,
+   is_personal, origin, status) — and `origin='import'` plus
+   `is_personal` already express exactly the distinction ("automated thin
+   bio" vs "this is the subject's own attributed words") a new table would
+   otherwise exist only to express. The remaining fields this batch adds —
+   translation, attribution, locator, the research-reading inference,
+   limits, publisher, interviewer, access level — would be null on every
+   OTHER row in the table (the enrichment worker's own bio backfill never
+   populates them), which is exactly what the table's own `provenance`
+   jsonb already exists to hold without a migration; the three real rows
+   already in production use it the same way (batch_id, source_id,
+   backfilled_from). A new dedicated table would fragment "everything we
+   know about a person" into two places for a distinction the existing
+   table already draws. Jointly-attributed content (2 of the 9 people
+   involve both Klein and Nielsen) becomes one `catalog_evidence` row PER
+   PERSON, since `person_id` is a single FK — both rows share the same
+   url/excerpt/provenance and each carries `provenance.joint_with` naming
+   the other, so neither person's evidence trail silently omits it.
+
+2. **`hq_country = 'US'`, `hq_city = NULL`.** The dossier gives two real
+   offices (Minneapolis and the DC area) as free text; the schema's own
+   `hq_country` CHECK is ISO2 (one value, no ambiguity), and `hq_city`
+   would need picking one of two real offices for no reason. Nuno's own
+   proposal in the prompt, adopted as this session's decision since he
+   explicitly left the final call here.
+
+3. **`website = 'https://vensanacap.com'` (the root), not the thesis
+   page the dossier's own `website` field pointed at
+   (`/values/`).** Every other row in `catalog_entities.website` is a
+   root domain; the thesis page is retrievable through the entity's own
+   `thesis` field and the S1 URL is preserved in the imported evidence.
+   Same call Nuno proposed; adopted for the same reason as #2.
+
+**One more left NULL, deliberately, not asked about in the prompt:**
+`check_min_eur`/`check_max_eur`. The dossier's own figure (USD 15–50M) is a
+per-company COMMITMENT, not a first cheque, and the columns are typed in
+EUR. A precedent exists elsewhere in this table for converting a USD
+ticket into these EUR columns and recording the rate used in `notes`
+("ticket original: X–Y M USD @0.865") — but that rate was fixed at a
+specific import date (29/07/2026) and reusing it here, silently presented
+as current, would be worse than leaving the field empty: these columns
+feed real investor-matching filters elsewhere in the product, so a stale
+guessed rate is a wrong ANSWER, not a missing one. Left NULL; the USD
+range is recorded in full in `notes` instead, with the conversion
+explicitly flagged as not done rather than silently assumed.
+
+**Also decided, not asked about:** `catalog_entities.key_people` (the
+legacy free-text field `key-people-promote` exists to migrate OFF of) is
+left empty for this row. Both people are inserted directly into
+`catalog_people`/`catalog_person_affiliations` — the relational structure
+that field's own promotion tooling produces as its end state — so there is
+nothing to promote and populating the legacy text field too would just be
+a second, redundant copy for that same tooling to eventually trip over.
+
+`sectors = ['Medical Technology', 'Digital Health']`, `geographies =
+['United States']` — both picked from values already in active use
+elsewhere in the same columns (checked against production first), not
+invented. `stage_min`/`stage_max` left NULL: the dossier's "Desenvolvimento
+e comercial" describes company/product maturity, not a funding round, and
+the column is a round-stage enum — forcing a round-shaped guess onto a
+maturity-shaped fact would be exactly the kind of silent mapping error
+this file exists to prevent.

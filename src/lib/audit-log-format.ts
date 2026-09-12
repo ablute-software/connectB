@@ -37,6 +37,15 @@ export function describeAuditEvent(row: AuditLogRow, admin: string): string {
       const names = merged.map((m) => m.name).filter(Boolean).join(', ');
       return `${admin} merged ${merged.length || 'some'} duplicate(s)${names ? ` (${names})` : ''} into one catalog entity`;
     }
+    // Prompt 678 — a "research dossier" batch import (external tool, no DB
+    // access of its own — every entity/person/evidence row is created here
+    // only after this session re-confirms zero matches against production).
+    // No existing action covered inserting catalog_evidence rows in bulk.
+    case 'catalog_evidence_imported': {
+      const n = typeof detail.count === 'number' ? detail.count : null;
+      const batch = str(detail.batch);
+      return `${admin} imported ${n ?? 'a batch of'} evidence record${n === 1 ? '' : 's'}${batch ? ` (${batch})` : ''} into the catalog`;
+    }
     case 'contribution_verified':
     case 'contribution_rejected': {
       const verb = row.action === 'contribution_verified' ? 'confirmed' : 'rejected';

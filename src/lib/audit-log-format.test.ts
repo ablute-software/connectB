@@ -25,6 +25,14 @@ describe('describeAuditEvent', () => {
     expect(s).toBe('nunomarujo merged 2 duplicate(s) (Faber Ventures, Faber) into one catalog entity');
   });
 
+  it('formats catalog_evidence_imported with the count and batch label (Prompt 678)', () => {
+    const s = describeAuditEvent(
+      row({ action: 'catalog_evidence_imported', detail: { count: 12, batch: 'Sherlock Global 10' } }),
+      'nunomarujo',
+    );
+    expect(s).toBe('nunomarujo imported 12 evidence records (Sherlock Global 10) into the catalog');
+  });
+
   it('formats contribution_verified with field and value', () => {
     const s = describeAuditEvent(row({ action: 'contribution_verified', detail: { field: 'hq_city', value: 'Rio de Janeiro' } }), 'nunomarujo');
     expect(s).toBe('nunomarujo confirmed a contribution: hq_city → "Rio de Janeiro"');
