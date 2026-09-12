@@ -46,7 +46,16 @@ export function PipelineFunnel({ counts, activeFilter, onFilter }: {
           const on = activeFilter === card.key;
           const pct = Math.max(3, realTotal ? (n / realTotal) * 100 : 0);
           return (
-            <div key={card.key} className="flex items-stretch">
+            /* Prompt 676 §1 — flex-1 on the button only fills ITS OWN parent
+               (this wrapper), which is a single-child flex container of
+               intrinsic size; nothing was telling the wrapper itself to
+               grow into the OUTER row's leftover space, so the row's total
+               width stopped at min-content and left a gap before the
+               right edge the list/panel below always reaches (a bare
+               block div, full width by default). flex-1 here is what
+               actually closes that gap — the arrows/divider stay
+               shrink-to-fit, unaffected. */
+            <div key={card.key} className="flex flex-1 items-stretch">
               <button
                 type="button"
                 onClick={() => onFilter(on ? null : card.key)}

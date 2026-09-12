@@ -24,6 +24,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { Card, HardFilterBanner, PersonLink, VerBadge, fitLabel, fmtEur } from '@/components/ui';
+import { EntityAvatar } from '@/components/EntityAvatar';
 import { RelationshipSummaryCard } from '@/components/RelationshipSummaryCard';
 import { SherlockInsightBanner } from '@/components/SherlockInsightBanner';
 import { RecentInteractions } from '@/components/RecentInteractions';
@@ -175,6 +176,8 @@ export function EntityDossierPanel({ entityId, onClose }: {
           plain continuation of the page. */}
       <div className="shrink-0 border-b border-gray-100 bg-[#FAFBFC] px-4 pt-3">
         <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 items-start gap-2.5">
+          <EntityAvatar id={entity.id} name={entity.name} website={entity.website} size="md" />
           <div className="min-w-0">
             {/* Prompt 672 — below ~900px the panel takes over the whole
                 screen and needs its own way back, instead of relying on the
@@ -192,6 +195,7 @@ export function EntityDossierPanel({ entityId, onClose }: {
             <div className="mt-0.5 truncate text-[12.5px] text-gray-500">
               {entity.type.replace('_', ' ')} · {location} · <span className="font-mono">{fmtEur(entity.check_min_eur)}–{fmtEur(entity.check_max_eur)}</span>
             </div>
+          </div>
           </div>
           <button onClick={onClose} aria-label="Close dossier" title="Close (Esc)"
             className="shrink-0 rounded-full border border-gray-200 px-2 py-1 text-sm text-gray-400 hover:bg-gray-50 hover:text-gray-700">✕</button>

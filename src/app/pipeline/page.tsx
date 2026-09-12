@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useStore } from '@/lib/store';
 import { EntityDossierPanel } from '@/components/pipeline/EntityDossierPanel';
+import { EntityAvatar } from '@/components/EntityAvatar';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { FitTag, StatusPill, Tooltip, WaveTag, fmtEur, statusLabel } from '@/components/ui';
 import pipelineMobile from './pipeline-mobile.module.css';
@@ -1567,6 +1568,9 @@ function PipelinePageInner() {
                   }}
                   className={`border-b border-gray-100 align-top hover:bg-[#E8F4F8]/60 ${openEntityId === e.id ? 'bg-[#E8F4F8]' : zebra} ${suspended ? 'opacity-50' : ''} ${hf ? 'border-l-2 border-l-[#B00000]' : ''} ${drag.enabled ? 'cursor-grab' : 'cursor-pointer'} ${drag.originId === e.id ? 'pipeline-drag-origin' : ''} ${leavingRow?.entity.id === e.id ? 'pipeline-row-collapse' : ''}`}>
                   <td data-col="name" data-label="Entity" className="break-words px-2 py-1.5 font-medium">
+                  <div className="flex items-start gap-2">
+                  <EntityAvatar id={e.id} name={e.name} website={e.website} />
+                  <div className="min-w-0 flex-1">
                     {/* Prompt 672 — this link used to be the row's own,
                         separate route to /entities/[id]; the row-wide click
                         above (668) opened the same page too, so the two never
@@ -1733,6 +1737,8 @@ function PipelinePageInner() {
                         onAsk={(force) => askSherlockFor([e.id], force)}
                       />
                     )}
+                  </div>
+                  </div>
                   </td>
                   {/* Prompt 672 — the shrunk list shows only name, "type ·
                       location" and the stage pill (already folded into the
