@@ -7397,3 +7397,86 @@ e comercial" describes company/product maturity, not a funding round, and
 the column is a round-stage enum — forcing a round-shaped guess onto a
 maturity-shaped fact would be exactly the kind of silent mapping error
 this file exists to prevent.
+
+## Prompt (unnumbered, 13/09/2026) — 415 Capital catalog import (Sherlock Global 11): a real hard filter found, not just a data import
+
+Two files landed directly in this session (no numbered prompt file): an
+Excel enrichment workbook and a Markdown dossier, "Sherlock — Global 11" —
+1 entity (415 Capital, Munich), 2 people (Frederik Groenewegen, Ruben
+Osnabrugge), 8 content records. Same shape as Prompt 678's lote 10
+(Vensana), same discipline applied: dedup re-run against production
+before touching anything (the dossier's own dedup only checked its "10
+Excel anteriores" and the lote 09/10 CSVs, not the real database) — zero
+`catalog_entities` rows match "415" by name or website, zero
+`catalog_people` rows match "Groenewegen" or "Osnabrugge" by surname.
+Genuinely new. A live re-fetch of 415capital.com to spot-check the domain
+(the way Vensana's Cloudflare redirect was caught) was not possible this
+session — `WebFetch` returned `PROVENANCE_REQUIRED` with no approval in
+time — so this import relies on the dossier's own sourcing, which already
+states "Texto integral consultado" for 6 of the 8 records and names exact
+locators/paragraphs for each quote; this is recorded as a real gap, not
+papered over.
+
+**Imported, applying the three column-mapping conventions Prompt 678
+fixed so future "Global lote N" batches wouldn't re-litigate them:**
+entity in `catalog_entities` (`source='verified_import'`,
+`verification_status='pending'`, `catalog_status='imported'`,
+`sectors=['Medical Technology','Medical Devices']` — picked from values
+already active in the column, not invented), both people in
+`catalog_people`/`catalog_person_affiliations` (`kind='partner'` for both;
+Frederik `seniority_rank=1` as the co-founder, Ruben `2`), and all 8
+content records in `catalog_evidence.provenance` jsonb, one row per
+person (none of this batch's content is jointly attributed the way two of
+Vensana's nine were, so no `joint_with` split was needed on the two
+investment/announcement quotes — but Ruben's Philips co-authored piece,
+L11-C08, does carry `provenance.joint_with` naming Jan Kimpen, who is not
+catalogued as a person here since he was never at 415 Capital).
+`hq_city='Munich'` was set (unlike Vensana's `NULL` — 415 Capital has one
+real office, not two, so there was no ambiguity to avoid).
+`check_min_eur=5000000`/`check_max_eur=15000000` — the dossier's own
+figure was already in EUR, so unlike Vensana's USD-conversion dead end,
+these were populated directly, no rate decision needed.
+`stage_min`/`stage_max` left NULL for the same reason as lote 10: "Clínica
+até comercial" describes company/product maturity, not a funding round.
+`team_page_url` left NULL: only the two individual team-member pages were
+confirmed by the dossier; a `/team/` index page was never independently
+checked this session (the WebFetch gap above), so guessing it exists would
+be exactly the kind of unverified claim this file exists to avoid.
+
+**The actual finding, not just a data-entry exercise: 415 Capital is very
+likely NOT a fit for ablute_, on the mandate's own stated terms.** The
+dossier's `AUDITORIA_CAMPOS` sheet records the fund's own exclusions
+verbatim: *"Biotecnologia/fármacos; serviços de saúde; produtos de
+bem-estar"* — wellness products, excluded, in the fund's own words. Read
+against `company_facts.md` — ablute_'s own positioning, confirmed by Nuno
+in July 2026: *"not a Smart Toilet. more than an infrastructure. a New
+Health biosphere,"* explicitly **"Entering through wellness, NOT as a
+regulated medical device"** — this is not a borderline read: ablute_
+describes itself with the exact word 415 Capital lists as excluded. On top
+of that, 415 Capital's own check size (EUR 5–15M per company) sits far
+above ablute_'s EUR 1.3M seed (EUR 300k first tranche) — the same shape of
+mismatch already recorded for Northzone in `pipeline.md`'s hard-filters
+table. Per the `ablute-investor-outreach` skill's own pre-flight rule
+("an unresolved hard filter on the entity" → refusal reason), this session
+does **not** draft any outreach message to Frederik or Ruben, and the
+`notes` field on the new `catalog_entities` row says plainly:
+"NÃO RECOMENDADO enquanto o mandato descrito se mantiver."
+
+This does **not** mean the entity shouldn't be in the catalog — 415
+Capital is a real, well-sourced, genuinely new investor, useful to other
+orgs on the platform with an actual clinical/device-stage profile, and
+fit is computed per-org by the product's own matching engine, not
+hardcoded at import time. It means: no draft, no send, for ablute_,
+against this entity, until the mandate read here changes or is shown to
+be wrong. `pipeline.md`'s hard-filters table (Drive-side, ablute_'s own
+20-person pipeline) does not need a new row for this — 415 Capital was
+never in that list and isn't being added to it; the filter is recorded
+here and in the imported row's own `notes` instead, since this entity
+lives in the platform's global catalog, not ablute_'s manual Drive
+pipeline.
+
+No code changes, no migrations, no test data. Three tables touched
+(`catalog_entities`, `catalog_people`, `catalog_person_affiliations`) plus
+`catalog_evidence`, all real production data, verified against production
+before and after the insert (1 entity / 2 people / 2 affiliations / 8
+evidence rows, matching the dossier's own counts exactly).
