@@ -43,6 +43,10 @@ interface Card extends DraggableCard {
   decidedAt?: string | null; decidedByMe?: boolean | null;
   viaGrant?: boolean; viaDecision?: boolean;
   viaReferral?: boolean; referredByName?: string | null;
+  // Prompt 683 — a real portfolio company (the founder already recorded
+  // this investor's firm as `invested` in their own pipeline). Badge only —
+  // pipelineStage is derived the same way as any other card.
+  viaPortfolio?: boolean;
   followOnSignals?: FollowOnPayload[];
   isArchived?: boolean;
   trackingCount: number; hasDataRoomAccess: boolean;
@@ -686,7 +690,9 @@ function PipelineRow({
             {!openOrgId && (
               <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-gray-400">
                 {(c.followOnSignals ?? []).map((s, i) => <FollowOnBadge key={i} signal={s} />)}
-                {c.viaReferral ? (
+                {c.viaPortfolio ? (
+                  <span className="font-semibold text-emerald-700" title="You're already invested in this startup — not a new opportunity.">Portfolio</span>
+                ) : c.viaReferral ? (
                   <span className="text-purple-700" title={`Referred${c.referredByName ? ` by ${c.referredByName}` : ''}`}>Referred{c.referredByName ? ` by ${c.referredByName}` : ''}</span>
                 ) : c.viaGrant || c.viaDecision ? (
                   <span className="text-[#0E7490]" title="A real relationship already exists here.">Invited</span>

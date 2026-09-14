@@ -7565,3 +7565,42 @@ derived from tables that already exist.
   the production read-only trace above, and the full type-check/build/test
   suite, never by a live browser click-through. Flagged rather than
   silently skipped, per this repo's own verification discipline.
+
+## 14/09/2026 — Prompt 683: a portfolio company is a relationship, never a discovery card
+
+`is_internal` does not exclude an org from discovery; exclusion of
+discovery is `orgs.discovery_excluded_reason`, per org, decided by Nuno in
+the back office. `is_internal` marks "team account" for metrics/QA, not
+"not real" — ablute_ carries it and is a real company raising a real round;
+blindly excluding `is_internal` would have pulled ablute_ out of every
+investor's deal flow, which is the opposite of what the flag means.
+`pipeline-eligibility.ts` was left exactly as it was — no new read of
+`is_internal` there, confirmed by grep.
+
+The real bug this prompt fixes: an investor firm that a founder has already
+recorded as `invested` in their OWN pipeline (`entities.status`, linked to
+the investor's `catalog_entity_id` via `catalog_deliveries` — the same
+table the interest-level request task already resolves through) was still
+showing up in that investor's own Pipeline as a fresh discovery card with a
+match score. Confirmed live: Portugal Ventures (`7cddf0fb-…`) is `invested`
+in ablute_'s own pipeline; nothing on the investor side knew that.
+
+Fix: a founder-recorded `invested` relationship is a fourth relationship
+source, alongside an active data-room grant, a recorded decision, and an
+accepted referral (`hasPortfolioRelationship`,
+`investor-portfolio-relationship.ts` — pure, unit-tested: `invested` → a
+relationship; any other status, or no entity at all, → normal discovery,
+no heuristics). A portfolio company joins the SAME relationship-card group
+every other relationship type already uses — never wave-gated, never an
+`investor_pipeline_admissions` write, badged "Portfolio" on the row — and
+falls into whichever of the six Prompt 681 taxonomy stages its own data
+already implies (Due diligence if there's data-room access, Interested or
+New otherwise); the badge states the relationship, the taxonomy function is
+never special-cased for it.
+
+Verified read-only against production: of the four orgs with a
+`catalog_deliveries` row for Portugal Ventures, only ablute_ has an
+`invested` entity (the other three are `not_contacted`) — matches the
+prompt's own prediction exactly, and `investor_pipeline_admissions` has no
+row for this (org, investor) pair to begin with, so there is nothing to
+retroactively undo.

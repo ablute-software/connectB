@@ -22,6 +22,7 @@ import type { PipelineQuota } from './pipeline-quota-line';
 import { computeAdmissions } from './pipeline-admissions';
 import { investorPipelineStage, investorPipelineStageDetail, type InvestorPipelineStage } from './investor-pipeline-stage';
 import { computeEvaluationTraceOrgIds } from './investor-evaluation-trace';
+import { hasPortfolioRelationship } from './investor-portfolio-relationship';
 
 const TRACKING_WINDOW_DAYS = 30;
 
@@ -129,11 +130,34 @@ async function acceptedReferralsForInvestor(admin: SupabaseClient, investorMatch
   return { orgIds: rows.map((r) => r.referred_org_id as string), referrerNameByOrgId };
 }
 
+// Prompt 683 — a startup whose founder already recorded THIS investor as
+// `invested` in their own pipeline. catalog_deliveries is the existing
+// link between a founder's CRM entity and the investor's catalog_entity_id
+// (the same table the interest-level request task already resolves
+// through) — reused here, not a new relationship mechanism. Batched: two
+// queries regardless of how many orgs this investor's firm has ever been
+// delivered to.
+async function portfolioOrgIds(admin: SupabaseClient, investorCatalogEntityId: string): Promise<Set<string>> {
+  const { data: deliveries } = await admin.from('catalog_deliveries').select('org_id, entity_id').eq('catalog_id', investorCatalogEntityId);
+  const rows = deliveries ?? [];
+  if (rows.length === 0) return new Set();
+  const { data: entityRows } = await admin.from('entities').select('id, status').in('id', rows.map((r) => r.entity_id as string));
+  const statusById = new Map((entityRows ?? []).map((e) => [e.id as string, e.status as string | null]));
+  const statusesByOrg = new Map<string, (string | null)[]>();
+  for (const r of rows) {
+    const orgId = r.org_id as string;
+    statusesByOrg.set(orgId, [...(statusesByOrg.get(orgId) ?? []), statusById.get(r.entity_id as string) ?? null]);
+  }
+  const result = new Set<string>();
+  for (const [orgId, statuses] of statusesByOrg) if (hasPortfolioRelationship(statuses)) result.add(orgId);
+  return result;
+}
+
 // P132-A — the ID-only half of the union, for callers (the POST action
 // route) that just need a membership check, not the full card data
 // getPipelineWaves builds. See that function's own header comment for the
 // full "why a union" reasoning; kept in sync with it deliberately (both
-// read the same three sources), not re-derived independently.
+// read the same four sources), not re-derived independently.
 export async function pipelineEligibleOrgIds(admin: SupabaseClient, userId: string, email: string, personId: string | null): Promise<string[]> {
   const [granted, investorCatalogEntityId, investorProfile] = await Promise.all([
     activeGrantOrgIds(admin, email, personId),
@@ -146,7 +170,8 @@ export async function pipelineEligibleOrgIds(admin: SupabaseClient, userId: stri
     ? await admin.from('investor_relationship_decisions').select('org_id').eq('investor_catalog_entity_id', investorCatalogEntityId)
     : { data: [] as { org_id: string }[] };
   const { orgIds: referredOrgIds } = investorProfile ? await acceptedReferralsForInvestor(admin, investorProfile.id as string) : { orgIds: [] as string[] };
-  return [...new Set([...published, ...granted, ...(decisions ?? []).map((d) => d.org_id as string), ...referredOrgIds])];
+  const portfolio = investorCatalogEntityId ? await portfolioOrgIds(admin, investorCatalogEntityId) : new Set<string>();
+  return [...new Set([...published, ...granted, ...(decisions ?? []).map((d) => d.org_id as string), ...referredOrgIds, ...portfolio])];
 }
 
 // Prompt 850 §C moved isTreatedForWaveDosage (and WAVE_SIZE) to
@@ -194,7 +219,13 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   const publishedOrgIds = await eligiblePipelineOrgIds(admin, viewerIsTest);
   const { orgIds: referredOrgIdsViaReferral, referrerNameByOrgId } = await acceptedReferralsForInvestor(admin, investorProfile.id as string);
   const referredOrgIdsViaReferralSet = new Set(referredOrgIdsViaReferral);
-  const orgIds = [...new Set([...publishedOrgIds, ...grantedOrgIdList, ...decidedOrgIds, ...referredOrgIdsViaReferral])];
+  // Prompt 683 — a fourth relationship source, alongside grants/decisions/
+  // referrals: the founder already recorded this investor as `invested` in
+  // their OWN pipeline. Real money changed hands — at least as strong a
+  // relationship signal as a data-room grant, so it joins the same union on
+  // the same terms (never wave-gated, never a discovery card, see below).
+  const portfolioOrgIdsSet = investorCatalogEntityId ? await portfolioOrgIds(admin, investorCatalogEntityId) : new Set<string>();
+  const orgIds = [...new Set([...publishedOrgIds, ...grantedOrgIdList, ...decidedOrgIds, ...referredOrgIdsViaReferral, ...portfolioOrgIdsSet])];
   const usualCoInvestors = (investorProfile as { usual_co_investors: string | null }).usual_co_investors;
   if (orgIds.length === 0) return { linked: true as const, waves: [], usualCoInvestors, quota: null as PipelineQuota | null };
 
@@ -464,6 +495,11 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       // reaching out directly.
       viaReferral: referredOrgIdsViaReferralSet.has(org.id as string),
       referredByName: referrerNameByOrgId.get(org.id as string) ?? null,
+      // Prompt 683 — a real portfolio company: this investor's firm is
+      // already `invested`, per the founder's own pipeline. Presentation
+      // only (a badge) — pipelineStage is derived the same way for every
+      // other card, never special-cased for this flag (§1's own rule 2).
+      viaPortfolio: portfolioOrgIdsSet.has(org.id as string),
       followOnSignals: followOnSignalsByOrg.get(org.id as string) ?? [],
       isArchived: archivedOrgIds.has(org.id as string),
       // Prompt 345 §B/§C — set below, after this array exists (needs its
@@ -537,15 +573,16 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
     }));
   }
 
-  // P132-A — a relationship card (grant and/or decision) is never subject
-  // to the discovery wave-gate: the relationship already exists, so there's
+  // P132-A — a relationship card (grant, decision, referral, or — Prompt
+  // 683 — an existing portfolio investment) is never subject to the
+  // discovery wave-gate: the relationship already exists, so there's
   // nothing left to "unlock" by treating other cards first. Only the
   // remaining discovery-only cards go through the original doseamento.
   // Prompt 153 — nor to the monthlyCap admission gate below, same reasoning:
-  // a real grant/decision is consent that already happened, not a
-  // discovery-quota spend.
-  const relationshipCards = cards.filter((c) => c.viaGrant || c.viaDecision || c.viaReferral);
-  const discoveryCards = cards.filter((c) => !c.viaGrant && !c.viaDecision && !c.viaReferral);
+  // a real grant/decision/investment is consent (or a fact) that already
+  // happened, not a discovery-quota spend.
+  const relationshipCards = cards.filter((c) => c.viaGrant || c.viaDecision || c.viaReferral || c.viaPortfolio);
+  const discoveryCards = cards.filter((c) => !c.viaGrant && !c.viaDecision && !c.viaReferral && !c.viaPortfolio);
 
   // Prompt 153 — monthlyCap (plans.ts, by investor plan tier) now limits
   // how many NEW discovery candidates this investor firm is ever admitted
