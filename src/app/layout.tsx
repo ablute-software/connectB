@@ -6,6 +6,7 @@ import { ReportProblemWidget } from '@/components/ReportProblemWidget';
 import { BottomNavHeightProvider } from '@/lib/bottom-nav-context';
 import { ConfirmProvider } from '@/lib/confirm';
 import { BRAND_NAME } from '@/lib/brand';
+import { ChunkErrorRecovery } from '@/components/ChunkErrorRecovery';
 
 export const metadata: Metadata = {
   title: `${BRAND_NAME} — Investor Relations`,
@@ -20,14 +21,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
       </head>
       <body style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
-        <StoreProvider>
-          <BottomNavHeightProvider>
-            <ConfirmProvider>
-              <Shell>{children}</Shell>
-              <ReportProblemWidget />
-            </ConfirmProvider>
-          </BottomNavHeightProvider>
-        </StoreProvider>
+        {/* Prompt 686 §B — outermost, deliberately: a stale-chunk failure can
+            come from any route, including ones Shell/StoreProvider
+            themselves might touch, so the recovery boundary must sit above
+            everything it might need to catch a failure from. */}
+        <ChunkErrorRecovery>
+          <StoreProvider>
+            <BottomNavHeightProvider>
+              <ConfirmProvider>
+                <Shell>{children}</Shell>
+                <ReportProblemWidget />
+              </ConfirmProvider>
+            </BottomNavHeightProvider>
+          </StoreProvider>
+        </ChunkErrorRecovery>
       </body>
     </html>
   );
