@@ -230,18 +230,37 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     };
   }
 
-  // 5 — task due today (earliest first). Same "today" window Today's own
-  // Overdue/This week cards imply (calendar day, not a rolling 24h).
+  // 5 — task DUE, OR PAST DUE (earliest first).
   //
-  // Prompt 566 — 564 §D (widening this to "due, or past due", plus the
-  // ownedByEarlierStep guard that widening requires) was deliberately NOT
-  // taken with §C. It is a separate behaviour change with its own snooze
-  // implications and belongs to its own decision.
+  // Prompt 564 §D — the window used to be `due_at >= startOfDay && due_at <
+  // endOfDay`: a task due yesterday never appeared in the clue again, and no
+  // other rung covers overdue tasks (step 4's `follow_up_overdue` is about an
+  // entity's reply state, not a task). So a task the founder didn't get to
+  // simply stopped being the next thing to do, which is the opposite of what
+  // an overdue task means. Krohnsty's three first-step tasks were due 06/09:
+  // they explain today's silence, and on 07/09 they would have vanished from
+  // the clue while still undone.
+  //
+  // The kind stays `task_due_today`: it is the stored snooze kind and a value
+  // in migration 0261's CHECK constraint, and renaming it would need a
+  // migration for no gain. Read it as "due, or past due".
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const endOfDay = new Date(startOfDay.getTime() + 24 * 3600 * 1000);
   const snoozedTaskDueTodayIds = activeSnoozedIds(db.sherlockNextSnoozes, now, 'task_due_today', 'task_id');
+  // Tasks that steps 1 and 2 OWN are excluded here, and this became load-
+  // bearing the moment the window widened to include overdue: an
+  // interest-request or cap-table task is created with `due_at` set to
+  // request time, so it is overdue almost immediately. Without this, snoozing
+  // the step-1 clue would hand the identical task straight to step 5 under a
+  // different kind and a different snooze key — the founder snoozes it and it
+  // comes back tomorrow, which is worse than the silence this prompt fixes.
+  // Caught by the existing snooze tests, not by inspection.
+  const ownedByEarlierStep = (t: Db['tasks'][number]) =>
+    t.source === 'interest_level_request' || t.source === 'investor_interest'
+    || (t.source === 'document_request' && !!t.notes?.includes('item_type:cap_table'));
   const dueToday = db.tasks
-    .filter((t) => !t.done && t.due_at && new Date(t.due_at) >= startOfDay && new Date(t.due_at) < endOfDay && !snoozedTaskDueTodayIds.has(t.id))
+    .filter((t) => !t.done && t.due_at && new Date(t.due_at) < endOfDay
+      && !snoozedTaskDueTodayIds.has(t.id) && !ownedByEarlierStep(t))
     .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''));
   if (dueToday.length > 0) {
     const t = dueToday[0];

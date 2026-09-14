@@ -927,3 +927,51 @@ describe('sherlockNext — next_approach (Prompt 564 §C)', () => {
     expect(sherlockNext(db, NOW).kind).toBe('all_clear');
   });
 });
+
+// Prompt 564 §D — an overdue task is still the next thing to do.
+describe('sherlockNext — task_due_today covers overdue (Prompt 564 §D)', () => {
+  function taskDue(due: string, id = 't-1'): TaskItem {
+    return { id, title: 'Pick the right partner at Superangel and write your hook', due_at: due, kind: 'research', action_type: 'research_hook', done: false };
+  }
+
+  it('surfaces a task due today', () => {
+    const db = makeDb({ tasks: [taskDue('2026-08-27T09:00:00Z')], entities: [BYPASS_ENTITY], interactions: [BYPASS_OUTBOUND] });
+    expect(sherlockNext(db, NOW).kind).toBe('task_due_today');
+  });
+
+  // The bug: before 564 a task due yesterday vanished from the clue forever,
+  // and no other rung covers overdue tasks.
+  it('surfaces a task that was due yesterday', () => {
+    const db = makeDb({ tasks: [taskDue('2026-08-26T09:00:00Z')], entities: [BYPASS_ENTITY], interactions: [BYPASS_OUTBOUND] });
+    expect(sherlockNext(db, NOW).kind).toBe('task_due_today');
+  });
+
+  it('still ignores a task due tomorrow', () => {
+    const db = makeDb({ tasks: [taskDue('2026-08-28T09:00:00Z')], entities: [BYPASS_ENTITY], interactions: [BYPASS_OUTBOUND] });
+    expect(sherlockNext(db, NOW).kind).not.toBe('task_due_today');
+  });
+
+  it('takes the oldest overdue task first', () => {
+    const db = makeDb({
+      tasks: [taskDue('2026-08-26T09:00:00Z', 't-yesterday'), taskDue('2026-08-20T09:00:00Z', 't-week-ago')],
+      entities: [BYPASS_ENTITY], interactions: [BYPASS_OUTBOUND],
+    });
+    expect(sherlockNext(db, NOW).taskId).toBe('t-week-ago');
+  });
+
+  // Regression guard for the hole widening the window opened: an
+  // interest-request task is overdue the moment it is created, so without
+  // the ownership check, snoozing step 1 would hand the same task to step 5
+  // under a different kind and a different snooze key.
+  it('never re-surfaces a task an earlier rung owns, even when overdue', () => {
+    const interestTask: TaskItem = {
+      id: 't-interest', title: 'Approve the interest request', due_at: '2026-08-20T09:00:00Z',
+      kind: 'admin', action_type: 'other', done: false, source: 'interest_level_request',
+    };
+    const db = makeDb({
+      tasks: [interestTask], entities: [BYPASS_ENTITY], interactions: [BYPASS_OUTBOUND],
+      sherlockNextSnoozes: [snooze564({ kind: 'interest_request', task_id: 't-interest', snoozed_until: FUTURE_564 })],
+    });
+    expect(sherlockNext(db, NOW).kind).toBe('all_clear');
+  });
+});
