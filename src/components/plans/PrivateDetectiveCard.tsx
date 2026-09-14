@@ -110,11 +110,21 @@ function PrivateDetectiveModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function PrivateDetectiveCard({ className }: { className?: string }) {
+export function PrivateDetectiveCard({ className, dataReveal }: { className?: string; dataReveal?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <div className={className}>
+      {/* dataReveal: the public /investors pricing grid drives its .rv
+          fade-in (opacity:0 until revealed) off a [data-reveal] attribute
+          that LandingEffects.tsx's IntersectionObserver queries once on
+          mount (see that file) — without this attribute here, this card
+          never gets observed, never gets data-in="true", and stays at
+          opacity:0 forever while still holding its grid cell (a real
+          production bug: the 4th plan card existed in the HTML but was
+          permanently invisible). The signed-in workspace usage
+          (InvestorPlanGrid.tsx) doesn't run LandingEffects at all, so it
+          omits this and is unaffected. */}
+      <div className={className} data-reveal={dataReveal || undefined}>
         <h3>{PRIVATE_DETECTIVE_PLAN.name}</h3>
         <p style={{ marginTop: 8 }}>{PRIVATE_DETECTIVE_PLAN.description}</p>
         <button type="button" onClick={() => setOpen(true)}
