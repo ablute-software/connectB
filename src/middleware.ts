@@ -146,16 +146,26 @@ export async function middleware(req: NextRequest) {
     if (loginAdmin || isOpenFounder) {
       home.pathname = APP_HOME;
     } else {
-      const [{ data: investorMember }, { data: grant }] = await Promise.all([
+      // Prompt 587 — investor_entity_claims joins the same lightweight
+      // precedence resolveRole() itself now uses (supabase-server.ts's
+      // decideRole): an approved claim is its own 'investor' signal, and a
+      // still-pending one gets its own destination rather than falling
+      // through to '/'. RLS scopes this to the caller's own rows (same
+      // policy the /claim page's own reads rely on), so this is safe on
+      // the request-scoped `supabase` client — no service-role needed here.
+      const [{ data: investorMember }, { data: grant }, { data: claims }] = await Promise.all([
         supabase.from('matchdeal_investor_members').select('id').eq('user_id', user.id).eq('status', 'active').limit(1).maybeSingle(),
         user.email
           ? supabase.from('access_grants').select('id').eq('grantee_email', user.email).limit(1).maybeSingle()
           : Promise.resolve({ data: null }),
+        supabase.from('investor_entity_claims').select('status').eq('claimant_user_id', user.id).in('status', ['approved', 'pending']),
       ]);
+      const hasApprovedClaim = (claims ?? []).some((c) => c.status === 'approved');
+      const hasPendingClaim = (claims ?? []).some((c) => c.status === 'pending');
       // role 'none' has no home (landing-redirect.ts) — '/' renders instead
       // of redirecting for that role, so send it there rather than replay
       // /pipeline's empty-shell dead end.
-      home.pathname = (investorMember || grant) ? '/portal' : '/';
+      home.pathname = (investorMember || grant || hasApprovedClaim) ? '/portal' : hasPendingClaim ? '/claim/pending' : '/';
     }
     return NextResponse.redirect(home);
   }

@@ -17,4 +17,12 @@ describe('landingDestination', () => {
     expect(landingDestination('none')).toBeNull();
     expect(landingDestination('none')).not.toBe('/pipeline');
   });
+
+  // Prompt 587 — a pending claim gets its own waiting page, never the
+  // marketing landing ('none') and never the founder app ('founder').
+  it('sends a pending-claim investor to the waiting page, not the landing or the founder app', () => {
+    expect(landingDestination('investor_pending')).toBe('/claim/pending');
+    expect(landingDestination('investor_pending')).not.toBeNull();
+    expect(landingDestination('investor_pending')).not.toBe('/pipeline');
+  });
 });

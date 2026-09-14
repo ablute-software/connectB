@@ -30,6 +30,13 @@ export default defineConfig({
     // reported here for what a clean checkout of the same commit runs as
     // 117. Test counts reported before this fix are unreliable; the real
     // number is whatever a clean checkout (or this exclude) reports.
-    exclude: ['**/node_modules/**', '**/.claude/worktrees/**'],
+    // connectB-895 (Prompt 587/688 sessions) — same class of problem as the
+    // .claude/worktrees exclude above, different cause: it's another git
+    // worktree's checkout (branch claude/prompt-895-promo-cancel) that ended
+    // up nested inside this one instead of as a sibling directory. Its own
+    // copies of this project's test files were running 2x over (and one of
+    // them — market-facts-view.test.ts — has a pre-existing, unrelated
+    // locale/ICU failure that then gets reported twice).
+    exclude: ['**/node_modules/**', '**/.claude/worktrees/**', '**/connectB-895/**'],
   },
 });

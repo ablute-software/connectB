@@ -10,6 +10,14 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { sendTransactionalEmail, transactionalTemplate, resendConfigured } from './resend';
 import { BRAND_NAME, APP_URL } from './brand';
 
+// Shared by both the human approve route and the Prompt 587 auto-approval
+// path — catalog_entities.email / general_partner_emails are free-text
+// fields that can hold more than one address.
+export function splitEmails(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  return raw.split(/[,;\s]+/).map((e) => e.trim().toLowerCase()).filter((e) => e.includes('@'));
+}
+
 export async function notifyClaimDecision(
   admin: SupabaseClient, opts: { id: string; claimantEmail: string; entityName: string; status: 'approved' | 'rejected' },
 ): Promise<{ notifyFailed: boolean }> {

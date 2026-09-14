@@ -7,11 +7,13 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { evaluateClaimDomain } from '@/lib/investor-entity-claims';
+import { evaluateClaimDomain, applyClaimApproval } from '@/lib/investor-entity-claims';
 import { investorEntityClaimsAvailable } from '@/lib/investor-entity-claims-capability';
 import { accountModerationAvailable } from '@/lib/account-moderation-capability';
 import { pipelineTestFlagAvailable } from '@/lib/pipeline-test-flag-capability';
-import { sendClaimDisputeNotice } from '@/lib/investor-entity-claim-notify';
+import { sendClaimDisputeNotice, notifyClaimDecision, sendClaimApprovalTripwire, splitEmails } from '@/lib/investor-entity-claim-notify';
+import { checkSeatAvailable } from '@/lib/investor-seats';
+import { logAdminAction } from '@/lib/audit';
 
 // §3.4 — "máx. 3 claims pendentes por utilizador". The (entity, user)
 // one-pending-at-a-time rule is a DB constraint (migration 0145's partial
@@ -30,7 +32,11 @@ export async function GET() {
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
   const { data: claims, error } = await admin.from('investor_entity_claims')
-    .select('id, catalog_entity_id, status, domain_match, created_at, resolved_at')
+    // evidence added for /claim/pending (Prompt 587 §B) — it explains WHY a
+    // still-pending claim didn't auto-approve (freemail entity domain, no
+    // domain on file, or a plain mismatch) using the same snapshot taken at
+    // claim time, rather than a generic "under review" with no reason.
+    .select('id, catalog_entity_id, status, domain_match, evidence, created_at, resolved_at')
     .eq('claimant_user_id', user.id).order('created_at', { ascending: false });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
@@ -125,5 +131,41 @@ export async function POST(req: Request) {
     await sendClaimDisputeNotice({ ownerEmails, disputantEmail: user.email, entityName: entity.name as string }).catch(() => {});
   }
 
-  return NextResponse.json({ ok: true, claimId: claim.id, domainMatch: verdict.domainMatch, isDispute });
+  // Prompt 587 §C — auto-approve when the domain check alone is proof
+  // enough: email already confirmed (hard-blocked above, before the claim
+  // is even created), eTLD+1 exact match, and — folded into domainMatch
+  // itself (evaluateClaimDomain, investor-entity-claims.ts) — the entity's
+  // domain isn't a freemail provider (which makes the claimant's domain
+  // provably non-freemail too, since they're the same domain once matched).
+  // A dispute (someone already owns this entity) never auto-approves, even
+  // with a matching domain — a second claimant appearing on an already-
+  // managed profile is exactly the kind of thing a human should see before
+  // it goes live, not just be notified about after the fact. Seat limits
+  // still apply: if the firm has none left, this falls back to pending
+  // (queued for backoffice, same as the human-approval route already does)
+  // rather than either silently over-filling the plan or refusing the claim
+  // outright.
+  let autoApproved = false;
+  if (verdict.domainMatch && !isDispute) {
+    const seatVerdict = await checkSeatAvailable(admin, catalogEntityId, user.id);
+    if (seatVerdict.allowed) {
+      const applied = await applyClaimApproval(admin, {
+        claimId: claim.id, catalogEntityId, claimantUserId: user.id,
+        requestedRole: requestedRole?.trim() || null, resolvedBy: null, verificationMethod: 'domain',
+      });
+      if (applied.ok) {
+        autoApproved = true;
+        await logAdminAction(admin, {
+          adminUserId: null, action: 'investor_entity_claim_auto_approved', subjectType: 'investor_entity_claim',
+          subjectId: claim.id, detail: { catalogEntityId, claimantEmail: user.email, note: 'auto-approved: domain match' },
+        });
+        await notifyClaimDecision(admin, { id: claim.id, claimantEmail: user.email, entityName: entity.name as string, status: 'approved' });
+        const contactEmails = [...new Set([...splitEmails(entity.email as string | null), ...splitEmails(entity.general_partner_emails as string | null)])]
+          .filter((e) => e !== user.email!.toLowerCase());
+        await sendClaimApprovalTripwire({ contactEmails, claimantEmail: user.email, entityName: entity.name as string }).catch(() => {});
+      }
+    }
+  }
+
+  return NextResponse.json({ ok: true, claimId: claim.id, domainMatch: verdict.domainMatch, isDispute, autoApproved });
 }

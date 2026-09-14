@@ -18,13 +18,21 @@
 // dead end on every single visit to sherlockdeal.com.
 import type { Role } from './supabase';
 
-export function landingDestination(role: Role): '/portal' | '/pipeline' | null {
+// Prompt 587 — 'investor_pending' (a submitted claim that didn't
+// auto-approve and hasn't been decided by an admin yet) gets its own
+// destination, same reasoning as 'none' getting the public landing instead
+// of the founder shell: /claim/pending explains what's happening and what's
+// still needed, instead of either the marketing page or /portal's own
+// no-access dead end.
+export function landingDestination(role: Role): '/portal' | '/pipeline' | '/claim/pending' | null {
   switch (role) {
     case 'investor':
       return '/portal';
     case 'founder':
     case 'developer':
       return '/pipeline';
+    case 'investor_pending':
+      return '/claim/pending';
     case 'none':
       return null;
   }
