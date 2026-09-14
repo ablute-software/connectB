@@ -126,7 +126,23 @@ export function PrivateDetectiveCard({ className, dataReveal }: { className?: st
           omits this and is unaffected. */}
       <div className={className} data-reveal={dataReveal || undefined}>
         <h3>{PRIVATE_DETECTIVE_PLAN.name}</h3>
-        <p style={{ marginTop: 8 }}>{PRIVATE_DETECTIVE_PLAN.description}</p>
+        {/* Prompt 588 — tagline + bullets, same content shape as the three
+            priced cards (INVESTOR_PLANS), so this reads as a plan rather
+            than an afterthought now that it's actually visible (Prompt 587).
+            Styled with plain inline values instead of the landing page's
+            CSS-module classes (s.who / s.plan li) — this component is also
+            used from the signed-in workspace's plain-Tailwind
+            InvestorPlanGrid.tsx, which has neither those classes nor the
+            --muted custom property they resolve against. */}
+        <p style={{ fontSize: '.85rem', color: '#5b7077', margin: '4px 0 16px' }}>{PRIVATE_DETECTIVE_PLAN.tagline}</p>
+        <p style={{ marginBottom: 16 }}>{PRIVATE_DETECTIVE_PLAN.description}</p>
+        <ul style={{ listStyle: 'none', margin: '0 0 20px', padding: 0, flex: 1 }}>
+          {PRIVATE_DETECTIVE_PLAN.bullets.map((b) => (
+            <li key={b} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '.9rem', marginBottom: 10, color: '#22343a' }}>
+              <span aria-hidden="true" style={{ color: '#2a7f8e', fontWeight: 700 }}>✓</span>{b}
+            </li>
+          ))}
+        </ul>
         <button type="button" onClick={() => setOpen(true)}
           className="mt-4 w-full rounded-lg bg-[#0E7490] px-3 py-2 text-sm font-semibold text-white hover:bg-[#0c637b]">
           {PRIVATE_DETECTIVE_PLAN.ctaLabel}

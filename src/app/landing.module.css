@@ -223,6 +223,10 @@
 .plan li svg { flex: 0 0 auto; margin-top: 3px; }
 .mut { color: #9fb2b8; }
 .teaser { max-width: 640px; margin: 40px auto 0; text-align: center; font-size: .9rem; color: var(--muted); background: var(--card); border: 1px dashed var(--line); border-radius: 14px; padding: 16px 22px; }
+/* Prompt 588 Bloco A — discreet like an eyebrow (small, teal, bold) but a
+   full sentence, so NOT uppercase/letter-spaced like .eyebrow (that reads
+   as shouting past a few words). */
+.earlyAccess { text-align: center; font-size: .88rem; font-weight: 600; color: var(--teal-strong); margin: -8px 0 28px; }
 .teaser b { color: var(--teal-strong); }
 
 /* cta band */

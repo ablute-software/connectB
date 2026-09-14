@@ -46,6 +46,14 @@ export function InvestorPricingSection({ signupHref = '/signup?as=investor', cta
           <span>Annual <span className={s.save}>save ~20%</span></span>
         </div>
 
+        {/* Prompt 588 Bloco A — the period has to be real for this line to
+            stay true: see migration 0313 (investor_billing.
+            investor_access_started_at) and the backoffice attention entry
+            it schedules, not just this copy. */}
+        <p className={`${s.earlyAccess} ${s.rv}`} data-reveal>
+          Early access — your first month is on us while the startup base grows. No card required.
+        </p>
+
         <div className={`${s.plans} ${s.plansInvestor}`}>
           {INVESTOR_PLANS.map((p, i) => {
             const popular = p.tier === 'ace_spotter';

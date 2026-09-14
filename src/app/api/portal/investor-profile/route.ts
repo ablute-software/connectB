@@ -22,6 +22,7 @@ import { countDistinctVoucherEntities } from '@/lib/investor-vouching';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 import { investorBillingConfigured } from '@/lib/stripe-env';
 import { isBlockedState } from '@/lib/investor-billing-access';
+import { ensureInvestorAccessStarted } from '@/lib/investor-access-period';
 import { assertNotViewer } from '@/lib/developer-viewer';
 
 const EDITABLE = [
@@ -126,6 +127,15 @@ export async function GET(req: Request) {
   // dizer QUAL plano reactivar em vez de um genérico. Continua sem sair
   // daqui nenhum id do Stripe.
   const firmAccess = readAccessFromRow(firmBilling);
+  // Prompt 588 Bloco C.1 — first real read of this firm's profile stamps
+  // its early-access start date. Awaited, not fire-and-forget: a promise
+  // still running after this route's response is sent is not guaranteed to
+  // survive on a serverless function (see no-fire-and-forget.test.ts's own
+  // header — confirmed in production twice for exactly this shape of bug).
+  // A no-op after the very first call (ensureInvestorAccessStarted only
+  // ever writes once), so this adds negligible latency to every /portal
+  // load after that.
+  await ensureInvestorAccessStarted(admin, member.catalog_entity_id);
 
   return NextResponse.json({
     linked: true, entityName: entity?.name ?? null, profile, completeness: completeness(profile ?? {}),
