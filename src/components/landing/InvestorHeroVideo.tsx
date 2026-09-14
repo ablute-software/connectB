@@ -83,9 +83,15 @@ export function InvestorHeroVideo() {
           className={s.heroVideo}
         />
       )}
-      <button type="button" className={s.watchSound} onClick={watchWithSound}>
-        Watch with sound
-      </button>
+      {/* Hidden while hovering: that's when the native controls (which
+          already include a mute toggle) are showing, so a second "turn the
+          sound on" prompt would just be redundant clutter sitting on top of
+          them in the same bottom-right corner. */}
+      {!hovering && (
+        <button type="button" className={s.watchSound} onClick={watchWithSound}>
+          Watch with sound
+        </button>
+      )}
     </div>
   );
 }

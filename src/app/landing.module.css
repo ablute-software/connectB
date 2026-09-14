@@ -121,8 +121,23 @@
 /* ---------- investor hero video (Prompt 688) ---------- */
 .heroVideoFrame { position: relative; }
 .heroVideo { display: block; width: 100%; height: auto; border-radius: 16px; box-shadow: var(--shadow-lg); background: #051417; cursor: pointer; }
-.watchSound { display: block; margin: 12px auto 0; background: none; border: none; padding: 4px 6px; font-size: .82rem; font-weight: 600; color: #cfe3e7; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-.watchSound:hover { color: #fff; }
+/* Fixed height, matched to the old "Deal flow review" mock's own rendered
+   height at this breakpoint (measured: ~402px — the mock's column width
+   varies with viewport but its content-driven height didn't), with
+   object-fit:cover so the video fills that box by width instead of
+   letterboxing inside it. Desktop-only: the mobile rule right below already
+   makes the video full-width, and there it keeps its natural aspect ratio
+   instead of a fixed crop. */
+@media (min-width: 901px) {
+  .heroVideo { height: 402px; object-fit: cover; }
+}
+.watchSound {
+  position: absolute; right: 12px; bottom: 12px; z-index: 2;
+  background: rgba(12, 39, 46, .55); border: none; border-radius: 999px;
+  padding: 6px 13px; font-size: .72rem; font-weight: 600; color: #fff;
+  backdrop-filter: blur(3px); cursor: pointer; transition: background .2s;
+}
+.watchSound:hover { background: rgba(12, 39, 46, .78); }
 @media (max-width: 900px) {
   /* The decorative .appWindow mock caps at 520px on mobile (see below); the
      real product video should run full-width instead. :has() lets the
@@ -130,6 +145,21 @@
      shared .mock rule the Startup landing's mock still relies on. */
   .mock:has(.heroVideoFrame) { max-width: none; }
 }
+
+/* ---------- deal-flow mock, relocated to "How it works" (Prompt 688) ----------
+   Was the /investors hero's own content until the product video took that
+   slot; moved here (beside the step describing curated waves/matching)
+   rather than deleted, same column treatment (.mock) it had in the hero. */
+.dealList { padding: 6px 14px 14px; }
+.dealHead { display: grid; grid-template-columns: 1.3fr .7fr 1.3fr 1fr; gap: 10px; padding: 6px 10px; font-size: .66rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 700; }
+.dealRow { display: grid; grid-template-columns: 1.3fr .7fr 1.3fr 1fr; gap: 10px; align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 11px 10px; margin-bottom: 8px; box-shadow: 0 2px 6px rgba(12, 39, 46, .05); opacity: 0; transform: translateY(12px); animation: cardIn .6s forwards; }
+.dealRow:nth-child(2) { animation-delay: .15s; }
+.dealRow:nth-child(3) { animation-delay: .3s; }
+.dealRow:nth-child(4) { animation-delay: .45s; }
+.dealCo { font-size: .8rem; font-weight: 600; color: var(--ink); }
+.dealMatch { font-size: .74rem; font-weight: 700; color: var(--teal-strong); }
+.dealWhy { font-size: .74rem; color: var(--muted); }
+.dealNext { font-size: .68rem; font-weight: 600; padding: 4px 9px; border-radius: 999px; background: var(--teal-soft); color: var(--teal-strong); justify-self: start; }
 
 /* floating chips */
 .chip { position: absolute; background: #fff; border-radius: 12px; box-shadow: var(--shadow-lg); padding: 10px 14px; display: flex; align-items: center; gap: 9px; font-size: .8rem; font-weight: 600; color: var(--ink); animation: float 6s ease-in-out infinite; }
@@ -167,6 +197,12 @@
 /* how it works */
 .how { background: linear-gradient(180deg, #fff 0%, var(--bg) 100%); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px; }
+/* Prompt 688 — steps 1-2 keep the 3-col grid's card width (just two of its
+   three tracks); step 3 pairs with the relocated deal-flow mock below in
+   its own row, at the exact ratio/gap .hero .wrap uses so that column comes
+   out the same width it had in the hero. */
+.stepsPair { display: grid; grid-template-columns: repeat(2, 1fr); gap: 26px; }
+.stepShowcase { display: grid; grid-template-columns: 1.05fr .95fr; gap: 48px; align-items: center; margin-top: 26px; }
 .step { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 34px 28px; box-shadow: var(--shadow); }
 .num { font-family: var(--font-fraunces), serif; font-size: 2.6rem; font-weight: 600; color: var(--teal); opacity: .25; position: absolute; top: 16px; right: 22px; }
 .step h3 { font-size: 1.15rem; margin-bottom: 10px; }
@@ -295,8 +331,10 @@
 @media (max-width: 900px) {
   .hero .wrap { grid-template-columns: 1fr; padding-bottom: 80px; }
   .mock { max-width: 520px; margin: 0 auto; }
-  .grid3, .steps, .plans, .plansInvestor { grid-template-columns: 1fr; }
-  .split { grid-template-columns: 1fr; gap: 32px; }
+  .grid3, .steps, .stepsPair, .plans, .plansInvestor { grid-template-columns: 1fr; }
+  .split, .stepShowcase { grid-template-columns: 1fr; gap: 32px; }
+  .dealHead, .dealRow { grid-template-columns: 1.2fr .6fr 1fr; }
+  .dealWhy { display: none; }
   .navLinks a.link { display: none; }
   .c2 { left: -6px; }
 }
