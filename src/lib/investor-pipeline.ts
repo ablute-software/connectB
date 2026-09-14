@@ -7,6 +7,7 @@ import { computeMatchScore, type InvestorThesis, type StartupRound } from './inv
 import { closedOrgIds } from './org-closed';
 import { projectUnavailableCard } from './closed-org-card';
 import { activeGrantOrgIds, eligiblePipelineOrgIds, resolveInvestorCatalogEntityId, resolveInvestorPlanTierForProfile, resolveInvestorProfile, resolveViewerIsTest } from './portal-access';
+import { HYPE_GATE_PLAN_TIER } from './matchdeal-hype';
 import { pipelineTestFlagAvailable } from './pipeline-test-flag-capability';
 import { roundValuationBasisAvailable } from './round-valuation-basis-capability';
 import { investorPlanRow } from './plans';
@@ -266,10 +267,10 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   const basisAvailable = await roundValuationBasisAvailable();
   const { data: orgs } = basisAvailable
     ? await admin.from('orgs').select(
-        'id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country, round_valuation_eur, round_valuation_basis, intro_problem, intro_solution',
+        'id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country, round_valuation_eur, round_valuation_basis, intro_problem, intro_solution, round_target_close_date, website',
       ).in('id', orgIds)
     : await admin.from('orgs').select(
-        'id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country, round_valuation_eur, intro_problem, intro_solution',
+        'id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country, round_valuation_eur, intro_problem, intro_solution, round_target_close_date, website',
       ).in('id', orgIds);
 
   // Item 3.1 — a membership_id an eligible source resolved that doesn't
@@ -292,6 +293,27 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   // expanded state (the collapsed row keeps the existing one_liner). Read
   // off the same matchdeal_profiles fetch above, no second query.
   const descriptionByOrg = new Map((startupProfiles ?? []).map((p) => [p.membership_id as string, p.description as string | null]));
+
+  // Prompt 681 §2.4 marker "🔥 Hype" — the exact same view/gate the dossier
+  // header already uses (matchdeal-hype.ts), batched here across every
+  // eligible org instead of one request per dossier visit. Never shown to
+  // a plan tier below HYPE_GATE_PLAN_TIER, same as today.
+  const viewerPlanTier = await resolveInvestorPlanTierForProfile(admin, investorProfile.id as string);
+  const startupProfileIdsForHype = [...profileByOrg.values()];
+  const { data: hypeRows } = viewerPlanTier === HYPE_GATE_PLAN_TIER && startupProfileIdsForHype.length > 0
+    ? await admin.from('matchdeal_startup_hype').select('startup_profile_id, is_hype').in('startup_profile_id', startupProfileIdsForHype)
+    : { data: [] as { startup_profile_id: string; is_hype: boolean }[] };
+  const hypeProfileIds = new Set((hypeRows ?? []).filter((r) => r.is_hype).map((r) => r.startup_profile_id as string));
+  const orgIdByProfileId = new Map([...profileByOrg.entries()].map(([orgId, profileId]) => [profileId, orgId]));
+  const hypeOrgIds = new Set([...hypeProfileIds].map((pid) => orgIdByProfileId.get(pid)).filter((v): v is string => !!v));
+
+  // Prompt 681 §2.4 marker "👁 Watching" — an ACTIVE watch only (a
+  // requested/declined/revoked one isn't "currently watching").
+  const { data: activeWatchRows } = investorCatalogEntityId
+    ? await admin.from('investor_watches').select('org_id')
+      .eq('investor_catalog_entity_id', investorCatalogEntityId).eq('status', 'active').in('org_id', orgIds)
+    : { data: [] as { org_id: string }[] };
+  const watchingOrgIds = new Set((activeWatchRows ?? []).map((r) => r.org_id as string));
 
   const thesis: InvestorThesis = {
     sectors: investorProfile.sectors ?? [], stagesInvested: investorProfile.stages_invested ?? [],
@@ -391,7 +413,10 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
           : null;
 
     return {
-      orgId: org.id, name: org.name, oneLiner: org.one_liner,
+      orgId: org.id, name: org.name, oneLiner: org.one_liner, website: org.website ?? null,
+      hype: hypeOrgIds.has(org.id as string),
+      isWatching: watchingOrgIds.has(org.id as string),
+      roundTargetCloseDate: (org as { round_target_close_date?: string | null }).round_target_close_date ?? null,
       description: descriptionByOrg.get(org.id as string) ?? null,
       // Prompt 325 — Discovery-visible reason to click "Interested",
       // additional to oneLiner. Same absent-key discipline as the rest of
@@ -405,6 +430,7 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       roundInstruments: org.round_instruments ?? [], matchScore: score, matchReasons: reasons,
       status, passReason: decision ? decision.reason_detail : (swipe?.pass_reason ?? null),
       pipelineStage, pipelineStageDetail, nextAction,
+      hasGrantedLevel2, hasGrantedLevel3, hasPendingLevel3Request,
       archivedAt: archivedAtByOrg.get(org.id as string) ?? null,
       // Prompt 681 §2.4 point 7 — the most recent of every event already
       // loaded for this card: the decision, the archive, and a message
@@ -538,9 +564,9 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
 
     // Prompt 402 — resolver centralized in portal-access.ts (same mapping,
     // same 'tier_a' fallback) so this and the startup dossier's Hype badge
-    // gate can't drift into two different tier mappings.
-    const planTier = await resolveInvestorPlanTierForProfile(admin, investorProfile.id as string);
-    const monthlyCap = investorPlanRow(planTier).monthlyCap;
+    // gate can't drift into two different tier mappings. Reuses viewerPlanTier
+    // (resolved once, above, for the 🔥 Hype marker) rather than a second call.
+    const monthlyCap = investorPlanRow(viewerPlanTier).monthlyCap;
 
     // Prompt 850 §D — the cap arithmetic itself lives in
     // pipeline-admissions.ts, pure and unit-tested (permanence, the month

@@ -35,7 +35,7 @@ import { currentInterestLevel, projectDossier } from '@/lib/investor-interest-le
 import { getInterestLevelRows, toInvestorFacingLevelRows } from '@/lib/investor-interest-level-db';
 import { interestLevelAvailable } from '@/lib/investor-interest-level-capability';
 import { fetchDossierRawData } from '@/lib/dossier-fetch';
-import { isStartupHype } from '@/lib/matchdeal-hype';
+import { isStartupHype, HYPE_GATE_PLAN_TIER } from '@/lib/matchdeal-hype';
 
 export async function GET(req: Request, { params }: { params: { orgId: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -79,7 +79,7 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
   // keeps its OWN, ungated behavior (Prompt 143) — this plan gate applies
   // only to this one dossier badge.
   const viewerPlanTier = await resolveInvestorPlanTier(admin, user.id);
-  const hype = viewerPlanTier === 'legendary_sleuth' && await isStartupHype(admin, params.orgId);
+  const hype = viewerPlanTier === HYPE_GATE_PLAN_TIER && await isStartupHype(admin, params.orgId);
 
   // P136 — compute the current level. investor_relationship_decisions'
   // own decision drives level 0/1 and the mandatory pass-collapse; levels

@@ -177,7 +177,12 @@ export function StatusPill({ status, labelOverride, explainOverride }: { status:
   );
 }
 
-const fitStyle: Record<FitScore, string> = {
+// Prompt 681 §2.4 point 3 — exported so the investor Pipeline row's Fit
+// pill can reuse the exact same style classes FitTag already uses, while
+// keeping its OWN tooltip (the existing per-row matchReasons text, not
+// FitTag's generic fixed copy — FitTag itself isn't reused there for that
+// reason).
+export const fitStyle: Record<FitScore, string> = {
   high: 'text-[#0E7490] font-bold', medium_high: 'text-green-800 font-semibold',
   medium: 'text-amber-700', low: 'text-gray-400',
 };

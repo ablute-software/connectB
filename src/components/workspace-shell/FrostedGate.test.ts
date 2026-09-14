@@ -38,7 +38,11 @@ function constant(src: string, name: string): string {
 const GATES = [
   'src/components/readiness/ReadinessPanel.tsx',
   'src/components/readiness/MarketDataPanel.tsx',
-  'src/components/investor-workspace/PipelinePanel.tsx',
+  // Prompt 681 — LockedWave (the locked-wave gate PipelinePanel.tsx renders)
+  // was extracted into its own file so the redesigned Pipeline list and the
+  // sliding dossier panel could both reuse it without a second copy;
+  // PipelinePanel.tsx itself no longer imports FrostedGate directly.
+  'src/components/investor-workspace/LockedWave.tsx',
   'src/components/guest/FrostedOverlay.tsx',
 ];
 
