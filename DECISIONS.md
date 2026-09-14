@@ -7480,3 +7480,88 @@ No code changes, no migrations, no test data. Three tables touched
 `catalog_evidence`, all real production data, verified against production
 before and after the insert (1 entity / 2 people / 2 affiliations / 8
 evidence rows, matching the dossier's own counts exactly).
+
+## 14/09/2026 — Prompt 681: Investor Pipeline v2 — one taxonomy, six cards, a sliding dossier panel, drag-to-card
+
+The investor Pipeline had five overlapping vocabularies describing the same
+startup (decision, archive flag, wave badge, interest ladder, a per-card
+relationship-state line) and none of them owned the truth. Adapted the
+founder side's own 650-family redesign (taxonomy → funnel cards → group
+bands → sliding panel → drag) to the investor's much smaller scale (a
+handful of real startups today, not hundreds) — no migration, everything
+derived from tables that already exist.
+
+- **The taxonomy is one function**: `investorPipelineStage()`
+  (`src/lib/investor-pipeline-stage.ts`) derives New / Evaluating /
+  Interested / Due diligence / Passed / Archived from facts already loaded
+  for a card, by fixed precedence (passed wins outright; archived wins over
+  interested; a granted level-3 request OR an active data-room grant means
+  Due diligence; an interested decision alone is Interested; no decision
+  but a real evaluation trace is Evaluating; everything else is New).
+  Private to the investor — the founder never sees this stage, same root
+  rule as everywhere else in this app. `hasEvaluationTrace` aggregates
+  across nine existing tables in one batched pass, never per-card.
+- **Waves are still the gate; the taxonomy is the presentation.** Doseamento,
+  the monthly admission cap, and `LockedWave`'s disclosure are UNCHANGED —
+  a relationship group and every unlocked discovery wave simply get
+  flattened into one list, each card placed by its derived stage; the one
+  still-locked wave (if any) renders as a single collapsed band after the
+  six groups, outside every count, exactly as `LockedWave` already showed
+  it.
+- **Passed and Archived open collapsed by default** — this replaces the old
+  "All hides Passed" exception (AP-13) with something that doesn't hide a
+  population without a visible sign of it: a closed shelf with its count in
+  plain sight, one click from open.
+- **The dossier panel is the same component, not a fork.** The startup
+  dossier page's actual content (`StartupDossierPageInner`) moved out of
+  its route file into `src/components/portal/StartupDossierContent.tsx` —
+  App Router forbids a `page.tsx` from exporting anything but the
+  well-known route exports (a named export there fails `next build`'s own
+  typegen, invisibly to plain `tsc --noEmit`), so the route couldn't keep
+  being both "the file" and "the reusable component" at once. The route
+  file is now a two-line Suspense wrapper around the moved component;
+  `PipelinePanel.tsx`'s sliding panel imports and embeds the identical
+  component with `variant="panel"`, which only changes layout (fills the
+  panel instead of `min-h-screen`), hides the Track & Evaluate toggle (its
+  3-column layout doesn't fit ~340px), and adds "Open full dossier ↗".
+  Known, accepted simplification: the panel's OWN address (`?startup=` on
+  `/portal`) is shareable and reload-proof, as required — but which
+  Overview/Documents/Messages/Activity sub-tab was open inside the panel is
+  local-only state, not a second query param, to avoid colliding with
+  `/portal`'s own existing `?tab=`/`?orgId=` scheme. A deep link always
+  lands on Overview inside the panel; the full page keeps its own
+  independent `?tab=` unaffected.
+- **Drag-to-card lands on the cards themselves**, unlike the founder side
+  (whose own Phase 4 — dropping directly on the funnel cards — was never
+  actually shipped; its drop targets are separate toolbar buttons). Only
+  Interested/Passed/Archived accept a drop; New/Evaluating/Due diligence
+  show why not and commit nothing. A confirmed drop always calls the exact
+  same action a button already calls (`act()`/`archiveManually()`) — the
+  drag is a shortcut to an existing path, never a new one. Archived gets an
+  8-second Undo toast (`createArchiveEntry`/the archive POST route now
+  return the entry's id so Undo can reopen it without a second round-trip).
+  The gesture itself (6px/300ms threshold, ghost, lean-toward-target,
+  fall-into-door, Esc-cancel, reduced-motion) is a deliberate parallel port
+  of the founder's `usePipelineRowDrag.ts`, not a shared hook — that hook
+  clones `<table>` rows inside a cloned `<table>`; this list's rows are
+  plain `<div>`s dragging a different card shape entirely.
+- **Verified against real production data, not just asserted**: the
+  "ablute_ — Internal QA" account's six admitted startups were traced by
+  hand against `investor_relationship_decisions`/`investor_interest_levels`/
+  `investor_archive_entries`/`access_grants` (read-only) and matched the
+  derivation exactly — two Due diligence (one via a granted level-3
+  request, one via both that and an active data-room grant), one
+  Interested (level 2 granted, no level 3), three New (no decision, no
+  evaluation trace on any of the nine tables checked).
+- **Known gap, stated plainly**: this feature has no demo-mode data path —
+  `PipelinePanel`'s only data source is `/api/portal/pipeline`, which
+  returns `{error: 'not configured'}` the instant Supabase env vars are
+  empty (exactly what `dev:verify` forces for safe browser verification).
+  That gap predates this prompt (the component never read from the
+  localStorage `db` store to begin with) and building a full demo-mode
+  fallback for six taxonomy states plus wave-locking was judged out of
+  scope for "no migration, derive from what exists" — so the six cards,
+  group bands, sliding panel and drag gesture were verified by code review,
+  the production read-only trace above, and the full type-check/build/test
+  suite, never by a live browser click-through. Flagged rather than
+  silently skipped, per this repo's own verification discipline.

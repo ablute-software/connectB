@@ -18,9 +18,19 @@ import path from 'node:path';
 // FrostedGate's and guest-previews' tests do. If someone reintroduces the
 // initializer for the same reason it existed the first time (avoiding a
 // Suspense boundary), this fails and points at the reason.
+// Prompt 681 §3 — the startup dossier's own reading (useSearchParams, tab/
+// doc/section) moved out of the route file into
+// src/components/portal/StartupDossierContent.tsx, so the investor
+// Pipeline's sliding panel could embed the SAME component (App Router
+// forbids a page.tsx from exporting anything but the well-known route
+// exports — a named export there fails next build's own typegen, even
+// though tsc --noEmit never catches it). The route file itself
+// (src/app/portal/startup/[orgId]/page.tsx) is now just the Suspense
+// wrapper — checked on its own, below, since its shape no longer matches
+// this loop's single-file assumption.
 const FILES = [
   'src/app/portal/page.tsx',
-  'src/app/portal/startup/[orgId]/page.tsx',
+  'src/components/portal/StartupDossierContent.tsx',
 ];
 
 function source(rel: string): string {
@@ -53,25 +63,48 @@ describe('the portal pages read the tab from the router', () => {
         expect(offending).toEqual([]);
       });
 
-      it('wraps its default export in a Suspense boundary, which useSearchParams requires', () => {
-        const body = code(file);
-        expect(body).toContain('<Suspense');
-        // The boundary has to be OUTSIDE the component doing the reading, or
-        // it does not help: Next needs a suspended parent to fall back to.
-        const exportIdx = body.indexOf('export default function');
-        const suspenseIdx = body.indexOf('<Suspense', exportIdx);
-        const innerIdx = body.indexOf('Inner', exportIdx);
-        expect(exportIdx).toBeGreaterThanOrEqual(0);
-        expect(suspenseIdx).toBeGreaterThan(exportIdx);
-        expect(innerIdx).toBeGreaterThan(suspenseIdx);
-      });
+      // Prompt 681 — the startup dossier's Suspense boundary now lives in a
+      // DIFFERENT file than the useSearchParams read (see the FILES comment
+      // above): checked explicitly, below, instead of in this per-file loop.
+      if (file !== 'src/components/portal/StartupDossierContent.tsx') {
+        it('wraps its default export in a Suspense boundary, which useSearchParams requires', () => {
+          const body = code(file);
+          expect(body).toContain('<Suspense');
+          // The boundary has to be OUTSIDE the component doing the reading, or
+          // it does not help: Next needs a suspended parent to fall back to.
+          const exportIdx = body.indexOf('export default function');
+          const suspenseIdx = body.indexOf('<Suspense', exportIdx);
+          const innerIdx = body.indexOf('Inner', exportIdx);
+          expect(exportIdx).toBeGreaterThanOrEqual(0);
+          expect(suspenseIdx).toBeGreaterThan(exportIdx);
+          expect(innerIdx).toBeGreaterThan(suspenseIdx);
+        });
+      }
     });
   }
+
+  // Prompt 681 — the startup dossier's ROUTE file no longer reads anything
+  // itself; it only wraps StartupDossierContent's exported component in a
+  // Suspense boundary (App Router forbids that component's own named export
+  // from living in a page.tsx at all — see that file's own header comment).
+  // This is the split-file equivalent of the single-file check above.
+  describe('src/app/portal/startup/[orgId]/page.tsx', () => {
+    it('wraps StartupDossierPageInner in a Suspense boundary', () => {
+      const body = code('src/app/portal/startup/[orgId]/page.tsx');
+      expect(body).toContain('<Suspense');
+      const exportIdx = body.indexOf('export default function');
+      const suspenseIdx = body.indexOf('<Suspense', exportIdx);
+      const innerIdx = body.indexOf('StartupDossierPageInner', suspenseIdx);
+      expect(exportIdx).toBeGreaterThanOrEqual(0);
+      expect(suspenseIdx).toBeGreaterThan(exportIdx);
+      expect(innerIdx).toBeGreaterThan(suspenseIdx);
+    });
+  });
 
   // The startup page is the one Actions required deep-links into with all
   // three params; if any stops being read the links silently degrade again.
   it('the startup dossier reads tab, doc and section from the router', () => {
-    const body = code('src/app/portal/startup/[orgId]/page.tsx');
+    const body = code('src/components/portal/StartupDossierContent.tsx');
     expect(body).toContain("searchParams.get('tab')");
     expect(body).toContain("searchParams.get('doc')");
     expect(body).toContain("searchParams.get('section')");

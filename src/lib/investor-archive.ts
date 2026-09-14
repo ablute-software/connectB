@@ -9,7 +9,7 @@ import { closedOrgIds } from './org-closed';
 export async function createArchiveEntry(
   admin: SupabaseClient, orgId: string, investorEmail: string,
   source: 'pass' | 'round_closed' | 'manual', reasonDetail: string | null,
-) {
+): Promise<{ error: { message: string } | null; entryId: string | null }> {
   // Idempotent: re-passing an already-archived (org, investor) pair (e.g.
   // changing the pass reason) updates the existing active entry instead of
   // violating investor_archive_one_active_per_pair with a second insert.
@@ -17,7 +17,10 @@ export async function createArchiveEntry(
     .select('id').eq('org_id', orgId).eq('investor_email', investorEmail).is('reopened_at', null).maybeSingle();
   if (active) {
     const { error } = await admin.from('investor_archive_entries').update({ reason_detail: reasonDetail }).eq('id', active.id);
-    return { error };
+    // Prompt 681 §4 — entryId returned even on this update branch, so a
+    // caller that just archived (or re-archived) an org can offer an
+    // immediate Undo without a second round-trip to look the row up.
+    return { error, entryId: active.id as string };
   }
 
   // "First contact" = the earliest snapshot on record for this (org,
@@ -34,11 +37,11 @@ export async function createArchiveEntry(
 
   const { id: archivedSnapshotId } = await captureSnapshot(admin, orgId, 'archived');
 
-  const { error } = await admin.from('investor_archive_entries').insert({
+  const { data: inserted, error } = await admin.from('investor_archive_entries').insert({
     org_id: orgId, investor_email: investorEmail, source, reason_detail: reasonDetail,
     first_contact_snapshot_id: firstContactSnapshotId, archived_snapshot_id: archivedSnapshotId,
-  });
-  return { error };
+  }).select('id').single();
+  return { error, entryId: (inserted?.id as string | undefined) ?? null };
 }
 
 // Initial badge set (prompt asks to propose): kept to signals the platform

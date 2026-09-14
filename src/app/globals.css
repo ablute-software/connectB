@@ -440,3 +440,17 @@ tr.pipeline-row-collapse > td { animation: pipeline-row-collapse 250ms ease-in f
   .pipeline-drop-armed, tr.pipeline-row-collapse > td, .pipeline-count-pulse, .pipeline-plus-one { animation: none; }
   tr.pipeline-row-collapse > td { opacity: 0; }
 }
+
+/* Prompt 681 §4 — the investor Pipeline's own drag-to-card gesture. Same
+   shapes as the founder rules just above (div rows here, not <tr>s — this
+   list was never a <table>), kept as a parallel set rather than reusing the
+   .pipeline-* names so a future change to either side can't silently apply
+   to both. */
+body.investor-pipeline-dragging { user-select: none; -webkit-user-select: none; cursor: grabbing; }
+body.investor-pipeline-dragging a, body.investor-pipeline-dragging button { cursor: grabbing; }
+.investor-pipeline-drop-armed { border-color: #0E7490 !important; animation: pipeline-drop-target-ready 700ms ease-out 1; }
+.investor-pipeline-count-pulse { animation: pipeline-count-pulse 400ms ease-out 1; }
+.investor-pipeline-plus-one { animation: pipeline-plus-one 700ms ease-out forwards; }
+@media (prefers-reduced-motion: reduce) {
+  .investor-pipeline-drop-armed, .investor-pipeline-count-pulse, .investor-pipeline-plus-one { animation: none; }
+}

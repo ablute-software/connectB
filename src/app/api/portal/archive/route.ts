@@ -61,7 +61,7 @@ export async function POST(req: Request) {
     // pipelineEligibleOrgIds, never a second parallel eligibility check.
     const orgIds = await pipelineEligibleOrgIds(admin, user.id, email, person?.id ?? null);
     if (!orgIds.includes(body.archiveOrgId)) return NextResponse.json({ ok: false, error: 'This startup is not in your Pipeline.' }, { status: 403 });
-    const { error } = await createArchiveEntry(admin, body.archiveOrgId, email, 'manual', body.reason ?? null);
+    const { error, entryId } = await createArchiveEntry(admin, body.archiveOrgId, email, 'manual', body.reason ?? null);
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
     // Prompt 345 §A.3 — no longer writes a pass swipe. Archiving tidies up;
@@ -70,7 +70,10 @@ export async function POST(req: Request) {
     // directly and sets isArchived on the card — that flag is what excludes
     // an archived card from the "All" filter now, not a borrowed pass swipe
     // that also (wrongly) painted the card "Passed".
-    return NextResponse.json({ ok: true });
+    // Prompt 681 §4 — entryId included so a caller (the drag-to-Archived
+    // gesture, or any future one) can offer an immediate Undo (reopen by
+    // entryId) without a second round-trip.
+    return NextResponse.json({ ok: true, entryId });
   }
 
   if (!body.entryId) return NextResponse.json({ ok: false, error: 'entryId or archiveOrgId is required.' }, { status: 400 });
