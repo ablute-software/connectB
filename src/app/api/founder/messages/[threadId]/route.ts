@@ -8,6 +8,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { dealMessagesAvailable } from '@/lib/deal-messages-capability';
 import { getThreadMessages, postMessage, markThreadRead } from '@/lib/deal-messages';
 import { resolveFounderMessageDocs } from '@/lib/deal-messages-resolve';
+import { notifyInvestorFirmOfFounderMessage } from '@/lib/deal-messages-founder-notify';
 
 async function resolveFounderOrgId(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
   const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
@@ -54,7 +55,7 @@ export async function POST(req: Request, { params }: { params: { threadId: strin
   if (!body.body?.trim()) return NextResponse.json({ ok: false, error: "Message can't be empty." }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const { data: thread } = await admin.from('deal_threads').select('id, startup_org_id').eq('id', params.threadId).maybeSingle();
+  const { data: thread } = await admin.from('deal_threads').select('id, startup_org_id, investor_catalog_entity_id').eq('id', params.threadId).maybeSingle();
   if (!thread || thread.startup_org_id !== orgId) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
 
   // Founder attaching their own documents — validated as belonging to
@@ -72,6 +73,10 @@ export async function POST(req: Request, { params }: { params: { threadId: strin
     body: body.body, links: body.links, documentIds: allowedDocIds,
   });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+  if (thread.investor_catalog_entity_id) {
+    await notifyInvestorFirmOfFounderMessage(admin, { orgId, investorCatalogEntityId: thread.investor_catalog_entity_id as string });
+  }
 
   return NextResponse.json({ ok: true });
 }

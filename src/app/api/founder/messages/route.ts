@@ -30,6 +30,7 @@ import {
   findThread, getOrCreateThread, getThreadMessages, markThreadRead, postMessage,
   founderMessageEligibleFirms, resolveFounderEntityToEligibleFirm,
 } from '@/lib/deal-messages';
+import { notifyInvestorFirmOfFounderMessage } from '@/lib/deal-messages-founder-notify';
 
 export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -139,6 +140,8 @@ export async function POST(req: Request) {
     body: body.body, links: body.links, documentIds: allowedDocIds,
   });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+  await notifyInvestorFirmOfFounderMessage(admin, { orgId, investorCatalogEntityId: body.investorCatalogEntityId });
 
   return NextResponse.json({ ok: true, threadId: thread.id });
 }
