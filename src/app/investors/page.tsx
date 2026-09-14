@@ -17,6 +17,7 @@ import { LogoLockup } from '@/components/Logo';
 import { LandingEffects } from '@/components/landing/LandingEffects';
 import { AudienceToggle } from '@/components/landing/AudienceToggle';
 import { InvestorPricingSection } from '@/components/landing/InvestorPricingSection';
+import { InvestorHeroVideo } from '@/components/landing/InvestorHeroVideo';
 import s from '../landing.module.css';
 
 const fraunces = Fraunces({
@@ -44,11 +45,17 @@ export const metadata: Metadata = {
 };
 
 /* ---------- CTA target ----------
- * The investor signup flow already exists at /signup?as=investor (it points
- * a claimed/granted email at sign-in — see src/app/signup/page.tsx). That is
- * the "signup flow de investidor" the spec calls for, so every CTA below
- * uses it rather than inventing a separate ?intent=investor convention. */
-const SIGNUP_HREF = '/signup?as=investor';
+ * Prompt 688 Bloco C — these CTAs used to point at /signup?as=investor,
+ * which only posts to /api/investor-access-request (a lead form an
+ * investor-relations human reviews later, not a real claim). The video this
+ * page now opens with ends on "Claim your profile at sherlockdeal.com", so
+ * the CTA has to land somewhere that actually does that: /claim searches
+ * catalog_entities and lets a signed-in investor claim a real profile
+ * (src/app/claim/page.tsx). Signed-out visitors see that page's own
+ * InvestorSignInForm with next="/claim" already wired in, so the magic-link
+ * round trip (src/app/auth/callback/route.ts) returns them straight back to
+ * /claim rather than dropping them on this marketing page again. */
+const CLAIM_HREF = '/claim';
 
 function Arrow() {
   return (
@@ -73,13 +80,6 @@ function ClockAmber() {
     </svg>
   );
 }
-
-const DEAL_ROWS = [
-  { co: 'BioSense Labs', match: 'Perfect 94%', why: 'Round opening', next: 'Propose meeting' },
-  { co: 'Northline Robotics', match: 'Strong 81%', why: 'New lead investor', next: 'Review fit breakdown' },
-  { co: 'Vantage Grid', match: 'Good 68%', why: 'Traction milestone', next: 'Add to watchlist' },
-  { co: 'Cobalt Health', match: 'Perfect 91%', why: 'Thesis match', next: 'Propose meeting' },
-];
 
 const STEPS = [
   { n: '1', tag: 'Claim & verify', h: 'Claim & verify', p: 'Find your organisation, verify your work email and your role. Verification is proportional: light to collaborate, strong to administer.' },
@@ -133,7 +133,7 @@ export default async function InvestorLandingPage() {
             <a className={s.link} href="#pricing">Pricing</a>
             <AudienceToggle active="investor" />
             <Link className={`${s.btn} ${s.btnGhost} ${s.btnSm}`} href="/login?as=investor">Sign in</Link>
-            <Link className={`${s.btn} ${s.btnPrimary} ${s.btnSm}`} href={SIGNUP_HREF}>Claim your profile</Link>
+            <Link className={`${s.btn} ${s.btnPrimary} ${s.btnSm}`} href={CLAIM_HREF}>Claim your profile</Link>
           </div>
         </div>
       </nav>
@@ -150,31 +150,13 @@ export default async function InvestorLandingPage() {
               ready for a decision.
             </p>
             <div className={s.heroCtas}>
-              <Link className={`${s.btn} ${s.btnPrimary}`} href={SIGNUP_HREF}>Claim your investor profile <Arrow /></Link>
+              <Link className={`${s.btn} ${s.btnPrimary}`} href={CLAIM_HREF}>Claim your investor profile <Arrow /></Link>
               <Link className={`${s.btn} ${s.btnGhost}`} href="#how">See how it works</Link>
             </div>
           </div>
 
           <div className={s.mock}>
-            <div className={s.appWindow}>
-              <div className={s.bar}>
-                <i /><i /><i />
-                <span>{BRAND_NAME.toUpperCase()} · DEAL FLOW REVIEW</span>
-              </div>
-              <div className={s.dealList}>
-                <div className={s.dealHead}>
-                  <span>Company</span><span>Match</span><span>Why now</span><span>Next action</span>
-                </div>
-                {DEAL_ROWS.map((r) => (
-                  <div key={r.co} className={s.dealRow}>
-                    <span className={s.dealCo}>{r.co}</span>
-                    <span className={s.dealMatch}>{r.match}</span>
-                    <span className={s.dealWhy}>{r.why}</span>
-                    <span className={s.dealNext}>{r.next}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <InvestorHeroVideo />
           </div>
         </div>
       </header>
@@ -334,7 +316,7 @@ export default async function InvestorLandingPage() {
           <div className={`${s.band} ${s.rv}`} data-reveal>
             <h2>Find the right startups before everyone else.</h2>
             <p>Claim your profile, build your mandate, and put your deal flow to work today.</p>
-            <Link className={`${s.btn} ${s.btnPrimary}`} href={SIGNUP_HREF}>Claim your investor profile <Arrow /></Link>
+            <Link className={`${s.btn} ${s.btnPrimary}`} href={CLAIM_HREF}>Claim your investor profile <Arrow /></Link>
           </div>
         </div>
       </section>

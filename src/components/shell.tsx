@@ -189,7 +189,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // BackofficeShell (its own layout.tsx), not the founder chrome, so this
   // Shell must stay out of the way the same way it already does for
   // /backoffice.
-  const isBareShellRoute = path === '/' || path === '/investors' || path === '/pair' || isStandaloneAuthPage
+  // Prompt 688 — '/investors' was an exact match only, so its new
+  // '/investors/video' sub-route (a standalone page meant for LinkedIn/email
+  // link-preview crawlers with no session, no JS) was rendering inside the
+  // founder chrome instead of on its own. Widened to a prefix, matching how
+  // every other public sub-tree here (/guest, /claim, /invite, /portal,
+  // /backoffice, /metrics) is already handled.
+  const isBareShellRoute = path === '/' || path === '/investors' || path?.startsWith('/investors/') || path === '/pair' || isStandaloneAuthPage
     || path?.startsWith('/guest') || path?.startsWith('/claim') || path?.startsWith('/invite') || path?.startsWith('/portal') || path?.startsWith('/backoffice') || path?.startsWith('/metrics');
   useUsageHeartbeat({ context: 'crm', enabled: me?.authEnabled === true && !isBareShellRoute });
   // Prompt 603 §C — once per version, founders only, and only while the

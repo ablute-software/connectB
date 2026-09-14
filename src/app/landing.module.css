@@ -118,6 +118,19 @@
 .kcard:nth-child(3) { animation-delay: .3s; }
 .kcard:nth-child(4) { animation-delay: .45s; }
 
+/* ---------- investor hero video (Prompt 688) ---------- */
+.heroVideoFrame { position: relative; }
+.heroVideo { display: block; width: 100%; height: auto; border-radius: 16px; box-shadow: var(--shadow-lg); background: #051417; cursor: pointer; }
+.watchSound { display: block; margin: 12px auto 0; background: none; border: none; padding: 4px 6px; font-size: .82rem; font-weight: 600; color: #cfe3e7; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.watchSound:hover { color: #fff; }
+@media (max-width: 900px) {
+  /* The decorative .appWindow mock caps at 520px on mobile (see below); the
+     real product video should run full-width instead. :has() lets the
+     override live here, next to the video's own rules, without touching the
+     shared .mock rule the Startup landing's mock still relies on. */
+  .mock:has(.heroVideoFrame) { max-width: none; }
+}
+
 /* floating chips */
 .chip { position: absolute; background: #fff; border-radius: 12px; box-shadow: var(--shadow-lg); padding: 10px 14px; display: flex; align-items: center; gap: 9px; font-size: .8rem; font-weight: 600; color: var(--ink); animation: float 6s ease-in-out infinite; }
 .chip svg { flex: 0 0 auto; }
@@ -252,18 +265,6 @@
   .rv { opacity: 1; transform: none; }
 }
 
-/* ---------- investor deal-flow mock (hero) ---------- */
-.dealList { padding: 6px 14px 14px; }
-.dealHead { display: grid; grid-template-columns: 1.3fr .7fr 1.3fr 1fr; gap: 10px; padding: 6px 10px; font-size: .66rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 700; }
-.dealRow { display: grid; grid-template-columns: 1.3fr .7fr 1.3fr 1fr; gap: 10px; align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 11px 10px; margin-bottom: 8px; box-shadow: 0 2px 6px rgba(12, 39, 46, .05); opacity: 0; transform: translateY(12px); animation: cardIn .6s forwards; }
-.dealRow:nth-child(2) { animation-delay: .15s; }
-.dealRow:nth-child(3) { animation-delay: .3s; }
-.dealRow:nth-child(4) { animation-delay: .45s; }
-.dealCo { font-size: .8rem; font-weight: 600; color: var(--ink); }
-.dealMatch { font-size: .74rem; font-weight: 700; color: var(--teal-strong); }
-.dealWhy { font-size: .74rem; color: var(--muted); }
-.dealNext { font-size: .68rem; font-weight: 600; padding: 4px 9px; border-radius: 999px; background: var(--teal-soft); color: var(--teal-strong); justify-self: start; }
-
 /* ---------- claim section ---------- */
 .claimSec { background: linear-gradient(180deg, var(--bg) 0%, #fff 100%); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .claimWrap { display: grid; grid-template-columns: 1.1fr .9fr; gap: 56px; align-items: center; }
@@ -289,8 +290,6 @@
 
 @media (max-width: 900px) {
   .claimWrap { grid-template-columns: 1fr; gap: 32px; }
-  .dealHead, .dealRow { grid-template-columns: 1.2fr .6fr 1fr; }
-  .dealWhy { display: none; }
 }
 
 @media (max-width: 900px) {
