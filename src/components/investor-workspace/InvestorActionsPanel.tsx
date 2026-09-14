@@ -17,6 +17,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Card } from '@/components/ui';
 import { investorActionsRequired, type InvestorActionItem, type InvestorActionsInput } from '@/lib/actions-required';
+import { fetchPipelineShared } from '@/lib/portal-pipeline-client';
 
 interface PipelineCard { orgId: string; name: string; status: 'open' | 'passed' | 'interested'; isArchived?: boolean }
 
@@ -53,7 +54,10 @@ export function useInvestorActions(): InvestorActions {
     })).catch(() => {});
     // Decisões pendentes: o MESMO endpoint que o separador Pipeline usa —
     // a elegibilidade (waves, caps, decididos) nunca é re-derivada aqui.
-    fetch('/api/portal/pipeline').then((r) => r.json()).then((d) => {
+    // Prompt 687 §3 — fetchPipelineShared (não fetch directo) para que este
+    // pedido e o do PipelinePanel, quando ambos montam ao abrir /portal?tab=
+    // pipeline, partilhem UM só GET em vez de dois.
+    fetchPipelineShared<{ waves?: { unlocked: boolean; items?: PipelineCard[] }[] }>().then((d) => {
       const cards: PipelineCard[] = (d.waves ?? [])
         .filter((w: { unlocked: boolean }) => w.unlocked)
         .flatMap((w: { items?: PipelineCard[] }) => w.items ?? []);

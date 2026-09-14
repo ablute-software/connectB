@@ -8012,3 +8012,113 @@ that easy.
 
 Pushed to `claude/prompt-693-loading-lens-portal`, not merged — awaiting
 Nuno's explicit go-ahead.
+
+## 14/09/2026 — Prompt 687: getPipelineWaves was ~20-30 sequential round trips; staged into ~7-9 parallel waves, and the double `/api/portal/pipeline` call fixed at the root
+
+Nuno's verification session measured `/api/portal/pipeline` live: 10-30s to
+load THREE startups, vs ~4s before Prompt 681/683 added the taxonomy's
+extra reads, and confirmed (network panel) TWO real `GET` calls on every
+single `/portal?tab=pipeline` open — not React StrictMode (doesn't run in
+production).
+
+**Root cause, both halves:**
+- `getPipelineWaves` (investor-pipeline.ts) called Supabase roughly 20-30
+  times, ONE AFTER ANOTHER, even though the large majority have no real
+  dependency on each other — they were just written top to bottom in the
+  order each feature landed (P132-A, 850, 681, 683, …), never revisited as
+  a whole. `computeEvaluationTraceOrgIds` alone ran 5 sequential waves
+  where only 2 real dependencies exist; `computeTrackingCountsByStage` ran
+  3 sequential queries with zero dependency between the first two.
+- The double call: `InvestorWorkspaceShell.tsx` mounts `useInvestorActions()`
+  UNCONDITIONALLY (for the sidebar's "Actions required" badge, which needs
+  pending-decision cards) — it fetches `/api/portal/pipeline` on every
+  `/portal` page load, tab-independent. `PipelinePanel.tsx` fetches the
+  SAME endpoint whenever the Pipeline tab is the active one. Opening
+  `/portal?tab=pipeline` mounts both simultaneously → two real, independent
+  callers, genuinely two requests. (`EvaluationToolsPanel.tsx` has a third,
+  independent caller of its own, tab-gated so not the reported bug's direct
+  cause, but the same wasteful pattern — fixed the same way while in there.)
+
+**Fix, latency:** `getPipelineWaves` restructured into staged
+`Promise.all` groups — Stage 1 (identity/eligibility sources, 2 waves),
+Stage 2 (everything keyed only by the resolved `orgIds`/
+`investorCatalogEntityId`, hoisting reads that used to sit right before
+their own late use — the admissions-table read, the interaction-log read,
+the withdraw-window team-email read, `closedOrgIds`, `computeTrackingCountsByStage`
+— into ONE 13-way parallel wave, 2 waves total), plus small internal fixes
+to `computeEvaluationTraceOrgIds` (5→3 waves) and `computeTrackingCountsByStage`
+(3→2 waves, called in parallel with Stage 1 now instead of sequentially near
+the end). Every stage is timed (`pipeline-timing.ts`, `timeBlock()`,
+`[pipeline-timing]` in Vercel's logs) so a future regression shows up by
+stage name in production logs instead of being re-discovered live.
+Net: ~20-30 sequential round trips down to ~7-9 sequential WAVES (each wave
+still several real queries, just concurrent) — no query was removed, cached,
+or made cheaper individually; this is purely "stop waiting for things that
+don't depend on each other."
+
+**Known limit, stated plainly, per this repo's own verification discipline
+(never claim a number you didn't measure):** the "measure, don't guess"
+instruction asked for an actual before/after timing table from a real
+production run. This session has no way to drive an authenticated
+production HTTP request (browser automation against sherlockdeal.com is
+explicitly out of bounds — CLAUDE.md's own verification protocol) and no
+access to Vercel's function logs, so the *exact* before/after milliseconds
+could not be captured independently — only reasoned about: ~25-30 sequential
+operations at a realistic ~300-500ms PostgREST round trip each lines up with
+the reported 10-30s; ~7-9 sequential waves at the same per-wave cost would
+put a warm call in the low single-digit seconds, but this is an ESTIMATE,
+not a measurement, and the <2s target is not confirmed. The instrumentation
+this prompt adds is exactly what lets Nuno's own post-deploy re-measurement
+(stated as his own next step) read real per-stage numbers straight out of
+Vercel's logs rather than a stopwatch on the whole request.
+
+**Fix, the double call:** `portal-pipeline-client.ts`'s `fetchPipelineShared()`
+— an in-flight-request cache (2s dedupe window), not a context/provider:
+`PipelinePanel` and `useInvestorActions` each keep their own differently-
+shaped local state, so sharing a context would mean reshaping one of them
+for no benefit; this just makes near-simultaneous callers share the one
+real network request. `force: true` on every call site that refreshes
+AFTER a mutation (Express interest, Pass, Archive, a reminder, a level
+request, reopening an archive entry) — those must never reuse a stale
+cached response, confirmed by 4 unit tests including one that specifically
+checks a forced call is what a later plain call then sees.
+
+**Verified:** `investor_pipeline_admissions` for the QA firm ("ablute_ —
+Internal QA") read before this deploy — six rows, `admitted_at` timestamps
+from 11/08, 13/08 and 03/09, nothing from today — as the baseline for
+Nuno's own post-deploy re-check that the row count and every timestamp are
+UNCHANGED (confirming the admission upsert still only fires when there's a
+genuinely new candidate, never on a repeat read — this was already gated
+in the code, `if (newlyAdmitted.length > 0)`, unchanged by this prompt,
+just moved earlier in the function). `tsc`/`next build`/`eslint` all exit
+0; vitest 3853/3854 (pre-existing unrelated locale-formatting failure,
+same one every prior commit this session hits) plus 4 new tests for the
+dedupe cache. A careful line-by-line diff review confirmed every reordered
+read produces the identical value it did before — this is a pure
+reordering of independent work, not a change to what gets computed.
+
+## 15/09/2026 — Prompt 697 §1/§3: rebasing the already-tested 690/693 onto `main`, and recovering 687 from a stale, un-rebased branch instead of redoing it
+
+Prompt 697 reported "687 ainda não foi feito" (687 not done yet) and asked
+for a fresh branch off `main` (with 693 already merged) to build it. That
+premise was checked against git, not taken on faith (this repo's own rule:
+verify production/repo state before trusting a prompt's premise) —
+`origin/claude/prompt-687-pipeline-performance` already existed, commit
+`6af3eac`, dated 2026-09-14, matching this prompt's own description
+exactly (staged `Promise.all` waves, `fetchPipelineShared` dedupe cache,
+`pipeline-timing.ts`, 4 new tests) — it had simply never been merged,
+21 commits behind by the time 690/692/693 landed on `main` today. The
+verification session's own report likely couldn't see this session's
+conversation history, only branches/PRs, and this one was easy to read as
+abandoned rather than "done, pending a merge OK that was never given."
+
+Rather than re-implement ~450 lines of already-reviewed orchestration logic
+from scratch (real risk of introducing a NEW bug into something already
+carefully verified, for zero benefit over reusing it), this branch
+cherry-picks `6af3eac` onto current `main`. Two files 687 and 693 both
+touch — `PipelinePanel.tsx`, `EvaluationToolsPanel.tsx` — merged CLEANLY
+with no conflict markers (687's data-orchestration edits and 693's
+`LoadingState` swaps sit in genuinely different lines); only this file,
+`DECISIONS.md`, had a real conflict (two entries appended near the same
+spot), resolved by keeping both in full. Re-verified after the cherry-pick
+rather than trusting the old branch's own numbers: see the next entry.

@@ -2,6 +2,17 @@
 // (prompt 62.4) so the CSV export can reuse the exact same waves/scores
 // computation instead of re-deriving it; a second source of truth for
 // "what's in my Pipeline" would drift.
+//
+// Prompt 687 — getPipelineWaves used to run roughly twenty Supabase round
+// trips ONE AFTER ANOTHER, most of them with no real dependency on each
+// other at all (measured live: 10-30s to load a Pipeline of THREE
+// startups, vs ~4s before Prompt 681/683 added the taxonomy's extra
+// reads). Restructured into a small number of explicit stages, each stage
+// a Promise.all of everything that only needs what a PRIOR stage already
+// produced — never sequential just because the code happened to be
+// written top to bottom. Every stage is timed (pipeline-timing.ts,
+// `[pipeline-timing]` in the logs) so a future regression shows up by
+// stage name instead of being re-discovered live.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { computeMatchScore, type InvestorThesis, type StartupRound } from './investor-match-score';
 import { closedOrgIds } from './org-closed';
@@ -23,6 +34,7 @@ import { computeAdmissions } from './pipeline-admissions';
 import { investorPipelineStage, investorPipelineStageDetail, type InvestorPipelineStage } from './investor-pipeline-stage';
 import { computeEvaluationTraceOrgIds } from './investor-evaluation-trace';
 import { hasPortfolioRelationship } from './investor-portfolio-relationship';
+import { timeBlock } from './pipeline-timing';
 
 const TRACKING_WINDOW_DAYS = 30;
 
@@ -42,14 +54,20 @@ const TRACKING_WINDOW_DAYS = 30;
 // both no-ops until migration 0139 lands: startups whose org is_test never
 // contribute a target stage, and investor actors whose catalog_entity
 // is_test never contribute a like.
+//
+// Prompt 687 — the three queries below (allStartupProfiles, allOrgs,
+// recentLikes) have no dependency on each other; only
+// testInvestorActorProfileIds genuinely needs recentLikes' own result.
 async function computeTrackingCountsByStage(admin: SupabaseClient, excludeInvestorProfileId: string) {
   const since = new Date(Date.now() - TRACKING_WINDOW_DAYS * 86400000).toISOString();
   const testFlagAvailable = await pipelineTestFlagAvailable();
 
-  const { data: allStartupProfiles } = await admin.from('matchdeal_profiles').select('id, membership_id').eq('kind', 'startup');
-  const { data: allOrgs } = testFlagAvailable
-    ? await admin.from('orgs').select('id, stage, is_test')
-    : await admin.from('orgs').select('id, stage');
+  const [{ data: allStartupProfiles }, { data: allOrgs }, { data: recentLikes }] = await timeBlock('trackingCounts.reads', () => Promise.all([
+    admin.from('matchdeal_profiles').select('id, membership_id').eq('kind', 'startup'),
+    testFlagAvailable ? admin.from('orgs').select('id, stage, is_test') : admin.from('orgs').select('id, stage'),
+    admin.from('matchdeal_swipes').select('actor_profile_id, target_profile_id')
+      .eq('direction', 'like').gte('created_at', since).neq('actor_profile_id', excludeInvestorProfileId),
+  ]));
   const stageByOrgId = new Map((allOrgs ?? []).map((o) => [o.id as string, o.stage as string | null]));
   const testOrgIds = new Set((allOrgs ?? []).filter((o) => (o as { is_test?: boolean }).is_test).map((o) => o.id as string));
   const stageByProfileId = new Map(
@@ -57,9 +75,6 @@ async function computeTrackingCountsByStage(admin: SupabaseClient, excludeInvest
       .filter((p) => !testOrgIds.has(p.membership_id as string))
       .map((p) => [p.id as string, stageByOrgId.get(p.membership_id as string) ?? null]),
   );
-
-  const { data: recentLikes } = await admin.from('matchdeal_swipes').select('actor_profile_id, target_profile_id')
-    .eq('direction', 'like').gte('created_at', since).neq('actor_profile_id', excludeInvestorProfileId);
 
   const testActorProfileIds = testFlagAvailable
     ? await testInvestorActorProfileIds(admin, (recentLikes ?? []).map((s) => s.actor_profile_id as string))
@@ -112,12 +127,12 @@ async function testInvestorActorProfileIds(admin: SupabaseClient, actorProfileId
 // investor's own network_actors row from their matchdeal_profiles id (the
 // same identity every other My Network read keys off).
 async function acceptedReferralsForInvestor(admin: SupabaseClient, investorMatchdealProfileId: string) {
-  const { data: actorRow } = await admin.from('network_actors').select('id').eq('matchdeal_profile_id', investorMatchdealProfileId).maybeSingle();
+  const { data: actorRow } = await timeBlock('referrals.actor', () => admin.from('network_actors').select('id').eq('matchdeal_profile_id', investorMatchdealProfileId).maybeSingle());
   const investorActorId = actorRow?.id as string | undefined;
   if (!investorActorId) return { orgIds: [] as string[], referrerNameByOrgId: new Map<string, string>() };
 
-  const { data: accepted } = await admin.from('network_referrals')
-    .select('referred_org_id, referrer_actor_id').eq('target_actor_id', investorActorId).eq('state', 'accepted');
+  const { data: accepted } = await timeBlock('referrals.accepted', () => admin.from('network_referrals')
+    .select('referred_org_id, referrer_actor_id').eq('target_actor_id', investorActorId).eq('state', 'accepted'));
   const rows = accepted ?? [];
   const referrerNameByOrgId = new Map<string, string>();
   if (rows.length > 0) {
@@ -138,10 +153,10 @@ async function acceptedReferralsForInvestor(admin: SupabaseClient, investorMatch
 // queries regardless of how many orgs this investor's firm has ever been
 // delivered to.
 async function portfolioOrgIds(admin: SupabaseClient, investorCatalogEntityId: string): Promise<Set<string>> {
-  const { data: deliveries } = await admin.from('catalog_deliveries').select('org_id, entity_id').eq('catalog_id', investorCatalogEntityId);
+  const { data: deliveries } = await timeBlock('portfolio.deliveries', () => admin.from('catalog_deliveries').select('org_id, entity_id').eq('catalog_id', investorCatalogEntityId));
   const rows = deliveries ?? [];
   if (rows.length === 0) return new Set();
-  const { data: entityRows } = await admin.from('entities').select('id, status').in('id', rows.map((r) => r.entity_id as string));
+  const { data: entityRows } = await timeBlock('portfolio.entities', () => admin.from('entities').select('id, status').in('id', rows.map((r) => r.entity_id as string)));
   const statusById = new Map((entityRows ?? []).map((e) => [e.id as string, e.status as string | null]));
   const statusesByOrg = new Map<string, (string | null)[]>();
   for (const r of rows) {
@@ -157,7 +172,10 @@ async function portfolioOrgIds(admin: SupabaseClient, investorCatalogEntityId: s
 // route) that just need a membership check, not the full card data
 // getPipelineWaves builds. See that function's own header comment for the
 // full "why a union" reasoning; kept in sync with it deliberately (both
-// read the same four sources), not re-derived independently.
+// read the same four sources), not re-derived independently. This one is
+// called far less often (one decision at a time, never a page load) so it
+// keeps its original straight-line shape rather than the staged rewrite
+// below — nothing here was ever reported slow.
 export async function pipelineEligibleOrgIds(admin: SupabaseClient, userId: string, email: string, personId: string | null): Promise<string[]> {
   const [granted, investorCatalogEntityId, investorProfile] = await Promise.all([
     activeGrantOrgIds(admin, email, personId),
@@ -180,94 +198,139 @@ export async function pipelineEligibleOrgIds(admin: SupabaseClient, userId: stri
 // from — the function itself is unchanged.
 export { isTreatedForWaveDosage } from './pipeline-waves';
 
+type Decision = { org_id: string; decision: string; reason_detail: string | null; decided_at: string; decided_by: string };
+type LevelRow = { org_id: string; level: 2 | 3; status: 'granted' | 'pending' | 'denied' };
+
 export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient, userId: string, email: string) {
-  const investorProfile = await resolveInvestorProfile(admin, userId);
+  const pipelineStart = Date.now();
+  const investorProfile = await timeBlock('investorProfile', () => resolveInvestorProfile(admin, userId));
   if (!investorProfile) return { linked: false as const };
 
-  const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
+  // Stage 1, wave A — everything that depends on nothing but userId/email/
+  // investorProfile.id, which are all already in hand. computeTrackingCountsByStage
+  // in particular has no dependency on orgIds at all (it aggregates across the
+  // whole platform, not this investor's own eligible set) and used to run
+  // near the very end, sequentially, for no reason.
+  const [
+    personResult, investorCatalogEntityId, referralsResult, viewerPlanTier, trackingCountByStage,
+  ] = await timeBlock('stage1.waveA', () => Promise.all([
+    admin.from('people').select('id').eq('email_verified', email).maybeSingle(),
+    resolveInvestorCatalogEntityId(admin, userId),
+    acceptedReferralsForInvestor(admin, investorProfile.id as string),
+    resolveInvestorPlanTierForProfile(admin, investorProfile.id as string),
+    computeTrackingCountsByStage(admin, investorProfile.id as string),
+  ]));
+  const person = personResult.data;
+  const { orgIds: referredOrgIdsViaReferral, referrerNameByOrgId } = referralsResult;
+  const referredOrgIdsViaReferralSet = new Set(referredOrgIdsViaReferral);
+
+  // Stage 1, wave B — needs person.id / investorCatalogEntityId from wave A.
+  // P132-A eligibility union sources: an active data-room grant, a recorded
+  // decision, and (Prompt 683) a portfolio investment.
+  const [grantedOrgIdList, viewerIsTest, decisionsResult, portfolioOrgIdsSet] = await timeBlock('stage1.waveB', () => Promise.all([
+    activeGrantOrgIds(admin, email, person?.id ?? null),
+    resolveViewerIsTest(admin, investorCatalogEntityId),
+    investorCatalogEntityId
+      ? admin.from('investor_relationship_decisions').select('org_id, decision, reason_detail, decided_at, decided_by').eq('investor_catalog_entity_id', investorCatalogEntityId)
+      : Promise.resolve({ data: [] as Decision[] }),
+    investorCatalogEntityId ? portfolioOrgIds(admin, investorCatalogEntityId) : Promise.resolve(new Set<string>()),
+  ]));
+  const grantedOrgIds = new Set(grantedOrgIdList);
+  const decisionByOrg = new Map((decisionsResult.data ?? []).map((d) => [d.org_id, d]));
+  const decidedOrgIds = new Set(decisionByOrg.keys());
+
+  // publishedOrgIds genuinely needs viewerIsTest from wave B — the one
+  // real sequential step left in this half of the function.
+  const publishedOrgIds = await timeBlock('publishedOrgIds', () => eligiblePipelineOrgIds(admin, viewerIsTest));
 
   // P132-A — Pipeline eligibility is a UNION of two populations, per Nuno's
   // own product definition ("all the companies the app understands could
   // fit the mandate, before and after being contacted"):
   //   A. A real relationship with THIS investor — an active data-room
-  //      grant (the founder's own consent to invite them in) or an
+  //      grant (the founder's own consent to invite them in), an
   //      already-recorded decision (interested/passed — history, never
   //      disappears even if the startup's MatchDeal profile later gets
-  //      unpublished).
+  //      unpublished), an accepted referral, or (Prompt 683) a founder-
+  //      recorded portfolio investment.
   //   B. Discovery — published MatchDeal profiles matching the mandate
   //      (P120-A, unchanged).
-  // Before this fix, (A) didn't count at all: a startup that invited an
-  // investor into its own data room — the strongest consent signal this
-  // app has — could still be entirely absent from that investor's own
-  // Pipeline the moment its MatchDeal profile wasn't published. That's the
-  // exact contradiction Nuno hit (Access granted showed ablute_, Pipeline
-  // didn't). What stays deliberately excluded: startups with NEITHER a
-  // grant/decision NOR a published profile — showing those would be
-  // visibility by side effect, the exact thing P107/addenda-P120-§3
-  // already ruled out.
-  const grantedOrgIdList = await activeGrantOrgIds(admin, email, person?.id ?? null);
-  const grantedOrgIds = new Set(grantedOrgIdList);
-  const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, userId);
-  const { data: decisions } = investorCatalogEntityId
-    ? await admin.from('investor_relationship_decisions').select('org_id, decision, reason_detail, decided_at, decided_by')
-      .eq('investor_catalog_entity_id', investorCatalogEntityId)
-    : { data: [] as { org_id: string; decision: string; reason_detail: string | null; decided_at: string; decided_by: string }[] };
-  const decisionByOrg = new Map((decisions ?? []).map((d) => [d.org_id as string, d]));
-  const decidedOrgIds = new Set(decisionByOrg.keys());
-
-  const viewerIsTest = await resolveViewerIsTest(admin, investorCatalogEntityId);
-  const publishedOrgIds = await eligiblePipelineOrgIds(admin, viewerIsTest);
-  const { orgIds: referredOrgIdsViaReferral, referrerNameByOrgId } = await acceptedReferralsForInvestor(admin, investorProfile.id as string);
-  const referredOrgIdsViaReferralSet = new Set(referredOrgIdsViaReferral);
-  // Prompt 683 — a fourth relationship source, alongside grants/decisions/
-  // referrals: the founder already recorded this investor as `invested` in
-  // their OWN pipeline. Real money changed hands — at least as strong a
-  // relationship signal as a data-room grant, so it joins the same union on
-  // the same terms (never wave-gated, never a discovery card, see below).
-  const portfolioOrgIdsSet = investorCatalogEntityId ? await portfolioOrgIds(admin, investorCatalogEntityId) : new Set<string>();
   const orgIds = [...new Set([...publishedOrgIds, ...grantedOrgIdList, ...decidedOrgIds, ...referredOrgIdsViaReferral, ...portfolioOrgIdsSet])];
   const usualCoInvestors = (investorProfile as { usual_co_investors: string | null }).usual_co_investors;
   if (orgIds.length === 0) return { linked: true as const, waves: [], usualCoInvestors, quota: null as PipelineQuota | null };
 
-  // Item 8 — archiving used to leave a card looking completely unchanged on
-  // the Pipeline (the entry itself landed fine in investor_archive_entries,
-  // just nothing on THIS screen said so). Same source of truth the Archive
-  // tab itself reads (createArchiveEntry/investor_archive_entries,
-  // reopened_at is null = currently archived) — a real, reload-proof flag,
-  // not session-local state.
-  const { data: archiveEntries } = await admin.from('investor_archive_entries')
-    .select('org_id, archived_at').is('reopened_at', null).eq('investor_email', email);
+  // Stage 2, wave A — everything that only needs orgIds / investorCatalogEntityId
+  // / email, with no dependency on each other. roundValuationBasisAvailable()
+  // and interactionLogAvailable() are capability PROBES (capability-probe.ts)
+  // that cache their result per warm server instance — free on every call
+  // after the first on that instance, so they're resolved inline rather than
+  // inside the Promise.all (no real round trip to wait on, on a hot path).
+  // Prompt 115 Block E — two literal select strings, not one built from a
+  // runtime-conditional variable: supabase-js parses the select string AT
+  // THE TYPE LEVEL to infer each row's shape, so a variable in its place
+  // (even one only ever holding one of these two literals) resolves to a
+  // ParserError type instead — confirmed the hard way rewriting this stage.
+  const basisAvailable = await roundValuationBasisAvailable();
+  const interactionLogOn = await interactionLogAvailable();
+
+  const [
+    archiveResult, levelRowsResult, evaluationTraceOrgIds, tasksFollowupsPair, orgsResult, startupProfilesResult,
+    activeWatchResult, activeFollowOnPairs, activatedPitchResult, closedIds, admissionRowsResult,
+    interactionLogResult, teamRowsResult,
+  ] = await timeBlock('stage2.waveA', () => Promise.all([
+    admin.from('investor_archive_entries').select('org_id, archived_at').is('reopened_at', null).eq('investor_email', email),
+    investorCatalogEntityId
+      ? admin.from('investor_interest_levels').select('org_id, level, status').eq('investor_catalog_entity_id', investorCatalogEntityId).in('org_id', orgIds)
+      : Promise.resolve({ data: [] as LevelRow[] }),
+    computeEvaluationTraceOrgIds(admin, orgIds, investorCatalogEntityId, email),
+    Promise.all([
+      admin.from('investor_tasks').select('org_id, title, due_at, reminder_at, snoozed_until').eq('investor_email', email).eq('done', false).in('org_id', orgIds),
+      admin.from('investor_followups').select('org_id, note, remind_at').eq('investor_email', email).eq('done', false).in('org_id', orgIds),
+    ]),
+    basisAvailable
+      ? admin.from('orgs').select('id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country, round_valuation_eur, round_valuation_basis, intro_problem, intro_solution, round_target_close_date, website').in('id', orgIds)
+      : admin.from('orgs').select('id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country, round_valuation_eur, intro_problem, intro_solution, round_target_close_date, website').in('id', orgIds),
+    admin.from('matchdeal_profiles').select('id, membership_id, description').eq('kind', 'startup').in('membership_id', orgIds),
+    investorCatalogEntityId
+      ? admin.from('investor_watches').select('org_id').eq('investor_catalog_entity_id', investorCatalogEntityId).eq('status', 'active').in('org_id', orgIds)
+      : Promise.resolve({ data: [] as { org_id: string }[] }),
+    getActiveFollowOnPairs(admin, orgIds),
+    orgIds.length ? admin.from('org_mini_pitches').select('org_id').in('org_id', orgIds).not('activated_at', 'is', null) : Promise.resolve({ data: [] as { org_id: string }[] }),
+    closedOrgIds(admin, orgIds),
+    // Prompt 687 §4 — hoisted here (was fetched much later, sequentially,
+    // right before the admission upsert): this SELECT has no dependency on
+    // discoveryCards, only on investorCatalogEntityId. The upsert itself
+    // still happens after cards/discoveryCards are computed below — this
+    // only moves the READ earlier.
+    investorCatalogEntityId
+      ? admin.from('investor_pipeline_admissions').select('org_id, admitted_at').eq('investor_catalog_entity_id', investorCatalogEntityId)
+      : Promise.resolve({ data: [] as { org_id: string; admitted_at: string }[] }),
+    // Prompt 419 §B.3 — hoisted the same way: depends on orgIds/
+    // investorCatalogEntityId only, not on `cards`.
+    interactionLogOn && investorCatalogEntityId
+      ? admin.from('investor_interaction_log').select('startup_org_id').eq('investor_catalog_entity_id', investorCatalogEntityId).in('startup_org_id', orgIds)
+      : Promise.resolve({ data: [] as { startup_org_id: string }[] }),
+    // Prompt 345 §B — the investor team's user ids, needed later to resolve
+    // team emails for the withdraw-window check. No dependency on `cards`
+    // either; only the per-card resolveWithdrawWindowSignals call below
+    // does.
+    investorCatalogEntityId
+      ? admin.from('matchdeal_investor_members').select('user_id').eq('catalog_entity_id', investorCatalogEntityId).eq('status', 'active')
+      : Promise.resolve({ data: [] as { user_id: string }[] }),
+  ]));
+
+  const { data: archiveEntries } = archiveResult;
   const archivedOrgIds = new Set((archiveEntries ?? []).map((e) => e.org_id as string));
   const archivedAtByOrg = new Map((archiveEntries ?? []).map((e) => [e.org_id as string, e.archived_at as string]));
 
-  // Prompt 681 §1 — the six-card taxonomy's two extra facts, batched across
-  // every eligible org (never per-card): the interest ladder's level 2/3
-  // rows, and whether ANY evaluation-trace table has a row for this org.
-  const { data: levelRows } = investorCatalogEntityId
-    ? await admin.from('investor_interest_levels').select('org_id, level, status')
-      .eq('investor_catalog_entity_id', investorCatalogEntityId).in('org_id', orgIds)
-    : { data: [] as { org_id: string; level: 2 | 3; status: 'granted' | 'pending' | 'denied' }[] };
   const levelRowsByOrg = new Map<string, { level: 2 | 3; status: 'granted' | 'pending' | 'denied' }[]>();
-  for (const r of levelRows ?? []) {
-    const list = levelRowsByOrg.get(r.org_id as string) ?? [];
-    list.push({ level: r.level as 2 | 3, status: r.status as 'granted' | 'pending' | 'denied' });
-    levelRowsByOrg.set(r.org_id as string, list);
+  for (const r of levelRowsResult.data ?? []) {
+    const list = levelRowsByOrg.get(r.org_id) ?? [];
+    list.push({ level: r.level, status: r.status });
+    levelRowsByOrg.set(r.org_id, list);
   }
-  const evaluationTraceOrgIds = await computeEvaluationTraceOrgIds(admin, orgIds, investorCatalogEntityId, email);
 
-  // Prompt 681 §2.4 point 6 — "Next action", the nearest pending task or
-  // reminder per org (batched, not per-card). snoozed_until in the future is
-  // treated the same as not-yet-due — a snoozed task isn't the next action
-  // right now. reminder_at/due_at/remind_at ARE the sort key; a task with
-  // neither sorts last (it still shows, just after anything with a real
-  // date).
+  const [{ data: pendingTasks }, { data: pendingFollowups }] = tasksFollowupsPair;
   const now = new Date();
-  const [{ data: pendingTasks }, { data: pendingFollowups }] = await Promise.all([
-    admin.from('investor_tasks').select('org_id, title, due_at, reminder_at, snoozed_until')
-      .eq('investor_email', email).eq('done', false).in('org_id', orgIds),
-    admin.from('investor_followups').select('org_id, note, remind_at')
-      .eq('investor_email', email).eq('done', false).in('org_id', orgIds),
-  ]);
   interface NextActionCandidate { label: string; at: string | null }
   const nextActionCandidatesByOrg = new Map<string, NextActionCandidate[]>();
   const pushCandidate = (orgId: string | null, c: NextActionCandidate) => {
@@ -290,20 +353,6 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
     list.sort((a, b) => (a.at ?? '9999').localeCompare(b.at ?? '9999'));
   }
 
-  // Prompt 115 Block E — round_valuation_basis only added to the select once
-  // the propose-only migration (0111) has landed; an unrecognized column
-  // name in an explicit select list fails the whole query. Two literal
-  // select strings (not one built from a runtime-conditional string) so
-  // supabase-js's column-name type inference still works in both branches.
-  const basisAvailable = await roundValuationBasisAvailable();
-  const { data: orgs } = basisAvailable
-    ? await admin.from('orgs').select(
-        'id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country, round_valuation_eur, round_valuation_basis, intro_problem, intro_solution, round_target_close_date, website',
-      ).in('id', orgIds)
-    : await admin.from('orgs').select(
-        'id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country, round_valuation_eur, intro_problem, intro_solution, round_target_close_date, website',
-      ).in('id', orgIds);
-
   // Item 3.1 — a membership_id an eligible source resolved that doesn't
   // exist in orgs used to fall through this .in() silently: the card just
   // never rendered, with no error, no log, nothing to grep for. That's
@@ -311,40 +360,22 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   // never created) stayed invisible for as long as they did. This can't
   // recover the row — the fix is publishing real startups — but it can
   // stop hiding the inconsistency.
+  const orgs = orgsResult.data;
   const resolvedOrgIds = new Set((orgs ?? []).map((o) => o.id as string));
   const missingOrgIds = orgIds.filter((id) => !resolvedOrgIds.has(id));
   if (missingOrgIds.length > 0) {
     console.error('getPipelineWaves: eligible org id(s) resolved to no row in orgs — data inconsistency, not expected:', missingOrgIds);
   }
 
-  const { data: startupProfiles } = await admin.from('matchdeal_profiles').select('id, membership_id, description')
-    .eq('kind', 'startup').in('membership_id', orgIds);
+  const startupProfiles = startupProfilesResult.data;
   const profileByOrg = new Map((startupProfiles ?? []).map((p) => [p.membership_id as string, p.id as string]));
   // P134-A — the fuller MatchDeal description, shown only in a row's
   // expanded state (the collapsed row keeps the existing one_liner). Read
   // off the same matchdeal_profiles fetch above, no second query.
   const descriptionByOrg = new Map((startupProfiles ?? []).map((p) => [p.membership_id as string, p.description as string | null]));
+  const startupProfileIds = [...profileByOrg.values()];
 
-  // Prompt 681 §2.4 marker "🔥 Hype" — the exact same view/gate the dossier
-  // header already uses (matchdeal-hype.ts), batched here across every
-  // eligible org instead of one request per dossier visit. Never shown to
-  // a plan tier below HYPE_GATE_PLAN_TIER, same as today.
-  const viewerPlanTier = await resolveInvestorPlanTierForProfile(admin, investorProfile.id as string);
-  const startupProfileIdsForHype = [...profileByOrg.values()];
-  const { data: hypeRows } = viewerPlanTier === HYPE_GATE_PLAN_TIER && startupProfileIdsForHype.length > 0
-    ? await admin.from('matchdeal_startup_hype').select('startup_profile_id, is_hype').in('startup_profile_id', startupProfileIdsForHype)
-    : { data: [] as { startup_profile_id: string; is_hype: boolean }[] };
-  const hypeProfileIds = new Set((hypeRows ?? []).filter((r) => r.is_hype).map((r) => r.startup_profile_id as string));
-  const orgIdByProfileId = new Map([...profileByOrg.entries()].map(([orgId, profileId]) => [profileId, orgId]));
-  const hypeOrgIds = new Set([...hypeProfileIds].map((pid) => orgIdByProfileId.get(pid)).filter((v): v is string => !!v));
-
-  // Prompt 681 §2.4 marker "👁 Watching" — an ACTIVE watch only (a
-  // requested/declined/revoked one isn't "currently watching").
-  const { data: activeWatchRows } = investorCatalogEntityId
-    ? await admin.from('investor_watches').select('org_id')
-      .eq('investor_catalog_entity_id', investorCatalogEntityId).eq('status', 'active').in('org_id', orgIds)
-    : { data: [] as { org_id: string }[] };
-  const watchingOrgIds = new Set((activeWatchRows ?? []).map((r) => r.org_id as string));
+  const watchingOrgIds = new Set((activeWatchResult.data ?? []).map((r) => r.org_id as string));
 
   const thesis: InvestorThesis = {
     sectors: investorProfile.sectors ?? [], stagesInvested: investorProfile.stages_invested ?? [],
@@ -353,49 +384,32 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
     exclusionsSectors: investorProfile.exclusions_sectors, exclusionsNotes: investorProfile.exclusions_notes,
   };
 
-  const startupProfileIds = [...profileByOrg.values()];
-  const { data: swipes } = startupProfileIds.length
-    ? await admin.from('matchdeal_swipes').select('target_profile_id, direction, pass_reason')
-      .eq('actor_profile_id', investorProfile.id).in('target_profile_id', startupProfileIds)
-    : { data: [] as { target_profile_id: string; direction: string; pass_reason: string | null }[] };
-  const swipeByStartupProfile = new Map((swipes ?? []).map((s) => [s.target_profile_id as string, s]));
-
-  // AP-14 — investor_relationship_decisions is the org-level source of
-  // truth (any teammate's decision must show the same status to every
-  // other teammate); matchdeal_swipes above is per-user and only used as a
-  // fallback for signals recorded before this table existed. (decisionByOrg
-  // itself was already fetched above, as part of computing the union.)
-
-  // "Other investors tracking this" (prompt 62.3) — aggregated by stage
-  // ACROSS THE WHOLE PLATFORM, never per-startup, and never resolved back to
-  // an identity: the privacy limit from Prompt 61's scoping is non-negotiable
-  // ("nunca expor o deal flow individual de outro investidor"). Two queries
-  // regardless of how many cards there are — not one per card.
-  const trackingCountByStage = await computeTrackingCountsByStage(admin, investorProfile.id);
-
-  // Prompt 319 Pedido C.1 — follow-on signals ("an existing investor would
-  // invest again"), masked here (never client-side) per shapeFollowOnPayload
-  // before they ever leave this function — the same discipline
-  // round_progress_visible_to_investors already uses in /api/portal/access.
-  const activeFollowOnPairs = await getActiveFollowOnPairs(admin, orgIds);
   const followOnSignalsByOrg = new Map<string, FollowOnPayload[]>();
   for (const pair of activeFollowOnPairs) {
     const list = followOnSignalsByOrg.get(pair.orgId) ?? [];
     list.push(shapeFollowOnPayload(true, pair.visibility, pair.investorName));
     followOnSignalsByOrg.set(pair.orgId, list);
   }
+  const orgIdsWithMiniPitch = new Set((activatedPitchResult.data ?? []).map((r) => r.org_id as string));
 
-  // Prompt 339 §B — existence only, never content, never level-gated: the
-  // compact card is the Level-0-visible tier both callers already use, so
-  // this is the one place a "pitch available" teaser can be computed
-  // without waiting on/duplicating the level>=1 gate fetchDossierRawData
-  // applies to the pitch's actual slides.
-  const { data: activatedPitchRows } = orgIds.length
-    ? await admin.from('org_mini_pitches').select('org_id').in('org_id', orgIds).not('activated_at', 'is', null)
-    : { data: [] as { org_id: string }[] };
-  const orgIdsWithMiniPitch = new Set((activatedPitchRows ?? []).map((r) => r.org_id as string));
+  // Stage 2, wave B — the two reads that genuinely need profileByOrg/
+  // startupProfileIds from wave A: swipes (per startup MatchDeal profile)
+  // and the Hype gate (per startup MatchDeal profile, gated on the plan
+  // tier already resolved in stage 1).
+  const [swipesResult, hypeResult] = await timeBlock('stage2.waveB', () => Promise.all([
+    startupProfileIds.length
+      ? admin.from('matchdeal_swipes').select('target_profile_id, direction, pass_reason').eq('actor_profile_id', investorProfile.id).in('target_profile_id', startupProfileIds)
+      : Promise.resolve({ data: [] as { target_profile_id: string; direction: string; pass_reason: string | null }[] }),
+    viewerPlanTier === HYPE_GATE_PLAN_TIER && startupProfileIds.length > 0
+      ? admin.from('matchdeal_startup_hype').select('startup_profile_id, is_hype').in('startup_profile_id', startupProfileIds)
+      : Promise.resolve({ data: [] as { startup_profile_id: string; is_hype: boolean }[] }),
+  ]));
+  const swipeByStartupProfile = new Map((swipesResult.data ?? []).map((s) => [s.target_profile_id as string, s]));
+  const hypeProfileIds = new Set((hypeResult.data ?? []).filter((r) => r.is_hype).map((r) => r.startup_profile_id as string));
+  const orgIdByProfileId = new Map([...profileByOrg.entries()].map(([orgId, profileId]) => [profileId, orgId]));
+  const hypeOrgIds = new Set([...hypeProfileIds].map((pid) => orgIdByProfileId.get(pid)).filter((v): v is string => !!v));
 
-  const cards = (orgs ?? []).map((org) => {
+  const cards = timeBlock('cardAssembly', async () => (orgs ?? []).map((org) => {
     const round: StartupRound = {
       sectors: org.sectors ?? [], stage: org.stage, country: org.country,
       roundTargetEur: org.round_target_eur, roundMinTicketEur: org.round_min_ticket_eur,
@@ -514,18 +528,21 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       // investor_interaction_log entirely (never invented).
       hasManualInteractionLog: false,
     };
-  }).sort((a, b) => b.matchScore - a.matchScore);
+  }).sort((a, b) => b.matchScore - a.matchScore));
+  const resolvedCards = await cards;
 
   // Prompt 345 §C — the interested-card status line's "In conversation"
   // signal: deal_threads.last_message_at is non-null the moment either
   // side has sent a message, so this is a single batched read, no separate
-  // deal_messages count needed.
-  const interestedOrgIds = cards.filter((c) => c.status === 'interested').map((c) => c.orgId as string);
+  // deal_messages count needed. Genuinely needs `resolvedCards` (the
+  // interested-org subset) to exist first — the one read in this whole
+  // function that can't be hoisted into stage 2.
+  const interestedOrgIds = resolvedCards.filter((c) => c.status === 'interested').map((c) => c.orgId as string);
   if (interestedOrgIds.length > 0 && investorCatalogEntityId) {
-    const { data: threads } = await admin.from('deal_threads').select('startup_org_id, last_message_at')
-      .eq('investor_catalog_entity_id', investorCatalogEntityId).in('startup_org_id', interestedOrgIds);
+    const { data: threads } = await timeBlock('dealThreads', () => admin.from('deal_threads').select('startup_org_id, last_message_at')
+      .eq('investor_catalog_entity_id', investorCatalogEntityId).in('startup_org_id', interestedOrgIds));
     const lastMessageAtByOrg = new Map((threads ?? []).filter((t) => t.last_message_at).map((t) => [t.startup_org_id as string, t.last_message_at as string]));
-    for (const c of cards) {
+    for (const c of resolvedCards) {
       const lastMessageAt = lastMessageAtByOrg.get(c.orgId as string);
       if (lastMessageAt) {
         c.hasConversation = true; c.lastMessageAt = lastMessageAt;
@@ -536,18 +553,10 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
 
   // Prompt 419 §B.3 — the Evaluation Tools "uncontacted pipeline" discovery
   // view needs to know which cards this investor has NEVER touched at all.
-  // The other three getInteractionTimeline sources (investor-interaction-
-  // log.ts) are already reflected above (status/isArchived/hasConversation/
-  // viaDecision); a manual investor_interaction_log entry with no formal
-  // decision/archive/match attached is the one signal that isn't. Same
-  // missing-table-safe pattern as company_facts/ndas elsewhere — this
-  // migration (0125) may not be applied in every environment yet.
-  if (orgIds.length > 0 && investorCatalogEntityId && await interactionLogAvailable()) {
-    const { data: logRows } = await admin.from('investor_interaction_log')
-      .select('startup_org_id').eq('investor_catalog_entity_id', investorCatalogEntityId).in('startup_org_id', orgIds);
-    const loggedOrgIds = new Set((logRows ?? []).map((r) => r.startup_org_id as string));
-    for (const c of cards) if (loggedOrgIds.has(c.orgId as string)) c.hasManualInteractionLog = true;
-  }
+  // Query itself hoisted into stage 2 (interactionLogResult); only the
+  // per-card flag-setting needs `resolvedCards`.
+  const loggedOrgIds = new Set((interactionLogResult.data ?? []).map((r) => r.startup_org_id as string));
+  for (const c of resolvedCards) if (loggedOrgIds.has(c.orgId as string)) c.hasManualInteractionLog = true;
 
   // Prompt 345 §B — "Withdraw interest": whether the window is still open,
   // computed HERE (not lazily on expand) because P134-A's own acceptance
@@ -555,22 +564,21 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   // REAL decision (decidedAt set — a legacy swipe-only 'like' predates
   // investor_relationship_decisions and was never tracked with a founder
   // task/notification to withdraw in the first place). Team emails resolved
-  // once, reused for every such card, not once per card.
-  const withdrawableCards = cards.filter((c) => c.status === 'interested' && c.decidedAt);
+  // once (teamRowsResult hoisted into stage 2), reused for every such card,
+  // not once per card.
+  const withdrawableCards = resolvedCards.filter((c) => c.status === 'interested' && c.decidedAt);
   if (withdrawableCards.length > 0 && investorCatalogEntityId) {
-    const { data: teamRows } = await admin.from('matchdeal_investor_members').select('user_id')
-      .eq('catalog_entity_id', investorCatalogEntityId).eq('status', 'active');
-    const teamEmails = await Promise.all((teamRows ?? []).map(async (r) => {
+    const teamEmails = await timeBlock('withdraw.teamEmails', () => Promise.all((teamRowsResult.data ?? []).map(async (r) => {
       const { data } = await admin.auth.admin.getUserById(r.user_id as string);
       return data?.user?.email ?? null;
-    }));
+    })));
     const investorEmails = [...new Set([email, ...teamEmails.filter((e): e is string => !!e)])];
-    await Promise.all(withdrawableCards.map(async (c) => {
+    await timeBlock('withdraw.signals', () => Promise.all(withdrawableCards.map(async (c) => {
       const signals = await resolveWithdrawWindowSignals(admin, {
         orgId: c.orgId as string, investorCatalogEntityId, decidedAt: c.decidedAt as string, investorEmails,
       });
       c.canWithdrawInterest = canWithdrawInterest(signals);
-    }));
+    })));
   }
 
   // P132-A — a relationship card (grant, decision, referral, or — Prompt
@@ -581,8 +589,8 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   // Prompt 153 — nor to the monthlyCap admission gate below, same reasoning:
   // a real grant/decision/investment is consent (or a fact) that already
   // happened, not a discovery-quota spend.
-  const relationshipCards = cards.filter((c) => c.viaGrant || c.viaDecision || c.viaReferral || c.viaPortfolio);
-  const discoveryCards = cards.filter((c) => !c.viaGrant && !c.viaDecision && !c.viaReferral && !c.viaPortfolio);
+  const relationshipCards = resolvedCards.filter((c) => c.viaGrant || c.viaDecision || c.viaReferral || c.viaPortfolio);
+  const discoveryCards = resolvedCards.filter((c) => !c.viaGrant && !c.viaDecision && !c.viaReferral && !c.viaPortfolio);
 
   // Prompt 153 — monthlyCap (plans.ts, by investor plan tier) now limits
   // how many NEW discovery candidates this investor firm is ever admitted
@@ -595,14 +603,13 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   let admittedDiscoveryCards = discoveryCards;
   let quota: PipelineQuota | null = null;
   if (investorCatalogEntityId) {
-    const { data: admissionRows } = await admin.from('investor_pipeline_admissions')
-      .select('org_id, admitted_at').eq('investor_catalog_entity_id', investorCatalogEntityId);
-    const admittedAtByOrg = new Map((admissionRows ?? []).map((a) => [a.org_id as string, a.admitted_at as string]));
+    const admittedAtByOrg = new Map((admissionRowsResult.data ?? []).map((a) => [a.org_id as string, a.admitted_at as string]));
 
     // Prompt 402 — resolver centralized in portal-access.ts (same mapping,
     // same 'tier_a' fallback) so this and the startup dossier's Hype badge
     // gate can't drift into two different tier mappings. Reuses viewerPlanTier
-    // (resolved once, above, for the 🔥 Hype marker) rather than a second call.
+    // (resolved once, in stage 1, for the 🔥 Hype marker) rather than a
+    // second call.
     const monthlyCap = investorPlanRow(viewerPlanTier).monthlyCap;
 
     // Prompt 850 §D — the cap arithmetic itself lives in
@@ -630,13 +637,19 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
     // accounts are real investors, they're meant to have a real monthly
     // cap like anyone else — the gate is gone, admission persists
     // unconditionally.
+    //
+    // Prompt 687 §4 — confirmed this stays a no-op read+skip (no write at
+    // all) whenever there's nothing new: newlyAdmitted.length is 0 unless
+    // computeAdmissions actually found a candidate this investor has never
+    // seen before, so a repeat call against an unchanged eligible set never
+    // reaches this branch.
     if (newlyAdmitted.length > 0) {
       // Idempotent by the table's own unique(investor_catalog_entity_id,
       // org_id) constraint — a concurrent call admitting the same
       // candidate is a harmless no-op, not a double-spend of the budget.
-      await admin.from('investor_pipeline_admissions').upsert(newlyAdmitted, {
+      await timeBlock('admissions.upsert', () => admin.from('investor_pipeline_admissions').upsert(newlyAdmitted, {
         onConflict: 'investor_catalog_entity_id,org_id', ignoreDuplicates: true,
-      });
+      }));
     }
   }
 
@@ -652,12 +665,15 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   // none of them can leak, because nothing they wrote survives the
   // projection. A closed org can only still be in this list through HISTORY
   // (a recorded decision, an accepted referral) — discovery and grants both
-  // exclude it upstream now.
-  const closedIds = await closedOrgIds(admin, orgIds);
+  // exclude it upstream now. (closedIds itself was fetched in stage 2 —
+  // Prompt 556 §C's ordering guarantee is about PROJECTION happening last,
+  // not about the READ happening last; nothing between stage 2 and here
+  // can put a closed org back into play.)
   const projectedWaves = closedIds.size === 0 ? waves : waves.map((w) => ({
     ...w,
     items: w.items.map((c) => (closedIds.has(c.orgId as string) ? projectUnavailableCard(c) : c)),
   }));
 
+  console.log(`[pipeline-timing] TOTAL: ${Date.now() - pipelineStart}ms`);
   return { linked: true as const, waves: projectedWaves, usualCoInvestors, quota };
 }

@@ -28,6 +28,7 @@
 // to be open — cheap (one row per org), documented at each fetch site.
 import { useEffect, useState } from 'react';
 import { EVALUATION_TOOLS } from '@/lib/evaluation-tools';
+import { fetchPipelineShared } from '@/lib/portal-pipeline-client';
 import { computeDilution, type ValuationBasis } from '@/lib/dilution';
 import { ScenariosReturnsTool } from './ScenariosReturnsTool';
 import { ComparisonView } from './ComparisonView';
@@ -1261,7 +1262,11 @@ export function EvaluationToolsPanel({ initialOrgId }: {
   }, [onboardingLoaded]);
 
   useEffect(() => {
-    fetch('/api/portal/pipeline').then((r) => r.json()).then((d: PipelineResponse) => {
+    // Prompt 687 §3 — fetchPipelineShared, not a direct fetch: this is a
+    // mount-time load like PipelinePanel's own, so it dedupes with any
+    // sibling caller (the shell's useInvestorActions, or the Pipeline tab
+    // itself) that happens to mount within the same short window.
+    fetchPipelineShared<PipelineResponse>().then((d) => {
       setCards((d.waves ?? []).flatMap((w) => w.items));
     }).catch(() => {});
   }, []);

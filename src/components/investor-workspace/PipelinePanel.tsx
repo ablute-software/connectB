@@ -30,6 +30,7 @@ import { EntityAvatar } from '@/components/EntityAvatar';
 import { fitBucketFromScore } from '@/lib/catalog-fit-bucket';
 import { fitLabel, fitStyle } from '@/components/ui';
 import { useConfirmWithFields } from '@/lib/confirm';
+import { fetchPipelineShared } from '@/lib/portal-pipeline-client';
 import { StartupDossierPageInner } from '@/components/portal/StartupDossierContent';
 import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
@@ -259,10 +260,17 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
       .catch(() => setScorecardAvgs({}));
   }, []);
 
-  function load() {
-    fetch('/api/portal/pipeline').then((r) => r.json()).then(setData);
+  // Prompt 687 §3 — the initial mount-time load (no force) is the one that
+  // gets deduped against useInvestorActions' own simultaneous mount-time
+  // fetch (InvestorWorkspaceShell.tsx) when opening straight into
+  // /portal?tab=pipeline. Every OTHER call below is a refresh AFTER an
+  // action (Express interest, Pass, Archive, a reminder, a level request…)
+  // and forces a real request — reusing a cached response there would hide
+  // the investor's own change from the screen they're looking at.
+  function load(force = false) {
+    fetchPipelineShared<PipelineResponse>({ force }).then(setData);
   }
-  useEffect(load, []);
+  useEffect(() => load(), []);
 
   function startConfirm(orgId: string, action: 'pass' | 'interest') {
     setCardError(orgId, null);
@@ -290,7 +298,7 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
         setConfirming(null);
         setReasonDraft('');
       }
-      load();
+      load(true);
     } finally { setBusyOrgId(null); }
   }
 
@@ -300,11 +308,11 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ orgId, remindAt }),
     });
-    loadAgenda(); load();
+    loadAgenda(); load(true);
   }
   async function cancelReminder(followupId: string) {
     await fetch(`/api/portal/agenda?id=${encodeURIComponent(followupId)}`, { method: 'DELETE' });
-    loadAgenda(); load();
+    loadAgenda(); load(true);
   }
 
   // Prompt 681 §4 — archiveManually now optionally reports the archive
@@ -323,7 +331,7 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
       const body = await res.json().catch(() => ({}));
       if (!res.ok || body.ok === false) { setCardError(orgId, body.error ?? 'Could not archive — please try again.'); return null; }
       setArchivedToastOrgId(orgId);
-      load();
+      load(true);
       return (body.entryId as string | undefined) ?? null;
     } finally { setBusyOrgId(null); }
   }
@@ -332,7 +340,7 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ entryId }),
     });
-    load();
+    load(true);
   }
 
   async function withdrawInterest(orgId: string) {
@@ -346,7 +354,7 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
       const body = await res.json().catch(() => ({}));
       if (!res.ok || body.ok === false) setCardError(orgId, body.error ?? 'Could not withdraw — please try again.');
       else setConfirmingWithdrawOrgId(null);
-      load();
+      load(true);
     } finally { setBusyOrgId(null); }
   }
 
@@ -364,7 +372,7 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || body.ok === false) setCardError(orgId, body.error ?? 'Could not send that request — please try again.');
-      load();
+      load(true);
     } finally { setBusyOrgId(null); }
   }
 
