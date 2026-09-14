@@ -19,6 +19,8 @@ import { interactionLogAvailable } from './investor-interaction-log-capability';
 import { buildPipelineWaves } from './pipeline-waves';
 import type { PipelineQuota } from './pipeline-quota-line';
 import { computeAdmissions } from './pipeline-admissions';
+import { investorPipelineStage, investorPipelineStageDetail, type InvestorPipelineStage } from './investor-pipeline-stage';
+import { computeEvaluationTraceOrgIds } from './investor-evaluation-trace';
 
 const TRACKING_WINDOW_DAYS = 30;
 
@@ -202,8 +204,59 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   // reopened_at is null = currently archived) — a real, reload-proof flag,
   // not session-local state.
   const { data: archiveEntries } = await admin.from('investor_archive_entries')
-    .select('org_id').eq('investor_email', email).is('reopened_at', null);
+    .select('org_id, archived_at').is('reopened_at', null).eq('investor_email', email);
   const archivedOrgIds = new Set((archiveEntries ?? []).map((e) => e.org_id as string));
+  const archivedAtByOrg = new Map((archiveEntries ?? []).map((e) => [e.org_id as string, e.archived_at as string]));
+
+  // Prompt 681 §1 — the six-card taxonomy's two extra facts, batched across
+  // every eligible org (never per-card): the interest ladder's level 2/3
+  // rows, and whether ANY evaluation-trace table has a row for this org.
+  const { data: levelRows } = investorCatalogEntityId
+    ? await admin.from('investor_interest_levels').select('org_id, level, status')
+      .eq('investor_catalog_entity_id', investorCatalogEntityId).in('org_id', orgIds)
+    : { data: [] as { org_id: string; level: 2 | 3; status: 'granted' | 'pending' | 'denied' }[] };
+  const levelRowsByOrg = new Map<string, { level: 2 | 3; status: 'granted' | 'pending' | 'denied' }[]>();
+  for (const r of levelRows ?? []) {
+    const list = levelRowsByOrg.get(r.org_id as string) ?? [];
+    list.push({ level: r.level as 2 | 3, status: r.status as 'granted' | 'pending' | 'denied' });
+    levelRowsByOrg.set(r.org_id as string, list);
+  }
+  const evaluationTraceOrgIds = await computeEvaluationTraceOrgIds(admin, orgIds, investorCatalogEntityId, email);
+
+  // Prompt 681 §2.4 point 6 — "Next action", the nearest pending task or
+  // reminder per org (batched, not per-card). snoozed_until in the future is
+  // treated the same as not-yet-due — a snoozed task isn't the next action
+  // right now. reminder_at/due_at/remind_at ARE the sort key; a task with
+  // neither sorts last (it still shows, just after anything with a real
+  // date).
+  const now = new Date();
+  const [{ data: pendingTasks }, { data: pendingFollowups }] = await Promise.all([
+    admin.from('investor_tasks').select('org_id, title, due_at, reminder_at, snoozed_until')
+      .eq('investor_email', email).eq('done', false).in('org_id', orgIds),
+    admin.from('investor_followups').select('org_id, note, remind_at')
+      .eq('investor_email', email).eq('done', false).in('org_id', orgIds),
+  ]);
+  interface NextActionCandidate { label: string; at: string | null }
+  const nextActionCandidatesByOrg = new Map<string, NextActionCandidate[]>();
+  const pushCandidate = (orgId: string | null, c: NextActionCandidate) => {
+    if (!orgId) return;
+    const list = nextActionCandidatesByOrg.get(orgId) ?? [];
+    list.push(c);
+    nextActionCandidatesByOrg.set(orgId, list);
+  };
+  for (const t of pendingTasks ?? []) {
+    if (t.snoozed_until && new Date(t.snoozed_until as string) > now) continue;
+    const at = (t.due_at ?? t.reminder_at) as string | null;
+    pushCandidate(t.org_id as string | null, { label: t.title as string, at });
+  }
+  for (const f of pendingFollowups ?? []) {
+    const at = f.remind_at as string;
+    const label = `Revisit ${new Date(at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`;
+    pushCandidate(f.org_id as string, { label, at });
+  }
+  for (const list of nextActionCandidatesByOrg.values()) {
+    list.sort((a, b) => (a.at ?? '9999').localeCompare(b.at ?? '9999'));
+  }
 
   // Prompt 115 Block E — round_valuation_basis only added to the select once
   // the propose-only migration (0111) has landed; an unrecognized column
@@ -302,6 +355,41 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
     const status = decision
       ? (decision.decision === 'passed' ? 'passed' : 'interested')
       : (swipe?.direction === 'pass' ? 'passed' : swipe?.direction === 'like' ? 'interested' : 'open');
+
+    // Prompt 681 §1 — the one taxonomy, derived from facts this function
+    // already has in hand (status folds in the legacy matchdeal_swipes
+    // fallback the same way the rest of this card object does, so the
+    // taxonomy never disagrees with the status pill it's replacing).
+    const orgLevelRows = levelRowsByOrg.get(org.id as string) ?? [];
+    const hasGrantedLevel3 = orgLevelRows.some((r) => r.level === 3 && r.status === 'granted');
+    const hasGrantedLevel2 = orgLevelRows.some((r) => r.level === 2 && r.status === 'granted') || orgLevelRows.some((r) => r.level === 3);
+    const hasActiveDataRoomGrant = grantedOrgIds.has(org.id as string);
+    const isArchivedNow = archivedOrgIds.has(org.id as string);
+    const pipelineStage: InvestorPipelineStage = investorPipelineStage({
+      latestDecision: status === 'passed' ? 'passed' : status === 'interested' ? 'interested' : null,
+      isArchived: isArchivedNow,
+      hasGrantedLevel3,
+      hasActiveDataRoomGrant,
+      hasEvaluationTrace: evaluationTraceOrgIds.has(org.id as string),
+    });
+    const pipelineStageDetail = investorPipelineStageDetail(pipelineStage, { hasGrantedLevel2, hasGrantedLevel3 });
+
+    // Prompt 681 §2.4 point 6 — precedence: a real pending task/reminder
+    // beats a pending level-3 request beats an unactioned data-room grant.
+    // "Reply to the founder" (an unanswered message) is deliberately not
+    // included — nothing loaded here says who sent the LAST message in a
+    // thread, only that a thread exists, and the prompt is explicit that
+    // this must reuse data already on the card, never a new query.
+    const hasPendingLevel3Request = orgLevelRows.some((r) => r.level === 3 && r.status === 'pending');
+    const nextActionCandidate = (nextActionCandidatesByOrg.get(org.id as string) ?? [])[0] ?? null;
+    const nextAction = nextActionCandidate
+      ? { label: nextActionCandidate.label, at: nextActionCandidate.at, overdue: !!nextActionCandidate.at && new Date(nextActionCandidate.at) < now }
+      : hasPendingLevel3Request
+        ? { label: 'Waiting for the founder', at: null, overdue: false }
+        : hasActiveDataRoomGrant
+          ? { label: 'Access granted — open the data room', at: null, overdue: false }
+          : null;
+
     return {
       orgId: org.id, name: org.name, oneLiner: org.one_liner,
       description: descriptionByOrg.get(org.id as string) ?? null,
@@ -316,6 +404,18 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       roundValuationBasis: (org as { round_valuation_basis?: 'pre_money' | 'post_money' }).round_valuation_basis ?? null,
       roundInstruments: org.round_instruments ?? [], matchScore: score, matchReasons: reasons,
       status, passReason: decision ? decision.reason_detail : (swipe?.pass_reason ?? null),
+      pipelineStage, pipelineStageDetail, nextAction,
+      archivedAt: archivedAtByOrg.get(org.id as string) ?? null,
+      // Prompt 681 §2.4 point 7 — the most recent of every event already
+      // loaded for this card: the decision, the archive, and a message
+      // (lastMessageAt is set further below once threads are read, so this
+      // is refined there too). Never a new event source — anything not
+      // already on this object (a document open, a reminder's own
+      // created_at) is left out rather than fetched specially for this.
+      lastActivityAt: [decision?.decided_at, archivedAtByOrg.get(org.id as string)]
+        .filter((v): v is string => !!v)
+        .sort()
+        .pop() ?? null,
       // Item 6 — "não se sabe quando e se foi submetido". decided_at/
       // decided_by already existed on investor_relationship_decisions; only
       // matchdeal_swipes-only signals (pre-dating that table) have neither,
@@ -345,6 +445,9 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       // both fields are always present on the type; never read before that.
       canWithdrawInterest: false,
       hasConversation: false,
+      // Prompt 681 §2.4 — the row's "Last activity" column; set alongside
+      // hasConversation below from the same deal_threads read (no new query).
+      lastMessageAt: null as string | null,
       // Prompt 419 §B.3 — set below, same reason. false predates
       // investor_interaction_log entirely (never invented).
       hasManualInteractionLog: false,
@@ -359,8 +462,14 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   if (interestedOrgIds.length > 0 && investorCatalogEntityId) {
     const { data: threads } = await admin.from('deal_threads').select('startup_org_id, last_message_at')
       .eq('investor_catalog_entity_id', investorCatalogEntityId).in('startup_org_id', interestedOrgIds);
-    const conversingOrgIds = new Set((threads ?? []).filter((t) => t.last_message_at).map((t) => t.startup_org_id as string));
-    for (const c of cards) if (conversingOrgIds.has(c.orgId as string)) c.hasConversation = true;
+    const lastMessageAtByOrg = new Map((threads ?? []).filter((t) => t.last_message_at).map((t) => [t.startup_org_id as string, t.last_message_at as string]));
+    for (const c of cards) {
+      const lastMessageAt = lastMessageAtByOrg.get(c.orgId as string);
+      if (lastMessageAt) {
+        c.hasConversation = true; c.lastMessageAt = lastMessageAt;
+        if (!c.lastActivityAt || lastMessageAt > c.lastActivityAt) c.lastActivityAt = lastMessageAt;
+      }
+    }
   }
 
   // Prompt 419 §B.3 — the Evaluation Tools "uncontacted pipeline" discovery
