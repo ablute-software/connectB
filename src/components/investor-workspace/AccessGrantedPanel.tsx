@@ -128,7 +128,12 @@ export function AccessGrantedPanel() {
 
   return (
     <div className="max-w-2xl space-y-4">
-      <h1 className="text-lg font-bold text-gray-900">Data room</h1>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-lg font-bold text-gray-900">Data room</h1>
+        {/* Prompt 680 — an investor had no view of their own access history
+            at all; the founder side has always had this. */}
+        <a href="/portal/access-log" className="text-xs text-[#0E7490] hover:underline">View your access history →</a>
+      </div>
       <div data-tour-id="access-granted-tabs" className="flex items-center gap-1.5">
         {SUB_TABS.map((t) => (
           <button key={t.value} onClick={() => setSubTab(t.value)}
