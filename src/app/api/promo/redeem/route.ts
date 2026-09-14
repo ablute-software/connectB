@@ -55,7 +55,19 @@ export async function POST(req: Request) {
     .eq('promo_code_id', promo?.id ?? '00000000-0000-0000-0000-000000000000');
 
   const reason = promoEligibility(promo, redemptionCount ?? 0, new Date());
-  if (reason) return NextResponse.json({ ok: false, error: REASON_MESSAGE[reason] ?? 'That code can’t be used.' }, { status: 400 });
+  if (reason) {
+    // Prompt 896 — a code deactivated WITH a message (migration
+    // 20260914160000, Prompt 895) shows the admin's own words instead of the
+    // generic "no longer active", plus a flag the founder-facing page uses to
+    // offer a pre-filled support ticket. A code deactivated the old plain way
+    // (no message) or one that doesn't exist at all falls through unchanged.
+    if (reason === 'inactive' && promo?.cancellation_message) {
+      return NextResponse.json({
+        ok: false, error: promo.cancellation_message, cancelled: true, code: normalizedCode,
+      }, { status: 400 });
+    }
+    return NextResponse.json({ ok: false, error: REASON_MESSAGE[reason] ?? 'That code can’t be used.' }, { status: 400 });
+  }
 
   // Prompt 876 §B — a hard security gate, not a UI hint: when an outreach
   // target locked this code to a specific recipient email, only an account

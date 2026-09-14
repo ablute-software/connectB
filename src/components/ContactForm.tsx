@@ -16,8 +16,13 @@ const CATEGORIES: { value: string; label: string }[] = [
   { value: 'other', label: 'Other' },
 ];
 
-export function ContactForm({ source, defaultName = '', defaultEmail = '', defaultCategory, hideCategory = false, showContext = false, onDone }: {
+export function ContactForm({ source, defaultName = '', defaultEmail = '', defaultCategory, defaultSubject = '', defaultContext = '', hideCategory = false, showContext = false, onDone }: {
   source: SupportSource; defaultName?: string; defaultEmail?: string; defaultCategory?: string;
+  // Prompt 896 — a caller that already knows what the ticket is about (e.g.
+  // a cancelled promo code) pre-fills subject/context; the visitor still
+  // types the message body themselves and can edit either field before
+  // sending — this never auto-submits.
+  defaultSubject?: string; defaultContext?: string;
   // Item 6 — a suspended-account ticket already knows what it's about; asking
   // the affected user to pick a category on top of the trouble they're
   // already in is friction with no payoff, since `source` alone already
@@ -27,9 +32,9 @@ export function ContactForm({ source, defaultName = '', defaultEmail = '', defau
   const [name, setName] = useState(defaultName);
   const [email, setEmail] = useState(defaultEmail);
   const [category, setCategory] = useState(defaultCategory ?? 'question');
-  const [subject, setSubject] = useState('');
+  const [subject, setSubject] = useState(defaultSubject);
   const [message, setMessage] = useState('');
-  const [context, setContext] = useState('');
+  const [context, setContext] = useState(defaultContext);
   const [website, setWebsite] = useState(''); // honeypot — real visitors never see this
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [error, setError] = useState('');

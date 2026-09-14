@@ -33,8 +33,12 @@ import { ContactForm, type SupportSource } from './ContactForm';
 // (LampButton.tsx, portal/page.tsx, and this component's own prior sidebar
 // use) keeps using — this widget draws its own trigger button then, same
 // as always.
-export function HelpSupportWidget({ source, className, open: controlledOpen, onOpenChange }: {
+export function HelpSupportWidget({ source, className, open: controlledOpen, onOpenChange, defaultCategory, defaultSubject, defaultContext }: {
   source: SupportSource; className?: string; open?: boolean; onOpenChange?: (open: boolean) => void;
+  // Prompt 896 — threaded straight through to ContactForm for a caller that
+  // opens this modal already knowing what it's about (e.g. a cancelled promo
+  // code); still nothing but a pre-fill, the visitor sends it themselves.
+  defaultCategory?: string; defaultSubject?: string; defaultContext?: string;
 }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isControlled = controlledOpen !== undefined;
@@ -68,6 +72,7 @@ export function HelpSupportWidget({ source, className, open: controlledOpen, onO
               <button onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-700">✕</button>
             </div>
             <ContactForm source={source} defaultName={defaultName} defaultEmail={defaultEmail}
+              defaultCategory={defaultCategory} defaultSubject={defaultSubject} defaultContext={defaultContext}
               showContext={source === 'founder_app'} />
             {/* Prompt 604 §A — Nuno's own recommendation, taken: "é um bom
                 activo de marketing e custa uma rota." Founder-only: the

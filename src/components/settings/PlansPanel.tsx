@@ -36,6 +36,7 @@ import { discountedPriceEur } from '@/lib/promo';
 import { can, type OrgRole } from '@/lib/permissions';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { PlatformStatusCard } from '@/components/badges/PlatformStatusCard';
+import { HelpSupportWidget } from '@/components/HelpSupportWidget';
 import { PIONEER_LIFETIME_DISCOUNT_PCT } from '@/lib/pioneer';
 import { REFERRAL_BENEFIT_MONTHS } from '@/lib/referral';
 import type { PlanTier } from '@/lib/types';
@@ -80,6 +81,13 @@ export function PlansPanel() {
   const [promoCodeInput, setPromoCodeInput] = useState('');
   const [promoBusy, setPromoBusy] = useState(false);
   const [promoErr, setPromoErr] = useState('');
+  // Prompt 896 — set only when the redeem attempt hit a code that EXISTS but
+  // was cancelled with an admin-written message (as opposed to a typo/
+  // nonexistent code, or one deactivated the old plain way with no message —
+  // both of those still just set promoErr above). Drives the "Contact
+  // support about this" shortcut, pre-filled with the code and its state.
+  const [cancelledPromo, setCancelledPromo] = useState<{ code: string; message: string } | null>(null);
+  const [promoHelpOpen, setPromoHelpOpen] = useState(false);
   const [referralCodes, setReferralCodes] = useState<ReferralCode[]>([]);
   const [copiedCode, setCopiedCode] = useState('');
   // Prompt 601 §D.1 — the tier a platform badge makes free right now (tech
@@ -110,13 +118,17 @@ export function PlansPanel() {
 
   async function applyPromoCode() {
     if (!promoCodeInput.trim()) return;
-    setPromoErr(''); setPromoBusy(true);
+    setPromoErr(''); setCancelledPromo(null); setPromoBusy(true);
     try {
       const res = await fetch('/api/promo/redeem', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: promoCodeInput }),
       });
       const body = await res.json();
-      if (!body.ok) { setPromoErr(body.error ?? 'Could not apply that code.'); return; }
+      if (!body.ok) {
+        if (body.cancelled && body.code) setCancelledPromo({ code: body.code, message: body.error });
+        else setPromoErr(body.error ?? 'Could not apply that code.');
+        return;
+      }
       setPromoCodeInput('');
       refreshPromoStatus();
       // A free-trial redemption can raise the org's EFFECTIVE plan
@@ -373,11 +385,26 @@ export function PlansPanel() {
                   </button>
                 </div>
                 {promoErr && <p className="mt-1.5 text-xs text-[#B00000]">{promoErr}</p>}
+                {cancelledPromo && (
+                  <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
+                    <p>{cancelledPromo.message}</p>
+                    <button onClick={() => setPromoHelpOpen(true)} className="mt-1 font-semibold text-[#0E7490] hover:underline">
+                      Contact support about this
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </Card>
         )}
       </div>
+
+      {cancelledPromo && (
+        <HelpSupportWidget source="founder_app" open={promoHelpOpen} onOpenChange={setPromoHelpOpen}
+          defaultCategory="billing"
+          defaultSubject={`Promo code issue — ${cancelledPromo.code}`}
+          defaultContext={`Tried to redeem promo code ${cancelledPromo.code}, which is cancelled.`} />
+      )}
 
       {/* Prompt 161 §D.2 — no public page or email flow, copy/paste is
           enough. Prompt 854 §C.3 — no longer gated on the Pioneer badge:
