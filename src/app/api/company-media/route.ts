@@ -5,15 +5,20 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { assertNotViewer } from '@/lib/developer-viewer';
+import { assertNotViewer, readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { validateCaption } from '@/lib/company-media';
 
-async function resolveOrgId(sb: Awaited<ReturnType<typeof serverClient>>, userId: string): Promise<string | null> {
+// Prompt 894 — this card's GET never checked the viewer cookie at all (not
+// even assertNotViewer, which only guards the mutating handlers below), so a
+// Developer Viewer session showed the developer's own org's photos/media.
+async function resolveOrgId(sb: Awaited<ReturnType<typeof serverClient>>, userId: string, req: Request): Promise<string | null> {
+  const viewerOrgId = await readVerifiedViewerOrgId(sb, req);
+  if (viewerOrgId) return viewerOrgId;
   const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
   return (data?.org_id as string | undefined) ?? null;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ items: [] });
@@ -21,7 +26,7 @@ export async function GET() {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
-  const orgId = await resolveOrgId(sb, user.id);
+  const orgId = await resolveOrgId(sb, user.id, req);
   if (!orgId) return NextResponse.json({ items: [] });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
@@ -41,7 +46,7 @@ export async function PATCH(req: Request) {
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
   const viewerBlock = await assertNotViewer(sb, req);
   if (viewerBlock) return viewerBlock;
-  const orgId = await resolveOrgId(sb, user.id);
+  const orgId = await resolveOrgId(sb, user.id, req);
   if (!orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
@@ -90,7 +95,7 @@ export async function DELETE(req: Request) {
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
   const viewerBlock = await assertNotViewer(sb, req);
   if (viewerBlock) return viewerBlock;
-  const orgId = await resolveOrgId(sb, user.id);
+  const orgId = await resolveOrgId(sb, user.id, req);
   if (!orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
 
   const id = new URL(req.url).searchParams.get('id');

@@ -11,10 +11,10 @@
 // exits, assign it to someone already here or mark it as a hire. "Hiring:
 // finance" is a normal, credible sentence for a seed company and tells an
 // investor more than silence does.
-import { NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { assertNotViewer } from '@/lib/developer-viewer';
+import { assertNotViewer, readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { analyseTeamComposition, compositionSummary, type RoleKey, type TeamMember } from '@/lib/team-composition';
 import { teamRoleCoverageAvailable } from '@/lib/team-composition-capability';
 
@@ -22,7 +22,15 @@ export const dynamic = 'force-dynamic';
 
 const EMPTY = { ok: true, available: false, roles: [], summary: null as string | null };
 
-async function context() {
+// Prompt 894 — this used to resolve orgId from org_members only, so a
+// Developer Viewer session (real org_members row on the developer's own
+// account, e.g. ablute_) never picked up the org actually being viewed and
+// this one card showed the developer's own team on top of whichever
+// company they'd opened. Every other card on this same /settings screen
+// already goes through readVerifiedViewerOrgId first (see platform-badges,
+// pipeline-unlock, page-view) — this brings the card in line with that
+// pattern instead of inventing a new one.
+async function context(req: NextRequest | Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return null;
@@ -30,13 +38,17 @@ async function context() {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return null;
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const { data: member } = await admin.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member?.org_id) return null;
-  return { sb, admin, orgId: member.org_id as string };
+  let orgId = await readVerifiedViewerOrgId(sb, req);
+  if (!orgId) {
+    const { data: member } = await admin.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
+    orgId = (member?.org_id as string | undefined) ?? null;
+  }
+  if (!orgId) return null;
+  return { sb, admin, orgId };
 }
 
-export async function GET() {
-  const ctx = await context();
+export async function GET(req: NextRequest) {
+  const ctx = await context(req);
   if (!ctx) return NextResponse.json(EMPTY);
   if (!(await teamRoleCoverageAvailable())) return NextResponse.json(EMPTY);
   const { admin, orgId } = ctx;
@@ -92,7 +104,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const ctx = await context();
+  const ctx = await context(req);
   if (!ctx) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
   const { sb, admin, orgId } = ctx;
   const viewerBlock = await assertNotViewer(sb, req);

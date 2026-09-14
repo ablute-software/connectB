@@ -23,7 +23,7 @@ import type { Org } from '@/lib/types';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
-import { assertNotViewer } from '@/lib/developer-viewer';
+import { assertNotViewer, readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { orgsPipelineSuspensionAvailable } from '@/lib/pipeline-suspension-capability';
 
 type Kind = 'startup' | 'investor';
@@ -45,6 +45,13 @@ export async function GET(req: Request) {
   if (kind === 'startup') {
     const { data: member } = await sb.from('org_members').select('org_id, role').eq('user_id', user.id).maybeSingle();
     if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+    // Prompt 894 — GET never checked the viewer cookie (assertNotViewer
+    // below only guards the mutating POST), so a Developer Viewer session
+    // saw the developer's own org's suspension/visibility state. `isOwner`
+    // stays tied to the REAL membership: a viewer session isn't an owner of
+    // the org it's looking at.
+    const orgId = (await readVerifiedViewerOrgId(sb, req)) ?? member.org_id;
+    const isOwner = orgId === member.org_id && member.role === 'owner';
     // Addenda to Prompt 120 (2026-08-04) — before this, the toggle only
     // ever reflected owner_suspended_at/platform_suspended_at, so a
     // profile that's invisible because it's INCOMPLETE (never suspended by
@@ -57,12 +64,12 @@ export async function GET(req: Request) {
     const [{ data: profile }, { data: org }] = await Promise.all([
       admin.from('matchdeal_profiles')
         .select('owner_suspended_at, platform_suspended_at, suspension_reminded_at, is_complete, photo_url, website, sectors, description, country, investment_stage_sought, company_phase')
-        .eq('membership_id', member.org_id).eq('kind', 'startup').maybeSingle(),
+        .eq('membership_id', orgId).eq('kind', 'startup').maybeSingle(),
       // Prompt 184 §2 — orgs is the authoritative suspension source now;
       // `select('*')` (not an explicit column list) so a pre-migration
       // environment just returns a row without these keys rather than
       // erroring — reads fall back to `profile`'s copy in that case.
-      admin.from('orgs').select('*').eq('id', member.org_id).maybeSingle(),
+      admin.from('orgs').select('*').eq('id', orgId).maybeSingle(),
     ]);
     // Prompt 543 §A — computed from the ORG, not from the profile row.
     // That is the correction: the old list was read off `profile`, and for
@@ -107,8 +114,8 @@ export async function GET(req: Request) {
     let pipelineFirmCount: number | null = null;
     if (investorVisibility === 'visible') {
       const [{ data: admissions }, { data: decisions }] = await Promise.all([
-        admin.from('investor_pipeline_admissions').select('investor_catalog_entity_id').eq('org_id', member.org_id),
-        admin.from('investor_relationship_decisions').select('investor_catalog_entity_id').eq('org_id', member.org_id),
+        admin.from('investor_pipeline_admissions').select('investor_catalog_entity_id').eq('org_id', orgId),
+        admin.from('investor_relationship_decisions').select('investor_catalog_entity_id').eq('org_id', orgId),
       ]);
       const candidateIds = [...new Set([
         ...(admissions ?? []).map((r) => r.investor_catalog_entity_id as string),
@@ -132,7 +139,7 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.json({
-      ok: true, isOwner: member.role === 'owner',
+      ok: true, isOwner,
       suspended: !!ownerSuspendedAt, platformSuspended: !!platformSuspendedAt,
       suspendedAt: ownerSuspendedAt, remindedAt,
       isComplete: !!profile?.is_complete, hasProfile: !!profile,

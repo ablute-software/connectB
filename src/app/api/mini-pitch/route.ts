@@ -11,7 +11,7 @@
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { assertNotViewer } from '@/lib/developer-viewer';
+import { assertNotViewer, readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
@@ -157,6 +157,10 @@ async function loadContext(admin: SupabaseClient, orgId: string) {
   return { org, eligibleClaims };
 }
 
+// Prompt 894 — assertNotViewer only blocks the mutating POST below; GET (the
+// card a Developer Viewer session opens) never checked the viewer cookie, so
+// it showed the developer's own org's mini-pitch. Same fix as
+// team-composition/route.ts.
 async function requireOrgMember(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -168,11 +172,15 @@ async function requireOrgMember(req: Request) {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return { error: NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 }) };
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return { error: NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 }) };
+  let orgId = await readVerifiedViewerOrgId(sb, req);
+  if (!orgId) {
+    const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
+    orgId = (member?.org_id as string | undefined) ?? null;
+  }
+  if (!orgId) return { error: NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 }) };
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  return { admin, orgId: member.org_id as string };
+  return { admin, orgId };
 }
 
 export async function GET(req: Request) {

@@ -3,11 +3,16 @@
 // it. Plus the caller's own security history (who/when/from where).
 import { NextResponse } from 'next/server';
 import { serverClient } from '@/lib/supabase-server';
-import { assertNotViewer } from '@/lib/developer-viewer';
+import { assertNotViewer, readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { serviceAdmin, userEmail } from '@/lib/account-security-server';
 import { SECURITY_EVENT_LABEL, type SecurityEventKind } from '@/lib/account-security';
 
-export async function GET() {
+// Prompt 894 — GET never checked the viewer cookie, so a Developer Viewer
+// session saw the developer's own org's admin/owner list (resettableOwners).
+// The security EVENTS list below is deliberately untouched: it's keyed by
+// `user.id` (the real session's own login history), not by org, so there's
+// no "other org's data" for a viewer to see there in the first place.
+export async function GET(req: Request) {
   const admin = serviceAdmin();
   if (!admin) return NextResponse.json({ ok: true, available: false });
   const sb = await serverClient();
@@ -18,10 +23,13 @@ export async function GET() {
   if (error) return NextResponse.json({ ok: true, available: false, error: error.message });
   if (!self) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
 
+  const orgId = (await readVerifiedViewerOrgId(sb, req)) ?? self.org_id;
+  const myRole = orgId === self.org_id ? self.role : null;
+
   // Admins see the owners who opted in; owners see nothing here (they reset their own the normal way).
   let resettableOwners: { userId: string; email: string }[] = [];
-  if (self.role === 'admin') {
-    const { data: owners } = await admin.from('org_members').select('user_id').eq('org_id', self.org_id).eq('role', 'owner').eq('allow_admin_password_reset', true);
+  if (myRole === 'admin') {
+    const { data: owners } = await admin.from('org_members').select('user_id').eq('org_id', orgId).eq('role', 'owner').eq('allow_admin_password_reset', true);
     for (const o of owners ?? []) {
       const email = await userEmail(admin, o.user_id as string);
       if (email) resettableOwners.push({ userId: o.user_id as string, email });
@@ -33,7 +41,7 @@ export async function GET() {
     .eq('user_id', user.id).order('created_at', { ascending: false }).limit(10);
 
   return NextResponse.json({
-    ok: true, available: true, myRole: self.role, allowAdminPasswordReset: !!self.allow_admin_password_reset,
+    ok: true, available: true, myRole, allowAdminPasswordReset: !!self.allow_admin_password_reset,
     resettableOwners,
     events: (events ?? []).map((e) => ({
       id: e.id, kind: e.kind, label: SECURITY_EVENT_LABEL[e.kind as SecurityEventKind] ?? e.kind,

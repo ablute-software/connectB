@@ -5,15 +5,24 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
+import { readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 
-export async function GET() {
+// Prompt 894 — never checked the viewer cookie, so a Developer Viewer
+// session saw the developer's own org's updates instead of the org being
+// viewed. Safe to keep reading via `sb` (not admin): migration 0119 already
+// grants is_ablute_developer() a read policy on round_updates.
+export async function GET(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ error: 'Not a member of any org.' }, { status: 403 });
-  const { data: updates } = await sb.from('round_updates').select('*').eq('org_id', member.org_id).order('created_at', { ascending: false });
+  let orgId = await readVerifiedViewerOrgId(sb, req);
+  if (!orgId) {
+    const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
+    orgId = (member?.org_id as string | undefined) ?? null;
+  }
+  if (!orgId) return NextResponse.json({ error: 'Not a member of any org.' }, { status: 403 });
+  const { data: updates } = await sb.from('round_updates').select('*').eq('org_id', orgId).order('created_at', { ascending: false });
   return NextResponse.json({ updates: updates ?? [] });
 }
 

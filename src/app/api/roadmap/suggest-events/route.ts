@@ -13,6 +13,7 @@ import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createHash } from 'crypto';
 import { serverClient } from '@/lib/supabase-server';
+import { readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { roadmapEventSuggestionsAvailable, roadmapEventsAvailable, documentExtractionsAvailable } from '@/lib/document-extraction-capability';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { logAiCall, computeCostEur } from '@/lib/ai-cost-log';
@@ -20,7 +21,11 @@ import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { isDuplicateRoadmapEvent } from '@/lib/roadmap-duplicate';
 import { isFoundingCandidate } from '@/lib/roadmap-derived';
 
-async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
+// Prompt 894 — never checked the viewer cookie, so a Developer Viewer
+// session got the developer's own org's suggested roadmap events.
+async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string, req: Request) {
+  const viewerOrgId = await readVerifiedViewerOrgId(sb, req);
+  if (viewerOrgId) return viewerOrgId;
   const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
   return (data?.org_id as string | undefined) ?? null;
 }
@@ -110,7 +115,7 @@ async function buildKnowledge(
   return { items, existingRoadmap, signature, foundedYear };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -122,7 +127,7 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
   if (!(await roadmapEventSuggestionsAvailable()) || !(await roadmapEventsAvailable())) return NextResponse.json(empty);
 
-  const orgId = await resolveOrg(sb, user.id);
+  const orgId = await resolveOrg(sb, user.id, req);
   if (!orgId) return NextResponse.json(empty);
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
