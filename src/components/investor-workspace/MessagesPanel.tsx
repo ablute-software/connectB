@@ -38,14 +38,36 @@ function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
+interface AttachableDoc { id: string; name: string }
+
 export function MessagesPanel() {
   const [threads, setThreads] = useState<ThreadRow[] | null>(null);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
+  const [attachableDocuments, setAttachableDocuments] = useState<AttachableDoc[] | undefined>(undefined);
 
   function load() {
     fetch('/api/portal/messages/threads').then((r) => r.json()).then((d) => setThreads(d.threads ?? [])).catch(() => setThreads([]));
   }
   useEffect(load, []);
+
+  // Prompt 680 — this tab never passed attachableDocuments at all, so an
+  // investor could only attach links here, never a Data Room document — the
+  // per-startup dossier's own Messages sub-tab already could (same
+  // DealThreadView, same /api/portal/access?orgId= this mirrors). Refetched
+  // per selection since each startup has its own document set; a startup
+  // with no real grant yet just comes back with an empty list, which
+  // DealThreadView already treats as "no attach picker" like before.
+  useEffect(() => {
+    if (!selectedOrgId) { setAttachableDocuments(undefined); return; }
+    let cancelled = false;
+    fetch(`/api/portal/access?orgId=${encodeURIComponent(selectedOrgId)}`).then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        const sections = (d.sections ?? []) as { documents: { id: string; name: string }[] }[];
+        setAttachableDocuments(sections.flatMap((s) => s.documents.map((doc) => ({ id: doc.id, name: doc.name }))));
+      }).catch(() => { if (!cancelled) setAttachableDocuments(undefined); });
+    return () => { cancelled = true; };
+  }, [selectedOrgId]);
 
   function openThread(orgId: string) {
     setSelectedOrgId(orgId);
