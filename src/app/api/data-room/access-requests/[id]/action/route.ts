@@ -78,9 +78,24 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       invited_email: reqRow.person_id ? null : (reqRow.requested_email as string | null),
       granted_at: new Date().toISOString(),
     };
+    // Prompt 680 — this used to omit nda_required entirely (column default:
+    // false), so a document that used to be due_diligence/NDA-gated, then
+    // expired, then got re-requested via "Request again" and granted here,
+    // reopened with NO NDA re-acceptance required. The other two grant-
+    // creation paths (founder/document-requests/respond, and the manual
+    // tri-state grant UI) both compute this from the document's own
+    // visibility; mirrors that instead of a third, silently-diverging copy.
+    // Folders are unaffected on purpose: resolveDocumentAccess (data-room.ts)
+    // already never lets a folder-level grant reach a due_diligence document
+    // at all, so nda_required is moot for folder_id rows.
+    const ndaRequiredByDocId = new Map<string, boolean>();
+    if (documentIds.length > 0) {
+      const { data: docs } = await admin.from('documents').select('id, visibility').in('id', documentIds);
+      for (const doc of docs ?? []) ndaRequiredByDocId.set(doc.id as string, doc.visibility === 'due_diligence');
+    }
     const rows = [
       ...folderIds.map((folder_id) => ({ ...base, folder_id })),
-      ...documentIds.map((document_id) => ({ ...base, document_id })),
+      ...documentIds.map((document_id) => ({ ...base, document_id, nda_required: ndaRequiredByDocId.get(document_id) ?? false })),
     ];
     const { error: insertError } = await admin.from('access_grants').insert(rows);
     if (insertError) return NextResponse.json({ ok: false, error: insertError.message }, { status: 500 });
