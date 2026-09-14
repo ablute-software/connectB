@@ -86,8 +86,18 @@ export async function POST(req: Request) {
   // device — that must still work right up until this moment, which is
   // also the first point a founder's revoke could plausibly race a guest
   // signup, so it's the correct place to retire the token, not the GET.
+  // Prompt 680 — grantee_email used to never get set here at all, even
+  // though migration 0292's own comment defines it as "a confirmed/live
+  // grantee identity by address" (invited_email is the pre-confirmation
+  // placeholder). resolveRole()'s investor check only ever reads
+  // grantee_email, so an investor who arrived through this exact flow —
+  // founder invite, then "Is this you?" — permanently resolved to role
+  // 'none' after confirming: fully confirmed in the data model, never
+  // recognized as an investor for routing purposes. Confirmed in production
+  // ahead of the Portugal Ventures pilot (Prompt 680 Fase 1), though PV
+  // itself arrives via /claim, not this route.
   const { error: updateErr } = await admin.from('access_grants')
-    .update({ confirmed_at, self_verified: true, guest_token: null, guest_token_hash: null, guest_token_expires_at: null })
+    .update({ confirmed_at, self_verified: true, grantee_email: grant.invited_email, guest_token: null, guest_token_hash: null, guest_token_expires_at: null })
     .eq('org_id', grant.org_id).eq('invited_email', grant.invited_email).is('confirmed_at', null).is('revoked_at', null);
   if (updateErr) return NextResponse.json({ ok: false, error: updateErr.message }, { status: 500 });
 
