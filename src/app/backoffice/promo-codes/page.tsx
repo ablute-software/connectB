@@ -6,6 +6,7 @@
 // join date, until when), deactivate, or delete (soft, with a confirm step).
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import Link from 'next/link';
 import { Card } from '@/components/ui';
 import { PLANS, planLabelForSlug, planPriceLabel } from '@/lib/plans';
 import { PROMO_ELIGIBLE_PLANS, discountedPriceEur, generatePromoCode, normalizeDiscountForKind, type PromoKind } from '@/lib/promo';
@@ -18,10 +19,14 @@ type Promo = {
   // Prompt 161 §A — absent on an unmigrated environment (0167 not applied
   // yet); every reader treats missing/undefined as false.
   is_pioneer?: boolean;
+  // Prompt 895 §A — null until cancelled with a message (§C).
+  cancelled_at: string | null; cancellation_message: string | null;
 };
 type Redemption = {
   id: string; org_id: string; org_name: string; redeemed_at: string;
   benefit_ends_at: string | null; benefit_active: boolean;
+  // Prompt 895 §B — same "Last login" the Startups list shows.
+  last_login: string | null;
 };
 
 const ELIGIBLE_PLAN_ROWS = PLANS.filter((p) => PROMO_ELIGIBLE_PLANS.includes(p.tier));
@@ -179,6 +184,12 @@ function PromoRow({ promo, onChanged }: { promo: Promo; onChanged: () => void })
   const [busy, setBusy] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteTyped, setDeleteTyped] = useState('');
+  // Prompt 895 §C — "Cancel this code", from the expanded panel.
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelMessage, setCancelMessage] = useState('');
+  const [drafting, setDrafting] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [cancelErr, setCancelErr] = useState('');
 
   async function toggleExpand() {
     if (!expanded && !redemptions) {
@@ -197,6 +208,34 @@ function PromoRow({ promo, onChanged }: { promo: Promo; onChanged: () => void })
       });
       onChanged();
     } finally { setBusy(false); }
+  }
+
+  async function draftWithAi() {
+    setDrafting(true); setCancelErr('');
+    try {
+      const res = await fetch('/api/backoffice/promo-codes/draft-cancellation-message', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: promo.code, label: promo.label }),
+      });
+      const body = await res.json();
+      if (body.configured === false) { setCancelErr(body.message ?? 'AI drafting is not configured.'); return; }
+      if (!body.ok) { setCancelErr(body.error ?? 'Could not draft a message.'); return; }
+      setCancelMessage(body.message);
+    } finally { setDrafting(false); }
+  }
+
+  async function confirmCancel() {
+    if (!cancelMessage.trim()) return;
+    setCancelBusy(true); setCancelErr('');
+    try {
+      const res = await fetch(`/api/backoffice/promo-codes/${promo.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: false, cancellation_message: cancelMessage.trim() }),
+      });
+      const body = await res.json();
+      if (!body.ok) { setCancelErr(body.error ?? 'Could not cancel this code.'); return; }
+      setCancelling(false); setCancelMessage('');
+      onChanged();
+    } finally { setCancelBusy(false); }
   }
 
   async function confirmDelete() {
@@ -277,13 +316,20 @@ function PromoRow({ promo, onChanged }: { promo: Promo; onChanged: () => void })
           ) : (
             <table className="w-full text-xs">
               <thead className="text-left text-[10px] uppercase tracking-wide text-gray-400">
-                <tr><th className="pb-1.5">Org</th><th className="pb-1.5">Joined</th><th className="pb-1.5">Benefit until</th><th className="pb-1.5">Status</th></tr>
+                <tr>
+                  <th className="pb-1.5">Org</th><th className="pb-1.5">Joined</th>
+                  <th className="pb-1.5">Last entry</th>
+                  <th className="pb-1.5">Benefit until</th><th className="pb-1.5">Status</th>
+                </tr>
               </thead>
               <tbody>
                 {redemptions.map((r) => (
                   <tr key={r.id} className="border-t border-gray-50">
-                    <td className="py-1.5 font-medium text-gray-700">{r.org_name}</td>
+                    <td className="py-1.5 font-medium">
+                      <Link href={`/backoffice/ficha-cliente/org/${r.org_id}`} className="text-[#0E7490] hover:underline">{r.org_name}</Link>
+                    </td>
                     <td className="py-1.5 text-gray-500">{fmtDate(r.redeemed_at)}</td>
+                    <td className="py-1.5 text-gray-500">{r.last_login ? fmtDate(r.last_login) : 'never'}</td>
                     <td className="py-1.5 text-gray-500">{r.benefit_ends_at ? fmtDate(r.benefit_ends_at) : 'Permanent'}</td>
                     <td className="py-1.5">
                       {r.benefit_active
@@ -294,6 +340,47 @@ function PromoRow({ promo, onChanged }: { promo: Promo; onChanged: () => void })
                 ))}
               </tbody>
             </table>
+          )}
+
+          {/* Prompt 895 §C — a code already cancelled with a message shows
+              it; there's no ask here to edit an existing one. A code that
+              is merely `active=false` from the plain Deactivate button (no
+              message) falls to the else branch below, same as a code
+              that's still active — either way the panel offers to add one. */}
+          {promo.cancellation_message ? (
+            <div className="mt-2.5 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2 text-xs">
+              <span className="font-medium text-gray-600">Cancelled{promo.cancelled_at ? ` ${fmtDate(promo.cancelled_at)}` : ''}:</span>{' '}
+              <span className="text-gray-500">&ldquo;{promo.cancellation_message}&rdquo;</span>
+            </div>
+          ) : !cancelling ? (
+            <button onClick={() => setCancelling(true)}
+              className="mt-2.5 rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50">
+              Cancel this code
+            </button>
+          ) : (
+            <div className="mt-2.5 rounded-lg border border-gray-200 bg-gray-50 p-2.5">
+              <p className="text-[11px] text-gray-500">
+                Shown to a founder who tries to redeem <span className="font-mono">{promo.code}</span> after this.
+              </p>
+              <textarea value={cancelMessage} onChange={(e) => setCancelMessage(e.target.value)} rows={2}
+                placeholder="e.g. This promo code has expired. Contact our support to check your situation or request a new one."
+                className="mt-1.5 w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs" />
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <button onClick={draftWithAi} disabled={drafting}
+                  className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-[11px] font-medium text-white disabled:opacity-40">
+                  {drafting ? 'Drafting…' : '✨ Draft with AI'}
+                </button>
+                <button onClick={confirmCancel} disabled={cancelBusy || !cancelMessage.trim()}
+                  className="rounded-lg border border-[#B00000] px-2.5 py-1 text-[11px] font-medium text-[#B00000] hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40">
+                  {cancelBusy ? 'Cancelling…' : 'Confirm cancel'}
+                </button>
+                <button onClick={() => { setCancelling(false); setCancelMessage(''); setCancelErr(''); }}
+                  className="text-[11px] text-gray-400 hover:underline">
+                  Dismiss
+                </button>
+              </div>
+              {cancelErr && <p className="mt-1 text-[11px] text-[#B00000]">{cancelErr}</p>}
+            </div>
           )}
         </div>
       )}

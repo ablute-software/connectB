@@ -86,6 +86,49 @@ async function realRelations(admin: SupabaseClient, orgIds: string[]): Promise<E
   return data ?? [];
 }
 
+// Prompt 895 §B — the exact same two-part formula the Startups (Orgs) list's
+// own "Last login" column is built from (startups/route.ts): the latest of
+// any member's auth.users.last_sign_in_at, UNION usage_sessions.started_at
+// keyed on org_id directly (the source that survives account closure, when
+// org_members no longer has a row to read a user id from at all). Scoped to
+// a caller-supplied set of org ids rather than the whole platform: unlike
+// the Startups list, which needs every org's answer at once and so pages
+// through listUsers()/usage_sessions in bulk, a caller here already knows
+// exactly which few orgs it needs (e.g. one promo code's redeemers) and a
+// full-platform scan would be paying for orgs it will never ask about.
+export async function lastLoginByOrgIds(admin: SupabaseClient, orgIds: string[]): Promise<Map<string, string | null>> {
+  const result = new Map<string, string | null>();
+  if (orgIds.length === 0) return result;
+
+  const { data: members } = await admin.from('org_members').select('org_id, user_id').in('org_id', orgIds);
+  const userIdsByOrg = new Map<string, string[]>();
+  for (const m of members ?? []) userIdsByOrg.set(m.org_id, [...(userIdsByOrg.get(m.org_id) ?? []), m.user_id]);
+  const allUserIds = [...new Set((members ?? []).map((m) => m.user_id as string))];
+
+  const lastSignInByUser = new Map<string, string | null>();
+  await Promise.all(allUserIds.map(async (uid) => {
+    const { data } = await admin.auth.admin.getUserById(uid);
+    lastSignInByUser.set(uid, data.user?.last_sign_in_at ?? null);
+  }));
+
+  const { data: sessions } = await admin.from('usage_sessions').select('org_id, started_at')
+    .in('org_id', orgIds).order('started_at', { ascending: false });
+  const maxSessionByOrg = new Map<string, string>();
+  for (const s of sessions ?? []) {
+    const oid = s.org_id as string | null;
+    if (oid && !maxSessionByOrg.has(oid)) maxSessionByOrg.set(oid, s.started_at as string);
+  }
+
+  for (const orgId of orgIds) {
+    const candidates = [
+      ...(userIdsByOrg.get(orgId) ?? []).map((id) => lastSignInByUser.get(id)).filter((v): v is string => !!v),
+      ...(maxSessionByOrg.has(orgId) ? [maxSessionByOrg.get(orgId)!] : []),
+    ];
+    result.set(orgId, candidates.length ? candidates.sort().at(-1)! : null);
+  }
+  return result;
+}
+
 // ---- 6.1 Crescimento -------------------------------------------------
 
 export async function newStartups(admin: SupabaseClient, range: DateRange): Promise<number> {

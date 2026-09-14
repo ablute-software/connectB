@@ -23,6 +23,14 @@ export interface PromoCode {
   // migration 0167). Absent/undefined pre-migration.
   is_pioneer?: boolean;
   referral_of_org_id?: string | null;
+  // Prompt 895 §A, migration 20260914160000. Null on every code
+  // deactivated through the plain "Deactivate" button, before or after
+  // this migration — that button still only flips `active`, on purpose
+  // (§C's own note: it stays exactly as-is for whoever just wants to turn
+  // a code off quickly, with no message).
+  cancelled_at: string | null;
+  cancelled_by: string | null;
+  cancellation_message: string | null;
 }
 
 // Plans a promo can meaningfully apply to — 'idea' is already free.
