@@ -17,7 +17,8 @@ import { LogoLockup } from '@/components/Logo';
 import { LandingEffects } from '@/components/landing/LandingEffects';
 import { AudienceToggle } from '@/components/landing/AudienceToggle';
 import { InvestorPricingSection } from '@/components/landing/InvestorPricingSection';
-import { InvestorHeroVideo } from '@/components/landing/InvestorHeroVideo';
+import { HowItWorksVideo } from '@/components/landing/HowItWorksVideo';
+import { SeeHowButton } from '@/components/landing/SeeHowButton';
 import s from '../landing.module.css';
 
 const fraunces = Fraunces({
@@ -81,9 +82,6 @@ function ClockAmber() {
   );
 }
 
-// Prompt 688 follow-up — this was the hero's own mock until the product
-// video took that slot. Relocated (not deleted) to "How it works", beside
-// the step that describes it (waves matched to your mandate).
 const DEAL_ROWS = [
   { co: 'BioSense Labs', match: 'Perfect 94%', why: 'Round opening', next: 'Propose meeting' },
   { co: 'Northline Robotics', match: 'Strong 81%', why: 'New lead investor', next: 'Review fit breakdown' },
@@ -161,12 +159,30 @@ export default async function InvestorLandingPage() {
             </p>
             <div className={s.heroCtas}>
               <Link className={`${s.btn} ${s.btnPrimary}`} href={CLAIM_HREF}>Claim your investor profile <Arrow /></Link>
-              <Link className={`${s.btn} ${s.btnGhost}`} href="#how">See how it works</Link>
+              <SeeHowButton className={`${s.btn} ${s.btnGhost}`} />
             </div>
           </div>
 
           <div className={s.mock}>
-            <InvestorHeroVideo />
+            <div className={s.appWindow}>
+              <div className={s.bar}>
+                <i /><i /><i />
+                <span>{BRAND_NAME.toUpperCase()} · DEAL FLOW REVIEW</span>
+              </div>
+              <div className={s.dealList}>
+                <div className={s.dealHead}>
+                  <span>Company</span><span>Match</span><span className={s.dealWhy}>Why now</span><span>Next action</span>
+                </div>
+                {DEAL_ROWS.map((r) => (
+                  <div key={r.co} className={s.dealRow}>
+                    <span className={s.dealCo}>{r.co}</span>
+                    <span className={s.dealMatch}>{r.match}</span>
+                    <span className={s.dealWhy}>{r.why}</span>
+                    <span className={s.dealNext}>{r.next}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       </header>
@@ -210,53 +226,18 @@ export default async function InvestorLandingPage() {
             <span className={s.eyebrow}>The method</span>
             <h2>Three steps to a pipeline you can trust</h2>
           </div>
-          <div className={s.stepsPair}>
-            {STEPS.slice(0, 2).map((st, i) => (
-              <div key={st.n} className={`${s.step} ${s.rv} ${i === 1 ? s.d1 : ''}`} data-reveal>
+
+          <HowItWorksVideo />
+
+          <div className={s.steps}>
+            {STEPS.map((st, i) => (
+              <div key={st.n} className={`${s.step} ${s.rv} ${i === 1 ? s.d1 : i === 2 ? s.d2 : ''}`} data-reveal>
                 <span className={s.num}>{st.n}</span>
                 <span className={s.tagline}>{st.tag}</span>
                 <h3>{st.h}</h3>
                 <p>{st.p}</p>
               </div>
             ))}
-          </div>
-
-          {/* Step 3 — "Qualify and decide" — is the one about curated waves
-              matched to your mandate, so the relocated deal-flow mock sits
-              beside it specifically, not beside the section as a whole. */}
-          <div className={s.stepShowcase}>
-            <div className={`${s.step} ${s.rv} ${s.d2}`} data-reveal>
-              <span className={s.num}>{STEPS[2].n}</span>
-              <span className={s.tagline}>{STEPS[2].tag}</span>
-              <h3>{STEPS[2].h}</h3>
-              <p>{STEPS[2].p}</p>
-            </div>
-            <div className={s.mock}>
-              <div className={s.appWindow}>
-                <div className={s.bar}>
-                  <i /><i /><i />
-                  <span>{BRAND_NAME.toUpperCase()} · DEAL FLOW REVIEW</span>
-                </div>
-                <div className={s.dealList}>
-                  <div className={s.dealHead}>
-                    {/* dealWhy on this label too (pre-existing gap: only the
-                        data rows had it) — otherwise hiding the data column
-                        on mobile leaves this header alone, still 4 labels
-                        squeezed into the 3-column mobile grid, wrapping
-                        "Next action" onto its own line. */}
-                    <span>Company</span><span>Match</span><span className={s.dealWhy}>Why now</span><span>Next action</span>
-                  </div>
-                  {DEAL_ROWS.map((r) => (
-                    <div key={r.co} className={s.dealRow}>
-                      <span className={s.dealCo}>{r.co}</span>
-                      <span className={s.dealMatch}>{r.match}</span>
-                      <span className={s.dealWhy}>{r.why}</span>
-                      <span className={s.dealNext}>{r.next}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </section>
