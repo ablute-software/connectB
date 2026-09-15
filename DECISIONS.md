@@ -8012,3 +8012,39 @@ that easy.
 
 Pushed to `claude/prompt-693-loading-lens-portal`, not merged — awaiting
 Nuno's explicit go-ahead.
+
+## 15/09/2026 — Prompt 690 follow-up: the Lighthouse check its own verification list asked for, run properly
+
+Flagged as skipped in the original 690 report rather than silently omitted;
+closing it now with an actual before/after comparison instead of a single
+post-hoc run, since a lone number on the current code proves nothing about
+regression without a baseline to diff against.
+
+**Method**: two production builds (`next build` + `next start`, not `next
+dev` — Lighthouse on dev-mode output is not representative, no
+minification, React dev overhead) on separate ports: `58288d7` (the commit
+immediately before this prompt's own changes) as "before", and current
+`main` (`22eec5a`, includes 690/692/693) as "after". `lighthouse` CLI
+(`--preset=desktop`, `--chrome-flags=--headless`) against both `/` and
+`/investors` on each. (The CLI's own post-run temp-dir cleanup throws an
+unrelated Windows `EPERM` after every run — a `chrome-launcher` quirk
+deleting its own already-gone profile dir, confirmed harmless by checking
+the JSON output was written correctly every time despite it; not treated as
+a failure per this repo's own "does the artifact actually show what you
+need" discipline, since the JSON is the real evidence, not the process exit
+code.)
+
+**Result — zero-point difference on every category, both pages:**
+
+| Page | Performance | Accessibility | Best Practices | SEO |
+|---|---|---|---|---|
+| `/` before → after | 0.98 → 0.98 | 0.93 → 0.93 | 1.00 → 1.00 | 1.00 → 1.00 |
+| `/investors` before → after | 0.98 → 0.98 | 0.95 → 0.95 | 1.00 → 1.00 | 1.00 → 1.00 |
+
+Raw Core Web Vitals (LCP/CLS/TBT/Speed Index/FCP) also checked in case a
+rounded category score was masking a real shift: every delta is
+sub-20-millisecond or exactly zero (e.g. `/` LCP 0.90s → 0.92s, `/investors`
+Speed Index 0.82s → 0.80s — the SECOND one is a marginal improvement) —
+within normal run-to-run local-measurement noise, not a signal. CLS is
+~0.000–0.001 on both pages either way (the 4th card doesn't introduce
+layout shift). No material regression, confirmed rather than assumed.
