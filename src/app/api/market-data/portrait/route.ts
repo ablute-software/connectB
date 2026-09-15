@@ -82,7 +82,15 @@ export async function POST(req: Request) {
   // it runs as this same founder and re-checks every gate itself).
   const cookie = req.headers.get('cookie') ?? '';
   const origin = new URL(req.url).origin;
-  let extractBody: { ok?: boolean; error?: string; costEur?: number; items?: unknown[]; documentsRead?: number; cached?: boolean };
+  let extractBody: {
+    ok?: boolean; error?: string; costEur?: number; items?: unknown[]; documentsRead?: number; cached?: boolean;
+    // Prompt 691 §D3 — already computed by document-extract/route.ts and
+    // simply never forwarded past this thin wrapper: which documents were
+    // actually read, and which were skipped and why. "Read 1 document" hid
+    // that a founder's OTHER selected documents never made it into the
+    // model call at all.
+    skipped?: { documentId: string; reason: string }[]; readDocuments?: { id: string; name: string }[];
+  };
   try {
     const res = await fetch(`${origin}/api/market-data/document-extract`, {
       method: 'POST', headers: { 'content-type': 'application/json', cookie },
@@ -136,6 +144,10 @@ export async function POST(req: Request) {
     documentsRead: extractBody.documentsRead ?? 0,
     costEur: extractBody.costEur ?? 0,
     cached: !!extractBody.cached,
+    // Prompt 691 §D3 — forwarded, not recomputed: document-extract/route.ts
+    // is the one place that actually knows per-document outcomes.
+    skipped: extractBody.skipped ?? [],
+    readDocuments: extractBody.readDocuments ?? [],
     ringsProposed, ringsNote, competitorsProposed,
   });
 }

@@ -12,6 +12,11 @@
 // "ablute_ investor deck", which the original Prompt 370 picker regex
 // (pitch|market|sizing|competitive|business.?plan|strategy) silently missed
 // — caught by this module's own test fixture, using the real filename.
+// Type-only — erased at compile time, same pattern extraction-skip-reason.ts
+// already uses to stay safely importable from a client component despite
+// document-extraction-pipeline.ts itself being 'server-only'.
+import type { ExtractionSkipReason } from './document-extraction-pipeline';
+
 export const PORTRAIT_DOC_HEURISTIC = /pitch|deck|market|sizing|competitive|competitor|landscape|business.?plan|strategy|tam|sam|som/i;
 export const MAX_PORTRAIT_DOCS = 8;
 
@@ -34,6 +39,12 @@ export function pickPortraitDocuments(docs: PortraitDocCandidate[]): string[] {
 export interface PortraitResult {
   documentsRead: number; costEur: number; cached: boolean;
   ringsProposed: number; ringsNote: string | null; competitorsProposed: number;
+  // Prompt 691 §D3 — per-document outcome, not just the aggregate count.
+  // "Read 1 document" used to hide that other selected documents never
+  // reached the model at all — the founder had no way to tell that apart
+  // from "there was only ever one document worth reading."
+  skipped: { documentId: string; reason: ExtractionSkipReason }[];
+  readDocuments: { id: string; name: string }[];
 }
 
 // Three genuinely different situations, never one bare string: this

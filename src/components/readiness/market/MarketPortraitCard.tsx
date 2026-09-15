@@ -11,6 +11,7 @@ import {
   classifyPortraitResponse, TIMEOUT_MESSAGE, NETWORK_MESSAGE,
   type PortraitResult, type BuildError,
 } from '@/lib/market-portrait';
+import { extractionSkipReasonMessage } from '@/lib/extraction-skip-reason';
 
 export function MarketPortraitCard({ coldStart, onDone }: { coldStart: boolean; onDone: () => void }) {
   const [busy, setBusy] = useState(false);
@@ -89,6 +90,21 @@ export function MarketPortraitCard({ coldStart, onDone }: { coldStart: boolean; 
               Nothing market-related was found in those documents — try picking different ones with
               {' '}<span className="font-medium">Read my documents</span> below.
             </span>
+          )}
+          {/* Prompt 691 §D3 — per-document outcome, not just the aggregate
+              count: "Read 1 document" used to hide that other documents in
+              the pass never made it into the model call at all. */}
+          {(result.readDocuments?.length ?? 0) > 0 && (
+            <ul className="mt-1.5 space-y-0.5 text-[11px] text-gray-500">
+              {result.readDocuments.map((d) => <li key={d.id}>✓ Read &quot;{d.name}&quot;</li>)}
+            </ul>
+          )}
+          {(result.skipped?.length ?? 0) > 0 && (
+            <ul className="mt-1.5 space-y-0.5 text-[11px] text-amber-700">
+              {result.skipped.map((s, i) => (
+                <li key={`${s.documentId}-${i}`}>⚠ Skipped one document — {extractionSkipReasonMessage(s.reason)}.</li>
+              ))}
+            </ul>
           )}
         </div>
       )}
