@@ -7718,3 +7718,54 @@ a bare `git cherry-pick 30f6fee` onto a fresh branch off `main` (without
 `b649857`) would not apply cleanly. Unwinding 588 onto its own branch later
 means bringing `b649857` along too (cherry-pick both, in order), not just
 `30f6fee` alone.
+
+**Update, same day — all four merged to `main` and pushed, with Nuno's
+explicit authorization ("Autorizo push e merge para main das quatro
+branches, por esta ordem: 588, 587, 688, limpeza do worktree"):**
+`f0740b0` (588+card fix), `0511985` (587), `92c3dd6` (688, after a same-day
+redesign — see below), plus `de15a71`, a fix found only once this was live.
+`connectB-895` worktree removed (`git worktree remove`; the branch
+`claude/prompt-895-promo-cancel` itself is untouched, still resolvable —
+only the nested checkout under this repo's own directory is gone). The
+`investor_access_started_at` migration (588) was applied for real to
+production — verified after: exactly one row, "Invest green"
+(`is_test=false`), stamped; none of the four test fixtures got a date.
+
+**The 688 redesign, same-day, before merging**: Nuno asked for the hero to
+revert to the "Deal flow review" table exactly as in production (undoing
+688's own video-in-hero swap) and for the 60s video to move to a new
+full-width slot at the top of "How it works" instead, with a specific
+autoplay-with-sound spec — a real user-gesture click on "See how it works"
+(new `SeeHowButton.tsx`) plays unmuted, synchronously, before the smooth
+scroll (never after, per Safari's activation-window rule); arriving any
+other way (direct `#how` link, manual scroll, `/investors/video`) shows the
+poster with the native play button, no autoplay of any kind. Verified with
+real Playwright clicks in Chromium, Firefox and WebKit: gesture-driven
+unmuted play and no-autoplay direct arrival both confirmed in all three
+engines. The muted-fallback path (for when unmuted `play()` rejects)
+could not be forced to trigger under headless Playwright — even an
+untrusted synthetic click was accepted as a valid gesture by all three
+engines in this environment — so that branch is verified by code review
+only, flagged rather than claimed as tested.
+
+**A real production bug, found only by checking the live site after
+deploy, not by any local step**: `middleware.ts`'s `config.matcher`
+excludes common static-asset extensions from the auth gate
+(svg/png/jpg/gif/webp/ico/woff2) but never had `mp4`/`webm`. Every request
+for `public/video/investors-60.{mp4,webm}` was falling through to the
+`isPublic` check with no matching entry, so a signed-out visitor — the
+entire audience for a public marketing page — got redirected to
+`/login?next=/video/investors-60.mp4` instead of the video bytes;
+confirmed live, the `<video>` element sat at
+`networkState=NETWORK_NO_SOURCE` and neither "See how it works" nor a
+direct visit played anything. This could not have been caught by any of
+this session's local verification: `dev:verify` runs in demo mode, and
+middleware returns `NextResponse.next()` before any of this logic runs at
+all when Supabase env vars are absent — the same safeguard this repo's own
+verification discipline requires for browser testing also means the auth
+gate itself is never exercised locally. Only checking the actual deployed
+site with a signed-out browser surfaced it. Fixed in `de15a71` by adding
+`mp4|webm` to the matcher's extension list, verified against a real
+(non-demo) local dev server first (unauthenticated ranged `GET` on both
+files now returns 206, not a redirect) and pushed as `de15a71`; production
+re-check after that commit's own deploy is in the day's report.
