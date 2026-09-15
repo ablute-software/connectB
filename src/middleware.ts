@@ -198,5 +198,13 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?)$).*)'],
+  // 15/09/2026 — mp4/webm added: the /investors video (public/video/*) was
+  // being redirected to /login for every signed-out visitor in production
+  // (confirmed live: GET /video/investors-60.mp4 -> 200 /login?next=...,
+  // <video> left with networkState=NETWORK_NO_SOURCE) because this list
+  // covered image/font static assets but not video, so requests for it fell
+  // through to the isPublic check below with no matching PUBLIC entry.
+  // Never caught locally: dev:verify runs in demo mode, which returns
+  // NextResponse.next() before any of this logic runs at all.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?|mp4|webm)$).*)'],
 };
