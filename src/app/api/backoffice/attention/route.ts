@@ -12,6 +12,7 @@ import { getQueueSummaryRows } from '@/lib/queue-summary';
 import { getSystemSignals } from '@/lib/system-status';
 import { needsAttention } from '@/lib/support-ticket-flags';
 import { gdprDueAt } from '@/lib/gdpr';
+import { earlyAccessEndsAt, isNearEarlyAccessEnd } from '@/lib/investor-early-access';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -35,6 +36,7 @@ export async function GET() {
     { data: failedRuns },
     queueRows,
     systemSignals,
+    { data: investorBillingRows },
   ] = await Promise.all([
     admin.from('gdpr_requests').select('id, claimant_email, kind, created_at, extended_until').eq('status', 'pending').order('created_at', { ascending: true }),
     admin.from('support_tickets').select('id, created_at, status, first_response_at, last_activity_at, name, subject').eq('status', 'new').order('created_at', { ascending: true })
@@ -45,6 +47,11 @@ export async function GET() {
     admin.from('automation_runs').select('id, error, created_at').eq('status', 'failed').gte('created_at', new Date(Date.now() - 7 * DAY_MS).toISOString()),
     getQueueSummaryRows(admin),
     getSystemSignals(admin),
+    // Prompt 588 Bloco C.3 — "7 dias antes do fim do mês de cada conta,
+    // uma entrada no attention". Read-only here (the decision to block vs.
+    // extend stays Nuno's, account by account); this only ever surfaces
+    // the ones actually approaching their date.
+    admin.from('investor_billing').select('catalog_entity_id, investor_access_started_at').not('investor_access_started_at', 'is', null),
   ]);
 
   const count = (key: string) => queueRows.find((r) => r.key === key)?.count ?? 0;
@@ -126,6 +133,37 @@ export async function GET() {
       context: failedRuns![0].error ?? 'Unknown error', ageLabel: `oldest ${daysSince(failedRuns![failedRuns!.length - 1].created_at)}d`,
       href: '/backoffice/queue', buttonLabel: 'Investigate',
     });
+  }
+
+  // Prompt 588 Bloco C.3 — one row per investor firm entering its last 7
+  // days of early access. now() computed once, not per-row, so this can't
+  // straddle a day boundary mid-loop.
+  const nowForEarlyAccess = new Date();
+  const endingRows = (investorBillingRows ?? [])
+    .filter((r) => isNearEarlyAccessEnd(new Date(r.investor_access_started_at as string), nowForEarlyAccess));
+  if (endingRows.length > 0) {
+    const entityIds = endingRows.map((r) => r.catalog_entity_id as string);
+    const { data: entities } = await admin.from('catalog_entities').select('id, name, is_test').in('id', entityIds);
+    // Checked empirically before writing this (Prompt 588): 4 of the 5
+    // firms with an active investor seat in production today are
+    // is_test=true fixtures ("Test investor", "Test idividual", the
+    // individual-investor fixture, "ablute_ — Internal QA") — only one is
+    // real. Without this filter, the backfill in this prompt's own
+    // migration would have made every one of them show up here as a real
+    // account approaching end of early access.
+    const nameById = new Map((entities ?? []).filter((e) => !e.is_test).map((e) => [e.id as string, e.name as string]));
+    for (const r of endingRows) {
+      if (!nameById.has(r.catalog_entity_id as string)) continue;
+      const end = earlyAccessEndsAt(new Date(r.investor_access_started_at as string));
+      const dd = String(end.getDate()).padStart(2, '0');
+      const mm = String(end.getMonth() + 1).padStart(2, '0');
+      const name = nameById.get(r.catalog_entity_id as string) ?? 'Unknown investor';
+      rows.push({
+        tag: 'Investor billing', title: 'Investor reaches end of early access',
+        context: `${name} ends on ${dd}/${mm}`, ageLabel: `ends ${dd}/${mm}`,
+        href: '/backoffice/investors', buttonLabel: 'Review',
+      });
+    }
   }
 
   for (const s of systemSignals) {

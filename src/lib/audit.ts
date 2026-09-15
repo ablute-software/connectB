@@ -4,7 +4,10 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export async function logAdminAction(sb: SupabaseClient, opts: {
-  adminUserId: string; action: string; subjectType: string; subjectId?: string | null; detail?: unknown;
+  // null is Prompt 587's system-auto-approval case (no admin made the call) —
+  // admin_audit_log.admin_user_id has never had a NOT NULL constraint
+  // (migration 0014), so this was already representable in the schema.
+  adminUserId: string | null; action: string; subjectType: string; subjectId?: string | null; detail?: unknown;
 }): Promise<void> {
   await sb.from('admin_audit_log').insert({
     admin_user_id: opts.adminUserId,

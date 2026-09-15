@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import { cookies, headers } from 'next/headers';
 import { SUPABASE_URL, SUPABASE_ANON, shareableCookieDomain, type Role } from './supabase';
 import { resolveActiveInvestorMember } from './investor-membership';
+import { investorEntityClaimsAvailable } from './investor-entity-claims-capability';
 
 export { authEnabled } from './supabase';
 
@@ -46,17 +47,34 @@ export function isAbluteTeamEmail(email: string | undefined | null): boolean {
 // 'founder', exactly as today, rather than introducing a new ambiguous case);
 // either investor signal (access_grants OR an active investor membership)
 // resolves to 'investor'; @ablute.pt is the last-resort developer fallback.
+// Prompt 587 — explicit order, exactly as specified: platform_admins ->
+// org_members -> investor_entity_claims (approved) -> matchdeal_investor_
+// members -> access_grants -> @ablute.pt. hasApprovedClaim and
+// hasActiveInvestorMembership are almost always the same fact seen two ways
+// (approving a claim upserts the membership row in the same request — see
+// applyClaimApproval in investor-entity-claims.ts), but they're kept as two
+// separate checks in that order rather than collapsed into one OR, so a
+// claim that's 'approved' still resolves as investor even in the gap where
+// a membership row hasn't been created/reactivated yet. hasPendingClaim is
+// the new, lowest-priority signal: only reached once nothing above it
+// matched, it resolves to 'investor_pending' rather than falling through
+// to 'none'.
 export function decideRole(signals: {
   isPlatformAdmin: boolean;
   hasOpenFounderOrg: boolean;
-  hasAccessGrant: boolean;
+  hasApprovedClaim: boolean;
   hasActiveInvestorMembership: boolean;
+  hasAccessGrant: boolean;
   isAbluteTeamEmailConfirmed: boolean;
+  hasPendingClaim: boolean;
 }): Role {
   if (signals.isPlatformAdmin) return 'developer';
   if (signals.hasOpenFounderOrg) return 'founder';
-  if (signals.hasAccessGrant || signals.hasActiveInvestorMembership) return 'investor';
+  if (signals.hasApprovedClaim) return 'investor';
+  if (signals.hasActiveInvestorMembership) return 'investor';
+  if (signals.hasAccessGrant) return 'investor';
   if (signals.isAbluteTeamEmailConfirmed) return 'developer';
+  if (signals.hasPendingClaim) return 'investor_pending';
   return 'none';
 }
 
@@ -113,18 +131,37 @@ export async function resolveRole(
   // in /portal to see its own reactivate banner, not bounce to the public
   // landing the way 'none' does.
   let hasActiveInvestorMembership = false;
+  // Prompt 587 — the claim's own status, checked directly rather than only
+  // through the membership row it eventually produces: approving a claim
+  // (applyClaimApproval, investor-entity-claims.ts) upserts
+  // matchdeal_investor_members in the same request, so in the normal case
+  // this and hasActiveInvestorMembership agree. This is still its own
+  // signal, ahead of membership in decideRole's order, and 'pending' is a
+  // NEW signal with no membership equivalent at all — the only way a
+  // submitted-but-undecided claim can resolve to anything but 'none'.
+  let hasApprovedClaim = false;
+  let hasPendingClaim = false;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (serviceKey) {
     const investorAdmin = createClient(SUPABASE_URL!, serviceKey, { auth: { persistSession: false } });
     const member2 = await resolveActiveInvestorMember(investorAdmin, userId, { allowBillingLapsed: true });
     hasActiveInvestorMembership = !!member2;
+
+    if (await investorEntityClaimsAvailable()) {
+      const { data: claims } = await investorAdmin.from('investor_entity_claims')
+        .select('status').eq('claimant_user_id', userId).in('status', ['approved', 'pending']);
+      hasApprovedClaim = (claims ?? []).some((c) => c.status === 'approved');
+      hasPendingClaim = (claims ?? []).some((c) => c.status === 'pending');
+    }
   }
   return decideRole({
     isPlatformAdmin: !!admin,
     hasOpenFounderOrg,
-    hasAccessGrant,
+    hasApprovedClaim,
     hasActiveInvestorMembership,
+    hasAccessGrant,
     isAbluteTeamEmailConfirmed: !!(emailConfirmedAt && isAbluteTeamEmail(email)),
+    hasPendingClaim,
   });
 }
 

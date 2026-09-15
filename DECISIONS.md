@@ -7604,3 +7604,117 @@ Verified read-only against production: of the four orgs with a
 prompt's own prediction exactly, and `investor_pipeline_admissions` has no
 row for this (org, investor) pair to begin with, so there is nothing to
 retroactively undo.
+
+## 14/09/2026 — Prompt 686: live-verification fixes to the investor Pipeline's panel layout, and a global chunk-load recovery
+
+Nuno's own verification session opened the redesigned investor Pipeline
+live (production, read-only) and confirmed the taxonomy itself is correct
+(six cards summing to the list, correct derivation per SQL) but found four
+layout defects that only show up with the dossier panel open, plus a
+separate, unrelated deploy-transition bug.
+
+- **A.1** — the grid columns were backwards: the list got `minmax(320px,1fr)`
+  (grows) and the panel got `minmax(340px,420px)` (capped narrow) — exactly
+  inverted from the spec and from the founder pipeline page's own working
+  grid. Now `minmax(270px,340px)_1fr`, copied verbatim from that page.
+- **A.2** — the header and the six funnel cards used to live INSIDE the
+  shrinking list column, so with the panel open they had ~320px to fit six
+  cards in, breaking into two rows and overlapping the title/quota line.
+  They now sit full-width, above where the list/panel split even begins —
+  Nuno's own stated preference over the alternative (a compact counter
+  strip), for staying "mais simples" and keeping the counts legible.
+- **A.3** — the sector/geography/stage/sort filters used to stay visible
+  and wrap awkwardly with the panel open. They now collapse behind a
+  "⚙ Filters" icon (a dot when one is active) while the panel is open,
+  collapsed again every time a new panel opens — the exact same
+  `filtersExpanded` pattern the founder pipeline page already uses
+  (Prompt 672), not a new mechanism.
+- **A.4** — the collapsed row used to keep showing the one-liner even with
+  the panel open, where the spec calls for the stage pill instead (the
+  one-liner already lives in the panel's own header). `StagePill` is now a
+  small shared component, reused by both the row's narrow-panel-open
+  position and its original wide-layout position (removes a second,
+  duplicated inline style object as a side effect).
+- **B — the blank-page-after-deploy bug**, unrelated to the layout defects:
+  a browser tab open across a deploy caches references to JS chunks the new
+  build no longer serves; the next navigation that needs a new chunk
+  ChunkLoadErrors, which (with nothing catching it) crashed React with no
+  boundary anywhere above it — a fully blank page, no message, confirmed
+  live. Fixed with `ChunkErrorRecovery` (mounted once, at the very root of
+  `layout.tsx`, above `StoreProvider`): a pure, unit-tested guard
+  (`chunk-error-recovery.ts`, `sessionStorage`-backed) decides "is this a
+  chunk-load failure, and has this tab already tried reloading once" — the
+  first failure gets one automatic, invisible `window.location.reload()`;
+  a second failure (the reload didn't help) shows a real "Something went
+  wrong — Reload" message instead of silence. Caught two ways for the same
+  failure: a window-level `error`/`unhandledrejection` listener (catches it
+  early, before React's render cycle, which is what fired live) and a
+  class-based Error Boundary as defense in depth (catches it if it DOES
+  reach a render). No Vercel Skew Protection — confirmed not on the current
+  plan, not attempted.
+- **What could not be verified**: the drag-to-card gesture (Claude Browser's
+  automation cannot reproduce a >6px pointer-drag threshold) — left for
+  Nuno to test by hand, per his own request. The four layout fixes
+  themselves also could not be confirmed with a live screenshot: this
+  worktree's `next dev` does not recognize newly-added route files at all
+  (confirmed: a brand-new, trivially-named test route 404s even after a
+  full server restart and a wiped `.next` cache, while `next build` sees
+  the exact same file correctly — the same class of worktree-specific dev-
+  server issue recorded elsewhere in this file) — a pre-existing
+  limitation of this sandbox, not something this prompt's changes caused.
+  Verified instead by: `tsc`/`next build`/`eslint` all exit 0, the full
+  vitest suite (3853/3854 — one pre-existing unrelated locale-formatting
+  failure, confirmed unrelated by re-running with a longer timeout), and
+  every changed class/pattern copied verbatim from the founder pipeline
+  page's own already-shipped, already-verified equivalent — never CSS
+  invented fresh for this fix.
+
+## 14–15/09/2026 — Branch/prompt-number ledger for the day's investor-side work
+
+Four pieces of work landed in one long session, on three branches (not
+four — see the gap flagged below). None pushed or merged to `main`; all
+await explicit authorization. Recorded here because the prompt files that
+triggered them carry inconsistent numbers across Downloads and this
+session, and in two weeks nobody should have to reconstruct this from git
+log alone.
+
+- **Video hero on `/investors`** — branch `claude/prompt-688-investor-video-hero`.
+  The triggering prompt file itself documents a renumbering: it circulated
+  first as "586" (`claude_prompt_586_video_investidor_pagina_investors_20260914.md`,
+  still sitting in Downloads), then was explicitly renumbered to **688** by
+  its own header ("esse número já existia (6 Set). Passa a 688.") before
+  being pasted into this session — not a session error, but worth naming
+  here since the stale "586" file survives on disk and could otherwise read
+  as an unfinished, differently-numbered task. Replaces the static "Deal
+  flow review" mock in the hero with the real 60s product video; adds
+  `/investors/video` with absolute-URL OG tags; fixes the claim CTAs to
+  `/claim`. Report: `claude_relatorio_prompt688_investidor_video_hero_20260914.md`.
+- **4th pricing card ("Private Detective") invisible on `/investors`** —
+  branch `claude/fix-private-detective-card-invisible`, no prompt number
+  (a live bug report, not a numbered prompt). Root cause: missing
+  `data-reveal` attribute meant the scroll-reveal IntersectionObserver
+  never observed it, so it stayed at `opacity:0` forever.
+- **Prompt 587 — resolveRole() recognizes investor claims, auto-approval on
+  domain match** — correctly on its own branch,
+  `claude/prompt-587-investor-claim-auto-approve`. Report:
+  `claude_relatorio_prompt587_claim_auto_approve_20260914.md`.
+- **Prompt 588 — capacity-framed investor plan copy + real early-access
+  period** — the gap this note exists to flag: 588 was started, per Nuno's
+  own explicit instruction, immediately after 587 finished ("depois de
+  terminares essa tarefa - o prompt 587 / inicia o prompt em anexo"), but
+  ended up committed on top of the unrelated `claude/fix-private-detective-
+  card-invisible` branch instead of its own (or being stacked onto the 587
+  branch, which would at least have kept it off the bug-fix branch). Not
+  blocking — flagged so the branch name is never read as "just the card
+  fix". Report: `claude_relatorio_prompt588_copy_planos_e_early_access_20260915.md`.
+
+Net: three branches on disk for four numbered/described pieces of work;
+the fourth (588) borrowed an existing branch rather than getting its own.
+**Not cleanly separable after the fact**: checked before writing this —
+`30f6fee` (588) and `b649857` (the card fix) both touch
+`PrivateDetectiveCard.tsx` and `InvestorPricingSection.tsx`, and 588's own
+diff on `PrivateDetectiveCard.tsx` edits a line the card fix introduced, so
+a bare `git cherry-pick 30f6fee` onto a fresh branch off `main` (without
+`b649857`) would not apply cleanly. Unwinding 588 onto its own branch later
+means bringing `b649857` along too (cherry-pick both, in order), not just
+`30f6fee` alone.

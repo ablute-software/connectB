@@ -35,7 +35,7 @@ export default function ClaimPage() {
   const [selected, setSelected] = useState<EntityResult | null>(null);
   const [role, setRole] = useState('');
   const [busy, setBusy] = useState(false);
-  const [submitMsg, setSubmitMsg] = useState<{ text: string; kind: 'success' | 'info' | 'error' } | null>(null);
+  const [submitMsg, setSubmitMsg] = useState<{ text: string; kind: 'success' | 'info' | 'error' | 'approved' } | null>(null);
   const [ownClaims, setOwnClaims] = useState<OwnClaim[] | null>(null);
 
   useEffect(() => {
@@ -72,6 +72,12 @@ export default function ClaimPage() {
       if (!body.ok) { setSubmitMsg({ text: body.error ?? 'Could not submit the claim.', kind: 'error' }); return; }
       if (body.alreadyPending) {
         setSubmitMsg({ text: `You already have a pending claim on ${selected.name}.`, kind: 'info' });
+      } else if (body.autoApproved) {
+        // Prompt 587 §C — checked before the plain domainMatch branch below:
+        // that one's copy ("our team still reviews every claim") would be
+        // false here, since this claim already IS the approved decision.
+        setSubmitMsg({ text: `Claim approved — your email domain matches ${selected.name}'s. Taking you to your workspace…`, kind: 'approved' });
+        setTimeout(() => { window.location.href = '/portal'; }, 1500);
       } else if (body.isDispute) {
         setSubmitMsg({ text: `Claim submitted for review. Someone else already manages this profile — our team will look into it.`, kind: 'info' });
       } else if (body.domainMatch) {
@@ -146,10 +152,13 @@ export default function ClaimPage() {
 
           {submitMsg && (
             <p className={`mt-3 rounded-xl px-3 py-2 text-sm ${
-              submitMsg.kind === 'success' ? 'border border-green-200 bg-green-50 text-green-800'
+              submitMsg.kind === 'success' || submitMsg.kind === 'approved' ? 'border border-green-200 bg-green-50 text-green-800'
               : submitMsg.kind === 'error' ? 'border border-red-200 bg-red-50 text-[#B00000]'
               : 'border border-gray-200 bg-gray-50 text-gray-700'}`}>
               {submitMsg.text}
+              {submitMsg.kind === 'approved' && (
+                <>{' '}<a href="/portal" className="font-semibold underline">Go now</a></>
+              )}
             </p>
           )}
 

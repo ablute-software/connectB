@@ -8,9 +8,11 @@ import { decideRole } from './supabase-server';
 const NONE = {
   isPlatformAdmin: false,
   hasOpenFounderOrg: false,
-  hasAccessGrant: false,
+  hasApprovedClaim: false,
   hasActiveInvestorMembership: false,
+  hasAccessGrant: false,
   isAbluteTeamEmailConfirmed: false,
+  hasPendingClaim: false,
 };
 
 describe('decideRole — precedência (inalterada para os casos que já existiam)', () => {
@@ -19,7 +21,7 @@ describe('decideRole — precedência (inalterada para os casos que já existiam
   });
 
   it('platform_admins → developer, acima de tudo', () => {
-    expect(decideRole({ ...NONE, isPlatformAdmin: true, hasOpenFounderOrg: true, hasAccessGrant: true, hasActiveInvestorMembership: true })).toBe('developer');
+    expect(decideRole({ ...NONE, isPlatformAdmin: true, hasOpenFounderOrg: true, hasAccessGrant: true, hasActiveInvestorMembership: true, hasApprovedClaim: true })).toBe('developer');
   });
 
   it('org_members não-fechado → founder', () => {
@@ -34,7 +36,7 @@ describe('decideRole — precedência (inalterada para os casos que já existiam
     expect(decideRole({ ...NONE, hasActiveInvestorMembership: true })).toBe('investor');
   });
 
-  it('@ablute.pt confirmado, sem outro sinal → developer (fallback, por baixo dos dois sinais de investidor)', () => {
+  it('@ablute.pt confirmado, sem outro sinal → developer (fallback, por baixo dos sinais de investidor)', () => {
     expect(decideRole({ ...NONE, isAbluteTeamEmailConfirmed: true })).toBe('developer');
   });
 
@@ -45,5 +47,27 @@ describe('decideRole — precedência (inalterada para os casos que já existiam
 
   it('investidor E @ablute.pt ao mesmo tempo → investor vence (o sinal explícito de acesso outranks o fallback de domínio)', () => {
     expect(decideRole({ ...NONE, hasActiveInvestorMembership: true, isAbluteTeamEmailConfirmed: true })).toBe('investor');
+  });
+});
+
+describe('decideRole — Prompt 587 (investor_entity_claims aprovado/pendente)', () => {
+  it('claim aprovado, sem membership ainda → investor (o claim por si só já resolve, não depende do upsert de membership ter corrido)', () => {
+    expect(decideRole({ ...NONE, hasApprovedClaim: true })).toBe('investor');
+  });
+
+  it('claim pendente, sem mais nenhum sinal → investor_pending, nunca none', () => {
+    expect(decideRole({ ...NONE, hasPendingClaim: true })).toBe('investor_pending');
+  });
+
+  it('claim pendente é o sinal de precedência mais baixa: qualquer sinal de investidor "real" vence', () => {
+    expect(decideRole({ ...NONE, hasPendingClaim: true, hasApprovedClaim: true })).toBe('investor');
+    expect(decideRole({ ...NONE, hasPendingClaim: true, hasActiveInvestorMembership: true })).toBe('investor');
+    expect(decideRole({ ...NONE, hasPendingClaim: true, hasAccessGrant: true })).toBe('investor');
+  });
+
+  it('claim pendente perde para founder, platform_admin e @ablute.pt — nunca desloca um papel já resolvido', () => {
+    expect(decideRole({ ...NONE, hasPendingClaim: true, hasOpenFounderOrg: true })).toBe('founder');
+    expect(decideRole({ ...NONE, hasPendingClaim: true, isPlatformAdmin: true })).toBe('developer');
+    expect(decideRole({ ...NONE, hasPendingClaim: true, isAbluteTeamEmailConfirmed: true })).toBe('developer');
   });
 });

@@ -128,6 +128,27 @@ function FitPill({ score, reasons }: { score: number; reasons: string[] }) {
   );
 }
 
+const STAGE_PILL_STYLE: Record<InvestorPipelineStage, { bg: string; fg: string }> = {
+  new: { bg: '#eef3f6', fg: '#5d7280' },
+  evaluating: { bg: '#e9f2fd', fg: '#1d6fd4' },
+  interested: { bg: '#e6f5fa', fg: '#0e7490' },
+  due_diligence: { bg: '#fdf3e6', fg: '#b4670c' },
+  passed: { bg: '#f3f4f6', fg: '#5d7280' },
+  archived: { bg: '#e6f6ed', fg: '#158049' },
+};
+
+// Prompt 681 §2.4 point 5 / Prompt 686 A.4 — the stage pill, shared between
+// the right-hand column (wide layout) and the collapsed row's own space
+// (panel-open layout, where the one-liner is what makes room for it).
+function StagePill({ card }: { card: Card }) {
+  const s = STAGE_PILL_STYLE[card.pipelineStage];
+  return (
+    <span className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium" style={{ background: s.bg, color: s.fg }}>
+      {INVESTOR_PIPELINE_STAGE_LABEL[card.pipelineStage]}{card.pipelineStageDetail ? ` · ${card.pipelineStageDetail}` : ''}
+    </span>
+  );
+}
+
 export function PipelinePanel({ onOpenStartup }: {
   // Prompt 681 §3 — the OLD "open a startup" mechanism (a full tab swap to
   // a different, older snapshot component owned by PortalPage). Superseded
@@ -186,6 +207,11 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
   const [interactionLogOrgId, setInteractionLogOrgId] = useState<string | null>(null);
   const [busyOrgId, setBusyOrgId] = useState<string | null>(null);
   const [menuOpenOrgId, setMenuOpenOrgId] = useState<string | null>(null);
+  // Prompt 686 A.3 — same pattern as the founder pipeline page (672):
+  // filters collapse behind an icon while the panel is open (the list only
+  // has ~320px left), collapsed by default each time the panel opens.
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
+  useEffect(() => { setFiltersExpanded(false); }, [openOrgId]);
   const [followupsByOrg, setFollowupsByOrg] = useState<Record<string, { id: string; date: string }>>({});
   const [confirmingWithdrawOrgId, setConfirmingWithdrawOrgId] = useState<string | null>(null);
   // Prompt 681 §2.1 — the six groups replace the old decision filter;
@@ -447,36 +473,61 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
   }
 
   const dossierOrgName = allAnyCards.find((c) => c.orgId === openOrgId)?.name ?? null;
+  const filtersActive = sectorFilter !== 'all' || countryFilter !== 'all' || stageFilter !== 'all';
 
   return (
-    <div className={openOrgId ? 'grid grid-cols-1 items-start gap-3 min-[900px]:grid-cols-[minmax(320px,1fr)_minmax(340px,420px)]' : ''}>
+    <div className="space-y-4">
+      {/* Prompt 686 A.2 — header, quota line, total, and the six funnel
+          cards stay full-width ABOVE the list/panel split, always. With
+          the panel open the split only starts below this block — six cards
+          in one row need more than the ~320px the list column gets, and
+          breaking them into two rows here used to overlap the header. */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-bold text-gray-900">Pipeline</h1>
+        <a href="/api/portal/export?type=pipeline" className="text-xs text-gray-400 hover:underline">Export CSV</a>
+      </div>
+      {quotaLine && <p className="-mt-2 text-xs text-gray-500">{quotaLine}</p>}
+      <p className="-mt-2 text-xs text-gray-500">{total} startup{total === 1 ? '' : 's'} in your pipeline</p>
+
+      <InvestorPipelineFunnel
+        counts={counts}
+        activeFilter={cardFilter}
+        onFilter={(k) => { setCardFilter(k); setSecondaryFilter(null); }}
+        dragActive={drag.active}
+        dragOver={drag.over}
+      />
+
+      {/* Prompt 686 A.1 — the list shrinks to ~320px (270-340px, matching
+          the founder pipeline page's own grid exactly) and the panel takes
+          the rest — this was inverted before (list got 1fr, panel was
+          capped narrow), squeezing the dossier into the smaller column. */}
+      <div className={openOrgId ? 'grid grid-cols-1 items-start gap-3 min-[900px]:grid-cols-[minmax(270px,340px)_1fr]' : ''}>
       <div className={openOrgId ? 'min-w-0 max-[899px]:hidden' : 'min-w-0 space-y-4'}>
-        <div className="flex items-center justify-between">
-          <h1 className="text-lg font-bold text-gray-900">Pipeline</h1>
-          <a href="/api/portal/export?type=pipeline" className="text-xs text-gray-400 hover:underline">Export CSV</a>
-        </div>
-        {quotaLine && <p className="-mt-2 text-xs text-gray-500">{quotaLine}</p>}
-        <p className="-mt-2 text-xs text-gray-500">{total} startup{total === 1 ? '' : 's'} in your pipeline</p>
-
-        <InvestorPipelineFunnel
-          counts={counts}
-          activeFilter={cardFilter}
-          onFilter={(k) => { setCardFilter(k); setSecondaryFilter(null); }}
-          dragActive={drag.active}
-          dragOver={drag.over}
-        />
-
         <div className="flex flex-wrap items-center gap-1.5">
           <button onClick={() => setSecondaryFilter(secondaryFilter === 'watching' ? null : 'watching')}
             className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${secondaryFilter === 'watching' ? 'bg-[#0E7490] text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
             👁 Watching{watchingCount != null ? ` (${watchingCount})` : ''}
           </button>
+          {/* Prompt 686 A.3 — same pattern as the founder pipeline page
+              (Prompt 672): with the panel open the list is too narrow for
+              four controls beside each other, so they collapse behind this
+              icon (a dot when one is actually active) and reopen inline on
+              click. Collapsed again every time the panel opens (the effect
+              near the top of this component resets filtersExpanded). */}
+          {openOrgId && !filtersExpanded && (
+            <button onClick={() => setFiltersExpanded(true)} title="Filters"
+              className="relative rounded-lg border border-gray-300 px-2.5 py-1 text-[11px] text-gray-600 hover:bg-gray-50">
+              ⚙ Filters
+              {filtersActive && <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[#0E7490]" />}
+            </button>
+          )}
         </div>
 
         {secondaryFilter === 'watching' ? (
           <WatchingPanel onOpenStartup={(orgId) => setOpenOrgId(orgId)} />
         ) : (
         <>
+        {(!openOrgId || filtersExpanded) && (
         <div data-tour-id="investor-pipeline-filters" className="flex flex-wrap items-center gap-1.5">
           <select value={sectorFilter} onChange={(e) => setSectorFilter(e.target.value)}
             className="rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-600">
@@ -493,7 +544,7 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
             <option value="all">All stages</option>
             {stageOptions.map((s) => <option key={s} value={s}>{STAGE_LABELS[s] ?? s}</option>)}
           </select>
-          {(sectorFilter !== 'all' || countryFilter !== 'all' || stageFilter !== 'all') && (
+          {filtersActive && (
             <button onClick={() => { setSectorFilter('all'); setCountryFilter('all'); setStageFilter('all'); }}
               className="text-[11px] text-gray-400 hover:underline">
               Clear filters
@@ -508,7 +559,11 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
               <option value="round_close">Round close</option>
             </select>
           </span>
+          {openOrgId && (
+            <button onClick={() => setFiltersExpanded(false)} className="text-[11px] text-gray-400 hover:underline">Hide filters</button>
+          )}
         </div>
+        )}
         {data.usualCoInvestors && <p className="text-xs text-gray-400">Usually co-invests with: {data.usualCoInvestors}</p>}
 
         <div data-tour-id="investor-pipeline-overview" className="space-y-3">
@@ -604,6 +659,7 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
           </Suspense>
         </aside>
       )}
+      </div>
 
       {interactionLogOrgId && (
         <InteractionLogDrawer orgId={interactionLogOrgId}
@@ -685,7 +741,10 @@ function PipelineRow({
               <span className="shrink-0 text-sm font-semibold text-gray-900 group-hover:underline">{c.name}</span>
               {c.hype && <span className="shrink-0 rounded-full bg-orange-500 px-1.5 py-0.5 text-[9px] font-bold text-white" title="Hype — trending among investors on your plan">🔥</span>}
               {c.isWatching && <span className="shrink-0 text-[11px]" title="You're watching this startup for changes">👁</span>}
-              {c.oneLiner && <span className="block min-w-0 flex-1 truncate text-xs text-gray-500">{c.oneLiner}</span>}
+              {/* Prompt 686 A.4 — with the panel open, the collapsed row shows
+                  avatar + name + the stage pill (the one-liner already sits
+                  in the panel's own header) instead of the one-liner. */}
+              {openOrgId ? <StagePill card={c} /> : (c.oneLiner && <span className="block min-w-0 flex-1 truncate text-xs text-gray-500">{c.oneLiner}</span>)}
             </div>
             {!openOrgId && (
               <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-gray-400">
@@ -712,12 +771,7 @@ function PipelineRow({
         </button>
         {!openOrgId && (
           <div className="hidden shrink-0 flex-col items-end gap-0.5 text-right sm:flex">
-            <span className="rounded-full px-2 py-0.5 text-[11px] font-medium" style={{
-              background: c.pipelineStage === 'passed' ? '#f3f4f6' : c.pipelineStage === 'archived' ? '#e6f6ed' : c.pipelineStage === 'due_diligence' ? '#fdf3e6' : c.pipelineStage === 'interested' ? '#e6f5fa' : c.pipelineStage === 'evaluating' ? '#e9f2fd' : '#eef3f6',
-              color: c.pipelineStage === 'passed' ? '#5d7280' : c.pipelineStage === 'archived' ? '#158049' : c.pipelineStage === 'due_diligence' ? '#b4670c' : c.pipelineStage === 'interested' ? '#0e7490' : c.pipelineStage === 'evaluating' ? '#1d6fd4' : '#5d7280',
-            }}>
-              {INVESTOR_PIPELINE_STAGE_LABEL[c.pipelineStage]}{c.pipelineStageDetail ? ` · ${c.pipelineStageDetail}` : ''}
-            </span>
+            <StagePill card={c} />
             <span className={`text-[11px] ${c.nextAction?.overdue ? 'font-medium text-[#B00000]' : 'text-gray-400'}`}>
               {c.nextAction ? c.nextAction.label : '—'}
             </span>
