@@ -56,9 +56,11 @@ async function marketDocumentItems(admin: SupabaseClient, orgId: string) {
     for (const p of (e.extracted?.programs as { name: string }[] | undefined) ?? []) {
       items.push({ documentId: doc.id, documentName: doc.name, label: `Program/reference: ${p.name}` });
     }
-    for (const d of (e.extracted?.dates as { label: string; date: string }[] | undefined) ?? []) {
-      items.push({ documentId: doc.id, documentName: doc.name, label: `${d.label}: ${d.date}` });
-    }
+    // Prompt 691 §D5 — extracted.dates used to be pushed here unconditionally
+    // as if they were market facts ("Founder quote from r/SaaS: July 2024",
+    // "Document date"). A document's own dates aren't market evidence — they
+    // don't belong under "From your documents" at all, so this section is
+    // never confused with a real finding again.
     if (items.length === 0 || items[items.length - 1]?.documentId !== doc.id) {
       items.push({ documentId: doc.id, documentName: doc.name, label: documentType || 'Referenced in this document' });
     }
