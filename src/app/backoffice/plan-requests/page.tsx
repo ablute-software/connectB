@@ -8,12 +8,20 @@ import { Card } from '@/components/ui';
 interface Request {
   id: string; created_at: string; first_name: string; last_name: string; email: string;
   investor_type: string; firm_name: string; message: string; firm_website: string | null;
-  linkedin: string | null; status: string; internal_notes: string | null;
+  linkedin: string | null; status: string; internal_notes: string | null; source: string;
 }
 
 const STATUS_LABEL: Record<string, string> = {
   new: 'New', under_review: 'Under review', contacted: 'Contacted',
   proposal_sent: 'Proposal sent', converted: 'Converted', closed: 'Closed',
+};
+
+// Prompt 690 — the two new /pricing CTAs, distinguished from every
+// pre-existing call site (which all land as the DB default, 'landing_investors').
+const SOURCE_LABEL: Record<string, string> = {
+  landing_investors: 'Investor workspace / landing',
+  pricing_private_detective: 'Pricing — investor tab',
+  pricing_private_detective_founder: 'Pricing — startup tab',
 };
 
 export default function PlanRequestsPage() {
@@ -67,6 +75,7 @@ export default function PlanRequestsPage() {
                   <div>
                     <div className="text-sm font-semibold text-gray-800">{r.first_name} {r.last_name} · {r.firm_name}</div>
                     <div className="text-xs text-gray-400">{r.email} · {r.investor_type}</div>
+                    <div className="mt-0.5 text-[11px] text-gray-400">{SOURCE_LABEL[r.source] ?? r.source}</div>
                     {(r.firm_website || r.linkedin) && (
                       <div className="mt-0.5 text-xs text-gray-400">
                         {r.firm_website && <span>{r.firm_website}</span>}

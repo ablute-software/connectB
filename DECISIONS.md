@@ -7769,3 +7769,134 @@ site with a signed-out browser surfaced it. Fixed in `de15a71` by adding
 (non-demo) local dev server first (unauthenticated ranged `GET` on both
 files now returns 206, not a redirect) and pushed as `de15a71`; production
 re-check after that commit's own deploy is in the day's report.
+
+## 15/09/2026 — Prompt 690: the 4th plan, Private Detective, added to the founder pricing grid; the investor side's own copy brought up to the 02/09 spec
+
+**What Nuno reported**: `/investors`' pricing grid (Pro Scout €130 / Ace
+Spotter €240 / The Legendary Sleuth €450) was missing the 4th, custom plan
+— "Private Detective" — that the deck, one-pager and financial plan all
+already show, and that he confirmed the shape of on 02/09. Investigation
+found the card already existed in code (PLAN-01..07, 30/07; invisibility
+bug fixed same day as this report, `b649857`; a copy pass the day after,
+`30f6fee`) but with generic placeholder copy ("For firms with specific
+needs", 3 generic bullets), no visible price row, no "Everything in X,
+plus:" line, and a filled-teal CTA — none of which matches the exact
+tagline/price-treatment/5-bullet/CTA spec Nuno gave here. Treated this
+prompt's copy as the authoritative, most-recent version of that spec and
+replaced the placeholder copy with it, rather than assuming the card was
+already "done" because it existed.
+
+**Founder side (`/` → For Startups) had no such card at all** — confirmed
+by reading `PricingSection.tsx` directly (3 tiers, no 4th). Added one,
+reusing the same `PrivateDetectiveCard` component (no fork) via a new
+`variant: 'investor' | 'founder'` prop that only swaps content
+(`plans.ts`'s `PRIVATE_DETECTIVE_PLAN` is now keyed by variant) — tagline,
+price caption, "Everything in [It's the butler!/The Legendary Sleuth],
+plus:" line, and its own 4-bullet copy for the accelerator/studio/portfolio
+pitch. Same form, same table, same backoffice queue on both sides — no new
+table, no new schema, per the prompt's own instruction.
+
+**Layout**: reused `.plansInvestor`/`.wrapPricingInvestor` (the 4-column
+grid + wider wrap BUG-03 already introduced for the investor page) on the
+founder page's own `.plans`/`.wrap` instead of inventing a second,
+identically-shaped pair of CSS rules under a new name — these rules are
+plain layout (4 columns, 1400px wrap), nothing investor-specific despite
+the name. The existing `@media (max-width: 900px)` stacking rule and the
+`@media (max-width: 1300px)` 2-column rule already list `.plansInvestor`
+generically, so both breakpoints worked immediately on the founder page too
+— confirmed live (375px stacks to 1-column, matching the three priced
+cards; ~1300px width state not separately screenshotted but same CSS rule,
+no reason to doubt it).
+
+**Price row**: added `<div>Custom</div>` + a caption line to
+`PrivateDetectiveCard` (there was none before — just tagline + one
+description sentence), styled with the same inline hex values the rest of
+the card already uses (`#0c272e`/`#5b7077`, matching `.price`/`.perYear`'s
+`--ink`/`--muted`) rather than `landing.module.css`'s own classes, because
+this component is also mounted inside the signed-in workspace's plain-
+Tailwind `InvestorPlanGrid.tsx`, which never loads that stylesheet or its
+custom properties — confirmed both call sites still render correctly.
+Verified live that the Monthly/Annual toggle changes all three priced
+cards' numbers but leaves this card's "Custom" / caption untouched, on
+both `/` and `/investors`.
+
+**CTA**: changed from a filled teal button to a bordered/transparent
+("ghost") one and relabelled "Talk to us" (was "Contact the Sherlock
+Team") — the prompt is explicit this card should never look like the
+plan being pushed. The modal's own heading text ("Contact the Sherlock
+Team") is untouched; only the card's own button changed.
+
+**Source tracking, no new table**: `investor_plan_contact_requests.source`
+(migration 0079) already existed as a free-text column with a
+`'landing_investors'` default that nothing ever overrode — every call site
+(the investor landing card, the signed-in `/plans` workspace grid) was
+silently indistinguishable in the backoffice queue. Added an optional
+`source` prop threaded from `PrivateDetectiveCard` → its modal → the POST
+body → the API route (allowlisted server-side —
+`landing_investors`/`pricing_private_detective`/
+`pricing_private_detective_founder` — since this is an unauthenticated
+public endpoint and the value ends up on a backoffice screen; anything
+else is silently dropped so the DB default applies). Only the two new
+`/pricing` call sites pass an explicit value; the pre-existing
+`InvestorPlanGrid.tsx` call site is untouched and keeps landing on the DB
+default. Also added `source` to `backoffice/plan-requests`' own
+select+display (a one-line addition, since the whole point of adding the
+value was for that screen to be able to show it) — confirmed via a direct
+`execute_sql` insert against production
+(`id=1b0504f4-c7cc-474e-8ef3-6936eb6cfe81`, `zz-test-private-detective@
+example.com`, `source='pricing_private_detective'`) that the value
+round-trips correctly, then deleted that same row immediately after
+confirming it.
+
+**Form reuse, not a fork**: the founder-side card posts through the exact
+same `/api/plan/private-detective` route and `investor_type` dropdown as
+the investor side (per the prompt's explicit "não criem outro"). The
+"Investment firm or investment group name" field label and the
+`investor_type` options (still investor-flavoured: "Venture capital fund",
+"Accelerator / incubator", "Other", …) read slightly off for an
+accelerator/studio/portfolio-fund lead, but "Accelerator / incubator" and
+"Other" already cover that audience reasonably, and a founder submitting
+here can put their program's name in the firm-name field same as an
+investor would their firm's — judged NOT "really inadequate" (the
+prompt's own bar for routing to Help & support instead), so left as one
+shared form rather than duplicating field labels per variant.
+
+**Backoffice**: `backoffice/plan-requests` (queue: New → Under review →
+Contacted → Proposal sent → Converted → Closed, with internal notes) and
+its API route already existed (PLAN-01..07) — confirmed, not built here.
+Only change: `source` added to the select + a one-line display under each
+request's email/investor-type line.
+
+**What was NOT touched, per the prompt's own scope**: the three priced
+plans' copy/prices/toggle/save-badge on either side; the "MOST POPULAR"
+flag (stays on Ace Spotter only); the founder landing page's hero/other
+sections; any billing/Stripe/entitlement code — Private Detective is sold
+as a bespoke plan, and fulfilment (portfolio sponsorship, seat/data-room
+caps, invoicing the fund) stays a manual back-office process (tier
+override in `/backoffice/investors`, manual/Pioneer entitlement on the
+startup side) until an automated version exists, exactly as stated in the
+prompt.
+
+**Verified**: `tsc --noEmit` EXIT=0; `next build` EXIT=0; `eslint
+--no-eslintrc --config .eslintrc.json` (worktree-safe invocation) EXIT=0,
+0 errors (265 pre-existing warnings, none on the touched lines); `vitest
+run` 3864/3865 passed — the one failure (`market-facts-view.test.ts`,
+thousands-separator locale formatting) is the same pre-existing,
+unrelated flake already on `main`. Browser-verified live under
+`dev:verify` (demo mode): both `/` and `/investors` render the 4-card grid
+at desktop width with matching card heights, the toggle leaves the 4th
+card alone, mobile (375px) stacks all 4 cards full-width in the same
+style, the "Talk to us" modal opens/submits/shows the thank-you message,
+and the outgoing POST returns 200. The DB-write + `source` value itself
+was verified directly via SQL against production (see above) rather than
+by clicking through a live browser session against undeployed code — per
+this repo's own verification rules, `dev:verify` deliberately blocks real
+Supabase writes during UI testing, and a live click against the currently
+*deployed* endpoint would only have exercised the old code. Lighthouse not
+separately run — the change is markup/CSS reusing existing patterns (no
+new JS dependency, no images), judged low-risk for a regression, but
+flagging that this specific check from the prompt's own verification list
+was not executed.
+
+Pushed to `claude/prompt-690-pricing-private-detective`, not merged —
+awaiting Nuno's explicit go-ahead per this session's standing rule.

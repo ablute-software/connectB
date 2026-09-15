@@ -480,23 +480,51 @@ export const INVESTOR_PLAN_TO_MATCHDEAL_TIER: Record<InvestorPlanTier, string> =
 // schema real; ver a migração 0288.
 
 // PLAN-02 — the 4th plan: no fixed price, a contact form instead of a
-// checkout/request CTA. Deliberately NOT part of INVESTOR_PLANS (which
-// models priced, structured plans with seats/caps/bullets) — the card and
+// checkout/request CTA. Deliberately NOT part of INVESTOR_PLANS/PLANS (which
+// model priced, structured plans with seats/caps/bullets) — the card and
 // its behaviour are different enough that folding it in would mean
-// nullable pricing fields leaking into every other reader of that array.
-// Prompt 588 — tagline + bullets added so the 4th card reads like a plan
-// card (same shape as INVESTOR_PLANS' tagline/bullets) instead of a bare
-// name + one line of prose, now that it's visible again (Prompt 587).
-export const PRIVATE_DETECTIVE_PLAN = {
-  name: 'Private Detective',
-  tagline: 'For firms with specific needs',
-  description: 'Get a personalized service and pricing.',
-  bullets: [
-    'Custom seats, waves and integrations',
-    'Dedicated onboarding and support',
-    'Talk to us for a tailored plan and pricing',
-  ],
-  ctaLabel: 'Contact the Sherlock Team',
+// nullable pricing fields leaking into every other reader of those arrays.
+// Prompt 690 — one card, two audiences (investor pricing on /investors +
+// the signed-in /plans workspace; founder pricing on /), per the grid Nuno
+// confirmed on 02/09: same component (PrivateDetectiveCard), copy keyed by
+// variant so the two never need a second component to stay in sync.
+export const PRIVATE_DETECTIVE_PLAN: Record<'investor' | 'founder', {
+  name: string;
+  tagline: string;
+  /** "Custom" price, shown instead of a €amount — same slot, never affected by the Monthly/Annual toggle. */
+  priceCaption: string;
+  /** The "Everything in X, plus:" line other cards derive from array order — this card sits outside that array, so it's spelled out here instead. */
+  openingLine: string;
+  bullets: string[];
+  ctaLabel: string;
+}> = {
+  investor: {
+    name: 'Private Detective',
+    tagline: 'For funds with their own rules',
+    priceCaption: 'annual terms · invoiced to the fund',
+    openingLine: 'Everything in The Legendary Sleuth, plus:',
+    bullets: [
+      "Portfolio access — sponsor Sherlock Deal for every startup in your portfolio: they use it, you're invoiced",
+      'Seats, monthly caps and data-room limits set to your team',
+      'One invoice to the fund, annual terms',
+      'Dedicated onboarding for your team and your portfolio companies',
+      'A named contact at Sherlock Deal',
+    ],
+    ctaLabel: 'Talk to us',
+  },
+  founder: {
+    name: 'Private Detective',
+    tagline: 'For accelerators, studios and portfolios',
+    priceCaption: 'billed on custom terms',
+    openingLine: "Everything in It's the butler!, plus:",
+    bullets: [
+      'Multi-startup access under one shared account (accelerator, studio, or fund paying for your portfolio companies)',
+      'Limits set to your program',
+      'One invoice, annual terms',
+      'Dedicated onboarding for your team',
+    ],
+    ctaLabel: 'Talk to us',
+  },
 };
 
 // --- Investor seats: the enforced rule (Prompt 497) ----------------------

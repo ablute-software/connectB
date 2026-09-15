@@ -41,6 +41,7 @@ import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-
 import { logAiCall, computeCostEur } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { markReadinessTrainFirstUsed } from '@/lib/readiness-usage';
+import { findCrossOrgDocumentId } from '@/lib/org-document-scope';
 
 // Prompt 467 v3 §5 (Nuno's review) — this is a HEURISTIC, not a real
 // signal like retrievalMethodByDocId below (that one reads an actual,
@@ -273,6 +274,21 @@ export async function POST(req: Request) {
   if (documentIds.length === 0) return NextResponse.json({ ok: false, error: 'Pick at least one document.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+
+  // Prompt 692 — explicit cross-org gate, before any read/model work. A
+  // document_id belonging to a DIFFERENT org is refused outright (403), not
+  // silently folded into `skipped` alongside "wrong file type"/"download
+  // failed" — this is the exact scenario Prompt 692's own verification
+  // tests directly (a known cross-org id, requested on purpose), and it
+  // needs a distinct, auditable signal. prepareDocumentForAi's own org_id
+  // filter below already makes the READ itself safe either way (mesmo para
+  // admins) — this gate is about the response being explicit about why, not
+  // a second enforcement layer.
+  const { data: existingDocs } = await admin.from('documents').select('id, org_id').in('id', documentIds);
+  const crossOrgId = findCrossOrgDocumentId((existingDocs ?? []) as { id: string; org_id: string }[], orgId);
+  if (crossOrgId) {
+    return NextResponse.json({ ok: false, error: 'One or more of those documents are not in your workspace.' }, { status: 403 });
+  }
 
   const docsByIndex = new Map<number, MarketDocRef>();
   const documentBlocks: { type: 'document'; source: { type: 'base64'; media_type: 'application/pdf'; data: string } }[] = [];

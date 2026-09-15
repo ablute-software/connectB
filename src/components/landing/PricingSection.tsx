@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { PLANS } from '@/lib/plans';
 import type { PlanTier } from '@/lib/types';
 import s from '@/app/landing.module.css';
+import { PrivateDetectiveCard } from '@/components/plans/PrivateDetectiveCard';
 
 function Check() {
   return (
@@ -62,7 +63,13 @@ export function PricingSection() {
 
   return (
     <section className={`${s.sec} ${s.pricingSec}`} id="pricing">
-      <div className={s.wrap}>
+      {/* Prompt 690 §2 — a 4th card (Private Detective) joins the grid, same
+          layout problem BUG-03 already solved on the investor side: .wrap's
+          1140px max-width and .plans' 3-column grid were sized for 3 cards.
+          Reusing .wrapPricingInvestor/.plansInvestor rather than adding a
+          near-duplicate pair of "wide wrap + 4 columns" rules under a new
+          name — the rules are plain layout, nothing investor-specific. */}
+      <div className={`${s.wrap} ${s.wrapPricingInvestor}`}>
         <div className={s.secHead} data-reveal>
           <span className={s.eyebrow}>Pricing</span>
           <h2>Plans that grow up with you</h2>
@@ -82,7 +89,7 @@ export function PricingSection() {
           <span>Annual <span className={s.save}>save ~26%</span></span>
         </div>
 
-        <div className={s.plans}>
+        <div className={`${s.plans} ${s.plansInvestor}`}>
           {PLANS.map((p, i) => {
             const copy = COPY[p.tier];
             // Prompt 128 — was 'garage' ("Most popular"); the landing's own
@@ -121,6 +128,7 @@ export function PricingSection() {
               </div>
             );
           })}
+          <PrivateDetectiveCard className={`${s.plan} ${s.rv} ${s.d2}`} dataReveal variant="founder" source="pricing_private_detective_founder" />
         </div>
       </div>
     </section>
