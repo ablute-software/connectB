@@ -8158,3 +8158,99 @@ Speed Index 0.82s → 0.80s — the SECOND one is a marginal improvement) —
 within normal run-to-run local-measurement noise, not a signal. CLS is
 ~0.000–0.001 on both pages either way (the 4th card doesn't introduce
 layout shift). No material regression, confirmed rather than assumed.
+
+## 15/09/2026 — Prompt 701: "Tell us" is gated by the org's platform badge, never by role — and the category dropdown now follows the page
+
+**§1 — corrected, not confirmed, Nuno's own hypothesis.** The report
+guessed a role check (`role === 'DEVELOPER' ? menu : reportDirect`, or the
+condition flipped). Read `ReportProblemWidget.tsx` and
+`/api/suggestions/eligibility` before writing any fix: there is no role
+check anywhere in this flow. The second exit (Suggest an improvement) is
+gated on `canSuggest({ activeBadges })` (`suggestions-gate.ts`) —
+`activeBadges` comes from the CALLER'S org (`org_members` → `orgs`/
+`platform_badges`), and the gate is "does this org hold an active
+`tech_master` or `pioneer` badge," full stop. Confirmed against production
+data before writing this up, not from reading the code alone:
+`sherlockdeal.com@gmail.com` IS in `platform_admins` (role `developer`,
+matching the report) — but its own org ("Sherlock Deal") holds
+`pioneer_badge = false` and zero rows in `platform_badges`. `ablute_`
+(Nuno's real startup, also owned by a `platform_admins`/developer account)
+DOES hold an active `pioneer` badge. Same role on both accounts, opposite
+outcome — the role was never the variable; the org's badge was. This is
+exactly what `suggestions-gate.ts`'s own header already documented
+("no org holds an active tech master or pioneer badge today, so nobody
+sees the suggestion option until one is granted") — a comment that answered
+this before the report was even written, had anyone read it first.
+
+**Closed as "comportamento esperado," with the discoverability gap the
+prompt itself flagged.** Prompt 605 §C deliberately chose not to show a
+locked/disabled menu item to an ineligible account ("a menu with one item
+is friction, not a choice") — the ORIGINAL design intentionally leaves
+ZERO trace of the second option for anyone outside the cohort. Prompt 701
+asks for a visual hint anyway, so an ineligible account doesn't read as
+broken next to one that has seen the two-choice menu; this is a genuine,
+deliberate change of direction from 605's own philosophy, not a bug fix,
+and is treated as one here: a single muted line
+("Have an idea instead? Suggestions are open to our Tech Master and
+Pioneer members.") under the category dropdown on the Report-a-problem
+form, shown ONLY when the eligibility check has resolved to an explicit
+`false` — never during the loading window, and never for an eligible
+account (who already saw the real menu and chose this form from it).
+Needed a real tri-state (`boolean | null`) for `canSuggest`, since the old
+plain `boolean` defaulted to `false` before the fetch even started —
+`canSuggest === false` would otherwise have flashed the hint at every
+eligible account too, for one render.
+
+**§2 — the actual bug: `area` was never re-derived from the page.**
+`useState(AREAS[0])` set it to `'Pipeline'` once at mount, and the ONLY
+other writer was `reset()` snapping it back to that same fixed value on
+close — nothing ever called `setArea` from `pathname`. The suggestion
+form already did this correctly (`area: areaFromPath(pathname)`, computed
+fresh at submit time) — the problem form's own dropdown was the one path
+that never got this treatment, because `605 §A` ("preencham-na
+automaticamente ... a partir da rota") was written with the suggestion
+form specifically in mind and the older problem form's dropdown was never
+revisited. Fixed at the actual point of failure: `openWidget()` (replacing
+the launcher's old inline `onClick`) now calls
+`setArea(areaFromPath(pathname))` before opening, so every fresh open
+reflects whatever page the button was actually clicked from.
+
+**Second, smaller bug found while fixing the first**: the widget's own
+`AREAS` list (9 entries, hand-picked, hardcoded in the component) was
+already a DIFFERENT list from `SUPPORT_AREAS` in `support-area.ts` (11
+entries — missing `'Back-office'` and `'Investor portal'`) — exactly the
+"two vocabularies" `support-area.ts`'s own header comment warns against.
+Replaced the local list with an import of `SUPPORT_AREAS` — one list,
+never drifting again — and separately found `/readiness` had NO entry in
+`areaFromPath`'s route table at all (a real top-level route, `shell.tsx`
+nav group 4 alongside Dashboard), meaning even a correctly page-synced
+dropdown would have shown "Other" on Readiness & Train, the exact page
+this prompt's own reproduction used. Added `'Readiness & Train'` to
+`SUPPORT_AREAS` and its own `/readiness` route entry rather than leaving
+that half-fixed.
+
+**Verified**: `tsc`/`build`/`eslint` all EXIT=0 (0 errors, same 265
+pre-existing warnings); `vitest run` 3899/3900 (the one failure,
+`market-facts-view.test.ts`, is the same pre-existing, unrelated
+locale-formatting flake every run this session hits) — includes 17 new
+tests (`ReportProblemWidget.test.ts`, `support-area.test.ts`), all
+source-text-based per this repo's own no-jsdom/no-@testing-library
+convention (FrostedGate.test.ts's header explains why; vitest here has
+never imported a `.tsx`). Browser-verified live under `dev:verify`: the
+category dropdown correctly reads "Pipeline" on `/pipeline` and
+"Readiness & Train" on `/readiness` on two separate fresh opens — the
+actual reported bug, confirmed fixed. The discoverability hint could NOT
+be browser-verified: `dev:verify` forces `authEnabled = false`, and the
+ENTIRE eligibility-check effect (`/api/me` AND
+`/api/suggestions/eligibility`, both) sits behind one
+`if (!authEnabled) return;` guard — confirmed via the network panel
+(zero requests to either endpoint, ever, in demo mode). This is a known
+category of gap for this codebase (dev:verify deliberately can't exercise
+real-auth-gated behavior — see `dev_verify_masks_middleware_bugs` in
+memory) and not something to build a workaround for; the hint's logic is
+covered by the source-level tests instead, and a real-account check is
+Nuno's own to make, same as every other real-auth-only verification this
+session has hit.
+
+Pushed to `claude/prompt-701-tell-us-eligibility-and-category`, not
+merged — awaiting Nuno's explicit go-ahead.

@@ -26,12 +26,17 @@ import { createPortal } from 'react-dom';
 import { usePathname } from 'next/navigation';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { useBottomNavHeight } from '@/lib/bottom-nav-context';
-import { areaFromPath } from '@/lib/support-area';
+import { areaFromPath, SUPPORT_AREAS, type SupportArea } from '@/lib/support-area';
 import { captureViewport, screenshotFileName } from '@/lib/screen-capture';
 import type { SupportSource } from './ContactForm';
 
 const TELL_US_LABEL = 'Tell us';
-const AREAS = ['Pipeline', 'Tasks & Agenda', 'Dashboard', 'Vault Data Room', 'Company / Profile', 'Plans & billing', 'MatchDeal', 'Account', 'Other'];
+// Prompt 701 — was a second, hand-picked list here (missing 'Back-office'
+// and 'Investor portal', and never synced to the current page — see the
+// `area` state below). Importing the same list `areaFromPath` draws its
+// answers from is what support-area.ts's own header comment already asked
+// for: one vocabulary, not two.
+const AREAS = SUPPORT_AREAS;
 
 // The widget must never appear in its own photograph (§D). Ids rather than a
 // class, because the capture has to name these exactly — and there are TWO of
@@ -58,14 +63,24 @@ export function ReportProblemWidget() {
   const [mode, setMode] = useState<Mode>('problem');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [area, setArea] = useState(AREAS[0]);
+  // Prompt 701 — was AREAS[0] ('Pipeline'), fixed at declaration and only
+  // ever reset back to that same fixed value, never read from the actual
+  // page. Seeded from the current page here anyway (updated for real when
+  // the widget opens — see `openWidget` below) so a first render never
+  // shows a stale/wrong value even for a heartbeat.
+  const [area, setArea] = useState<SupportArea>(() => areaFromPath(pathname));
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [error, setError] = useState('');
   const [source, setSource] = useState<SupportSource>('landing');
-  const [canSuggest, setCanSuggest] = useState(false);
+  // Prompt 701 — null = "still checking" (or checking never applies, e.g.
+  // signed out / demo mode), distinct from an explicit false. Without this
+  // third state, the "suggestions are gated" hint below would flash for
+  // every eligible account too, for the brief window before the eligibility
+  // fetch resolves.
+  const [canSuggest, setCanSuggest] = useState<boolean | null>(null);
   const [shot, setShot] = useState<{ file: File; url: string } | null>(null);
   const [shooting, setShooting] = useState(false);
 
@@ -96,11 +111,25 @@ export function ReportProblemWidget() {
     : !!name.trim() && emailLooksReal && !!subject.trim() && message.trim().length >= 10 && message.length <= 5000;
 
   function reset() {
-    setSubject(''); setMessage(''); setFiles([]); setArea(AREAS[0]); setStatus('idle'); setError('');
+    // Prompt 701 — re-derived from the current page rather than reset to a
+    // fixed AREAS[0] ('Pipeline'); openWidget() below re-derives it again
+    // on the NEXT open anyway, but leaving it correct here too means
+    // nothing reads a stale "Pipeline" in between.
+    setSubject(''); setMessage(''); setFiles([]); setArea(areaFromPath(pathname)); setStatus('idle'); setError('');
     if (shot) URL.revokeObjectURL(shot.url);
     setShot(null);
   }
   function close() { setOpen(false); reset(); setMode(canSuggest ? 'choose' : 'problem'); }
+  // Prompt 701 — the actual fix for the category-stuck-on-Pipeline bug: the
+  // launcher used to only ever set `mode` and `open`, never re-reading
+  // `area`, so whatever the dropdown last held (AREAS[0] on first mount,
+  // forever after) is what every ticket carried regardless of which page
+  // the button was clicked from.
+  function openWidget() {
+    setArea(areaFromPath(pathname));
+    setMode(canSuggest ? 'choose' : 'problem');
+    setOpen(true);
+  }
 
   async function submit() {
     setStatus('sending'); setError('');
@@ -180,7 +209,7 @@ export function ReportProblemWidget() {
 
   return (
     <div id={WIDGET_ROOT_ID}>
-      <button onClick={() => { setMode(canSuggest ? 'choose' : 'problem'); setOpen(true); }}
+      <button onClick={openWidget}
         title={TELL_US_LABEL}
         style={{ bottom: navHeight > 0 ? navHeight + 12 : 20 }}
         className="fixed right-5 z-40 flex h-11 w-11 items-center justify-center rounded-full bg-[#0E7490] text-lg text-white shadow-lg transition hover:bg-[#0b5d73]">
@@ -237,10 +266,25 @@ export function ReportProblemWidget() {
                       <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="you@company.com" autoComplete="email"
                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
                     </div>
-                    <select value={area} onChange={(e) => setArea(e.target.value)}
+                    <select value={area} onChange={(e) => setArea(e.target.value as SupportArea)}
                       className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
                       {AREAS.map((a) => <option key={a} value={a}>{a}</option>)}
                     </select>
+                    {/* Prompt 701 §3 — the second exit (Suggest an
+                        improvement) is gated to Tech Master/Pioneer orgs
+                        (suggestions-gate.ts); an ineligible account lands
+                        here directly and would otherwise see no trace the
+                        option exists at all, which reads as inconsistent to
+                        anyone who has seen the two-choice menu on another
+                        account. `canSuggest === false` specifically (not
+                        `null`, the "still checking" state) so this never
+                        flashes for an eligible account during the brief
+                        window before the eligibility fetch resolves. */}
+                    {canSuggest === false && (
+                      <p className="text-[11px] text-gray-400">
+                        Have an idea instead? Suggestions are open to our Tech Master and Pioneer members.
+                      </p>
+                    )}
                   </>
                 )}
                 <input value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={200} autoComplete="off"

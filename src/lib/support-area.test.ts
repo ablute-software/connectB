@@ -7,6 +7,8 @@ describe('areaFromPath (Prompt 605 §A)', () => {
     expect(areaFromPath('/entities/abc-123')).toBe('Pipeline');
     expect(areaFromPath('/today')).toBe('Tasks & Agenda');
     expect(areaFromPath('/dashboard')).toBe('Dashboard');
+    expect(areaFromPath('/readiness')).toBe('Readiness & Train');
+    expect(areaFromPath('/readiness/report/abc-123')).toBe('Readiness & Train');
     expect(areaFromPath('/vault/folder/9')).toBe('Vault Data Room');
     expect(areaFromPath('/matchdeal')).toBe('MatchDeal');
   });

@@ -12,7 +12,7 @@
 // unrecognised falls through to 'Other' rather than inventing a label.
 
 export const SUPPORT_AREAS = [
-  'Pipeline', 'Tasks & Agenda', 'Dashboard', 'Vault Data Room', 'Company / Profile',
+  'Pipeline', 'Tasks & Agenda', 'Dashboard', 'Readiness & Train', 'Vault Data Room', 'Company / Profile',
   'Plans & billing', 'MatchDeal', 'Account', 'Back-office', 'Investor portal', 'Other',
 ] as const;
 export type SupportArea = (typeof SUPPORT_AREAS)[number];
@@ -30,6 +30,9 @@ const ROUTES: { prefix: string; area: SupportArea }[] = [
   { prefix: '/agenda', area: 'Tasks & Agenda' },
   { prefix: '/automations', area: 'Tasks & Agenda' },
   { prefix: '/dashboard', area: 'Dashboard' },
+  // Prompt 701 — real top-level route (shell.tsx nav, group 4 alongside
+  // Dashboard) with no entry here, so it fell through to 'Other'.
+  { prefix: '/readiness', area: 'Readiness & Train' },
   { prefix: '/vault', area: 'Vault Data Room' },
   { prefix: '/documents', area: 'Vault Data Room' },
   { prefix: '/guest', area: 'Vault Data Room' },
