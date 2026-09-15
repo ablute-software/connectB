@@ -39,12 +39,21 @@ export interface SuggestionGateInput {
   /** Defaults to the constant above; a parameter so the test can exercise
    *  the closed programme without editing the constant. */
   programmeOpen?: boolean;
+  /** TEMPORARY (Prompt 703, 15/09/2026, Nuno) — true when this org/investor
+   *  is among the first EARLY_ACCESS_COMPANY_LIMIT real companies on the
+   *  platform (see suggestions-early-access.ts), independently of holding a
+   *  badge. An explicit "OR", per Nuno's own instruction: the badge check
+   *  below is untouched, this only ever WIDENS who passes. Revert by
+   *  deleting this field and its one use in the return statement. */
+  isAmongFirstCompanies?: boolean;
 }
 
 /** The whole rule, in one place. */
-export function canSuggest({ activeBadges, programmeOpen = SUGGESTIONS_PROGRAMME_OPEN }: SuggestionGateInput): boolean {
+export function canSuggest({
+  activeBadges, programmeOpen = SUGGESTIONS_PROGRAMME_OPEN, isAmongFirstCompanies = false,
+}: SuggestionGateInput): boolean {
   if (!programmeOpen) return false;
-  return activeBadges.some((b) => (SUGGESTION_BADGES as readonly string[]).includes(b));
+  return isAmongFirstCompanies || activeBadges.some((b) => (SUGGESTION_BADGES as readonly string[]).includes(b));
 }
 
 /** Which badge opened the door — the back-office queue shows it on the row,

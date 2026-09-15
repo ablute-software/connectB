@@ -8158,3 +8158,126 @@ Speed Index 0.82s → 0.80s — the SECOND one is a marginal improvement) —
 within normal run-to-run local-measurement noise, not a signal. CLS is
 ~0.000–0.001 on both pages either way (the 4th card doesn't introduce
 layout shift). No material regression, confirmed rather than assumed.
+
+## 15/09/2026 — Prompt 703: temporary first-100-companies early access for "Suggest an improvement", and a parallel badge table so investor firms can hold one at all
+
+**§2's own SQL check, run before writing any code, per the prompt's own
+instruction**: today there are exactly **7 real (non-test) companies on
+the whole platform** — 6 founder orgs and 1 investor firm ("Invest green").
+Reported plainly because it changes what Nuno will actually see: "the
+first 100" is, right now, indistinguishable from "everyone, no exception."
+`sherlockdeal.com@gmail.com`'s own org ("Sherlock Deal") ranks 5th by
+creation date — comfortably inside the limit, confirming the verification
+step's own expectation.
+
+**Correction to how "real" is computed**: the obvious first instinct — a
+company must be `is_test = false` AND `is_internal = false` — was checked
+against production before use and produces the WRONG number (1 company,
+not 7). Read migration `0316`'s own comment on `is_internal` before
+trusting the assumption: it is documented as "read ONLY by back-office
+review queues," explicitly does NOT gate real behaviour, and on this
+platform nearly every account is still flagged `is_internal = true` — a
+2026-08-23 backfill default ("every account that exists today is ours")
+that most rows have simply never been reclassified out of since (`Sherlock
+Deal`, `Krohnsty`, `Estojo` all still carry it). Applying it here would
+have silently gutted the feature to almost nobody, the opposite of what
+this prompt asks for. Only `is_test` is excluded — the flag actually meant
+to distinguish real usage from fixtures/demo data everywhere else in this
+codebase.
+
+**§1-3, the temporary rule itself** — `src/lib/suggestions-early-access.ts`
+(new, marked TEMPORARY throughout, with its own revert instructions in its
+header): ranks every real founder org and every real investor firm (a
+`catalog_entities` row with ≥1 active `matchdeal_investor_members` seat,
+ranked by that seat's own earliest `created_at` — a catalog row can predate
+any real signup by months, same reasoning `backoffice-metrics.ts`'s
+`investorOrgRows()` already uses for "registration date") together by
+creation date, oldest first. `suggestions-gate.ts`'s own `canSuggest()`
+gained one new optional field, `isAmongFirstCompanies`, OR'd with the
+existing badge check — kept in that file specifically because its own
+header says "when the rule changes it changes here and nowhere else."
+`/api/suggestions/eligibility` now resolves BOTH identities a caller might
+have (founder via `org_members`, investor via `resolveActiveInvestorMember`
+— the same single source of truth every other portal route already uses)
+and only spends the extra ranking-query reads when a badge alone doesn't
+already settle it. Revert: delete `suggestions-early-access.ts`, drop the
+one field back out of `canSuggest`'s input, and undo the eligibility
+route's two `earlyAccess` lines — the badge logic underneath never changed.
+
+**701's own discoverability hint needed no changes.** Its condition
+(`canSuggest === false`) already means exactly "still outside eligibility
+even with the new rule," because `canSuggest` now already incorporates the
+OR — an account eligible only via early access gets `canSuggest: true` and
+the hint correctly never shows for them. This was checked, not assumed.
+
+**§4 — the addendum, and a real schema gap it uncovered.** Nuno's own
+instruction assumed the Grant control would write into `platform_badges`
+"with the right org_id" — checked against the schema before building
+anything, and that assumption doesn't hold: `platform_badges.org_id` is a
+strict `references public.orgs(id)` (migration `0337`), and every reader
+of that table (`platform-badges-server.ts` — Stripe subscription lookups,
+founder `tasks`, `org_members` owner emails, the tech-master lapse sweep)
+is founder-specific throughout; none of it resolves an investor identity.
+Investor firms live in `catalog_entities`, a structurally different table
+with no existing path into `platform_badges` at all.
+
+Built a parallel table instead of relaxing that FK or teaching every
+founder-specific reader to branch on which kind of id it got — smaller,
+and doesn't risk the existing table's real production rows (ablute_'s own
+pioneer badge, the demo tech_master row):
+- **Migration `20260915220000_investor_platform_badges.sql`** — same
+  shape as `platform_badges` for the columns that matter (badge, grant/
+  revoke + justification, one active row per firm+badge via a partial
+  unique index) with NONE of the founder-billing columns (`free_tier`,
+  `free_until`, `discount_pct`, `stripe_coupon_applied`, the lapse-sweep
+  columns) — none of that was asked for investors, and investor billing
+  already has its own separate mechanism unrelated to this table. Verified
+  with a `BEGIN`/`ROLLBACK` dry run against production first (confirmed the
+  unique index actually rejects a duplicate active grant against the real
+  "Invest green" row, then confirmed `to_regclass` shows the table doesn't
+  exist afterwards — nothing left behind), then applied for real via
+  `mcp__…__apply_migration`. `get_advisors` (security) shows nothing new
+  for this table.
+- **`investor-platform-badges-server.ts`** (new) — load/shape helpers only,
+  no Stripe, no lapse tracking.
+- **`/api/backoffice/investor-platform-badges`** (new route) — grant/revoke,
+  same `requirePlatformAdmin()` + `admin_audit_log` bar as the founder route,
+  8-character justification minimum kept identical.
+- **`InvestorPlatformBadgeControls.tsx`** (new component, not a `kind` prop
+  bolted onto the founder one) — same menu/justification/revoke UX, no
+  `freeUntil` field (nothing here ever applies a Stripe coupon) and no
+  lapse badge state (nothing here ever lapses). Its rights tooltip is its
+  own honest string ("Access to Suggest an improvement in Tell us") rather
+  than reusing `platform-badges.ts`'s `rightsText()` — that function's
+  copy ("free forever", "≥25% off any paid plan") describes a Stripe
+  discount this table never applies; reusing it verbatim would have
+  promised investors a billing benefit that doesn't exist.
+- Wired into `backoffice/investors/page.tsx`'s Accounts tab: a "Badges"
+  column in the same position as the Startups table's own (right before
+  Delete/Suspend), one table-wide fetch grouped by `catalog_entity_id`,
+  mirroring `startups/page.tsx`'s existing `badgesByOrg` pattern exactly.
+
+**Verified**: `tsc`/`build`/`eslint` all EXIT=0 (0 errors, same 265
+pre-existing warnings); `vitest run` 3900/3901 (the one failure,
+`market-facts-view.test.ts`, is the same pre-existing, unrelated
+locale-formatting flake every run this session hits) — includes 26 new/
+updated tests across `suggestions-gate.test.ts` and the new
+`suggestions-early-access.test.ts`. Confirmed against real production data
+(not just the unit tests' synthetic fixtures) that both accounts the
+verification section named — `sherlockdeal.com@gmail.com`'s org (rank 5)
+and "Invest green" (rank 2) — fall inside the first-100 ranking today.
+Could NOT browser-verify the actual menu appearing live: same demo-mode
+limitation Prompt 701 already hit and documented — `dev:verify` forces
+`authEnabled = false`, and the entire eligibility-check effect (both
+`/api/me` and `/api/suggestions/eligibility`) is skipped outright in that
+mode, real account or not. No workaround built for it, per this repo's own
+verification discipline; Nuno's own live check with his account (both this
+prompt's own two accounts, and visually confirming "Grant…" now appears on
+the Investors list) is the next step, exactly as the prompt's own
+verification section asked for.
+
+Pushed to `claude/prompt-703-early-access-and-investor-badges`. The
+migration is APPLIED to production already (schema changes in this
+codebase go live before the code that uses them, same as every other
+migration this session has applied) — the application code itself is not
+merged, awaiting Nuno's explicit go-ahead like everything else.

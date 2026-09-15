@@ -4,7 +4,7 @@
 // countries); this page quotes the real numbers, because deciding what to
 // build next on a rounded number is how you end up believing your own
 // marketing. Read-only — the CRUD lives in Catálogo, linked at the bottom.
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { sortRows, sortIndicator } from '@/lib/table-sort';
 import Link from 'next/link';
 import { Card, Tabs } from '@/components/ui';
@@ -15,6 +15,7 @@ import { ModerationControls } from '@/components/backoffice/ModerationControls';
 import { ModerationHistoryCard } from '@/components/backoffice/ModerationHistoryCard';
 import { CatalogMetricsChart } from '@/components/backoffice/CatalogMetricsChart';
 import { AccountStatusFilter } from '@/components/backoffice/AccountStatusFilter';
+import { InvestorPlatformBadgeControls, type AdminInvestorBadgeRow } from '@/components/backoffice/InvestorPlatformBadgeControls';
 import type { ModerationStatus } from '@/lib/account-moderation';
 import { INVESTOR_PLANS } from '@/lib/plans';
 import { matchesAccountFilter, type AccountFilter } from '@/lib/account-filter';
@@ -331,6 +332,21 @@ function InvestorAccountsTable() {
   }
   useEffect(load, []);
 
+  // Prompt 703 §4 — investor-firm platform badges, granted/revoked inline in
+  // the Badges column. Same pattern as the Startups table's own Badges
+  // column (PlatformBadgeControls): one fetch for the whole table, grouped
+  // client-side by catalog_entity_id.
+  const [badgesByEntity, setBadgesByEntity] = useState<Record<string, AdminInvestorBadgeRow[]>>({});
+  const loadInvestorBadges = useCallback(() => {
+    fetch('/api/backoffice/investor-platform-badges').then((r) => r.json()).then((body) => {
+      if (!body.ok) return;
+      const by: Record<string, AdminInvestorBadgeRow[]> = {};
+      for (const b of (body.badges ?? []) as AdminInvestorBadgeRow[]) (by[b.catalogEntityId] ??= []).push(b);
+      setBadgesByEntity(by);
+    }).catch(() => {});
+  }, []);
+  useEffect(loadInvestorBadges, [loadInvestorBadges]);
+
   // Item 11 step 3 — mirrors set-plan exactly: apply the requested tier
   // (accept), or re-apply the current tier (reject) — either way
   // plan_tier_requested/plan_tier_requested_at clear on the server.
@@ -444,7 +460,10 @@ function InvestorAccountsTable() {
                   {label} {sortIndicator(sortKey === key, sortDir)}
                 </th>
               ))}
-              {/* Not sortable: it holds controls, not a value. */}
+              {/* Not sortable: it holds controls, not a value. Same position
+                  as the Startups table's own Badges column, right before
+                  Delete/Suspend. */}
+              <th className="pr-3" title="Platform badges granted to this account.">Badges</th>
               <th className="pr-3">Delete/Suspend</th>
               {([
                 ['accessRequestedLastMonth', 'Access req./mo', 'number'], ['accessGrantedLastMonth', 'Access granted/mo', 'number'],
@@ -518,6 +537,9 @@ function InvestorAccountsTable() {
                 </td>
                 <td className="pr-3 text-xs text-gray-400 whitespace-nowrap">{a.lastLogin ? a.lastLogin.slice(0, 10) : 'never'}</td>
                 <td className="pr-3"><span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${INVESTOR_STATUS_STYLE[a.status]}`}>{a.status}</span></td>
+                <td className="min-w-32 pr-3">
+                  <InvestorPlatformBadgeControls catalogEntityId={a.entityId} entityName={a.name} badges={badgesByEntity[a.entityId] ?? []} onChanged={loadInvestorBadges} />
+                </td>
                 {/* Fase 3 — same fix as startups/page.tsx's identical
                     column: min-width (not width, which an auto-layout
                     table's algorithm is free to override — confirmed live

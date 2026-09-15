@@ -38,3 +38,22 @@ describe('suggestions gate (Prompt 605 §B)', () => {
     expect([...SUGGESTION_BADGES]).toEqual(['tech_master', 'pioneer']);
   });
 });
+
+describe('the TEMPORARY first-companies early access (Prompt 703, 15/09/2026)', () => {
+  it('opens for an early-access company with no badge at all', () => {
+    expect(canSuggest({ activeBadges: [], isAmongFirstCompanies: true })).toBe(true);
+  });
+
+  it('defaults to false — omitting the flag must not change anything for every existing caller', () => {
+    expect(canSuggest({ activeBadges: [] })).toBe(false);
+    expect(canSuggest({ activeBadges: ['tech_master'] })).toBe(true);
+  });
+
+  it('a badge alone still opens it, regardless of early-access status', () => {
+    expect(canSuggest({ activeBadges: ['pioneer'], isAmongFirstCompanies: false })).toBe(true);
+  });
+
+  it('the programme-closed gate still wins over early access — "OR" only widens who passes, never bypasses the kill switch', () => {
+    expect(canSuggest({ activeBadges: [], isAmongFirstCompanies: true, programmeOpen: false })).toBe(false);
+  });
+});
