@@ -11,6 +11,7 @@
 // component with zero forks.
 import { Suspense } from 'react';
 import { StartupDossierPageInner } from '@/components/portal/StartupDossierContent';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 // Prompt 560 §C — the Suspense boundary useSearchParams requires. Next
 // asks for it because a page reading the query string cannot be prerendered
@@ -19,7 +20,7 @@ import { StartupDossierPageInner } from '@/components/portal/StartupDossierConte
 // the wrong tab.
 export default function StartupDossierPage() {
   return (
-    <Suspense fallback={<p className="p-6 text-sm text-gray-400">Loading…</p>}>
+    <Suspense fallback={<LoadingState text="Loading dossier…" />}>
       <StartupDossierPageInner />
     </Suspense>
   );

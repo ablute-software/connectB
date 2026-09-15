@@ -18,6 +18,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { weightedCriterionValues, type ScorecardCriterion, type TabScoreRow } from '@/lib/investor-scorecard-summary';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 interface TeamMember { id: string; fullName: string; title: string | null; isFounder: boolean; linkedinUrl: string | null }
 interface Overview { description?: string | null; one_liner?: string | null }
@@ -113,7 +114,7 @@ export default function DealMemoPage() {
     }).catch(() => {});
   }, [sessionEmail, orgId]);
 
-  if (authEnabled && sessionEmail === undefined) return <div className="mt-16 text-center text-sm text-gray-400">Loading…</div>;
+  if (authEnabled && sessionEmail === undefined) return <LoadingState text="Loading memo…" />;
   if (authEnabled && sessionEmail === null) {
     return (
       <div className="mx-auto mt-16 max-w-sm rounded-lg border border-gray-200 bg-white p-6 text-center">
@@ -131,7 +132,7 @@ export default function DealMemoPage() {
       </div>
     );
   }
-  if (!data) return <div className="mt-16 text-center text-sm text-gray-400">Loading…</div>;
+  if (!data) return <LoadingState text="Loading memo…" />;
 
   const { card, dossier } = data;
   const team = dossier.team ?? [];

@@ -39,6 +39,7 @@ import { deriveValuation } from '@/lib/dilution';
 import { computeRoundProgressPercent } from '@/lib/round-progress';
 import { INSTRUMENT_LABELS } from '@/lib/investor-taxonomy';
 import { SectionReviewToggle } from '@/components/investor-workspace/SectionReviewToggle';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 interface PortalDoc {
   id: string; name: string; version?: string; watermark: boolean;
@@ -347,7 +348,7 @@ function SnapshotCard({ s, orgId }: { s: PortalSnapshot; orgId?: string }) {
 // Prompt 560 §C — the Suspense boundary useSearchParams requires.
 export default function PortalPage() {
   return (
-    <Suspense fallback={<p className="p-6 text-sm text-gray-400">Loading…</p>}>
+    <Suspense fallback={<LoadingState text="Loading…" />}>
       <PortalPageInner />
     </Suspense>
   );
@@ -686,7 +687,7 @@ function PortalPageInner() {
             </button>
           </div>
         ) : authEnabled && sessionEmail === undefined ? (
-          <div className="mt-16 text-center text-sm text-gray-400">Loading…</div>
+          <LoadingState text="Loading…" />
         ) : authEnabled && !sessionEmail ? (
           // Bug fix (2026-08-05) — this used to be a second, entirely
           // separate sign-in form (magic link only, no password, and no
@@ -707,7 +708,7 @@ function PortalPageInner() {
             </Link>
           </div>
         ) : loading ? (
-          <div className="mt-16 text-center text-sm text-gray-400">Loading…</div>
+          <LoadingState text="Loading…" />
         ) : authEnabled && activePendingConfirmation.length > 0 ? (
           // Prompt 33 part 2 / 47 — shown before ANY document/folder, even
           // if this same email also has other already-active grants. No

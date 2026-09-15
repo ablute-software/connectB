@@ -146,7 +146,23 @@ const STYLE = `
   }
 `;
 
-export function LoadingState({ label = 'Loading…' }: { label?: string }) {
+// Prompt 693 — this was pipeline-only (the only importer was
+// app/pipeline/page.tsx, confirmed by grep before this prompt), which is
+// why the whole `sd-lens-*` animation only ever ended up in that page's own
+// build chunk and never in anything the investor portal loads. The file was
+// already sitting in workspace-shell/ — already reachable from investor
+// code (InvestorWorkspaceShell.tsx and LockedWave.tsx already import from
+// this same directory) — so nothing needed to physically move; the gap was
+// that nothing on the investor side had started importing it yet.
+//
+// `label` renamed to `text` and `compact` added per this prompt's spec.
+// `compact` only touches the OUTER vertical rhythm (py-16 -> py-3, and a
+// smaller sr-only-adjacent footprint) for mounting inside a panel/tab
+// instead of a full page — the sweep/glass/magnifier geometry itself (the
+// Prompt 675 §1 fixed radius, the track-width measurement) is untouched,
+// since a shorter box around the same animation is all "a smaller version
+// for panels and tabs" needs to mean.
+export function LoadingState({ text = 'Loading…', compact = false }: { text?: string; compact?: boolean }) {
   const baseRef = useRef<HTMLSpanElement>(null);
   // null = not measured yet — the CSS fallback (420px) governs the sweep's
   // width until then, and "animate" is withheld (see the bug note below for
@@ -168,7 +184,7 @@ export function LoadingState({ label = 'Loading…' }: { label?: string }) {
     // Re-measures whenever the label itself changes, same as the
     // prototype's own setText() — a track sized for a short label would
     // clip a longer one.
-  }, [label]);
+  }, [text]);
 
   // Bug found building the reference prototype, worth restating here since
   // it is a real, separate failure mode from the Prompt 675 one above: the
@@ -187,15 +203,15 @@ export function LoadingState({ label = 'Loading…' }: { label?: string }) {
   const measured = trackW !== null;
 
   return (
-    <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+    <div className={`flex flex-col items-center justify-center gap-3 text-center ${compact ? 'py-3' : 'py-16'}`}>
       <style>{STYLE}</style>
       <div
         className={`sd-lens-sweep ${measured ? 'sd-lens-animate' : ''}`}
         style={measured ? ({ '--sd-track-w': `${trackW}px` } as React.CSSProperties) : undefined}
       >
-        <span ref={baseRef} className="sd-lens-probe text-sm" aria-hidden="true">{label}</span>
-        <span className="sd-lens-text text-sm text-gray-400" aria-hidden="true">{label}</span>
-        <span className="sd-lens-text sd-lens-magnified text-sm" aria-hidden="true">{label}</span>
+        <span ref={baseRef} className="sd-lens-probe text-sm" aria-hidden="true">{text}</span>
+        <span className="sd-lens-text text-sm text-gray-400" aria-hidden="true">{text}</span>
+        <span className="sd-lens-text sd-lens-magnified text-sm" aria-hidden="true">{text}</span>
         <span className="sd-lens-glass" aria-hidden="true">
           <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" width="40" height="40">
             <circle cx="16" cy="16" r="11" fill="#E8F4F8" fillOpacity="0.55" stroke="#0E7490" strokeWidth="2.5" />
@@ -205,7 +221,7 @@ export function LoadingState({ label = 'Loading…' }: { label?: string }) {
           </svg>
         </span>
       </div>
-      <p className="sr-only">{label}</p>
+      <p className="sr-only">{text}</p>
     </div>
   );
 }

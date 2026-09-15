@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Card } from '@/components/ui';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 interface AccessLog {
   available: boolean;
@@ -39,7 +40,7 @@ export default function InvestorAccessLogPage() {
       </div>
       <p className="text-sm text-gray-500">Every time you opened a document shared with you — which startup, which document, when. Recorded automatically; it cannot be edited.</p>
       {err && <p className="text-sm text-[#B00000]">{err}</p>}
-      {!log && !err && <p className="text-sm text-gray-400">Loading…</p>}
+      {!log && !err && <LoadingState text="Loading…" compact />}
       {log && !log.available && <p className="text-sm text-gray-400">Not available yet.</p>}
       {log?.available && (
         <Card title={`Document views (${log.views.length})`}>

@@ -31,6 +31,7 @@ import { fitBucketFromScore } from '@/lib/catalog-fit-bucket';
 import { fitLabel, fitStyle } from '@/components/ui';
 import { useConfirmWithFields } from '@/lib/confirm';
 import { StartupDossierPageInner } from '@/components/portal/StartupDossierContent';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 interface Card extends DraggableCard {
   orgId: string; name: string; oneLiner: string | null;
@@ -159,7 +160,7 @@ export function PipelinePanel({ onOpenStartup }: {
   onOpenStartup: (orgId: string) => void;
 }) {
   return (
-    <Suspense fallback={<p className="text-sm text-gray-400">Loading…</p>}>
+    <Suspense fallback={<LoadingState text="Loading your pipeline…" />}>
       <PipelinePanelInner onOpenStartup={onOpenStartup} />
     </Suspense>
   );
@@ -413,7 +414,7 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
     },
   });
 
-  if (!data) return <p className="text-sm text-gray-400">Loading…</p>;
+  if (!data) return <LoadingState text="Loading your pipeline…" />;
   const waves = data.waves ?? [];
   const quotaLine = pipelineQuotaLine(data.quota, new Date().toISOString());
 
@@ -649,7 +650,7 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
             .sd-dossier-panel-enter { animation: sd-dossier-panel-enter-x 200ms ease-out; }
             @media (prefers-reduced-motion: reduce) { .sd-dossier-panel-enter { animation: none; } }
           `}</style>
-          <Suspense fallback={<p className="p-4 text-sm text-gray-400">Loading…</p>}>
+          <Suspense fallback={<LoadingState text="Loading dossier…" compact />}>
             <StartupDossierPanelWithKeyboard
               orgId={openOrgId} orgName={dossierOrgName}
               visibleRowIds={filteredCards.filter((c): c is Card => !isUnavailable(c)).map((c) => c.orgId)}

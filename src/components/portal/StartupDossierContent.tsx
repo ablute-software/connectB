@@ -27,6 +27,7 @@ import { SherlockSummaryButton } from '@/components/investor-workspace/SherlockS
 import { DocumentRequestPicker } from '@/components/DocumentRequestPicker';
 import { Tooltip } from '@/components/ui';
 import { computeDilution, type ValuationBasis } from '@/lib/dilution';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 // Prompt 389 §2 — the 7 dossier tabs "My evaluation" actually scores; the
 // Overview sub-tabs Pitch/Traction aren't among them (388 §C.2's own
@@ -383,7 +384,7 @@ export function StartupDossierPageInner({ orgId: orgIdProp, variant = 'page', on
     } finally { setBusy(false); }
   }
 
-  if (authEnabled && sessionEmail === undefined) return <div className="mt-16 text-center text-sm text-gray-400">Loading…</div>;
+  if (authEnabled && sessionEmail === undefined) return <LoadingState text="Loading dossier…" compact={variant === 'panel'} />;
   if (authEnabled && sessionEmail === null) {
     return (
       <div className="mx-auto mt-16 max-w-sm rounded-lg border border-gray-200 bg-white p-6 text-center">
@@ -407,7 +408,7 @@ export function StartupDossierPageInner({ orgId: orgIdProp, variant = 'page', on
       </div>
     );
   }
-  if (!data) return <div className="mt-16 text-center text-sm text-gray-400">Loading…</div>;
+  if (!data) return <LoadingState text="Loading dossier…" compact={variant === 'panel'} />;
 
   const { card, hype, level, levelRows, dossier, market } = data;
   const level3Row = levelRows.find((r) => r.level === 3);
@@ -884,7 +885,7 @@ export function StartupDossierPageInner({ orgId: orgIdProp, variant = 'page', on
           <div className="flex flex-col gap-4 md:flex-row">
             <div className="flex-1">
               {messagesInfo == null ? (
-                <p className="text-sm text-gray-400">Loading…</p>
+                <LoadingState text="Loading…" compact />
               ) : (
                 <DealThreadView
                   viewerSide="investor"
@@ -982,7 +983,7 @@ function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate,
       </div>
     );
   }
-  if (!docs) return <p className="text-sm text-gray-400">Loading…</p>;
+  if (!docs) return <LoadingState text="Loading…" compact />;
 
   // Prompt 560 §B — /api/portal/open/<id> logs and redirects in one request,
   // so a view is recorded from here and from the Data room tab identically.
@@ -1215,7 +1216,7 @@ function ContactHistoryRail({ orgId }: { orgId: string }) {
     <div className="rounded-lg border border-gray-200 bg-white p-3">
       <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400">Contact history</h2>
       {entries == null ? (
-        <p className="mt-2 text-xs text-gray-400">Loading…</p>
+        <LoadingState text="Loading…" compact />
       ) : entries.length === 0 ? (
         <p className="mt-2 text-xs text-gray-400">No history yet.</p>
       ) : (

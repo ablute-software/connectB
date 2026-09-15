@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { browserClient, authEnabled } from '@/lib/supabase';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 interface Info { status: string; targetEmail: string; requesterEntityName: string; expired: boolean }
 
@@ -35,7 +36,7 @@ export default function VouchConfirmPage() {
     } finally { setBusy(false); }
   }
 
-  if (!info || sessionEmail === undefined) return <div className="mx-auto max-w-sm p-8 text-sm text-gray-400">Loading…</div>;
+  if (!info || sessionEmail === undefined) return <LoadingState text="Loading…" />;
 
   return (
     <div className="mx-auto mt-16 max-w-sm rounded-2xl border border-gray-100 bg-white p-6 shadow-lg">

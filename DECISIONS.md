@@ -7900,3 +7900,115 @@ was not executed.
 
 Pushed to `claude/prompt-690-pricing-private-detective`, not merged —
 awaiting Nuno's explicit go-ahead per this session's standing rule.
+
+## 15/09/2026 — Prompt 693: the loading lens is the area-level loading state across the whole app (founder and investor); shared component `LoadingState`
+
+The lens (`sd-lens-sweep`/`sd-lens-glass`/`sd-lens-magnified`/`sd-lens-probe`/
+`sd-lens-animate`, Prompt 675 §1's fixed 10px pre-scale radius) had only one
+real importer — `app/pipeline/page.tsx` — confirmed by grep before touching
+anything, matching Nuno's own production finding. It was already sitting in
+`src/components/workspace-shell/LoadingState.tsx`, a directory the investor
+side already imports from (`InvestorWorkspaceShell.tsx`, `LockedWave.tsx`),
+so no file move was needed — the gap was purely that nothing on the investor
+side had started importing it. Renamed its `label` prop to `text` and added
+`compact` (shrinks the outer `py-16` wrapper to `py-3`; the sweep/glass/
+magnifier geometry itself, including the fixed radius, is untouched either
+way) per this prompt's spec, and updated the founder Pipeline page's own two
+call sites to the new prop name — same phrase, same visual result, confirmed
+live under `dev:verify` (full render, all chunks 200, no console errors tied
+to the component).
+
+**Wired into 19 call sites across 9 files** — every full-area investor-portal
+wait this prompt named by example, plus a few genuinely equivalent ones found
+along the way:
+- `PipelinePanel.tsx` — the outer `useSearchParams` Suspense, and the real
+  target: `if (!data) return …` while `/api/portal/pipeline` is in flight
+  (the actual 10–30s wait), both now "Loading your pipeline…" — the SAME
+  phrase the founder side uses, per the prompt's own instruction. The sliding
+  dossier panel's Suspense fallback → "Loading dossier…" (compact).
+- `StartupDossierContent.tsx` (shared between the sliding panel and the
+  standalone `/portal/startup/[orgId]` route via its own `variant` prop) —
+  both its own "Loading dossier…" states pass `compact={variant === 'panel'}`
+  so the same code reads right in both places without a second component.
+  Its Messages tab, Documents tab, and the Contact-history rail all keep
+  their existing bare "Loading…" phrase, now via `compact`.
+- `EvaluationToolsPanel.tsx` — the cap-table chart's own loading placeholder
+  (compact, same "Loading…") and the Berkus Method tool's main body
+  ("Loading your estimate…", compact — one of the two exact phrases this
+  prompt named).
+- `ScenariosReturnsTool.tsx` — the inline "Loading your Berkus estimate…"
+  hint inside the Base-scenario box (the OTHER named phrase), compact.
+- `app/portal/startup/[orgId]/page.tsx` (Suspense wrapper), `.../memo/page.tsx`
+  (2 states, "Loading memo…" — a full page, same shape as the dossier route),
+  `access-log/page.tsx`, `vouch/[token]/page.tsx` — every other full-page
+  `/portal/*` route with a bare "Loading…", per item 2's own catch-all.
+- `app/portal/page.tsx` — 3 states (the outer Suspense, the pre-access
+  session check, the `/api/portal/access` load) kept the generic "Loading…"
+  rather than "Loading your pipeline…": these fire BEFORE `hasAccess` is
+  known, and this same page also serves a legacy, pre-Pipeline flat
+  document-list view (demo mode only — `authEnabled &&` gates the
+  `InvestorWorkspaceShell`/Pipeline branch entirely, so demo mode never
+  reaches it, which is exactly why "the portal doesn't mount in demo mode"
+  per Prompt 686's own report) for an investor with document-level grants
+  but no Pipeline card. Calling it "your pipeline" at that point would be
+  wrong for that investor; using the neutral phrase there was a deliberate,
+  narrow exception to "reuse the founder's exact phrase," not an oversight.
+
+**Left alone, listed here rather than silently swept in**: 15 more bare
+"Loading…" states across other investor-workspace tabs this prompt didn't
+name — `InteractionLogTimeline.tsx`, `InvestorDecisionPanel.tsx`,
+`InvestorProfilePanel.tsx` (×2), `InvestorPlansPanel.tsx`,
+`InvestorDashboardPanel.tsx`, `InvestorAgendaPanel.tsx`, `MessagesPanel.tsx`
+(the top-level Messages tab, distinct from the dossier's per-startup one),
+`ArchivePanel.tsx`, `ScorecardWeightsEditor.tsx`, `WatchingPanel.tsx`,
+`AccessGrantedPanel.tsx`, `WatsonInsightsModal.tsx`, and three files under
+`investor-workspace/about-tabs/` (`ImportTab.tsx`, `AutomationsTab.tsx`,
+`AppAccessTab.tsx`). None of these were named by this prompt's own list, and
+converting all of them would have grown this branch well past "pequena" —
+flagging them the same way item 3 asked for the founder-side shared-chunk
+ones, so Nuno can decide whether they're worth a follow-up prompt.
+
+**Verification, and where the prompt's own suggested grep couldn't show
+what it was meant to show**: a real local build's `/portal` page chunk list
+(`.next/app-build-manifest.json`) is `page-*.js` plus five shared chunks,
+including `8332-*`, `8752-*`, `8132-*` and `6954-*` — the SAME four chunk
+names Nuno's own production grep named, confirming these are stable,
+meaningful chunk groups rather than coincidental numbers. `sd-lens` now
+appears 18 times across that chunk set (0 before this prompt) — the lens
+mechanism genuinely reaches investor code now, landing in `8332-*`
+specifically. `grep -c "Loading…"` over the SAME compiled chunks, however,
+only drops from the reported 32 to 28 — not to "however many line-states are
+left on purpose," which is what the prompt's own verification step expected.
+Root cause: minified JS still contains the literal string "Loading…" as a
+prop VALUE for every call site that deliberately kept that exact phrase
+(most of the `compact` ones above, by design — Nuno's own §2 said "a mesma
+frase que já têm") — wrapping it in `<LoadingState text="Loading…" />`
+doesn't remove the string from the bundle, it just changes which component
+renders it, so a bundle-level text grep cannot distinguish "now shows the
+lens" from "still bare text" when the phrase didn't change. Stating this
+plainly rather than reporting the grep number as if it proved the fix: the
+honest verification for "is this call site really using the component now"
+is structural (the JSX source says `<LoadingState`, not `<p>`), which is
+what `LoadingState.test.ts` actually checks — 17 assertions, following this
+repo's own established no-jsdom/no-@testing-library pattern
+(FrostedGate.test.ts's own header explains why), reading the real source of
+every touched file rather than mounting anything, and asserting each of the
+19 call sites imports and renders `<LoadingState`. Full suite: `tsc`,
+`build`, `eslint` (worktree-safe invocation) all EXIT=0 (0 errors, same 265
+pre-existing warnings); `vitest run` 3885/3886 — the one failure
+(`market-facts-view.test.ts`, thousands-separator locale formatting) is the
+same pre-existing, unrelated flake seen on every run this session.
+Browser-verified the founder Pipeline page live under `dev:verify`: full
+render with real demo data, all of its own chunks 200, no console errors —
+confirms the `label`→`text` rename didn't break anything, though demo data
+loads too fast to actually catch the sweep mid-animation on screen (not
+attempted; the component's own behavior is unchanged code, only relocated
+callers). The investor portal itself could not be browser-verified at all —
+it doesn't mount in demo mode (Prompt 686's own finding, restated as fact in
+this prompt's own header) — no temporary route was built to work around
+that, per this prompt's explicit instruction; Nuno will catch the live lens
+screen himself post-deploy, since `/api/portal/pipeline`'s own latency makes
+that easy.
+
+Pushed to `claude/prompt-693-loading-lens-portal`, not merged — awaiting
+Nuno's explicit go-ahead.

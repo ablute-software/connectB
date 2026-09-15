@@ -40,6 +40,7 @@ import {
 import { EVALUATION_TOOLS_INTRO_CONTENT, shouldShowEvaluationToolsIntro, type EvaluationToolsIntroEntry } from '@/lib/evaluation-tools-intro';
 import { applyCapTableDilution, toCapTableSlices } from '@/lib/cap-table';
 import { CapTableChart } from '@/components/CapTableChart';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 import {
   berkusFactorEur, berkusTotalEur, isInvestorCalibrated, berkusApplicability, berkusDiagnostic, berkusSensitivity,
   BERKUS_DEFAULT_CALIBRATION_REF_EUR, type BerkusFactorLevel, type BerkusMode,
@@ -384,7 +385,7 @@ function OwnershipCalculatorTool({ cards, selectedOrgId, ticket, setTicket, basi
                 )}
               </div>
               {capTableRows === null ? (
-                <p className="text-xs text-gray-400">Loading…</p>
+                <LoadingState text="Loading…" compact />
               ) : capTableRows.length === 0 ? (
                 <div>
                   <p className="text-xs text-gray-400">No cap table on file yet.</p>
@@ -915,7 +916,7 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
       {!selectedOrgId ? (
         <p className="text-sm text-gray-400">Pick a startup from the list on the left to start estimating.</p>
       ) : loading ? (
-        <p className="text-sm text-gray-400">Loading your estimate…</p>
+        <LoadingState text="Loading your estimate…" compact />
       ) : (
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           {error && <p className="mb-2 rounded-lg bg-red-50 px-2.5 py-1.5 text-xs text-[#B00000]">{error}</p>}

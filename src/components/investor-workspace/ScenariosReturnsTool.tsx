@@ -21,6 +21,7 @@
 import { useEffect, useState } from 'react';
 import { computeDilution, type FutureRoundInput, type ValuationBasis } from '@/lib/dilution';
 import { computeRequiredExit, computeScenarioReturns, type ScenarioInput, type ScenarioOwnership } from '@/lib/scenario-returns';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 interface PipelineCard {
   orgId: string; name: string; roundTargetEur: number | null; roundValuationEur: number | null;
@@ -338,7 +339,7 @@ export function ScenariosReturnsTool({ cards, selectedOrgId, ticket, setTicket, 
 
       {!hypothetical && (
         <div className="rounded-xl border border-gray-200 bg-white p-3 text-xs text-gray-600">
-          {berkusLoading ? 'Loading your Berkus estimate…' : berkusTotal == null ? (
+          {berkusLoading ? <LoadingState text="Loading your Berkus estimate…" compact /> : berkusTotal == null ? (
             <span>No Berkus estimate for {selected!.name} yet — use the Berkus Method tool first to unlock this shortcut.</span>
           ) : (
             <div className="flex flex-wrap items-center gap-2">

@@ -554,7 +554,7 @@ function sortValue(db: Db, key: SortKey, e: Entity): unknown {
 // this split (Inner + Suspense wrapper); reused verbatim here.
 export default function PipelinePage() {
   return (
-    <Suspense fallback={<LoadingState label="Loading your pipeline…" />}>
+    <Suspense fallback={<LoadingState text="Loading your pipeline…" />}>
       <PipelinePageInner />
     </Suspense>
   );
@@ -1132,7 +1132,7 @@ function PipelinePageInner() {
   // BEFORE noEntities, never instead of it: an org that's actually empty
   // once loading finishes still gets the real empty state below.
   if (loading) {
-    return <LoadingState label="Loading your pipeline…" />;
+    return <LoadingState text="Loading your pipeline…" />;
   }
 
   if (noEntities) {
