@@ -10,13 +10,9 @@
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { logAdminAction } from '@/lib/audit';
-import { notifyClaimDecision, sendClaimApprovalTripwire } from '@/lib/investor-entity-claim-notify';
+import { notifyClaimDecision, sendClaimApprovalTripwire, splitEmails } from '@/lib/investor-entity-claim-notify';
 import { checkSeatAvailable } from '@/lib/investor-seats';
-
-function splitEmails(raw: string | null | undefined): string[] {
-  if (!raw) return [];
-  return raw.split(/[,;\s]+/).map((e) => e.trim().toLowerCase()).filter((e) => e.includes('@'));
-}
+import { applyClaimApproval } from '@/lib/investor-entity-claims';
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const { id } = params;
@@ -60,22 +56,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }
 
   const resolvedMethod = method ?? (claim.domain_match ? 'domain' : 'manual');
-  const { error: memberErr } = await admin.from('matchdeal_investor_members').upsert({
-    user_id: claim.claimant_user_id, catalog_entity_id: claim.catalog_entity_id,
-    status: 'active', domain_verified: true, role: claim.requested_role, verification_method: resolvedMethod,
-  }, { onConflict: 'user_id,catalog_entity_id' });
-  if (memberErr) return NextResponse.json({ ok: false, error: memberErr.message }, { status: 500 });
-
-  // §3.3 — "aprovado um claim, a entidade fica gerida".
-  const { error: entityUpdateErr } = await admin.from('catalog_entities').update({
-    verification_status: 'verified', verified_at: new Date().toISOString(), verified_by: userId,
-  }).eq('id', claim.catalog_entity_id);
-  if (entityUpdateErr) return NextResponse.json({ ok: false, error: entityUpdateErr.message }, { status: 500 });
-
-  const { error: claimUpdateErr } = await admin.from('investor_entity_claims').update({
-    status: 'approved', resolved_by: userId, resolved_at: new Date().toISOString(), verification_method: resolvedMethod,
-  }).eq('id', id);
-  if (claimUpdateErr) return NextResponse.json({ ok: false, error: claimUpdateErr.message }, { status: 500 });
+  const applied = await applyClaimApproval(admin, {
+    claimId: id, catalogEntityId: claim.catalog_entity_id as string, claimantUserId: claim.claimant_user_id as string,
+    requestedRole: claim.requested_role as string | null, resolvedBy: userId, verificationMethod: resolvedMethod,
+  });
+  if (!applied.ok) return NextResponse.json({ ok: false, error: applied.error }, { status: 500 });
 
   await logAdminAction(admin, {
     adminUserId: userId, action: 'investor_entity_claim_approved', subjectType: 'investor_entity_claim',

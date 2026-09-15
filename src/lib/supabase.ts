@@ -29,4 +29,9 @@ export function browserClient() {
   return createBrowserClient(SUPABASE_URL!, SUPABASE_ANON!, domain ? { cookieOptions: { domain } } : undefined);
 }
 
-export type Role = 'founder' | 'developer' | 'investor' | 'none';
+// Prompt 587 — 'investor_pending': a claim was submitted but didn't
+// auto-approve (no domain match) and no admin has decided it yet. Distinct
+// from 'none' so landingDestination() can send them somewhere that explains
+// what's happening instead of either the marketing page or the empty
+// founder shell 'none' gets.
+export type Role = 'founder' | 'developer' | 'investor' | 'investor_pending' | 'none';

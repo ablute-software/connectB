@@ -15,6 +15,7 @@
 // item wasn't asked to touch, and reusing normalizeDomain (host
 // extraction only, no eTLD+1 resolution) from catalog-dedupe.ts is as far
 // as this borrows from it.
+import type { SupabaseClient } from '@supabase/supabase-js';
 import psl from 'psl';
 import { normalizeDomain } from './catalog-dedupe';
 
@@ -89,4 +90,53 @@ export function evaluateClaimDomain(opts: {
     claimantDomain, entityDomain, domainMatch, entityDomainIsFreemail,
     roleMailbox: isRoleMailboxEmail(opts.claimantEmail),
   };
+}
+
+// Prompt 587 — the actual state change an approval makes, factored out so
+// the human path (backoffice/investor-entity-claims/[id]/approve) and the
+// new auto-approval path (POST /api/portal/claims, when the domain matches)
+// can never drift into writing two different shapes of "approved". Only the
+// mutation itself: seat-limit checks, audit logging and notifications stay
+// with each caller since they differ (an admin's identity vs "the system",
+// a 409 response vs a silent fall-back to pending).
+//
+// resolvedBy is nullable on purpose — investor_entity_claims.resolved_by and
+// catalog_entities.verified_by both already allow it (neither migration
+// (0145, 0002) ever added a NOT NULL here), which is exactly what makes a
+// system auto-approval (no admin clicked anything) representable without a
+// schema change.
+export async function applyClaimApproval(admin: SupabaseClient, opts: {
+  claimId: string;
+  catalogEntityId: string;
+  claimantUserId: string;
+  requestedRole: string | null;
+  resolvedBy: string | null;
+  verificationMethod: 'domain' | 'document' | 'manual';
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  // matchdeal_investor_members.role is NOT NULL, default 'member' — a claim
+  // with no requested role (the field is optional on /claim) has
+  // requested_role = null, and sending that through explicitly overrides the
+  // column default with NULL, which the constraint then rejects. Confirmed
+  // empirically (Prompt 587 testing, zz-test-claimflow-587): this bug
+  // predates this function — it was already in the human approve route's
+  // inline upsert, just never exercised by a claim with a blank role field
+  // before now. Fixing it here fixes both callers at once.
+  const { error: memberErr } = await admin.from('matchdeal_investor_members').upsert({
+    user_id: opts.claimantUserId, catalog_entity_id: opts.catalogEntityId,
+    status: 'active', domain_verified: true, role: opts.requestedRole ?? 'member', verification_method: opts.verificationMethod,
+  }, { onConflict: 'user_id,catalog_entity_id' });
+  if (memberErr) return { ok: false, error: memberErr.message };
+
+  // §3.3 — "aprovado um claim, a entidade fica gerida".
+  const { error: entityUpdateErr } = await admin.from('catalog_entities').update({
+    verification_status: 'verified', verified_at: new Date().toISOString(), verified_by: opts.resolvedBy,
+  }).eq('id', opts.catalogEntityId);
+  if (entityUpdateErr) return { ok: false, error: entityUpdateErr.message };
+
+  const { error: claimUpdateErr } = await admin.from('investor_entity_claims').update({
+    status: 'approved', resolved_by: opts.resolvedBy, resolved_at: new Date().toISOString(), verification_method: opts.verificationMethod,
+  }).eq('id', opts.claimId);
+  if (claimUpdateErr) return { ok: false, error: claimUpdateErr.message };
+
+  return { ok: true };
 }
