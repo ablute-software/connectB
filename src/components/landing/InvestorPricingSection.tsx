@@ -98,7 +98,7 @@ export function InvestorPricingSection({ signupHref = '/signup?as=investor', cta
               </div>
             );
           })}
-          <PrivateDetectiveCard className={`${s.plan} ${s.rv} ${s.d2}`} dataReveal />
+          <PrivateDetectiveCard className={`${s.plan} ${s.rv} ${s.d2}`} dataReveal variant="investor" source="pricing_private_detective" />
         </div>
 
         <p className={`${s.teaser} ${s.rv}`} data-reveal>

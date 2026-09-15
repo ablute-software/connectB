@@ -12,7 +12,7 @@ export async function GET() {
   const { admin } = auth;
 
   const { data: requests, error } = await admin.from('investor_plan_contact_requests')
-    .select('id, created_at, first_name, last_name, email, investor_type, firm_name, message, firm_website, linkedin, status, internal_notes')
+    .select('id, created_at, first_name, last_name, email, investor_type, firm_name, message, firm_website, linkedin, status, internal_notes, source')
     .order('created_at', { ascending: false });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 

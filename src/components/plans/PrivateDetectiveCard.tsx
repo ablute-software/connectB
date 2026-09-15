@@ -1,9 +1,21 @@
 'use client';
-// PLAN-02/03 — the 4th investor plan card + its "Contact the Sherlock Team"
-// form, shared between the public landing (/investors) and the signed-in
-// investor workspace (/plans) so the two never drift. Modal convention
+// PLAN-02/03 — the 4th plan card + its "Contact the Sherlock Team" form,
+// shared across every audience that shows it (investor pricing on
+// /investors and the signed-in investor workspace's /plans; founder
+// pricing on /) so none of them can drift from each other. Modal convention
 // (backdrop + stopPropagation card) matches UpgradeConfirmModal.tsx /
 // AddInvestorModal.tsx, the existing pattern elsewhere in the app.
+//
+// Prompt 690 — one form for both audiences (investor_plan_contact_requests,
+// migration 0079, has no public insert policy — same shape as every other
+// public lead form here); `source` is the only thing that varies per call
+// site, so backoffice/plan-requests can tell them apart without a second
+// table. The founder-side pitch ("accelerator, studio or fund paying for
+// its portfolio companies") is close enough to the existing investor_type
+// options (Accelerator / incubator, Other) that a second form would just be
+// duplication — the "Investment firm..." field label reads slightly off for
+// an accelerator, but nobody is blocked from writing their program's name
+// into it.
 import { useState } from 'react';
 import { PRIVATE_DETECTIVE_PLAN } from '@/lib/plans';
 
@@ -12,7 +24,7 @@ const INVESTOR_TYPES = [
   'Accelerator / incubator', 'Public body', 'Other',
 ];
 
-function PrivateDetectiveModal({ onClose }: { onClose: () => void }) {
+function PrivateDetectiveModal({ onClose, source }: { onClose: () => void; source?: string }) {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
@@ -37,7 +49,7 @@ function PrivateDetectiveModal({ onClose }: { onClose: () => void }) {
         body: JSON.stringify({
           first_name: firstName, last_name: lastName, email, investor_type: investorType,
           firm_name: firmName, message, firm_website: firmWebsite || undefined,
-          linkedin: linkedin || undefined, website,
+          linkedin: linkedin || undefined, website, source,
         }),
       });
       const body = await res.json();
@@ -110,45 +122,59 @@ function PrivateDetectiveModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function PrivateDetectiveCard({ className, dataReveal }: { className?: string; dataReveal?: boolean }) {
+export function PrivateDetectiveCard({ className, dataReveal, variant = 'investor', source }: {
+  className?: string;
+  dataReveal?: boolean;
+  /** Which audience's copy to show — content only, same form/table either way. */
+  variant?: 'investor' | 'founder';
+  /** Recorded verbatim on the contact request row, so backoffice can tell where a lead came from. */
+  source?: string;
+}) {
   const [open, setOpen] = useState(false);
+  const plan = PRIVATE_DETECTIVE_PLAN[variant];
   return (
     <>
-      {/* dataReveal: the public /investors pricing grid drives its .rv
-          fade-in (opacity:0 until revealed) off a [data-reveal] attribute
-          that LandingEffects.tsx's IntersectionObserver queries once on
-          mount (see that file) — without this attribute here, this card
-          never gets observed, never gets data-in="true", and stays at
+      {/* dataReveal: the public /investors and / pricing grids drive their
+          .rv fade-in (opacity:0 until revealed) off a [data-reveal]
+          attribute that LandingEffects.tsx's IntersectionObserver queries
+          once on mount (see that file) — without this attribute here, this
+          card never gets observed, never gets data-in="true", and stays at
           opacity:0 forever while still holding its grid cell (a real
           production bug: the 4th plan card existed in the HTML but was
           permanently invisible). The signed-in workspace usage
           (InvestorPlanGrid.tsx) doesn't run LandingEffects at all, so it
           omits this and is unaffected. */}
       <div className={className} data-reveal={dataReveal || undefined}>
-        <h3>{PRIVATE_DETECTIVE_PLAN.name}</h3>
-        {/* Prompt 588 — tagline + bullets, same content shape as the three
-            priced cards (INVESTOR_PLANS), so this reads as a plan rather
-            than an afterthought now that it's actually visible (Prompt 587).
-            Styled with plain inline values instead of the landing page's
-            CSS-module classes (s.who / s.plan li) — this component is also
-            used from the signed-in workspace's plain-Tailwind
-            InvestorPlanGrid.tsx, which has neither those classes nor the
-            --muted custom property they resolve against. */}
-        <p style={{ fontSize: '.85rem', color: '#5b7077', margin: '4px 0 16px' }}>{PRIVATE_DETECTIVE_PLAN.tagline}</p>
-        <p style={{ marginBottom: 16 }}>{PRIVATE_DETECTIVE_PLAN.description}</p>
-        <ul style={{ listStyle: 'none', margin: '0 0 20px', padding: 0, flex: 1 }}>
-          {PRIVATE_DETECTIVE_PLAN.bullets.map((b) => (
+        <h3>{plan.name}</h3>
+        {/* Styled with plain inline values instead of the landing page's
+            CSS-module classes (s.price / s.who / s.plan li) — this
+            component is also used from the signed-in workspace's
+            plain-Tailwind InvestorPlanGrid.tsx, which has neither those
+            classes nor the --muted/--ink custom properties they resolve
+            against. Values below are the same hex/sizes landing.module.css
+            uses for .who/.price/.perYear, copied in rather than shared, so
+            this card matches its siblings without depending on a stylesheet
+            that isn't loaded in the workspace context. */}
+        <p style={{ fontSize: '.85rem', color: '#5b7077', margin: '4px 0 20px' }}>{plan.tagline}</p>
+        <div style={{ fontSize: '2.5rem', fontWeight: 600, color: '#0c272e' }}>Custom</div>
+        <p style={{ fontSize: '.8rem', color: '#5b7077', marginBottom: 20, minHeight: '1.2em' }}>{plan.priceCaption}</p>
+        <p style={{ fontSize: '.85rem', color: '#5b7077', fontWeight: 600, marginBottom: 6 }}>{plan.openingLine}</p>
+        <ul style={{ listStyle: 'none', margin: '6px 0 20px', padding: 0, flex: 1 }}>
+          {plan.bullets.map((b) => (
             <li key={b} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '.9rem', marginBottom: 10, color: '#22343a' }}>
               <span aria-hidden="true" style={{ color: '#2a7f8e', fontWeight: 700 }}>✓</span>{b}
             </li>
           ))}
         </ul>
+        {/* Deliberately a ghost/outline button, never the filled gold/teal
+            styles the priced cards' CTAs use — Prompt 690 §1: this plan
+            isn't the one to push visually, it's the "talk to us" option. */}
         <button type="button" onClick={() => setOpen(true)}
-          className="mt-4 w-full rounded-lg bg-[#0E7490] px-3 py-2 text-sm font-semibold text-white hover:bg-[#0c637b]">
-          {PRIVATE_DETECTIVE_PLAN.ctaLabel}
+          className="mt-4 w-full rounded-lg border border-[#dde8ea] bg-transparent px-3 py-2 text-sm font-semibold text-[#0c272e] hover:bg-[#f7fafa]">
+          {plan.ctaLabel}
         </button>
       </div>
-      {open && <PrivateDetectiveModal onClose={() => setOpen(false)} />}
+      {open && <PrivateDetectiveModal onClose={() => setOpen(false)} source={source} />}
     </>
   );
 }

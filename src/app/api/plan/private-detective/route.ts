@@ -12,6 +12,14 @@ import { BRAND_NAME } from '@/lib/brand';
 
 const RATE_LIMIT_PER_HOUR = 5;
 
+// Prompt 690 — lets backoffice/plan-requests tell a /pricing lead apart from
+// the pre-existing /investors and /plans call sites without a new table or
+// column. Allowlisted (rather than passed through raw) because this is an
+// unauthenticated public endpoint and `source` ends up on a backoffice
+// screen; the DB's own default ('landing_investors') covers every existing
+// caller that doesn't send one.
+const ALLOWED_SOURCES = ['landing_investors', 'pricing_private_detective', 'pricing_private_detective_founder'];
+
 function genericOk() {
   return NextResponse.json({
     ok: true,
@@ -33,7 +41,7 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const {
     first_name, last_name, email, investor_type, firm_name, message,
-    firm_website, linkedin, website,
+    firm_website, linkedin, website, source,
   } = body as Record<string, string | undefined>;
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
@@ -57,10 +65,12 @@ export async function POST(req: Request) {
   if (message.length > 5000) return NextResponse.json({ ok: false, error: 'Message must be 5000 characters or fewer.' }, { status: 400 });
 
   const finalEmail = email.trim().toLowerCase();
+  const finalSource = source && ALLOWED_SOURCES.includes(source) ? source : undefined;
   const { error } = await admin.from('investor_plan_contact_requests').insert({
     first_name: first_name.trim(), last_name: last_name.trim(), email: finalEmail,
     investor_type: investor_type.trim(), firm_name: firm_name.trim(), message: message.trim(),
     firm_website: firm_website?.trim() || null, linkedin: linkedin?.trim() || null,
+    ...(finalSource ? { source: finalSource } : {}),
   });
   if (error) { console.error('[plan/private-detective] insert failed', error.message); return genericOk(); }
 
