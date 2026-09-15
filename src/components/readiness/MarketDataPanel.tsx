@@ -38,7 +38,6 @@ import { FrostedGate } from '@/components/workspace-shell/FrostedGate';
 import { ReconciliationBusyNotice } from './ReconciliationBusyNotice';
 import Link from 'next/link';
 import { Card } from '@/components/ui';
-import { browserClient } from '@/lib/supabase';
 import { marketDataEmptyState } from '@/lib/market-data-gate';
 import { MarketSizeCard } from './market/MarketSizeCard';
 import { MarketRingsCard } from './market/MarketRingsCard';
@@ -214,15 +213,15 @@ export function MarketDataPanel() {
   async function openPicker() {
     setPickerOpen(true); setExtractError(''); setExtractSummary(null); setFeedingProgress(null);
     if (!vaultDocs) {
-      const sb = browserClient();
-      const [{ data: docRows }, { data: folderRows }] = await Promise.all([
-        sb.from('documents').select('id, name, folder_id'),
-        sb.from('folders').select('id, name'),
-      ]);
-      const folderNameById = new Map(((folderRows ?? []) as { id: string; name: string }[]).map((f) => [f.id, f.name]));
-      const list = ((docRows ?? []) as { id: string; name: string; folder_id: string | null }[]).map((d) => ({
-        id: d.id, name: d.name, folderName: d.folder_id ? folderNameById.get(d.folder_id) ?? '' : '',
-      }));
+      // Prompt 692 — this used to query documents/folders directly from the
+      // browser with no org_id filter, trusting RLS alone. That leaks every
+      // org's Vault to a platform_admin (documents_ablute_qa_read grants
+      // them unrestricted read, independent of org). The server route
+      // resolves the caller's own org_id from org_members and filters
+      // explicitly — the only client-visible list this screen may ever show.
+      const res = await fetch('/api/market-data/vault-documents');
+      const body = await res.json().catch(() => ({}));
+      const list = (body.documents ?? []) as VaultDoc[];
       setVaultDocs(list);
       setSelectedDocIds(list.filter((d) => DOC_PRESELECT_HEURISTIC.test(d.name) || DOC_PRESELECT_HEURISTIC.test(d.folderName))
         .slice(0, MAX_DOCUMENT_PASS).map((d) => d.id));
