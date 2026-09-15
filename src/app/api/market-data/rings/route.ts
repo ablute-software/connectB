@@ -34,12 +34,61 @@ async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: 
 // year} in `structured` (market-document-extract.ts) — reading the parsed
 // value is both correct and immune to title-format drift. The regex path
 // is kept ONLY for web-sourced items, which have no structured field.
+// Prompt 691 §D2 — the real bug behind "No market size figure found" on a
+// document that produced three real SAM figures: this function never read
+// market_facts at all. Prompt 467 v3 §4 moved growth/sizing extraction OFF
+// market_research_items.section='sizing' and onto market_facts exclusively
+// the moment the typed pipeline is on — but nothing here was ever updated
+// to follow, so EVERY org on the typed pipeline lost ring proposals from
+// document-extracted sizing figures entirely, regardless of validation_status
+// (not just the incomplete ones the founder actually hit). A market_facts row
+// missing only asOfYear still carries a real value/scope/document citation —
+// proposeMarketRings already tolerates sizeYear: null and lets the founder
+// fill it in via the same Accept/Edit flow every ring already goes through,
+// so feeding it in here (rather than discarding it) is the fix, not a new
+// review surface.
+async function readTypedSizingFacts(admin: SupabaseClient, orgId: string): Promise<SizingFact[]> {
+  // document_id/page live on market_evidence, not on market_fact_observations
+  // itself — that table is only the link (market_fact_id, evidence_id) plus
+  // extraction_run_id/raw_candidate/legacy_item_id (confirmed against the
+  // live schema before writing this query, not assumed from writeMarketFact's
+  // own insert shape, which flattens both for the RPC call and does not
+  // describe either table's real columns).
+  const { data: rows } = await admin.from('market_facts')
+    .select('id, payload, market_fact_observations(market_evidence(document_id, page, documents(name)))')
+    .eq('org_id', orgId).eq('fact_type', 'market_size');
+  const facts: SizingFact[] = [];
+  for (const raw of (rows ?? []) as Record<string, unknown>[]) {
+    const payload = raw.payload as {
+      value?: number; currency?: string; metric?: string; geography?: string | null;
+      asOfYear?: number | null; methodology?: string;
+    };
+    // Prompt 467 v3 §5 — only ever a fingerprint tag on an otherwise-honest
+    // row, never a gate: matchRing keys off this text alone, so metric (and
+    // geography, when present) has to be IN it for a document-extracted
+    // SAM/TAM/SOM to ever reach a ring — the free-text "scope" a founder
+    // typing by hand already carries naturally.
+    if (payload.value == null || payload.currency !== 'EUR' || !payload.metric) continue;
+    const observations = (raw.market_fact_observations ?? []) as { market_evidence: { document_id: string | null; page: number | null; documents: { name: string } | null } | null }[];
+    const withDoc = observations.map((o) => o.market_evidence).find((e): e is NonNullable<typeof e> => !!e?.document_id);
+    facts.push({
+      scopeLabel: [payload.metric, payload.geography].filter(Boolean).join(' '),
+      valueEur: payload.value, year: payload.asOfYear ?? null,
+      sourceUrl: withDoc ? vaultCitation(withDoc.document_id as string, withDoc.page) : null,
+      sourceDocumentName: withDoc?.documents?.name ?? null,
+      method: payload.methodology === 'bottom_up' ? 'bottom_up' : 'report',
+    });
+  }
+  return facts;
+}
+
 async function readSizingFacts(admin: SupabaseClient, orgId: string): Promise<SizingFact[]> {
-  const [{ data: addedByYou }, { data: sizingItems }] = await Promise.all([
+  const [{ data: addedByYou }, { data: sizingItems }, typedFacts] = await Promise.all([
     admin.from('org_market_data').select('market_size_value_eur, market_size_scope, market_size_year, market_size_source').eq('org_id', orgId).maybeSingle(),
     admin.from('market_research_items')
       .select('title, detail, source_url, source_kind, document_id, page, structured, documents(name)')
       .eq('org_id', orgId).eq('section', 'sizing'),
+    readTypedSizingFacts(admin, orgId),
   ]);
   const facts: SizingFact[] = [];
   const added = addedByYou as { market_size_value_eur: number | null; market_size_scope: string | null; market_size_year: number | null; market_size_source: string | null } | null;
@@ -83,6 +132,8 @@ async function readSizingFacts(admin: SupabaseClient, orgId: string): Promise<Si
     else if (unit === 'k') value *= 1_000;
     facts.push({ scopeLabel: raw.title as string, valueEur: value, year: null, sourceUrl, method: 'report' });
   }
+
+  facts.push(...typedFacts);
   return facts;
 }
 
