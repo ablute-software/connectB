@@ -15,6 +15,7 @@ import {
   MAX_EXTRACTION_PAGES, MAX_DOWNLOAD_BYTES, EXTRACTION_TOOL_SCHEMA, SUMMARY_TOOL_SCHEMA, rawExtractionToData, rawExtractionToSummary,
   type DocumentExtractionData,
 } from './document-extraction';
+import { maxOutputTokensForBudget, MIN_USEFUL_MODEL_BUDGET_MS } from './document-extract-budget';
 import { linkExtractionToClaims } from './document-extraction-linking';
 import { ensureLinkSnapshot } from './document-link-snapshot';
 
@@ -40,9 +41,32 @@ export interface ExtractionOutcome {
 
 const ROUTE = '/api/data-room/extract-document';
 
+// Prompt 691 §D6 — mirrors document-extract/route.ts's own Prompt 484/485
+// budget constants exactly (same maxDuration=60 ceiling now that
+// extract-document/route.ts has been raised to match — see that route's own
+// header). POST_MODEL_RESERVE_MS covers the same kind of work that route
+// reserves for: logAiCall (awaited on purpose, an acceptance criterion) plus
+// the document_extractions/document_summaries upserts and linkExtractionToClaims.
+const MAX_DURATION_MS = 60_000;
+const POST_MODEL_RESERVE_MS = 12_000;
+// The safety-net floor for the rare case a caller's own spentMs already ate
+// most of the 60s (a slow download, a cold start) — the exact value this
+// route asked for unconditionally before this prompt, never a regression
+// below what already worked.
+const MIN_OUTPUT_TOKENS_FLOOR = 1_500;
+
 async function callExtractionModel(
-  apiKey: string, model: string, documentName: string, truncatedBytes: Buffer, pagesRead: number, totalPages: number,
-): Promise<{ raw: unknown; usage: AnthropicUsage | undefined }> {
+  apiKey: string, model: string, documentName: string, truncatedBytes: Buffer, pagesRead: number, totalPages: number, maxTokens: number,
+  // Prompt 691 §D6 — a fetch with no deadline of its own can only lose to
+  // the PLATFORM's kill at maxDuration, which is silent (no JSON, no
+  // logAiCall) — exactly what Prompt 484 diagnosed for document-extract/
+  // route.ts (Nuno hit it twice, 31/08, zero ai_call_log rows either time).
+  // extract-document/route.ts's own maxDuration is now 60s too (raised in
+  // this same prompt), so it carries the identical exposure unless the
+  // fetch itself times out FIRST, comfortably inside that ceiling, letting
+  // extractDocument's own try/catch answer with real JSON instead.
+  modelBudgetMs: number,
+): Promise<{ raw: unknown; usage: AnthropicUsage | undefined; stopReason: string | undefined }> {
   const system = 'You extract short, verifiable facts from a company document for a startup founder\'s own records. '
     + 'Only report facts literally present in the document — never infer, guess, or use anything you might already know '
     + 'about the parties involved from your own training. Every item needs the page number where you found it if you can '
@@ -71,8 +95,9 @@ async function callExtractionModel(
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    signal: AbortSignal.timeout(modelBudgetMs),
     body: JSON.stringify({
-      model, max_tokens: 1500, system,
+      model, max_tokens: maxTokens, system,
       messages: [{
         role: 'user',
         content: [
@@ -88,7 +113,7 @@ async function callExtractionModel(
   const data = await res.json();
   const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
   if (!toolUse) throw new Error('No extraction produced.');
-  return { raw: toolUse.input, usage: data.usage as AnthropicUsage | undefined };
+  return { raw: toolUse.input, usage: data.usage as AnthropicUsage | undefined, stopReason: data.stop_reason as string | undefined };
 }
 
 // Prompt 355 §C — the LIGHTER summary-only call, used when a document
@@ -142,6 +167,15 @@ async function callSummaryModel(
 // never a second, parallel "is this file safe to read" check.
 export interface PreparedDocument { docRow: { id: string; name: string; storage_path: string }; bytes: Buffer; sha256: string }
 
+// Prompt 691 — pulled out so the regression (a renamed display name must
+// never make an otherwise-readable PDF unreadable) is directly testable.
+// storage_path is set once at upload from the real file and never touched
+// by a Vault rename; name is the founder's own editable label and is only
+// a fallback for the case storage_path itself doesn't end in .pdf.
+export function isPdfDocument(name: string | null, storagePath: string): boolean {
+  return /\.pdf$/i.test(storagePath) || /\.pdf$/i.test(name ?? '');
+}
+
 export async function prepareDocumentForAi(
   admin: SupabaseClient, orgId: string, documentId: string,
 ): Promise<{ ok: true; prepared: PreparedDocument } | { ok: false; skippedReason: ExtractionSkipReason }> {
@@ -177,7 +211,18 @@ export async function prepareDocumentForAi(
   // read is done by this app itself, not a third party, so local
   // validation IS the real check for a document that was never shared.
   if (docRow.malware_scan_status !== 'clean' && docRow.malware_scan_status !== 'local_only') return { ok: false, skippedReason: 'not_clean' };
-  if (!/\.pdf$/i.test(docRow.name ?? docRow.storage_path)) return { ok: false, skippedReason: 'not_pdf' };
+  // Prompt 691 — this used to test docRow.name FIRST, falling back to
+  // storage_path only when name was null/falsy. name is the founder's own
+  // editable Vault display label (documents/page.tsx's rename), not a file
+  // type — renaming "SherlockDeal_Market_Comparison_Sep2026.pdf" to "Market
+  // Comparison" (completely normal Vault cleanup) made this regex fail on
+  // the very next read, even though storage_path (server-set at upload,
+  // never touched by a rename) still correctly ends in .pdf. Confirmed in
+  // production: the same document read fine via the automatic upload-time
+  // extraction, then came back "None of the selected documents could be
+  // read" for every route sharing this function after the founder renamed
+  // it.
+  if (!isPdfDocument(docRow.name, docRow.storage_path)) return { ok: false, skippedReason: 'not_pdf' };
 
   const { data: blob, error: dlError } = await admin.storage.from('data-room').download(docRow.storage_path);
   if (dlError || !blob) return { ok: false, skippedReason: 'download_failed' };
@@ -190,6 +235,15 @@ export async function prepareDocumentForAi(
 
 export async function extractDocument(
   admin: SupabaseClient, apiKey: string, orgId: string, documentId: string,
+  // Prompt 691 §D6 — when the caller is a route with its own maxDuration
+  // clock, pass Date.now() from the route's very first line (same "measured
+  // from the true function start" discipline document-extract/route.ts's
+  // own MAX_DURATION_MS budgeting already uses) so the max_tokens ask below
+  // can actually use the time that's left. Callers with no route-level
+  // deadline of their own (ensureDocumentSummary below) simply omit it —
+  // Date.now() here reads as "no time spent yet", the most generous budget,
+  // which only ever raises what the old flat 1500 asked for, never lowers it.
+  startedAt: number = Date.now(),
 ): Promise<ExtractionOutcome> {
   const prep = await prepareDocumentForAi(admin, orgId, documentId);
   if (!prep.ok) return { ok: false, skippedReason: prep.skippedReason };
@@ -238,10 +292,28 @@ export async function extractDocument(
     return { ok: false, skippedReason: 'pdf_parse_failed' };
   }
 
-  let raw: unknown; let usage: AnthropicUsage | undefined;
+  // Prompt 691 §D6 — this used to be a flat max_tokens: 1500, and it was
+  // hitting that ceiling EXACTLY on real, dense documents (measured: a
+  // 19-company/4-person market-comparison PDF, tokens_out=1500 on the nose
+  // — silently truncated mid-JSON, same failure shape document-extract/
+  // route.ts's own Prompt 484/485 already diagnosed and fixed for ITS
+  // route). Sized against what's actually left of THIS call's deadline,
+  // same shared budget module, same reasoning — never a second, independently
+  // guessed ceiling.
+  const spentMs = Date.now() - startedAt;
+  const modelBudgetMs = MAX_DURATION_MS - POST_MODEL_RESERVE_MS - spentMs;
+  const maxTokens = modelBudgetMs < MIN_USEFUL_MODEL_BUDGET_MS ? MIN_OUTPUT_TOKENS_FLOOR : maxOutputTokensForBudget(modelBudgetMs);
+
+  // The abort deadline must reflect what's REALLY left — widening it back up
+  // toward MIN_USEFUL_MODEL_BUDGET_MS when modelBudgetMs is genuinely tight
+  // would defeat the entire point (aborting before the platform's own kill,
+  // not after). A 1s floor only guards AbortSignal.timeout against 0/negative
+  // input; it is not a promise the call can finish.
+  const abortTimeoutMs = Math.max(modelBudgetMs, 1_000);
+  let raw: unknown; let usage: AnthropicUsage | undefined; let stopReason: string | undefined;
   try {
-    const result = await callExtractionModel(apiKey, model, docRow.name, truncatedBytes, pagesRead, totalPages);
-    raw = result.raw; usage = result.usage;
+    const result = await callExtractionModel(apiKey, model, docRow.name, truncatedBytes, pagesRead, totalPages, maxTokens, abortTimeoutMs);
+    raw = result.raw; usage = result.usage; stopReason = result.stopReason;
   } catch (e) {
     await admin.from('document_extractions').upsert({
       org_id: orgId, document_id: documentId, sha256, model,
@@ -249,6 +321,11 @@ export async function extractDocument(
       updated_at: new Date().toISOString(),
     }, { onConflict: 'document_id,sha256' });
     return { ok: false, skippedReason: 'claude_failed' };
+  }
+  if (stopReason === 'max_tokens') {
+    console.warn('[extract-document] response hit max_tokens — the extraction may be incomplete', {
+      documentId, maxTokens, spentMs, tokensOut: usage?.output_tokens ?? null,
+    });
   }
   // Prompt 469 §B — awaited: ai_call_log is used as an ACCEPTANCE
   // CRITERION (a missing entry has, more than once, been read as proof a

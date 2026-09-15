@@ -28,22 +28,24 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { documentExtractionsAvailable } from '@/lib/document-extraction-capability';
 import { extractDocument } from '@/lib/document-extraction-pipeline';
 
-// Same ceiling every other PDF-reading/upload route in this codebase uses
-// (verify-upload, nda-upload, blueprint/gap-assist) — confirmed by grep
-// before picking this number, not a guess.
-//
-// Prompt 464 §B — this route now also gets a second, heavier caller:
-// MarketDataPanel.tsx calls it once per document right after "Read my
-// documents", awaited, for documents that can run to 11MB/30 pages (the
-// ablute_ deck). 30s may not be enough for that document specifically. If
-// it isn't, it fails VISIBLY — this route returns an error and the
-// caller's own §B.4 shows it by name — instead of vanishing the way the
-// old fire-and-forget did. Bump to 60 (the Hobby plan's own ceiling) in a
-// follow-up prompt if that's confirmed with a real measurement — not a
-// guess made here.
-export const maxDuration = 30;
+// Prompt 691 §D6 — bumped from 30 to 60 (the Hobby plan's own ceiling,
+// same as document-extract/route.ts), the follow-up this file's own prior
+// comment asked for once confirmed by a real measurement: tokens_out=1500
+// EXACTLY on a real, dense document (19 companies, 4 people) — the flat
+// max_tokens: 1500 this route always asked for was hit on the nose,
+// silently truncating mid-JSON, the identical failure shape Prompt 484/485
+// diagnosed and fixed for document-extract/route.ts. Same fix here: a
+// budget-sized max_tokens (document-extraction-pipeline.ts's own
+// MAX_DURATION_MS/POST_MODEL_RESERVE_MS, mirroring that route's constants)
+// instead of a second, independently guessed ceiling — which needs the
+// larger clock to have room to matter at all.
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
+  // Prompt 691 §D6 — the true start of this function's own clock, passed
+  // through to extractDocument so its max_tokens ask reflects what's
+  // actually left of maxDuration, not a flat guess.
+  const startedAt = Date.now();
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -64,6 +66,6 @@ export async function POST(req: NextRequest) {
   if (!documentId) return NextResponse.json({ ok: false, error: 'Missing documentId.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const outcome = await extractDocument(admin, apiKey, orgId, documentId);
+  const outcome = await extractDocument(admin, apiKey, orgId, documentId, startedAt);
   return NextResponse.json(outcome);
 }
