@@ -515,6 +515,42 @@ export async function POST(req: Request) {
       else if (outcome === 'title_collision_cross_document') crossDocumentCollisions += 1;
     }
 
+    // Prompt 691 §D4 — the generic extraction (data-room/extract-document)
+    // already named 19 real companies in this exact market-comparison PDF
+    // minutes before this pass ran; org_competitors stayed at zero because
+    // nothing here ever looked at document_extractions at all. This is
+    // deliberately the SAME upsertOrEnrichResearchItem chokepoint the model's
+    // own competitor proposals above go through (never a second, parallel
+    // write path) — a bare name from named-entity extraction just carries no
+    // structured facets, so it can only ever fill an empty title slot, never
+    // overwrite a real classification a richer reading already produced.
+    const readDocIds = [...docsByIndex.values()].map((d) => d.id);
+    if (readDocIds.length > 0) {
+      const [{ data: org }, { data: extractions }] = await Promise.all([
+        admin.from('orgs').select('name').eq('id', orgId).maybeSingle(),
+        admin.from('document_extractions').select('document_id, extracted').in('document_id', readDocIds).eq('status', 'completed'),
+      ]);
+      const ownName = ((org as { name?: string } | null)?.name ?? '').trim().toLowerCase();
+      const alreadyProposed = new Set(legacyProposals.filter((p) => p.section === 'players').map((p) => p.title.toLowerCase()));
+      for (const e of (extractions ?? []) as { document_id: string; extracted: Record<string, unknown> }[]) {
+        const entities = (e.extracted?.namedEntities as { kind: string; name: string; page?: number }[] | undefined) ?? [];
+        for (const ent of entities) {
+          if (ent.kind !== 'company') continue;
+          const name = ent.name.trim();
+          if (!name || name.toLowerCase() === ownName) continue;
+          const title = `Competitor: ${name}`;
+          if (alreadyProposed.has(title.toLowerCase())) continue;
+          alreadyProposed.add(title.toLowerCase());
+          const outcome = await upsertOrEnrichResearchItem(admin, orgId, signature, {
+            section: 'players', title, detail: 'Named in this document — no further detail extracted yet.',
+            documentId: e.document_id, page: ent.page ?? null, structured: null,
+          });
+          outcomeTally[outcome] += 1;
+          if (outcome === 'inserted') itemsProposed += 1;
+        }
+      }
+    }
+
     if (typedProposals.length > 0) {
       // Prompt 467 v3 §3 (Nuno's review) — a REAL bug in the earlier draft:
       // this used to look up a legacy market_research_items row by
