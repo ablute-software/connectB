@@ -12,7 +12,6 @@
 // answer). The role comes from the server (/api/blueprint/gap-assist),
 // never guessed client-side.
 import { useEffect, useRef, useState } from 'react';
-import { browserClient } from '@/lib/supabase';
 
 const SEVERITY_STYLE: Record<string, string> = { critical: 'bg-red-100 text-red-800', high: 'bg-amber-100 text-amber-800', medium: 'bg-gray-100 text-gray-600' };
 
@@ -127,7 +126,14 @@ export function GapInterrogation({
 
   useEffect(() => {
     if (!showDocPicker || vaultDocs !== null) return;
-    browserClient().from('documents').select('id, name').order('name').then(({ data }) => setVaultDocs((data ?? []) as VaultDocOption[]));
+    // Prompt 692 — this used to query documents directly from the browser
+    // with no org_id filter, trusting RLS alone. That leaks every org's
+    // Vault to a platform_admin (documents_ablute_qa_read grants them
+    // unrestricted read, independent of org). The server route resolves the
+    // caller's own org_id from org_members and filters explicitly.
+    fetch('/api/market-data/vault-documents').then((r) => r.json())
+      .then((body) => setVaultDocs(((body.documents ?? []) as VaultDocOption[])
+        .slice().sort((a, b) => a.name.localeCompare(b.name))));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showDocPicker]);
 
