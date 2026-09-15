@@ -7668,3 +7668,53 @@ separate, unrelated deploy-transition bug.
   every changed class/pattern copied verbatim from the founder pipeline
   page's own already-shipped, already-verified equivalent — never CSS
   invented fresh for this fix.
+
+## 14–15/09/2026 — Branch/prompt-number ledger for the day's investor-side work
+
+Four pieces of work landed in one long session, on three branches (not
+four — see the gap flagged below). None pushed or merged to `main`; all
+await explicit authorization. Recorded here because the prompt files that
+triggered them carry inconsistent numbers across Downloads and this
+session, and in two weeks nobody should have to reconstruct this from git
+log alone.
+
+- **Video hero on `/investors`** — branch `claude/prompt-688-investor-video-hero`.
+  The triggering prompt file itself documents a renumbering: it circulated
+  first as "586" (`claude_prompt_586_video_investidor_pagina_investors_20260914.md`,
+  still sitting in Downloads), then was explicitly renumbered to **688** by
+  its own header ("esse número já existia (6 Set). Passa a 688.") before
+  being pasted into this session — not a session error, but worth naming
+  here since the stale "586" file survives on disk and could otherwise read
+  as an unfinished, differently-numbered task. Replaces the static "Deal
+  flow review" mock in the hero with the real 60s product video; adds
+  `/investors/video` with absolute-URL OG tags; fixes the claim CTAs to
+  `/claim`. Report: `claude_relatorio_prompt688_investidor_video_hero_20260914.md`.
+- **4th pricing card ("Private Detective") invisible on `/investors`** —
+  branch `claude/fix-private-detective-card-invisible`, no prompt number
+  (a live bug report, not a numbered prompt). Root cause: missing
+  `data-reveal` attribute meant the scroll-reveal IntersectionObserver
+  never observed it, so it stayed at `opacity:0` forever.
+- **Prompt 587 — resolveRole() recognizes investor claims, auto-approval on
+  domain match** — correctly on its own branch,
+  `claude/prompt-587-investor-claim-auto-approve`. Report:
+  `claude_relatorio_prompt587_claim_auto_approve_20260914.md`.
+- **Prompt 588 — capacity-framed investor plan copy + real early-access
+  period** — the gap this note exists to flag: 588 was started, per Nuno's
+  own explicit instruction, immediately after 587 finished ("depois de
+  terminares essa tarefa - o prompt 587 / inicia o prompt em anexo"), but
+  ended up committed on top of the unrelated `claude/fix-private-detective-
+  card-invisible` branch instead of its own (or being stacked onto the 587
+  branch, which would at least have kept it off the bug-fix branch). Not
+  blocking — flagged so the branch name is never read as "just the card
+  fix". Report: `claude_relatorio_prompt588_copy_planos_e_early_access_20260915.md`.
+
+Net: three branches on disk for four numbered/described pieces of work;
+the fourth (588) borrowed an existing branch rather than getting its own.
+**Not cleanly separable after the fact**: checked before writing this —
+`30f6fee` (588) and `b649857` (the card fix) both touch
+`PrivateDetectiveCard.tsx` and `InvestorPricingSection.tsx`, and 588's own
+diff on `PrivateDetectiveCard.tsx` edits a line the card fix introduced, so
+a bare `git cherry-pick 30f6fee` onto a fresh branch off `main` (without
+`b649857`) would not apply cleanly. Unwinding 588 onto its own branch later
+means bringing `b649857` along too (cherry-pick both, in order), not just
+`30f6fee` alone.

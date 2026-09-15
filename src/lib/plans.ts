@@ -393,13 +393,18 @@ export const INVESTOR_PLANS: InvestorPlanRow[] = [
     tier: 'pro_scout', name: 'Pro Scout', tagline: 'For angels and first funds',
     monthlyEur: 130, annualEur: 1200, annualPerMonthEur: 100,
     seats: 1, monthlyCap: 10,
+    // Prompt 588 — capacity, never a volume promise: every limit reads
+    // "up to" + a capacity noun ("waves", "Vault access for"), never "new",
+    // "delivered" or "receive". The old "Up to 10 qualified opportunities/
+    // month" sat right below a hero video promising "no feed, no noise,
+    // finite waves" — two opposite messages on the same page.
     bullets: [
       '1 seat',
       'Startup Pipeline & Smart Calendar',
-      'Up to 10 qualified opportunities/month',
-      'Access to shared private limited Vault Data Room content for up to 5 startups/month*',
-      'Access to shared private limited Due Diligence files for up to 2 startups/month**',
-      'Add & Invite Startups',
+      'Waves of up to 10 matched opportunities / month',
+      'Vault Data Room access for up to 5 startups / month*',
+      'Due Diligence files for up to 2 startups / month**',
+      'Add & invite your own startups',
     ],
   },
   {
@@ -412,14 +417,12 @@ export const INVESTOR_PLANS: InvestorPlanRow[] = [
     bullets: [
       '2 seats',
       'Startup Pipeline & Smart Calendar',
-      'Up to 22 qualified opportunities/month',
-      'Access to shared private limited Vault Data Room content for up to 11 startups/month*',
-      'Access to shared private limited Due Diligence files for up to 5 startups/month**',
-      'Access to MatchDeal mobile app',
-      '10 new startups/week on MatchDeal',
-      '5 Swipe Rights/week',
-      '2 Reconsiderations/week',
-      'Hype List limited to 5 startups',
+      'Waves of up to 22 matched opportunities / month',
+      'Vault Data Room access for up to 11 startups / month*',
+      'Due Diligence files for up to 5 startups / month**',
+      'MatchDeal mobile app — deck of up to 10 startups / week',
+      '5 swipe rights / week · 2 reconsiderations / week',
+      'Hype List — top 5 startups',
     ],
   },
   {
@@ -429,14 +432,12 @@ export const INVESTOR_PLANS: InvestorPlanRow[] = [
     bullets: [
       '5 seats',
       'Startup Pipeline & Smart Calendar',
-      'Up to 46 qualified opportunities/month',
-      'Access to shared private limited Vault Data Room content for up to 23 startups/month*',
-      'Access to shared private limited Due Diligence files for up to 11 startups/month**',
-      'Access to MatchDeal mobile app',
-      '20 new startups/week on MatchDeal',
-      '10 Swipe Rights/week',
-      'Unlimited Reconsiderations until the 10 weekly Swipe Rights have been used',
-      'Access to the entire Startup Hype List',
+      'Waves of up to 46 matched opportunities / month',
+      'Vault Data Room access for up to 23 startups / month*',
+      'Due Diligence files for up to 11 startups / month**',
+      'MatchDeal deck of up to 20 startups / week',
+      '10 swipe rights / week · unlimited reconsiderations once used',
+      'Full Startup Hype List',
     ],
   },
 ];
@@ -483,9 +484,18 @@ export const INVESTOR_PLAN_TO_MATCHDEAL_TIER: Record<InvestorPlanTier, string> =
 // models priced, structured plans with seats/caps/bullets) — the card and
 // its behaviour are different enough that folding it in would mean
 // nullable pricing fields leaking into every other reader of that array.
+// Prompt 588 — tagline + bullets added so the 4th card reads like a plan
+// card (same shape as INVESTOR_PLANS' tagline/bullets) instead of a bare
+// name + one line of prose, now that it's visible again (Prompt 587).
 export const PRIVATE_DETECTIVE_PLAN = {
   name: 'Private Detective',
+  tagline: 'For firms with specific needs',
   description: 'Get a personalized service and pricing.',
+  bullets: [
+    'Custom seats, waves and integrations',
+    'Dedicated onboarding and support',
+    'Talk to us for a tailored plan and pricing',
+  ],
   ctaLabel: 'Contact the Sherlock Team',
 };
 

@@ -30,6 +30,13 @@ export default defineConfig({
     // reported here for what a clean checkout of the same commit runs as
     // 117. Test counts reported before this fix are unreliable; the real
     // number is whatever a clean checkout (or this exclude) reports.
-    exclude: ['**/node_modules/**', '**/.claude/worktrees/**'],
+    // connectB-895 — another git worktree's checkout (branch
+    // claude/prompt-895-promo-cancel) nested inside this one instead of as
+    // a sibling directory, same class of problem the .claude/worktrees
+    // exclude above already covers. Confirmed live (Prompt 587/588
+    // sessions): without this, every test file here runs a second time,
+    // including a pre-existing, unrelated locale/ICU failure in
+    // market-facts-view.test.ts that then reports twice.
+    exclude: ['**/node_modules/**', '**/.claude/worktrees/**', '**/connectB-895/**'],
   },
 });

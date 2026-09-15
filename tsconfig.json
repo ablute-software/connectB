@@ -40,6 +40,16 @@
   ],
   "exclude": [
     "node_modules",
-    "supabase/functions"
+    "supabase/functions",
+    // Prompt 688 — connectB-895 is another git worktree's checkout
+    // (branch claude/prompt-895-promo-cancel) that ended up nested INSIDE
+    // this checkout instead of as a sibling directory like every other
+    // worktree (see `git worktree list`). Its own supabase/functions/*
+    // Deno edge functions (esm.sh/deno.land URL imports) broke `next build`
+    // here with "Cannot find module 'https://esm.sh/...'" — unrelated to
+    // whatever that worktree is doing, just an artifact of it sitting inside
+    // this tsconfig's **/*.ts include glob. Excluding the folder, not
+    // touching its contents.
+    "connectB-895"
   ]
 }
