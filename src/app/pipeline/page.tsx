@@ -20,7 +20,6 @@ import { followUpTaskDisplayTitle, getStage, isPersonCandidate, isUnverifiedStub
 import { useConfirmWithFields } from '@/lib/confirm';
 import { useParkEntity } from '@/lib/use-park-entity';
 import { dropDialog, planDrop, planUndo, UNDO_WINDOW_MS, type DropTarget } from '@/lib/pipeline-drop';
-import { PipelineDropTarget } from '@/components/pipeline/PipelineDropTarget';
 import { PipelineFunnel, TONE, ICON } from '@/components/pipeline/PipelineFunnel';
 import { pipelineCounts, pipelineGroupForStatus, PIPELINE_CARDS, PIPELINE_GROUPS, type PipelineCardKey, type PipelineGroupKey } from '@/lib/pipeline-taxonomy';
 import { pipelineTemperature, type Temperature } from '@/lib/pipeline-temperature';
@@ -1181,7 +1180,8 @@ function PipelinePageInner() {
       <div className="md:shrink-0"><PipelineTopUpBanner unlock={unlock} onDelivered={refreshUnlock} /></div>
       {/* Prompt 650 Phase 1 — the six-card funnel, one vocabulary, counts that
           add up. Clicking a card filters the list to that bucket. */}
-      <PipelineFunnel counts={funnelCounts} activeFilter={cardFilter} onFilter={setCardFilter} />
+      <PipelineFunnel counts={funnelCounts} activeFilter={cardFilter} onFilter={setCardFilter}
+        dragActive={drag.active} dragOver={drag.over} dragPulse={dropPulse} />
       {noneClassified && <div className="md:shrink-0"><EmptyCompanyBlock variant="banner" unlock={unlock} onDelivered={refreshUnlock} /></div>}
       {/* Prompt 880 §4 — shown only when the header "Summary" toggle is on. */}
       {summaryOpen && (
@@ -1332,40 +1332,13 @@ function PipelinePageInner() {
             "Frozen" is the name kept (see frozen-view-grouping.ts's own
             header for why). No granularity lost: the row pill still shows
             "Stale"/"Never contacted" for what used to be the Stale rows. */}
-        {/* Prompt 647 — the same toggle, now also a drop target with a vault
-            door: a row dragged over it opens the face and shows the count
-            behind; dropping it asks before writing (handleDrop above). */}
-        {/* Prompt 880 §4 — the right group is right-aligned by the Summary
-            button's ml-auto now (it sits between the country filter and this),
-            so Frozen no longer carries ml-auto or it would split the two. */}
-        {/* Prompt 663 — the drop targets are landing zones during a drag only;
-            the funnel's Frozen/Passed cards own the persistent count and the
-            filter, so the toolbar no longer duplicates them. Phase 4 moves the
-            drop onto the cards themselves. */}
-        {drag.active && (
-          <PipelineDropTarget target="frozen"
-            label={`❄ Frozen (${funnelCounts.frozen})`}
-            title="Not moving right now — either an impasse, or fell through the cracks. Drag a row here to freeze it."
-            count={funnelCounts.frozen} active={cardFilter === 'frozen'}
-            onClick={() => setCardFilter((v) => v === 'frozen' ? null : 'frozen')}
-            armed={drag.active} open={drag.over === 'frozen'} pulse={dropPulse === 'frozen'} reducedMotion={reducedMotion} />
-        )}
-        {/* Prompt 852 §C — both directions of "no" in one view, each row
-            labelled with which way it went. Same shape as the three above;
-            hidden at 0 like Reported, and kept visible while it IS the
-            active view so toggling back off never needs a second control. */}
-        {/* Prompt 647 — also shown while a row is being dragged, even at 0:
-            a door has to exist to be dropped on. */}
-        {/* Prompt 663 — landing zone during a drag only (see the Frozen note
-            above); the funnel's Passed card owns the persistent count. */}
-        {drag.active && (
-          <PipelineDropTarget target="passed"
-            label={`✕ Passed (${funnelCounts.passed})`}
-            title="Decided, either way — they passed, or you ruled them out. Drag a row here to mark it passed."
-            count={funnelCounts.passed} active={cardFilter === 'passed'}
-            onClick={() => setCardFilter((v) => v === 'passed' ? null : 'passed')}
-            armed={drag.active} open={drag.over === 'passed'} pulse={dropPulse === 'passed'} reducedMotion={reducedMotion} />
-        )}
+        {/* Prompt 647/663 — this toolbar used to grow a "vault door" drop
+            target here whenever a row was dragged (Frozen, then Passed).
+            Prompt 704 (18/09/2026) — Phase 4, which Prompt 663's own comment
+            already named: the doors moved onto the six funnel cards
+            themselves (PipelineFunnel's dragActive/dragOver/dragPulse props
+            above), now covering all five real buckets, not just two. Nothing
+            left to render here. */}
         {/* Prompt 271 §3 / Prompt 282 — bulk ask moved to the Stale view
             (Stand by no longer has its own button), but still only ever
             acts on the stand_by rows WITHIN it, never the no_data ones now

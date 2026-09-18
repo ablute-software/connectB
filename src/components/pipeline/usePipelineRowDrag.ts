@@ -22,6 +22,7 @@
 // but nothing tilts, falls or flies back.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { dropTargetAccepts, type DropTarget } from '@/lib/pipeline-drop';
+import { autoScroll, autoScrollDelta } from '@/lib/edge-autoscroll';
 import type { Entity } from '@/lib/types';
 
 const DRAG_START_PX = 6;
@@ -155,6 +156,12 @@ export function usePipelineRowDrag(opts: {
   onDropRef.current = opts.onDrop;
   const reducedRef = useRef(opts.reducedMotion);
   reducedRef.current = opts.reducedMotion;
+  // Prompt 704 — a row dragged near the top or bottom of the screen scrolls
+  // the page (or the row list's own capped container) toward it, so the
+  // funnel cards stay reachable however long the list is. Ties to the drag's
+  // own lifetime: started in startDrag, stopped in endDrag below — never a
+  // free-running loop on a page that isn't dragging anything.
+  const autoScrollRafRef = useRef<number | null>(null);
 
   const positionGhost = useCallback((d: Drag, lean: number) => {
     d.ghost.style.transform = ghostTransform(d.x - d.offsetX, d.y - d.offsetY, GHOST_SCALE, reducedRef.current ? 0 : GHOST_TILT_DEG + lean);
@@ -164,6 +171,16 @@ export function usePipelineRowDrag(opts: {
     const p = pendingRef.current;
     if (p?.holdTimer) window.clearTimeout(p.holdTimer);
     pendingRef.current = null;
+  }, []);
+
+  const tickAutoScroll = useCallback(() => {
+    const d = dragRef.current;
+    if (d) autoScroll(d.x, d.y, autoScrollDelta(d.y, window.innerHeight));
+    autoScrollRafRef.current = window.requestAnimationFrame(tickAutoScroll);
+  }, []);
+
+  const stopAutoScroll = useCallback(() => {
+    if (autoScrollRafRef.current != null) { window.cancelAnimationFrame(autoScrollRafRef.current); autoScrollRafRef.current = null; }
   }, []);
 
   // One entry for both the 6px mouse move and the 300ms touch hold.
@@ -181,7 +198,8 @@ export function usePipelineRowDrag(opts: {
     document.body.classList.add('pipeline-dragging');
     setActive(true);
     setOriginId(p.entity.id);
-  }, [clearPending, positionGhost]);
+    if (autoScrollRafRef.current == null) autoScrollRafRef.current = window.requestAnimationFrame(tickAutoScroll);
+  }, [clearPending, positionGhost, tickAutoScroll]);
 
   const leanTowards = useCallback((d: Drag): number => {
     if (!d.over || reducedRef.current) return 0;
@@ -213,6 +231,7 @@ export function usePipelineRowDrag(opts: {
       setActive(false);
       setOver(null);
       setOriginId(null);
+      stopAutoScroll();
     };
 
     const returnToOrigin = async (d: Drag, fromDoor: DropTarget | null) => {
@@ -305,7 +324,7 @@ export function usePipelineRowDrag(opts: {
       const d = dragRef.current;
       if (d) endDrag(d);
     };
-  }, [opts.enabled, clearPending, startDrag, positionGhost, leanTowards, suppressNextClick]);
+  }, [opts.enabled, clearPending, startDrag, positionGhost, leanTowards, suppressNextClick, stopAutoScroll]);
 
   const onRowPointerDown = useCallback((e: React.PointerEvent<HTMLTableRowElement>, entity: Entity) => {
     if (!opts.enabled || dragRef.current || pendingRef.current) return;

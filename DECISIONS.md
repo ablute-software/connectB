@@ -8158,3 +8158,119 @@ Speed Index 0.82s → 0.80s — the SECOND one is a marginal improvement) —
 within normal run-to-run local-measurement noise, not a signal. CLS is
 ~0.000–0.001 on both pages either way (the 4th card doesn't introduce
 layout shift). No material regression, confirmed rather than assumed.
+
+## 18/09/2026 — Prompt 704: dragging a Pipeline row between state cards didn't requalify it, and the page never followed the drag up toward them
+
+Nuno's report, with two screenshots: dragging an investor dossier from one
+funnel card to another (e.g. "Not contacted" → "Active") did nothing — no
+status change, nothing in the dossier's history — and separately, dragging a
+row up toward the top of the screen never auto-scrolled, so the funnel
+cards it needed to land on went off-screen above the fold and stayed there.
+
+**This was Phase 4, already named and unbuilt.** `PipelineFunnel.tsx`'s own
+header said so before this prompt existed: "The drag-to-card gesture (the
+door flip, Active refusing drops) is Phase 4; this phase is the static,
+filtering header." Prompt 647/663 had built exactly one working instance of
+the mechanism — drag a row onto a "vault door" toolbar button — but wired it
+to only two of the five real buckets (Frozen, Passed), as separate buttons
+in the filter toolbar, never onto the funnel cards themselves where Nuno
+was actually dragging.
+
+**What Phase 4 turned out to need, once built:**
+
+- `src/lib/pipeline-drop.ts` — `DropTarget` widened from `'frozen' |
+  'passed'` to all five real buckets (`not_contacted`, `contacted`,
+  `diligence`, `passed`, `frozen`). **Active is deliberately excluded** —
+  `pipeline-taxonomy.ts`'s own words: it "is total − passed, overlaps the
+  buckets, is not a drop target, has no group." There is no single status a
+  drop on a roll-up could mean, so it keeps refusing drops, exactly as
+  `PipelineFunnel.tsx`'s header always said it would — confirmed live: an
+  end-to-end simulated drag onto Active opens no dialog, changes no count,
+  and the row returns to its origin, indistinguishable from a drop that
+  misses every target. `dropDialog`/`planDrop`/`planUndo` generalized from
+  their two-case if/else into a per-target table; Not contacted/Contacted/
+  Due diligence are pure requalifications (status only, no stage change, no
+  task disposition — the same empty `ExitPlan` `useParkEntity.applyPlan`
+  already treats as a safe no-op for every other caller with nothing to
+  apply).
+- **Every drop now requires a reason**, not just Passed's optional one
+  (Nuno's own words: "campo de razão obrigatório antes de gravar").
+  `src/lib/confirm-fields.ts` (new, pulled out of `confirm.tsx` so it's
+  testable without a DOM — this project's vitest has no jsdom) adds
+  `required?: boolean` to a dialog field and `hasMissingRequiredField()`;
+  `confirm.tsx` disables its own Confirm button while any required field is
+  empty. Frozen keeps its revisit-date field and gains a required reason
+  alongside it; Passed's reason goes from optional to required; the three
+  new targets each get one.
+- `src/components/pipeline/PipelineFunnel.tsx` — the six cards ARE the drop
+  targets now (`data-drop-target`, the exact attribute
+  `usePipelineRowDrag`'s `hitTest` already scanned for), reusing
+  `dropTargetAccepts` itself rather than a second `!card.rollup` check, so
+  the two rules can't drift apart. The toolbar's separate "vault door"
+  buttons (`PipelineDropTarget.tsx`) are retired and deleted — Prompt 663's
+  own comment had already flagged them as a stopgap ("Phase 4 moves the
+  drop onto the cards themselves"); the funnel cards' own door-flip
+  treatment is a plain ring/border swap rather than the toolbar buttons'
+  3D perspective flip, which didn't fit a card this much bigger.
+- **Auto-scroll** (`src/lib/edge-autoscroll.ts`, new) — a pure
+  `autoScrollDelta(pointerY, viewportHeight)` (unit-tested: zero in the
+  middle, scales up to the edge, symmetric top/bottom) plus a DOM
+  `autoScroll(x, y, dy)` that walks up from whatever's under the pointer to
+  the nearest scrollable ancestor still able to move that way — the
+  Pipeline table's own capped list (`max-h-[75vh]`, Prompt 529) first, the
+  page itself once that bottoms out — so scrolling always bubbles up to the
+  funnel cards instead of getting stuck against an inner list.
+  `usePipelineRowDrag.ts` runs this as a `requestAnimationFrame` loop tied
+  exactly to the drag's own lifetime: started in `startDrag`, stopped in
+  `endDrag` — never a free-running loop on a page that isn't dragging
+  anything.
+
+**Verified live** (real `PointerEvent`s dispatched through the actual
+listeners — `left_click_drag` mouse-synthesis doesn't reliably cross this
+gesture's 6px/pointer-capture threshold, so this was the reliable way to
+drive it end-to-end): dragging "Bynd VC" from Not contacted onto Contacted
+opened "Mark Bynd VC as Contacted?" with the Confirm button genuinely
+disabled until a reason was typed; confirming moved the funnel counts
+(12/2, from 13/1), changed the row's own STATUS cell, and wrote a dossier
+history entry dated today ("Not contacted → Contacted. Moved to Contacted
+— dragged in the Pipeline (Sent the first LinkedIn outreach today).", under
+"You wrote · stage change — 2026-09-18" in Approach & Log). Dropping a
+second row onto Active opened nothing and changed nothing. Dropping a third
+row onto Due diligence and clicking Cancel left every count unchanged.
+
+**One thing NOT verified live, stated plainly:** the auto-scroll itself.
+`requestAnimationFrame` does not fire at all while the host window is
+minimized/occluded — confirmed independently with a trivial isolated rAF
+counter (0 ticks in a full second, unrelated to any of this prompt's code)
+— so the live drag-and-scroll behavior could not be exercised in this
+session; the pane's own screenshot tool hit the identical wall
+("Claude's window is minimized or hidden, which can stop the page from
+drawing"). Coverage instead: `autoScrollDelta`'s pure math is unit-tested
+(5 tests: dead zone, both edges, the boundary exactly at the edge
+threshold), and `autoScroll`'s DOM half is a small, standard
+elementFromPoint + scrollable-ancestor walk — not exercised live, but not
+novel or risky logic either.
+
+**Scoping note on the mini-prompt's own repro:** its Verificação section
+names "Not contacted → Active" as the example drag to reproduce and expects
+the status to change. That's the one case this implementation deliberately
+does NOT do — Active has no status of its own to move an entity to (see
+above), and refusing it is a pre-existing, Nuno-authored design decision
+(`pipeline-taxonomy.ts`, Prompt 650 v2 §1), not something this prompt asked
+to revisit. Flagging this explicitly rather than silently picking a
+different target for the repro.
+
+**Verified:** `tsc --noEmit` exit 0. `next build` exit 0 (the first attempt
+exited 1 with `unhandledRejection [PageNotFoundError]: Cannot find module
+for page: /_document` — self-inflicted by running `next build` and `next
+dev` concurrently in the same worktree against the same `.next` directory;
+stopping the dev server, clearing `.next`, and rebuilding alone fixed it
+immediately). Worktree-safe `eslint` exit 0, 265 pre-existing warnings, 0
+errors. `vitest` 3915/3916 — the one failure is the same pre-existing
+`market-facts-view.test.ts` locale-formatting flake every prior run this
+session hits. 15 new tests across `pipeline-drop.test.ts` (rewritten),
+`confirm-fields.test.ts`, `edge-autoscroll.test.ts`, and
+`PipelineFunnel.test.ts`.
+
+**Not merged.** Pushing the branch for visibility per standing practice;
+holding for a fresh, explicit merge authorization.
