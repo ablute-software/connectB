@@ -8274,3 +8274,57 @@ session hits. 15 new tests across `pipeline-drop.test.ts` (rewritten),
 
 **Not merged.** Pushing the branch for visibility per standing practice;
 holding for a fresh, explicit merge authorization.
+
+## 18/09/2026 — Prompt 704 §A.1/§A.2: two more findings from testing the pre-fix code live in production, folded into the same branch before merge
+
+Nuno went and reproduced his own original report directly against
+`sherlockdeal.com@gmail.com` in production — the OLD, unfixed code, since
+none of the above had merged yet — and found two more concrete issues
+worth covering now rather than reopening this branch after landing it.
+
+**§A.1 — a drag's ghost row could survive the drag.** Dropping "Mercia
+Ventures" somewhere invalid left a semi-transparent floating copy of the
+row stuck on screen, overlapping the next row, until an unrelated click
+elsewhere. `endDrag()` (the only thing that calls `ghost.remove()`) was
+reached from several different places in `usePipelineRowDrag.ts` as "one
+more step" after some `await`s rather than as something structurally
+guaranteed — if anything between the drop and that point ever threw, or if
+the window lost focus mid-drag with no `pointerup`/`pointercancel` ever
+following (alt-tab, an OS dialog stealing focus), nothing was left to run
+it. Fixed by moving the cleanup into a `finally` in both `onUp` and
+`cancelDrag`, and adding a `window` `blur` listener that cancels an
+in-progress drag defensively. Verified live: starting a real drag (`ghosts:
+1`) and firing a `blur` event with no pointerup at all still leaves
+`ghosts: 0` and `pipeline-dragging` off afterward, and the dragged
+investor's own status is untouched — a cancel, not a hidden commit.
+
+**§A.2 — a status with zero investors had nowhere in the row list to drop
+onto.** Separate from the funnel cards above (which already render
+unconditionally, count or no count): the row list's own per-status bands
+(Prompt 650 Phase 2) hid entirely when empty — "an empty band is hidden
+unless the funnel is filtered to it" was the original, deliberate design,
+aimed at decluttering an account with few contacts. With Contacted and Due
+diligence at zero in Nuno's real account, only Not contacted and Passed
+had a section to drop into at all. Every band now always renders; an empty
+one shows a dashed "No investors here yet — drag a row here to move it to
+X" placeholder instead of rows, carrying the identical `data-drop-target`
+attribute the funnel cards use — so `hitTest` picks it up for free, no
+second drop-handling path. This is a second, additional landing spot, not
+a replacement for the funnel cards. Verified live: dragging COREangels
+Porto directly onto the row list's own "Due diligence" placeholder (not
+the funnel card) opened the same "Move COREangels Porto to Due diligence?"
+dialog, and confirming moved it there (funnel counts and the row's own
+STATUS cell both updated).
+
+**Verified:** `tsc`/`build` exit 0 (this time on the first attempt — the
+dev server was stopped before building, per the concurrency lesson just
+learned on this same branch). Worktree-safe `eslint` exit 0, 265
+pre-existing warnings. `vitest` 3921/3922 — the one failure is the same
+pre-existing locale-formatting flake. 4 new tests
+(`usePipelineRowDrag.test.ts`) plus 3 more added to `PipelineFunnel.test.ts`
+for the row-list placeholder.
+
+Same branch, same "not merged" status as above — these two findings landed
+as additional commits before any merge, exactly so the branch that
+eventually merges covers everything found against production, not just
+the original report.

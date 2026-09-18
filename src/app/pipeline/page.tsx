@@ -19,7 +19,7 @@ import { AddInvestorModal } from '@/components/AddInvestorModal';
 import { followUpTaskDisplayTitle, getStage, isPersonCandidate, isUnverifiedStub, relationshipSummary } from '@/lib/relationship';
 import { useConfirmWithFields } from '@/lib/confirm';
 import { useParkEntity } from '@/lib/use-park-entity';
-import { dropDialog, planDrop, planUndo, UNDO_WINDOW_MS, type DropTarget } from '@/lib/pipeline-drop';
+import { dropDialog, DROP_TARGET_INTERIOR, planDrop, planUndo, UNDO_WINDOW_MS, type DropTarget } from '@/lib/pipeline-drop';
 import { PipelineFunnel, TONE, ICON } from '@/components/pipeline/PipelineFunnel';
 import { pipelineCounts, pipelineGroupForStatus, PIPELINE_CARDS, PIPELINE_GROUPS, type PipelineCardKey, type PipelineGroupKey } from '@/lib/pipeline-taxonomy';
 import { pipelineTemperature, type Temperature } from '@/lib/pipeline-temperature';
@@ -1008,20 +1008,20 @@ function PipelinePageInner() {
   }, [rows, leavingRow]);
 
   // Prompt 672 — the exact set of entity ids the founder can currently see,
-  // in on-screen order: same group membership/collapse rule the render loop
-  // below applies, so ↑/↓ only ever lands on a row that's actually visible
-  // (a collapsed band, or a band hidden entirely because it's empty and not
-  // the active card filter, is never a stop).
+  // in on-screen order: same collapse rule the render loop below applies, so
+  // ↑/↓ only ever lands on a row that's actually visible (a collapsed band
+  // is never a stop). Prompt 704 §A.2 — every band renders now regardless of
+  // its row count (an empty one just has no ids to contribute), so there's
+  // no longer a separate "hidden because empty" case to track here.
   const visibleRowIds = useMemo(() => {
     const ids: string[] = [];
     for (const groupKey of PIPELINE_GROUPS) {
-      const groupRows = displayRows.filter((e) => pipelineGroupForStatus(e.status) === groupKey);
-      if (groupRows.length === 0 && cardFilter !== groupKey) continue;
       if (collapsedGroups.has(groupKey)) continue;
+      const groupRows = displayRows.filter((e) => pipelineGroupForStatus(e.status) === groupKey);
       for (const e of groupRows) ids.push(e.id);
     }
     return ids;
-  }, [displayRows, cardFilter, collapsedGroups]);
+  }, [displayRows, collapsedGroups]);
 
   // Prompt 672 — Esc closes the dossier; ↑/↓ move between investors without
   // closing it (both skipped while typing in a form field, same guard the
@@ -1462,11 +1462,16 @@ function PipelinePageInner() {
               only switches off the long-press callout on touch (§1.1). */}
           <tbody className={drag.enabled ? 'pipeline-drag-rows' : undefined}>
             {/* Prompt 650 Phase 2 — the five taxonomy bands, in order. Each is a
-                collapsible header row spanning the table, then its rows. An empty
-                band is hidden unless the funnel is filtered to it. */}
+                collapsible header row spanning the table, then its rows.
+                Prompt 704 §A.2 (18/09/2026) — an empty band used to hide
+                entirely unless the funnel was filtered to it, which meant a
+                status with zero investors had nowhere in the row list to
+                drop onto. Every band renders now; an empty one shows a
+                "Drop here" placeholder instead of rows, itself a real drop
+                target (the funnel cards above already are too — this is a
+                second, equally valid landing spot, not a replacement). */}
             {PIPELINE_GROUPS.map((groupKey) => {
               const groupRows = displayRows.filter((e) => pipelineGroupForStatus(e.status) === groupKey);
-              if (groupRows.length === 0 && cardFilter !== groupKey) return null;
               const groupCard = PIPELINE_CARDS.find((c) => c.key === groupKey)!;
               const groupTone = TONE[groupCard.tone];
               const isCollapsed = collapsedGroups.has(groupKey);
@@ -1492,6 +1497,18 @@ function PipelinePageInner() {
                       </button>
                     </td>
                   </tr>
+                  {!isCollapsed && groupRows.length === 0 && (
+                    <tr>
+                      <td colSpan={SORT_COLUMNS.length} className="p-0">
+                        <div data-drop-target={groupKey}
+                          className={`m-2 rounded-lg border border-dashed px-3 py-3 text-center text-[11.5px] transition
+                            ${drag.active ? 'pipeline-drop-armed border-gray-300 text-gray-400' : 'border-gray-200 text-gray-400'}
+                            ${drag.over === groupKey ? 'border-solid bg-[#E8F4F8] font-semibold text-[#0E7490]' : ''}`}>
+                          {drag.over === groupKey ? DROP_TARGET_INTERIOR[groupKey] : `No investors here yet — drag a row here to move it to ${groupCard.label}.`}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
                   {!isCollapsed && groupRows.map((e, i) => {
               const task = nextAction(db, e);
               const rowGroup = pipelineGroupForStatus(e.status);

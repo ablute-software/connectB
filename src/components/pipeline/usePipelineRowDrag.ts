@@ -255,13 +255,24 @@ export function usePipelineRowDrag(opts: {
       await playAnim(d.ghost, [{ transform: from, opacity: GHOST_OPACITY }, { transform: to, opacity: 0 }], FALL_MS, 'ease-in');
     };
 
+    // Prompt 704 §A.1 (18/09/2026) — a ghost was found stuck floating over the
+    // list in production until an unrelated click, surviving a drop that
+    // landed nowhere valid. endDrag(d) is the only thing that removes it, so
+    // every path here now runs it from a `finally` rather than as one more
+    // step that a thrown error (or a future change) could skip — cancelling,
+    // completing, or the window losing focus mid-drag (onBlur below) all
+    // guarantee the same cleanup instead of relying on each call site to
+    // remember it.
     const cancelDrag = async () => {
       clearPending();
       const d = dragRef.current;
       if (!d) return;
       suppressNextClick();
-      await returnToOrigin(d, null);
-      endDrag(d);
+      try {
+        await returnToOrigin(d, null);
+      } finally {
+        endDrag(d);
+      }
     };
 
     const onMove = (e: PointerEvent) => {
@@ -291,21 +302,29 @@ export function usePipelineRowDrag(opts: {
       if (!d) return;
       suppressNextClick();
       setActive(false);
-      if (!d.over) { await returnToOrigin(d, null); endDrag(d); return; }
-      const target = d.over;
-      // §1.4 — the shadow falls in, the door closes, only then the question.
-      await fallIntoDoor(d, target);
-      d.over = null;
-      setOver(null);
-      if (!reducedRef.current) await wait(DOOR_CLOSE_MS);
-      let committed = false;
-      try { committed = await onDropRef.current(d.entity, target); } catch { committed = false; }
-      if (!committed) await returnToOrigin(d, target);
-      endDrag(d);
+      try {
+        if (!d.over) { await returnToOrigin(d, null); return; }
+        const target = d.over;
+        // §1.4 — the shadow falls in, the door closes, only then the question.
+        await fallIntoDoor(d, target);
+        d.over = null;
+        setOver(null);
+        if (!reducedRef.current) await wait(DOOR_CLOSE_MS);
+        let committed = false;
+        try { committed = await onDropRef.current(d.entity, target); } catch { committed = false; }
+        if (!committed) await returnToOrigin(d, target);
+      } finally {
+        endDrag(d);
+      }
     };
 
     const onCancel = () => { void cancelDrag(); };
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && dragRef.current) void cancelDrag(); };
+    // A drag that outlives the window's own focus (alt-tab, an OS dialog
+    // stealing it, devtools) may never get a pointerup/pointercancel at all —
+    // cancel it defensively rather than leave the ghost with no event left
+    // that could ever clean it up.
+    const onBlur = () => { if (dragRef.current) void cancelDrag(); };
 
     document.addEventListener('pointermove', onMove, { passive: false });
     document.addEventListener('pointerup', onUp);
@@ -313,6 +332,7 @@ export function usePipelineRowDrag(opts: {
     document.addEventListener('keydown', onKey);
     document.addEventListener('touchmove', preventTouchScroll, { passive: false });
     document.addEventListener('contextmenu', preventContextMenu);
+    window.addEventListener('blur', onBlur);
     return () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
@@ -320,6 +340,7 @@ export function usePipelineRowDrag(opts: {
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('touchmove', preventTouchScroll);
       document.removeEventListener('contextmenu', preventContextMenu);
+      window.removeEventListener('blur', onBlur);
       clearPending();
       const d = dragRef.current;
       if (d) endDrag(d);

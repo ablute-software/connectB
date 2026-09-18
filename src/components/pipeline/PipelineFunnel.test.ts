@@ -42,6 +42,25 @@ describe('pipeline/page.tsx — wires the funnel to the drag state, retires the 
   });
 });
 
+describe('pipeline/page.tsx — Prompt 704 §A.2: an empty status band still renders, and is itself a drop target', () => {
+  const src = read('src/app/pipeline/page.tsx');
+
+  it('no longer hides a band just because it has zero rows', () => {
+    expect(src).not.toContain('if (groupRows.length === 0 && cardFilter !== groupKey)');
+  });
+
+  it('an empty band renders a placeholder carrying the same data-drop-target attribute the funnel cards use', () => {
+    expect(src).toContain('groupRows.length === 0 && (');
+    expect(src).toContain('data-drop-target={groupKey}');
+    expect(src).toContain('DROP_TARGET_INTERIOR[groupKey]');
+  });
+
+  it('imports DROP_TARGET_INTERIOR to word the placeholder the same way the funnel cards do', () => {
+    expect(src).toContain('DROP_TARGET_INTERIOR');
+    expect(src).toMatch(/import \{[^}]*DROP_TARGET_INTERIOR[^}]*\} from '@\/lib\/pipeline-drop'/);
+  });
+});
+
 describe('usePipelineRowDrag — Prompt 704 auto-scroll, tied to the drag lifecycle', () => {
   const src = read('src/components/pipeline/usePipelineRowDrag.ts');
 
