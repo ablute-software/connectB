@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   isTeamGap, formatTeamProfiles, selectTeamDocumentCandidates, isAllowedLinkedInUrl, looksLikeUsableLinkedInContent,
-  relevantPeopleForLinkedIn, type TeamProfile, type CandidateDoc, type LinkedInTargetPerson,
+  relevantPeopleForLinkedIn, isRoundGap, selectRoundDocumentCandidates, suggestRoundDocument, insufficientAnswerMessage,
+  type TeamProfile, type CandidateDoc, type LinkedInTargetPerson, type ExtractedDocumentInfo,
 } from './gap-assist-sources';
 import type { Gap } from './company-gaps';
 
@@ -91,6 +92,108 @@ describe('selectTeamDocumentCandidates', () => {
   it('caps the result to maxDocs', () => {
     const docs: CandidateDoc[] = [1, 2, 3, 4].map((n) => ({ ...base, id: String(n), name: `cv-${n}.pdf` }));
     expect(selectTeamDocumentCandidates(docs, 2)).toHaveLength(2);
+  });
+});
+
+describe('isRoundGap', () => {
+  it('is true only for G6', () => {
+    expect(isRoundGap('G6')).toBe(true);
+  });
+  it('is false for team gaps and everything else, including G4', () => {
+    expect(isRoundGap('G3')).toBe(false);
+    expect(isRoundGap('G3b')).toBe(false);
+    expect(isRoundGap('G3c')).toBe(false);
+    expect(isRoundGap('G4')).toBe(false);
+    expect(isRoundGap('G1')).toBe(false);
+    expect(isRoundGap('G7')).toBe(false);
+  });
+});
+
+describe('selectRoundDocumentCandidates', () => {
+  const base: CandidateDoc = { id: '1', name: 'file.pdf', storagePath: 'org/file.pdf', folderName: null, portalSection: null, malwareScanStatus: 'clean' };
+
+  it('picks a document whose extracted type matches "business plan"', () => {
+    const docs: CandidateDoc[] = [{ ...base, id: 'a', name: 'SherlockDeal Plano de Negocios.pdf' }];
+    const types = new Map([['a', 'business plan']]);
+    expect(selectRoundDocumentCandidates(docs, types, 3).map((d) => d.id)).toEqual(['a']);
+  });
+
+  it('matches investor deck / pitch deck / financial model too', () => {
+    const docs: CandidateDoc[] = [
+      { ...base, id: 'a', name: 'deck.pdf' }, { ...base, id: 'b', name: 'pitch.pdf' }, { ...base, id: 'c', name: 'model.pdf' },
+    ];
+    const types = new Map([['a', 'Investor Deck'], ['b', 'pitch deck'], ['c', 'financial model (5yr)']]);
+    expect(selectRoundDocumentCandidates(docs, types, 3).map((d) => d.id).sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('excludes a document with no extraction on file at all', () => {
+    const docs: CandidateDoc[] = [{ ...base, id: 'a', name: 'unread.pdf' }];
+    expect(selectRoundDocumentCandidates(docs, new Map(), 3)).toEqual([]);
+  });
+
+  it('excludes a document whose extracted type is unrelated (e.g. a grant agreement)', () => {
+    const docs: CandidateDoc[] = [{ ...base, id: 'a', name: 'grant.pdf' }];
+    const types = new Map([['a', 'grant agreement']]);
+    expect(selectRoundDocumentCandidates(docs, types, 3)).toEqual([]);
+  });
+
+  it('never returns a document that failed the malware-scan gate, even with a matching type', () => {
+    const docs: CandidateDoc[] = [{ ...base, id: 'a', name: 'plan.pdf', malwareScanStatus: 'pending' }];
+    const types = new Map([['a', 'business plan']]);
+    expect(selectRoundDocumentCandidates(docs, types, 3)).toEqual([]);
+  });
+
+  it('caps the result to maxDocs', () => {
+    const docs: CandidateDoc[] = [1, 2, 3].map((n) => ({ ...base, id: String(n), name: `plan-${n}.pdf` }));
+    const types = new Map(docs.map((d) => [d.id, 'business plan']));
+    expect(selectRoundDocumentCandidates(docs, types, 2)).toHaveLength(2);
+  });
+});
+
+describe('suggestRoundDocument', () => {
+  it('returns null when nothing is even remotely relevant — never invents a suggestion', () => {
+    const docs: ExtractedDocumentInfo[] = [
+      { documentId: 'a', documentName: 'grant.pdf', documentType: 'grant agreement', updatedAt: '2026-09-21T20:36:30Z' },
+    ];
+    expect(suggestRoundDocument(docs)).toBeNull();
+  });
+
+  it('returns null for an empty list', () => {
+    expect(suggestRoundDocument([])).toBeNull();
+  });
+
+  it('returns the one relevant document when there is exactly one', () => {
+    const docs: ExtractedDocumentInfo[] = [
+      { documentId: 'a', documentName: 'grant.pdf', documentType: 'grant agreement', updatedAt: '2026-09-20T10:00:00Z' },
+      { documentId: 'b', documentName: 'SherlockDeal Plano de Negocios.pdf', documentType: 'business plan', updatedAt: '2026-09-21T20:36:30Z' },
+    ];
+    expect(suggestRoundDocument(docs)?.documentId).toBe('b');
+  });
+
+  it('prefers the most recently extracted match when several are relevant', () => {
+    const docs: ExtractedDocumentInfo[] = [
+      { documentId: 'old', documentName: 'old-deck.pdf', documentType: 'pitch deck', updatedAt: '2026-01-01T00:00:00Z' },
+      { documentId: 'new', documentName: 'new-plan.pdf', documentType: 'business plan', updatedAt: '2026-09-21T20:36:30Z' },
+    ];
+    expect(suggestRoundDocument(docs)?.documentId).toBe('new');
+  });
+
+  it('ignores a document with a null documentType', () => {
+    const docs: ExtractedDocumentInfo[] = [{ documentId: 'a', documentName: 'unclassified.pdf', documentType: null, updatedAt: '2026-09-21T20:36:30Z' }];
+    expect(suggestRoundDocument(docs)).toBeNull();
+  });
+});
+
+describe('insufficientAnswerMessage', () => {
+  it('keeps the original generic sentence, byte-identical, when there is no suggestion', () => {
+    expect(insufficientAnswerMessage(null)).toBe('Nothing on file yet answers this — you\'ll need to fill it in yourself.');
+  });
+
+  it('names the document when there is a suggestion', () => {
+    const suggestion: ExtractedDocumentInfo = { documentId: 'b', documentName: 'SherlockDeal Plano de Negocios.pdf', documentType: 'business plan', updatedAt: '2026-09-21T20:36:30Z' };
+    const message = insufficientAnswerMessage(suggestion);
+    expect(message).toContain('SherlockDeal Plano de Negocios.pdf');
+    expect(message.toLowerCase()).not.toBe('nothing on file yet answers this — you\'ll need to fill it in yourself.');
   });
 });
 

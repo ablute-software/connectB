@@ -17,6 +17,19 @@ export function isTeamGap(rule: GapRule): boolean {
   return (TEAM_GAP_RULES as readonly string[]).includes(rule);
 }
 
+// Prompt 711 — G6 (round mechanism: use of funds / why now) is drafted from
+// accepted claims ONLY, by the original design — but for a company with no
+// funding/ask/mercado_timing claims accepted yet (the normal case for a
+// company that just started this section), that pool is empty even when a
+// real business plan sits in the Vault, already extracted, answering
+// exactly this question. G4 stays OUT of this on purpose: it asks "is there
+// a Vault doc backing THIS claim," which is a different question with its
+// own dedicated engine (reconciliation.ts) — never reopened here.
+export const ROUND_GAP_RULES: readonly GapRule[] = ['G6'];
+export function isRoundGap(rule: GapRule): boolean {
+  return (ROUND_GAP_RULES as readonly string[]).includes(rule);
+}
+
 // -----------------------------------------------------------------------
 // Part A — company_people.bio/title/linkedin_url, already entered by the
 // founder in Settings→Team. gap-assist/route.ts wraps this text (and the
@@ -66,16 +79,71 @@ export interface CandidateDoc {
 const TEAM_NAME_SIGNAL = /\b(team|cv|r[eé]sum[eé]|bio)\b/i;
 const PDF_EXTENSION = /\.pdf$/i;
 
+// Prompt 375 — 'local_only' counts as safe here too (see this file's own
+// header note on the gate this mirrors — document-extraction-pipeline.ts
+// accepts the same two statuses). Shared by every document-candidate
+// selector below — a Vault PDF is never a candidate for anything unless it
+// cleared this gate first.
+function cleanPdfCandidates(docs: CandidateDoc[]): CandidateDoc[] {
+  return docs.filter((d) => (d.malwareScanStatus === 'clean' || d.malwareScanStatus === 'local_only') && PDF_EXTENSION.test(d.storagePath || d.name));
+}
+
 export function selectTeamDocumentCandidates(docs: CandidateDoc[], maxDocs: number): CandidateDoc[] {
-  // Prompt 375 — 'local_only' counts as safe here too (see this file's own
-  // header note on the gate this mirrors — document-extraction-pipeline.ts
-  // accepts the same two statuses).
-  const clean = docs.filter((d) => (d.malwareScanStatus === 'clean' || d.malwareScanStatus === 'local_only') && PDF_EXTENSION.test(d.storagePath || d.name));
+  const clean = cleanPdfCandidates(docs);
   const byPortalSection = clean.filter((d) => d.portalSection === 'team_governance');
   if (byPortalSection.length > 0) return byPortalSection.slice(0, maxDocs);
   const byName = clean.filter((d) => TEAM_NAME_SIGNAL.test(d.name) || (d.folderName ? TEAM_NAME_SIGNAL.test(d.folderName) : false));
   if (byName.length > 0) return byName.slice(0, maxDocs);
   return clean.slice(0, maxDocs);
+}
+
+// -----------------------------------------------------------------------
+// Prompt 711 Part A — which Vault documents are worth reading for G6 (round
+// mechanism: use of funds / why now). No portal_section/name heuristic here
+// like the team selector above: a business plan or investor deck could sit
+// in any folder, under any filename, so there's no equivalent structured
+// fallback signal to lean on first. Instead this reads the ONE real signal
+// that already exists for every extracted document — document_extractions.
+// extracted.documentType, set once at upload time by the extraction pass
+// itself (Prompt 313), never guessed here. Exact wording is the model's own
+// free-text label ("business plan", "investor deck", ...), so this matches
+// loosely rather than against a closed enum.
+const ROUND_DOCUMENT_TYPE_SIGNAL = /\b(business\s*plan|investor\s*deck|pitch\s*deck|financial\s*model)\b/i;
+
+export function selectRoundDocumentCandidates(
+  docs: CandidateDoc[], documentTypeByDocId: Map<string, string | null>, maxDocs: number,
+): CandidateDoc[] {
+  const relevant = cleanPdfCandidates(docs).filter((d) => {
+    const type = documentTypeByDocId.get(d.id);
+    return !!type && ROUND_DOCUMENT_TYPE_SIGNAL.test(type);
+  });
+  return relevant.slice(0, maxDocs);
+}
+
+// -----------------------------------------------------------------------
+// Prompt 711 Part B — when the draft comes back sufficient:false, name a
+// real document instead of the same blind sentence every time. Deliberately
+// separate from Part A's candidate list above (which only ever contains
+// PDFs that cleared the malware-scan gate, because those bytes get sent to
+// the model): a courtesy text mention costs nothing and reveals nothing new
+// (the founder already sees this document in their own Vault), so it's
+// fine to consider every completed extraction here, not just the
+// scan-clean subset that was actually attached to this specific draft.
+export interface ExtractedDocumentInfo { documentId: string; documentName: string; documentType: string | null; updatedAt: string }
+
+export function suggestRoundDocument(docs: ExtractedDocumentInfo[]): ExtractedDocumentInfo | null {
+  const relevant = docs.filter((d) => d.documentType && ROUND_DOCUMENT_TYPE_SIGNAL.test(d.documentType));
+  if (relevant.length === 0) return null;
+  // Most recently extracted first — "sem sinal melhor" (no stronger signal
+  // to rank candidates by), per the mini-prompt's own wording.
+  return [...relevant].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+}
+
+const GENERIC_INSUFFICIENT_MESSAGE = 'Nothing on file yet answers this — you\'ll need to fill it in yourself.';
+
+export function insufficientAnswerMessage(suggestion: ExtractedDocumentInfo | null): string {
+  if (!suggestion) return GENERIC_INSUFFICIENT_MESSAGE;
+  return `Nothing on file yet answers this directly, but "${suggestion.documentName}" looks relevant — open it and confirm, or add the answer yourself.`;
 }
 
 // -----------------------------------------------------------------------
