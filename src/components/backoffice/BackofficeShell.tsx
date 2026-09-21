@@ -174,6 +174,8 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
     item('accounts-startups', 'Startups', '/backoffice/startups', { icon: '◉', group: 2, groupLabel: 'Accounts' }),
     item('accounts-investors', 'Investors', '/backoffice/investors', { icon: '◉', group: 2 }),
     item('accounts-plans', 'Plan requests', '/backoffice/plan-requests', { icon: '◉', group: 2, dimmed: true }),
+    // Prompt 706 — AI credits wallet: plan allowances + per-action cost/kill-switch.
+    item('accounts-ai-plans', 'AI credits & plans', '/backoffice/ai-plans', { icon: '◉', group: 2 }),
 
     item('data-catalog', 'Catalog', '/backoffice/catalog', { icon: '▦', group: 3, groupLabel: 'Data' }),
     // Prompt 574 §D — real now: org_competitors grouped by market_companies,

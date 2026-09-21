@@ -33,6 +33,7 @@ import { malwareScanAvailable } from '@/lib/upload-security-capability';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
+import { chargeAiAction } from '@/lib/ai-credits';
 
 export const maxDuration = 30;
 
@@ -257,6 +258,9 @@ export async function POST(req: Request) {
   try {
     if (role === 'polish') {
       if (!currentAnswer?.trim()) return NextResponse.json({ ok: false, error: 'Write your own answer first — AI can only improve your wording here, not invent it.' });
+      // Prompt 706 — after the free early-return above, before the one call this branch makes.
+      const polishCharge = await chargeAiAction(sb, orgId, 'blueprint_gap_polish');
+      if (!polishCharge.ok) return NextResponse.json({ ok: false, error: polishCharge.reason });
       const output = await callClaude(
         apiKey, model,
         'You improve a startup founder\'s own answer to an investor-readiness question — clarity and phrasing ONLY. '
@@ -268,6 +272,11 @@ export async function POST(req: Request) {
       ) as { polishedAnswer: string };
       return NextResponse.json({ ok: true, role: 'polish', text: output.polishedAnswer });
     }
+
+    // Prompt 706 — the draft branch's own charge, before any of its (free)
+    // context-gathering below and its one model call further down.
+    const draftCharge = await chargeAiAction(sb, orgId, 'blueprint_gap_draft');
+    if (!draftCharge.ok) return NextResponse.json({ ok: false, error: draftCharge.reason });
 
     // Grounding context: the claims this specific gap is ABOUT when it names
     // them (relatedClaimIds), else every accepted claim — G3/G6 don't tie to

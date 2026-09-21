@@ -31,6 +31,7 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
+import { chargeAiAction } from '@/lib/ai-credits';
 
 type ReviewKind =
   | 'message_review' | 'deck_review' | 'one_pager_review' | 'market_data'
@@ -261,6 +262,11 @@ export async function POST(req: Request) {
     }
     if (!member) return NextResponse.json({ error: 'No organization.' }, { status: 403 });
 
+    // Prompt 706 — before reading either document (real I/O, no point
+    // doing it if the wallet is empty) or the one model call below.
+    const crossDocCharge = await chargeAiAction(sb, member.org_id as string, 'cross_document_review');
+    if (!crossDocCharge.ok) return NextResponse.json({ error: crossDocCharge.reason }, { status: 200 });
+
     const admin = createClient(url, service, { auth: { persistSession: false } });
 
     // Resolved and read entirely server-side, org-scoped — the client only
@@ -472,6 +478,21 @@ export async function POST(req: Request) {
   };
 
   const structured = STRUCTURED_KINDS.includes(kind);
+
+  // Prompt 706 — the three billable buttons ("Review with AI" -> the six
+  // *_review doc kinds below, and "Benchmark my market" -> market_data)
+  // share this one generic branch; message_review (the disabled Watson
+  // draft-review card, Prompt 99 §3.4) is deliberately excluded — it isn't
+  // one of the three, and per the original spec table only the confirmed
+  // buttons are metered. No member (no org) means nothing to charge
+  // against — logAiCall already tolerates that same case (orgId: null)
+  // further down, so this follows the same allowance rather than blocking
+  // an edge case the rest of the route doesn't block either.
+  if (kind !== 'message_review' && member) {
+    const actionKey = kind === 'market_data' ? 'market_data_review' : 'document_review';
+    const charge = await chargeAiAction(sb, member.org_id as string, actionKey);
+    if (!charge.ok) return NextResponse.json({ error: charge.reason }, { status: 200 });
+  }
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {

@@ -10,6 +10,8 @@ import type { ExtractionSkipReason } from './document-extraction-pipeline';
 const ALL_REASONS: ExtractionSkipReason[] = [
   'scan_unavailable', 'not_found', 'not_clean', 'not_pdf', 'too_large',
   'download_failed', 'pdf_parse_failed', 'claude_failed', 'link_unreadable',
+  // Prompt 708 §B — the AI-credits wallet's own refusal.
+  'ai_credit_limit',
 ];
 
 describe('extractionSkipReasonMessage', () => {
@@ -23,6 +25,10 @@ describe('extractionSkipReasonMessage', () => {
 
   it('link_unreadable — the Prompt 462 case (a link that never returned a readable file) — reads like the prompt\'s own example', () => {
     expect(extractionSkipReasonMessage('link_unreadable')).toBe('that link did not return a readable file');
+  });
+
+  it('ai_credit_limit — the Prompt 708 wallet refusal, plain and not the founder\'s fault', () => {
+    expect(extractionSkipReasonMessage('ai_credit_limit')).toBe('this month\'s AI credits have run out');
   });
 
   it('every reason gets a DIFFERENT sentence — no accidental collapsing of distinct failures into one generic message', () => {

@@ -28,6 +28,9 @@ import { pickCurrentGap } from '@/lib/gap-rotation';
 import { GAP_QUESTION_BUDGET } from '@/lib/company-gaps';
 import { PlanBadge } from '@/components/PlanBadge';
 import { planName, REVIEW_OPTIMIZATION_PREVIEW_COPY } from '@/lib/plans';
+import { useConfirm } from '@/lib/confirm';
+import { countCriticalGaps, insufficientInfoDialog, shouldWarnBeforeSpending } from '@/lib/ai-spend-confirm';
+import { fetchWalletStatus } from '@/lib/ai-spend-confirm-client';
 import { can, type OrgRole } from '@/lib/permissions';
 import { SwotVisualCard } from './SwotVisualCard';
 import { ClarificationBullet } from './ClarificationBullet';
@@ -372,7 +375,18 @@ export function ReviewPanel() {
     setCrossDocA(''); setCrossDocB(''); setCrossResult(null); setCrossErr('');
   }
 
+  const confirm = useConfirm();
+
+  // Prompt 706 Bloco D — the SAME criticalGaps count the card below already
+  // shows (line ~420), reused rather than recomputed, so the popup and the
+  // card can never disagree about "how many."
   async function runInvestability() {
+    const criticalGapCount = countCriticalGaps(gaps);
+    if (shouldWarnBeforeSpending(criticalGapCount)) {
+      const wallet = await fetchWalletStatus('investability_report');
+      const proceed = await confirm(insufficientInfoDialog({ actionLabel: 'Investability ranking', criticalGapCount, wallet }));
+      if (!proceed) return;
+    }
     setRunLoading(true); setRunErr('');
     try {
       const res = await fetch('/api/review/investability', {

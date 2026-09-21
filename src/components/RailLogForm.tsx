@@ -535,7 +535,10 @@ export function RailLogForm({
                 {composing ? 'Drafting…' : '✨ Let Watson Draft'}
               </button>
             </Tooltip>
-            {watson && <span className="text-[10.5px] text-gray-400">{watson.remaining} draft{watson.remaining === 1 ? '' : 's'} left</span>}
+            {/* Prompt 706 — "drafts left" retired: `watson.remaining` now
+                reads the shared AI-credits wallet, spent by many actions
+                besides this one, not a dedicated per-draft pool. */}
+            {watson && <span className="text-[10.5px] text-gray-400">{watson.remaining} AI credit{watson.remaining === 1 ? '' : 's'} left this month</span>}
           </div>
         )
       )}
