@@ -10,11 +10,13 @@ import { join } from 'node:path';
 // transactions — see this session's own report for the exact assertions
 // and results; that isn't repeated here since it needs a real Postgres
 // connection, not a unit test. What a unit test CAN do, and must keep
-// doing on every future edit to these 15 route files, is confirm the
-// wiring itself never quietly regresses: every one of the 18 ai_actions
-// keys has a chargeAiAction(...) call in its route, positioned before that
-// route's own real model call, not after it and not missing entirely. A
-// route edited later without this test breaking is a route this feature
+// doing on every future edit to these route files, is confirm the
+// wiring itself never quietly regresses: every one of the 19 ai_actions
+// keys (18 from Prompt 706 + document_extraction from Prompt 708) has a
+// chargeAiAction(...) call before its own real model call — in its route
+// file for 18 of them, inside extractDocument itself for the 19th (see the
+// dedicated describe block below for why) — not after it and not missing
+// entirely. A route edited later without this test breaking is a route this feature
 // silently stopped protecting — the exact failure mode
 // blueprint_analyses.consumed_kind already proved this codebase is capable
 // of (a column that looked like it tracked something and never did).
@@ -87,6 +89,51 @@ describe('reconciliation — charged only on the one deliberate trigger, never t
     const src = read('src/lib/store-supabase.tsx');
     expect(src).toContain("fetch('/api/reconciliation/run', { method: 'POST' })");
     expect(src).not.toContain("trigger: 'button'");
+  });
+});
+
+// Prompt 708 §B — the 19th action, brought in with the exact same
+// trigger:'button' pattern as reconciliation above, not a new mechanism.
+// The charge itself lives inside extractDocument (document-extraction-
+// pipeline.ts), not in the route file, because that's the one place that
+// already knows whether a real model call is about to happen (as opposed
+// to a free cache hit or a pdf-parse failure) — see that function's own
+// comment on why it isn't charged at the top of the route instead.
+describe('document_extraction — charged only on the one deliberate trigger, inside extractDocument itself', () => {
+  it('extractDocument charges document_extraction right before the real model call, never unconditionally', () => {
+    const src = read('src/lib/document-extraction-pipeline.ts');
+    const chargeGateIdx = src.indexOf('if (charge) {');
+    const chargeKeyIdx = src.indexOf("'document_extraction'");
+    const callIdx = src.indexOf('await callExtractionModel(apiKey, model, docRow.name, truncatedBytes, pagesRead, totalPages)');
+    expect(chargeGateIdx, 'extractDocument has no `if (charge)` gate — the charge must never be unconditional').toBeGreaterThan(-1);
+    expect(chargeKeyIdx, 'extractDocument never charges the document_extraction action key').toBeGreaterThan(-1);
+    expect(callIdx, 'marker for the real model call not found — update this test\'s marker').toBeGreaterThan(-1);
+    expect(chargeKeyIdx, 'the document_extraction charge must appear BEFORE the real model call, not after').toBeLessThan(callIdx);
+    expect(chargeGateIdx, 'the charge gate must appear BEFORE the real model call, not after').toBeLessThan(callIdx);
+  });
+
+  it('api/data-room/extract-document gates the charge option on an explicit trigger flag', () => {
+    const src = read('src/app/api/data-room/extract-document/route.ts');
+    expect(src).toContain("trigger === 'button'");
+  });
+
+  it('MarketDataPanel sends trigger:\'button\' on its extract-document call specifically', () => {
+    const src = read('src/components/readiness/MarketDataPanel.tsx');
+    const idx = src.indexOf("fetch('/api/data-room/extract-document'");
+    expect(idx, 'MarketDataPanel no longer calls /api/data-room/extract-document').toBeGreaterThan(-1);
+    expect(src.slice(idx, idx + 300)).toContain("trigger: 'button'");
+  });
+
+  it('store-supabase.tsx\'s automatic upload/rename trigger is unmodified — no trigger flag added there', () => {
+    const src = read('src/lib/store-supabase.tsx');
+    const idx = src.indexOf("fetch('/api/data-room/extract-document'");
+    expect(idx, 'store-supabase.tsx no longer calls /api/data-room/extract-document').toBeGreaterThan(-1);
+    expect(src.slice(idx, idx + 300)).not.toContain("trigger: 'button'");
+  });
+
+  it('ai_actions seeds document_extraction as the 19th row, needs_confirmation false', () => {
+    const src = read('supabase/migrations/20260921090000_ai_credits_wallet.sql');
+    expect(src).toContain("('document_extraction', 'Read a document (data-room extraction)', 'client', 1, false)");
   });
 });
 

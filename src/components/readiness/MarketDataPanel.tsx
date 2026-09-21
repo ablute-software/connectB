@@ -251,6 +251,15 @@ export function MarketDataPanel() {
       const proceed = await confirm(insufficientInfoDialog({ actionLabel: 'Reading your documents (reconciliation)', criticalGapCount, wallet }));
       if (!proceed) return;
     }
+    // Prompt 708 §B — document_extraction (one charge per selected document,
+    // further down) has needs_confirmation:false and is deliberately NOT
+    // pre-warned here: it's a near-mandatory sub-step of this same button,
+    // which already shows one upfront warning above for the flow as a
+    // whole. If the wallet actually runs dry partway through the loop,
+    // extractDocument refuses that document (skippedReason:'ai_credit_limit')
+    // and it surfaces through the existing per-document failure reporting
+    // below (extractionSkipReasonMessage) — never silent, just not
+    // pre-announced.
     setExtracting(true); setExtractError(''); setExtractSummary(null); setFeedingProgress(null);
     try {
       const res = await fetch('/api/market-data/document-extract', {
@@ -312,13 +321,20 @@ export function MarketDataPanel() {
       // since each call reads a whole PDF and pays a real model request.
       // Already cached by (document_id, sha256) inside extractDocument
       // itself, so this can run on every pass with no special condition:
-      // an already-extracted document returns immediately at no cost.
+      // an already-extracted document returns immediately at no cost (and,
+      // per Prompt 708 §B, at no credit charge either — the wallet only
+      // charges right before a real model call happens).
       const failures = await feedDocumentsToRestOfPlatform(
         readDocuments,
         async (documentId) => {
           try {
+            // Prompt 708 §B — trigger:'button' marks this as the deliberate
+            // click (as opposed to store-supabase.tsx's automatic upload
+            // trigger, which sends none), so this is the one path that
+            // draws on the AI-credits wallet.
             const feedRes = await fetch('/api/data-room/extract-document', {
-              method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ documentId }),
+              method: 'POST', headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ documentId, trigger: 'button' }),
             });
             const feedBody = await feedRes.json().catch(() => null);
             return { ok: !!feedBody?.ok, skippedReason: feedBody?.skippedReason };

@@ -37,14 +37,30 @@
 -- charge_ai_action(); it does NOT need to equal any ai_call_log.purpose
 -- string, though most do, for legibility.
 --
--- credit_cost is a PROPOSED starting point, not an official number — sized
--- proportionally against real average cost_eur per purpose from
--- ai_call_log (production, queried 2026-09-21, summarized in this
--- session's report): a clean 1 / 3 / 5 scale roughly tracking the real
--- ~€0.002–0.003 (cheap) / ~€0.10–0.11 (mid) / ~€0.13–0.18 (priciest —
--- Market data, confirmed in the strategy doc as "o mais caro, de longe")
--- bands. Flagged for Nuno to confirm/adjust — never meant to be taken as
--- final.
+-- credit_cost — CONFIRMED FINAL by Nuno (Prompt 708, 2026-09-21), unchanged
+-- from the Prompt 706 proposal: sized proportionally against real average
+-- cost_eur per purpose from ai_call_log (production, queried 2026-09-21,
+-- summarized in that session's report): a clean 1 / 3 / 5 scale roughly
+-- tracking the real ~€0.002–0.003 (cheap) / ~€0.10–0.11 (mid) / ~€0.13–0.18
+-- (priciest — Market data, confirmed in the strategy doc as "o mais caro,
+-- de longe") bands.
+--
+-- document_extraction (19th row, added by Prompt 708) is the ONE exception
+-- still open: Prompt 706's own report estimated its real cost at
+-- €0.68-2.35/call — a theoretical worst case (a 30-page PDF at
+-- MAX_EXTRACTION_PAGES) — and Prompt 708 asked for a tier ABOVE 5 credits
+-- if that number held. It does NOT hold: the actual ai_call_log history for
+-- purpose='document_extraction' (15 real calls, queried 2026-09-21) shows
+-- avg €0.0454, median €0.0428, max €0.1039 — cheaper than entity_enrich/
+-- team_sherlock_research (€0.10-0.11 avg, 3 credits) and only ~34% above
+-- reconciliation (€0.0338 avg, 1 credit). Priced at 1 credit here, same
+-- methodology as the other 18, NOT the mini-prompt's own suggested 15-20 —
+-- that number was built on the theoretical estimate, which real usage
+-- contradicts. Flagged for Nuno to confirm this ONE row (see this session's
+-- report for the full comparison table); if he'd rather price for the
+-- observed ceiling (€0.1039, at the low end of the 3-credit band) instead
+-- of the average, 3 credits is the safer alternative — either is a one-line
+-- UPDATE from the backoffice screen (Bloco C) with no deploy needed.
 -- ============================================================================
 create table if not exists ai_actions (
   key text primary key,
@@ -82,7 +98,25 @@ insert into ai_actions (key, label, category, credit_cost, needs_confirmation) v
   ('compose_outreach', 'Compose with AI', 'client', 1, false),
   ('roadmap_suggest', 'Roadmap — suggest events', 'client', 1, false),
   ('mini_pitch_synthesis', 'Mini-pitch synthesis', 'client', 1, false),
-  ('team_sherlock_research', 'Team — Sherlock research', 'client', 3, false)
+  ('team_sherlock_research', 'Team — Sherlock research', 'client', 3, false),
+  -- Prompt 708 §B — the gap Prompt 706 found and flagged instead of either
+  -- silently including or silently ignoring: /api/data-room/extract-document
+  -- has two callers (store-supabase.tsx's automatic upload/rename trigger,
+  -- and MarketDataPanel.tsx's deliberate "Read my documents" button) — same
+  -- shape as reconciliation, same fix (trigger:'button' gate in the route,
+  -- see api/data-room/extract-document/route.ts). needs_confirmation is
+  -- FALSE here, unlike the other 3 expensive/quality-dependent actions
+  -- (investability_report, reconciliation, market_research,
+  -- market_thesis_document_suggest): the SAME "Read my documents" button
+  -- already ends in an unconditional reconciliation charge that already
+  -- shows ONE upfront Bloco D warning for the whole flow (MarketDataPanel.
+  -- tsx's runDocumentExtraction, checked once at the top) — a second popup
+  -- for the sub-step that flow depends on would be redundant, and the
+  -- Bloco D "insufficient info" signal (readiness/blueprint gap count) has
+  -- no bearing on whether a specific uploaded PDF is worth reading anyway.
+  -- The automatic upload-trigger path never charges and never warns, same
+  -- as every other automatic path in this migration.
+  ('document_extraction', 'Read a document (data-room extraction)', 'client', 1, false)
 on conflict (key) do nothing;
 
 alter table ai_actions enable row level security;
@@ -103,17 +137,19 @@ create policy ai_actions_admin_delete on ai_actions for delete using (is_platfor
 -- 2026-09-21 — but garage IS a selectable, real tier in the UI and would
 -- break the FK below if left unseeded).
 --
--- monthly_ai_credits is a PROPOSED starting point, sized to comfortably
--- cover what garage/motherfunding already promise via the SEPARATE,
--- UNTOUCHED WATSON_DRAFT_QUOTA constant (90 / 210 "AI-personalized
--- outreach drafts" per month, plans.ts) now that compose_outreach draws
--- from this SAME shared pool instead of its own counter (see the
--- ai_drafts_used_this_month retirement note near the bottom of this file).
--- Flagged for Nuno: these numbers assume the pool is shared across ALL 18
--- actions, not just compose — if garage founders actually use anywhere
--- near 90 compose credits AND run several market-data/reconciliation
--- passes in the same month, 200 may be tight. Easy to raise later from the
--- backoffice screen (Bloco C) with no deploy.
+-- monthly_ai_credits — CONFIRMED FINAL by Nuno (Prompt 708, 2026-09-21),
+-- unchanged from the Prompt 706 proposal: sized to comfortably cover what
+-- garage/motherfunding already promise via the SEPARATE, UNTOUCHED
+-- WATSON_DRAFT_QUOTA constant (90 / 210 "AI-personalized outreach drafts"
+-- per month, plans.ts) now that compose_outreach draws from this SAME
+-- shared pool instead of its own counter (see the ai_drafts_used_this_month
+-- retirement note near the bottom of this file). These numbers assume the
+-- pool is shared across all 19 actions (18 + Prompt 708's
+-- document_extraction), not just compose — if garage founders actually use
+-- anywhere near 90 compose credits AND run several market-data/
+-- reconciliation passes in the same month, 200 may be tight in practice;
+-- easy to raise later from the backoffice screen (Bloco C) with no deploy,
+-- no need to block launch on getting it perfect up front.
 -- ============================================================================
 create table if not exists plans (
   key text primary key,
