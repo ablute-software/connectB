@@ -43,6 +43,7 @@ import {
   isThesisIncomplete, shouldAutoSuggestFromDocuments, recordDocumentSuggestAttempt, type ThesisDocRef,
 } from '@/lib/market-thesis-document-suggest';
 import { MARKET_THESIS_TEXT_FIELD_KEYS, type MarketThesisTextFieldKey } from '@/lib/market-thesis';
+import { chargeAiAction } from '@/lib/ai-credits';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { logAiCall, computeCostEur } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
@@ -204,6 +205,12 @@ export async function POST(req: Request) {
     if (markAvailable) await recordDocumentSuggestAttempt(admin, orgId, signature, new Date().toISOString());
     return NextResponse.json({ ok: false, error: 'None of your market-looking documents could be read.', skipped });
   }
+
+  // Prompt 706 — after every free early-return above (this route is not
+  // cached/persisted otherwise — its own header says so — so every real
+  // invocation past this point pays), before the one model call below.
+  const charge = await chargeAiAction(sb, orgId, 'market_thesis_document_suggest');
+  if (!charge.ok) return NextResponse.json({ ok: false, error: charge.reason });
 
   const interleaved: unknown[] = [];
   for (let i = 0; i < textBlocks.length; i++) { interleaved.push(textBlocks[i]); interleaved.push(documentBlocks[i]); }

@@ -24,6 +24,7 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
+import { chargeAiAction } from '@/lib/ai-credits';
 
 const NOT_CONFIGURED_MSG = 'AI-assisted enrichment isn’t available in your workspace yet.';
 
@@ -107,6 +108,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return NextResponse.json({ ok: true, configured: false, message: NOT_CONFIGURED_MSG });
+
+  // Prompt 706 — charged against the ENTITY's own org (the resource being
+  // enriched), not necessarily the acting user's org — same org this route
+  // already resolves membership against above.
+  const charge = await chargeAiAction(sb, entity.org_id as string, 'entity_enrich');
+  if (!charge.ok) return NextResponse.json({ ok: false, error: charge.reason });
 
   try {
     const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';

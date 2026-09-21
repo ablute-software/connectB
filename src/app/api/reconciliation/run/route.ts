@@ -24,6 +24,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { gapReconciliationsAvailable } from '@/lib/document-extraction-capability';
 import { runReconciliationForOrg } from '@/lib/reconciliation';
+import { chargeAiAction } from '@/lib/ai-credits';
 
 export const maxDuration = 60;
 
@@ -44,6 +45,23 @@ export async function POST(req: Request) {
   const orgId = member.org_id as string;
 
   if (!(await gapReconciliationsAvailable())) return NextResponse.json({ ok: true, ran: false, reason: 'not configured' });
+
+  // Prompt 706 — this ONE route is reached from four places (this file's
+  // own header): MarketDataPanel's "Read my documents" button (the only
+  // genuinely deliberate one), store-supabase.tsx's automatic post-upload/
+  // post-rename triggers (this route AND its /api/blueprint/reconcile
+  // sibling, which delegates straight here), the /api/blueprint GET that
+  // fires on every ordinary Readiness page load, and the daily cron sweep.
+  // Nuno's decision: charge only the deliberate one. The three automatic
+  // paths never send `trigger: 'button'`, so they're never charged —
+  // gated on an explicit flag rather than "every POST here", since a
+  // route-level charge would also bill the rename/upload/cron paths that
+  // never asked for it.
+  const { trigger } = await req.json().catch(() => ({})) as { trigger?: string };
+  if (trigger === 'button') {
+    const charge = await chargeAiAction(sb, orgId, 'reconciliation');
+    if (!charge.ok) return NextResponse.json({ ok: false, ran: false, reason: charge.reason });
+  }
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   let outcome;

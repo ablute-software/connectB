@@ -50,6 +50,7 @@ import { logAiCall } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { markReadinessTrainFirstUsed } from '@/lib/readiness-usage';
+import { chargeAiAction } from '@/lib/ai-credits';
 import type { SwotData } from '@/lib/types';
 
 interface Report extends SwotData {
@@ -110,6 +111,19 @@ export async function POST(req: Request) {
         }, { status: 200 });
       }
     }
+  }
+
+  // Prompt 706 — the AI-credits wallet, checked AFTER the plan's own
+  // REVIEW_QUOTA (an independent, untouched gate — see plans.ts) and BEFORE
+  // any model call. This one covers BOTH calls this route makes (the report
+  // and the investor-safe SWOT) under a single 'investability_report'
+  // charge — they always run together, so there's nothing to charge twice
+  // for. Org-scoped (is_test exemption lives in the RPC itself), never
+  // exempted by role: a developer inspecting a real org via Developer
+  // Viewer still draws on THAT org's real wallet, not a free pass.
+  const charge = await chargeAiAction(sb, orgId, 'investability_report');
+  if (!charge.ok) {
+    return NextResponse.json({ ok: false, error: charge.reason }, { status: 200 });
   }
 
   // Prompt 168 §E — every clarification the founder has ever added, across

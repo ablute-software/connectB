@@ -31,6 +31,7 @@ import { gapDispositionAvailable, gapQuestionsAvailable, founderPromptStateAvail
 import { normalizeAtom, joinChipAndFreeText } from '@/lib/company-claims';
 import { routeAnswer, ruleG1, ruleG6, impactWhy, type GapRule } from '@/lib/company-gaps';
 import { routeFreeTextAnswer } from '@/lib/answer-routing';
+import { chargeAiAction } from '@/lib/ai-credits';
 import { readExistingClaims } from '@/lib/company-knowledge-db';
 import type { ClaimCategory } from '@/lib/types';
 
@@ -219,6 +220,13 @@ export async function POST(req: Request) {
       .eq('id', targetClaimId).eq('org_id', orgId).maybeSingle();
     if (targetRow?.statement) {
       try {
+        // Prompt 706 — same "never block the founder's answer" spirit this
+        // whole block already follows for an AI failure below: an
+        // exhausted wallet (or a disabled action) just skips the smart
+        // routing and falls through to the always-correct default (a new
+        // claim), rather than surfacing a credits error on a plain answer.
+        const charge = await chargeAiAction(sb, orgId, 'answer_routing');
+        if (!charge.ok) throw new Error(charge.reason ?? 'AI credits unavailable');
         const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';
         const decision = await routeFreeTextAnswer(apiKey, model, orgId, body.rule, targetRow.statement as string, answerText);
         if (decision.destination === 'amend_target_claim') {

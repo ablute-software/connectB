@@ -30,6 +30,7 @@ import { isAllowedLinkedInUrl, looksLikeUsableLinkedInContent } from '@/lib/gap-
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
+import { chargeAiAction } from '@/lib/ai-credits';
 
 export const maxDuration = 60;
 
@@ -180,6 +181,12 @@ export async function POST(req: Request) {
     id: p.id as string, fullName: p.full_name as string, title: (p.title as string | null) ?? null, currentBio: (p.bio as string | null) ?? null,
   }));
   if (roster.length === 0) return NextResponse.json({ ok: false, error: 'Add your team members first, then research their bios.' }, { status: 400 });
+
+  // Prompt 706 — after the one free early-return above, before any of the
+  // (unbilled) document/LinkedIn prep work and the one model call below.
+  const charge = await chargeAiAction(sb, orgId, 'team_sherlock_research');
+  if (!charge.ok) return NextResponse.json({ ok: false, error: charge.reason });
+
   const linkedInByPersonId = new Map((peopleRows ?? []).map((p) => [p.id as string, p.linkedin_url as string | null]).filter((x): x is [string, string] => !!x[1]));
 
   // Prompt 376 §C/§D — what the app already trusts, so a web fact that

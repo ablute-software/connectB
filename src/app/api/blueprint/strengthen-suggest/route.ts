@@ -28,6 +28,7 @@ import type { CompanyClaim } from '@/lib/types';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
+import { chargeAiAction } from '@/lib/ai-credits';
 
 const DIMENSION_LABEL: Record<StrengthenDimension, string> = {
   who: 'exactly who is named', when: 'a date or year', outcome: 'a concrete outcome (signed, agreed, deployed, etc.)',
@@ -83,6 +84,10 @@ export async function POST(req: Request) {
 
   const missing = strengthenGaps(claim);
   if (!missing) return NextResponse.json({ ok: false, error: 'This claim is already specific — nothing to strengthen.' });
+
+  // Prompt 706 — after every free early-return above, before the one model call below.
+  const charge = await chargeAiAction(sb, orgId, 'strengthen_suggest');
+  if (!charge.ok) return NextResponse.json({ ok: false, error: charge.reason });
 
   const missingLabels = missing.map((d) => DIMENSION_LABEL[d]).join(', ');
   const knowledge = await orgKnowledgeText(admin, orgId, claims, claimId);

@@ -54,6 +54,9 @@ import { PORTRAIT_DOC_HEURISTIC, MAX_PORTRAIT_DOCS } from '@/lib/market-portrait
 import { crossDocumentNoticeSentence, extractionSkipReasonMessage, extractionSummarySentence } from '@/lib/extraction-skip-reason';
 import type { ExtractionSkipReason } from '@/lib/document-extraction-pipeline';
 import { feedDocumentsToRestOfPlatform } from '@/lib/feed-documents-to-platform';
+import { useConfirm } from '@/lib/confirm';
+import { insufficientInfoDialog, shouldWarnBeforeSpending } from '@/lib/ai-spend-confirm';
+import { fetchCriticalGapCount, fetchWalletStatus } from '@/lib/ai-spend-confirm-client';
 
 interface Gate { eligible: boolean; missing: { key: string; label: string; href: string }[] }
 interface DocItem { documentId: string; documentName: string; label: string }
@@ -154,6 +157,7 @@ const MAX_DOCUMENT_PASS = MAX_PORTRAIT_DOCS;
 type ResearchMenuKey = 'documents' | 'added';
 
 export function MarketDataPanel() {
+  const confirm = useConfirm();
   const [reconciliationBusy, setReconciliationBusy] = useState(false);
   const [gate, setGate] = useState<Gate | null>(null);
   const [notAvailable, setNotAvailable] = useState(false);
@@ -233,6 +237,20 @@ export function MarketDataPanel() {
   }
 
   async function runDocumentExtraction() {
+    // Prompt 706 Bloco D — this one button ends in a `reconciliation`
+    // charge (the awaited /api/reconciliation/run call further down, with
+    // trigger:'button'), one of the four actions that warns first. Checked
+    // once, up front, for the whole flow — reconciliation is an
+    // unconditional last step of THIS button, never a separately clickable
+    // action of its own, so popping the warning only right before that
+    // last step (after the extraction work already ran) would be a
+    // confusing, mid-flow interruption instead of an upfront choice.
+    const criticalGapCount = await fetchCriticalGapCount();
+    if (shouldWarnBeforeSpending(criticalGapCount)) {
+      const wallet = await fetchWalletStatus('reconciliation');
+      const proceed = await confirm(insufficientInfoDialog({ actionLabel: 'Reading your documents (reconciliation)', criticalGapCount, wallet }));
+      if (!proceed) return;
+    }
     setExtracting(true); setExtractError(''); setExtractSummary(null); setFeedingProgress(null);
     try {
       const res = await fetch('/api/market-data/document-extract', {
@@ -318,7 +336,13 @@ export function MarketDataPanel() {
       // N times for N documents in the same pass would be pure waste, the
       // engine already looks at the whole org's claims/Vault together).
       setFeedingProgress({ kind: 'reconciling' });
-      const reconcileBody = await fetch('/api/reconciliation/run', { method: 'POST' })
+      // Prompt 706 — trigger:'button' marks this as the one deliberate,
+      // user-clicked call to this route (vs. store-supabase.tsx's automatic
+      // post-upload/rename triggers) — the only one the AI-credits wallet
+      // charges (see /api/reconciliation/run's own header).
+      const reconcileBody = await fetch('/api/reconciliation/run', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ trigger: 'button' }),
+      })
         .then((r) => r.json()).catch(() => null) as
         { ok?: boolean; ran?: boolean; autoLinked?: number; suggested?: number; reconciliationSkipped?: boolean } | null;
       setFeedingProgress(null);

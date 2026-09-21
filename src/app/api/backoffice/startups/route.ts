@@ -42,6 +42,18 @@ export async function GET() {
   ]);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
+  // Prompt 706 Bloco C.2 — AI credits used/total this month, per org.
+  // Display-truth only (same spirit as aiDraftsThisMonth above): the real
+  // enforcement is charge_ai_action(), not this list. A whole-org
+  // plan_overrides row (action_key null) overrides the plan's own
+  // monthly_ai_credits, same resolution order as the RPC.
+  const [{ data: plans }, { data: orgOverrides }] = await Promise.all([
+    admin.from('plans').select('key, monthly_ai_credits'),
+    admin.from('plan_overrides').select('org_id, monthly_credits_override').is('action_key', null),
+  ]);
+  const creditLimitByPlan = new Map((plans ?? []).map((p) => [p.key as string, p.monthly_ai_credits as number]));
+  const creditOverrideByOrg = new Map((orgOverrides ?? []).map((o) => [o.org_id as string, o.monthly_credits_override as number]));
+
   // Prompt 184 §4 — informative only, never a filter: MatchDeal is an
   // extra tool, not a requirement to be managed here (the same decision
   // that drove eligiblePipelineOrgIds off matchdeal_profiles.is_visible —
@@ -143,6 +155,9 @@ export async function GET() {
       stage: (org.stage as string | null | undefined) ?? null,
       aiDraftsThisMonth: (org.ai_drafts_used_this_month as number | null | undefined) ?? 0,
       aiReviewsThisMonth: aiReviewCountByOrg.get(org.id) ?? 0,
+      aiCreditsUsed: (org.ai_credits_used_this_period as number | null | undefined) ?? 0,
+      aiCreditsLimit: creditOverrideByOrg.get(org.id) ?? creditLimitByPlan.get(org.plan as string) ?? 0,
+      isTest: !!(org.is_test as boolean | undefined),
       matchDealStatus,
       moderationStatus: moderationAvailable ? ((org.moderation_status as string | undefined) ?? 'active') : 'active',
       moderationQuarantineUntil: moderationAvailable ? ((org.moderation_quarantine_until as string | null | undefined) ?? null) : null,

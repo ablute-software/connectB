@@ -20,6 +20,7 @@ import { logAiCall, computeCostEur } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { isDuplicateRoadmapEvent } from '@/lib/roadmap-duplicate';
 import { isFoundingCandidate } from '@/lib/roadmap-derived';
+import { chargeAiAction } from '@/lib/ai-credits';
 
 // Prompt 894 — never checked the viewer cookie, so a Developer Viewer
 // session got the developer's own org's suggested roadmap events.
@@ -143,10 +144,19 @@ export async function GET(req: Request) {
   const alreadyRanForThisSignature = (existingRows ?? []).some((r) => (r.signature as string).endsWith(`::${signature}`));
 
   if (!alreadyRanForThisSignature && apiKey && items.length > 0) {
-    try {
-      await runSuggestionPass(admin, apiKey, orgId, items, existingRoadmap, signature, foundedYear);
-    } catch (e) {
-      console.error('[roadmap/suggest-events] AI pass failed', (e as Error).message);
+    // Prompt 706 — same graceful-skip spirit as the catch below: an
+    // exhausted wallet just means this pass is skipped for now (the route
+    // still returns whatever's already pending), never a hard error on a
+    // page load that never asked for anything explicitly.
+    const charge = await chargeAiAction(sb, orgId, 'roadmap_suggest');
+    if (!charge.ok) {
+      console.error('[roadmap/suggest-events] AI credits unavailable, skipping this pass', charge.reason);
+    } else {
+      try {
+        await runSuggestionPass(admin, apiKey, orgId, items, existingRoadmap, signature, foundedYear);
+      } catch (e) {
+        console.error('[roadmap/suggest-events] AI pass failed', (e as Error).message);
+      }
     }
   }
 
