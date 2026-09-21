@@ -905,6 +905,16 @@ function DocumentsPageInner() {
     if (failed.length) setUploadErr(failed.join('\n'));
   }
 
+  // Prompt 710 §A — the only way out of a wrong file selection used to be
+  // uploading it anyway or picking another file over it. Clears the staged
+  // selection AND the <input type="file">'s own value (an <input> keeps its
+  // last picked file(s) even after the JS state is reset, so re-choosing the
+  // exact same file again wouldn't otherwise fire onChange a second time).
+  function clearPendingFiles() {
+    setPendingFiles([]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
   async function openStored(storagePath: string) {
     const sb = browserClient();
     const { data, error } = await sb.storage.from('data-room').createSignedUrl(storagePath, 60);
@@ -1161,6 +1171,11 @@ function DocumentsPageInner() {
                   const views = db.views.filter((v) => v.document_id === d.id);
                   const size = d.storage_path ? fmtBytes(storageSizes[d.storage_path]) : undefined;
                   const canDrag = documentOrderingAvailable && renamingDocId !== d.id;
+                  // Prompt 710 §B — drag-and-drop onto a folder in the left
+                  // column was the ONLY way to move a document; a click-
+                  // driven alternative alongside it, calling the exact same
+                  // moveDocumentToFolder the drop handler already calls.
+                  const otherFolders = db.folders.filter((f) => f.id !== d.folder_id);
                   return (
                     <li key={d.id}
                       draggable={canDrag}
@@ -1274,6 +1289,14 @@ function DocumentsPageInner() {
                               Details
                             </button>
                           )}
+                          {otherFolders.length > 0 && (
+                            <select value="" onChange={(e) => { if (e.target.value) moveDocumentToFolder(d.id, e.target.value); }}
+                              title="Move to folder" aria-label="Move to folder"
+                              className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50">
+                              <option value="" disabled>Move to folder…</option>
+                              {otherFolders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                            </select>
+                          )}
                           <button onClick={() => confirmDeleteDoc(d)} className="rounded-lg border border-red-200 px-2.5 py-1 text-xs text-[#B00000] hover:bg-red-50">
                             Delete
                           </button>
@@ -1379,7 +1402,10 @@ function DocumentsPageInner() {
             }
             return (
               <Card title="Add Document" right={
-                <button type="button" onClick={() => setAddDocOpen(false)} aria-label="Collapse" title="Collapse"
+                // Prompt 710 §A — closing the whole panel also drops any
+                // staged-but-not-uploaded selection, so reopening it later
+                // never surfaces an old, forgotten pick.
+                <button type="button" onClick={() => { setAddDocOpen(false); clearPendingFiles(); }} aria-label="Collapse" title="Collapse"
                   className="rounded-full border border-gray-300 px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-50">Close</button>
               }>
                 {showAccessSelector && (
@@ -1440,10 +1466,19 @@ function DocumentsPageInner() {
                         onChange={(e) => setPendingFiles(Array.from(e.target.files ?? []))}
                         className="text-sm" />
                       {pendingFiles.length > 0 && !uploading && (
-                        <button onClick={() => uploadFiles(pendingFiles)}
-                          className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">
-                          Upload {pendingFiles.length} file{pendingFiles.length === 1 ? '' : 's'}
-                        </button>
+                        <>
+                          <button onClick={() => uploadFiles(pendingFiles)}
+                            className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">
+                            Upload {pendingFiles.length} file{pendingFiles.length === 1 ? '' : 's'}
+                          </button>
+                          {/* Prompt 710 §A — the missing way out: picking a
+                              wrong file used to mean either uploading it
+                              anyway or picking another file over it. */}
+                          <button onClick={clearPendingFiles}
+                            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50">
+                            Cancel
+                          </button>
+                        </>
                       )}
                       {uploadProgress && (
                         <span className="text-xs text-gray-400">
