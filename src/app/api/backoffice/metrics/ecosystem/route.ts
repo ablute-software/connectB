@@ -17,26 +17,42 @@
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { ecosystemFactsAvailable } from '@/lib/ecosystem-facts-capability';
+import { toCsv } from '@/lib/csv';
+import { buildEcosystemCsvRows, ECOSYSTEM_CSV_COLUMNS, filenameSlug, segmentLabel } from '@/lib/ecosystem-cohort-view';
 
 const K_THRESHOLD = 8; // must match observatory_query's own constant (migration 0116)
 const DOMINANCE_THRESHOLD = 0.5; // must match observatory_query's own constant (migration 0116)
 const CATEGORIES = ['product', 'traction', 'team', 'positioning', 'financing', 'regulatory', 'market', 'metrics', 'other'];
 const SEVERITIES: { label: string; value: number }[] = [{ label: 'low', value: 1 }, { label: 'medium', value: 2 }, { label: 'high', value: 3 }];
 
+// Prompt 707 §C — CSV export shares this exact route/computation rather
+// than a parallel endpoint (same convention as backoffice/decisions'
+// format=csv), so there is exactly one place that decides `withheld` —
+// the export can never show a different anonymity verdict than the screen
+// that led to it. A CSV request against an unavailable/empty/withheld
+// cohort gets a plain JSON refusal, never a generated file: a client-side
+// disabled button (EcosystemTab.tsx) is the honest first line, but this is
+// the one that actually holds if that URL is hit directly.
+function csvRefusal(reason: string) {
+  return NextResponse.json({ ok: false, error: reason }, { status: 400 });
+}
+
 export async function GET(req: Request) {
   const auth = await requirePlatformAdmin();
   if ('error' in auth) return auth.error;
   const { admin } = auth;
-
-  if (!(await ecosystemFactsAvailable())) {
-    return NextResponse.json({ available: false });
-  }
 
   const { searchParams } = new URL(req.url);
   const country = searchParams.get('country') || undefined;
   const sector = searchParams.get('sector') || undefined;
   const stage = searchParams.get('stage') || undefined;
   const sinceDays = searchParams.get('sinceDays');
+  const wantsCsv = searchParams.get('format') === 'csv';
+
+  if (!(await ecosystemFactsAvailable())) {
+    if (wantsCsv) return csvRefusal('Foundation not applied yet — nothing to export.');
+    return NextResponse.json({ available: false });
+  }
 
   let orgQuery = admin.from('orgs').select('id');
   if (country) orgQuery = orgQuery.eq('country', country);
@@ -48,6 +64,7 @@ export async function GET(req: Request) {
   const cohortOrgIds = (cohortOrgs ?? []).map((o) => o.id as string);
   const cohortN = cohortOrgIds.length;
   if (cohortN === 0) {
+    if (wantsCsv) return csvRefusal('Segment below anonymity threshold — nothing to export.');
     return NextResponse.json({ available: true, cohortN: 0, withheld: true, sri: null, heatmap: [] });
   }
 
@@ -94,6 +111,18 @@ export async function GET(req: Request) {
         heatmap.push({ category, severity: sev.label, pctOfCohort: Math.round((orgsWithCell.size / cohortN) * 100) });
       }
     }
+  }
+
+  if (wantsCsv) {
+    if (withheld) return csvRefusal('Segment below anonymity threshold (n<8, or one org over 50% of the metric) — nothing to export.');
+    const csv = toCsv(
+      buildEcosystemCsvRows({ country, sector, stage, sinceDays: sinceDays ?? undefined }, { cohortN, sri, heatmap }),
+      ECOSYSTEM_CSV_COLUMNS,
+    );
+    const filename = `state-of-the-ecosystem-${filenameSlug(segmentLabel({ country, sector, stage }))}-${new Date().toISOString().slice(0, 10)}.csv`;
+    return new NextResponse(csv, {
+      headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="${filename}"` },
+    });
   }
 
   return NextResponse.json({ available: true, cohortN, withheld, sri, heatmap });

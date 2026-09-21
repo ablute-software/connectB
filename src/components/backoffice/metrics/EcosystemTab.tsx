@@ -4,9 +4,11 @@
 // (Nuno wants to see it exist) — gated purely on ecosystemFactsAvailable's
 // value, read from this route's own `available` field.
 //
-// D6 (from the discussão doc): SRI v0 + weakness heatmap only. No AI
-// analyst note, no PDF export, no M0-M4 — all explicitly deferred to the
-// next batch.
+// D6 (from the discussão doc): SRI v0 + weakness heatmap only — both
+// implemented below. Prompt 707 confirmed via live production audit that
+// they'd simply never been SEEN yet: every real cohort today has too few
+// distinct orgs to clear the K=8 threshold, so `withheld` was always true.
+// Prompt 707 also added the CSV/PDF export in this same tab.
 import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui';
 // Prompt 176 §A.4 — was investor-sector-taxonomy.ts's 22-value list; this
@@ -17,26 +19,9 @@ import { Card } from '@/components/ui';
 // offering options that could never match real org data, same bug class as
 // the investor thesis picker.
 import { ALL_SECTOR_NAMES } from '@/lib/sector-taxonomy';
-
-// orgs.stage's real enum (confirmed via production schema, not guessed) —
-// 7 values, not the 5-value MatchDeal investment_stage_sought domain used
-// elsewhere in this codebase. This cohort builder filters orgs.stage
-// directly, so it must use orgs' own domain.
-const STAGE_OPTIONS: { value: string; label: string }[] = [
-  { value: 'pre_seed', label: 'Pre-seed' }, { value: 'seed', label: 'Seed' },
-  { value: 'series_a', label: 'Series A' }, { value: 'series_b', label: 'Series B' },
-  { value: 'series_c_plus', label: 'Series C+' }, { value: 'later', label: 'Later' },
-  { value: 'other', label: 'Other' },
-];
-const PERIOD_OPTIONS: { value: string; label: string }[] = [
-  { value: '', label: 'All time' }, { value: '30', label: 'Last 30 days' }, { value: '90', label: 'Last 90 days' },
-];
-const SEVERITY_ORDER = ['low', 'medium', 'high'];
-const SEVERITY_LABEL: Record<string, string> = { low: 'Low', medium: 'Medium', high: 'High' };
-const CATEGORY_LABEL: Record<string, string> = {
-  product: 'Product', traction: 'Traction', team: 'Team', positioning: 'Positioning', financing: 'Financing',
-  regulatory: 'Regulatory', market: 'Market', metrics: 'Metrics', other: 'Other',
-};
+import {
+  STAGE_OPTIONS, PERIOD_OPTIONS, SEVERITY_ORDER, SEVERITY_LABEL, CATEGORY_LABEL, heatCellColor,
+} from '@/lib/ecosystem-cohort-view';
 
 interface EcosystemResponse {
   available: boolean;
@@ -47,14 +32,6 @@ interface EcosystemResponse {
   error?: string;
 }
 
-function heatCellColor(pct: number) {
-  // Sequential, one hue — a prevalence %, not a categorical distinction.
-  if (pct >= 60) return 'bg-[#7C1D1D] text-white';
-  if (pct >= 40) return 'bg-[#B00000] text-white';
-  if (pct >= 20) return 'bg-red-200 text-red-900';
-  return 'bg-red-50 text-red-700';
-}
-
 export function EcosystemTab() {
   const [country, setCountry] = useState('');
   const [sector, setSector] = useState('');
@@ -63,18 +40,32 @@ export function EcosystemTab() {
   const [data, setData] = useState<EcosystemResponse | null>(null);
   const [loading, setLoading] = useState(false);
 
-  function load() {
-    setLoading(true);
+  // Shared by the live query and both export buttons below, so "what's on
+  // screen" and "what gets exported" are always the same cohort.
+  function currentParams(): URLSearchParams {
     const params = new URLSearchParams();
     if (country.trim()) params.set('country', country.trim());
     if (sector) params.set('sector', sector);
     if (stage) params.set('stage', stage);
     if (sinceDays) params.set('sinceDays', sinceDays);
-    fetch(`/api/backoffice/metrics/ecosystem?${params}`).then((r) => r.json()).then((body) => {
+    return params;
+  }
+
+  function load() {
+    setLoading(true);
+    fetch(`/api/backoffice/metrics/ecosystem?${currentParams()}`).then((r) => r.json()).then((body) => {
       setData(body); setLoading(false);
     }).catch(() => setLoading(false));
   }
   useEffect(load, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Prompt 707 §C.3 — disabled, not silently broken, while a cohort is
+  // below the anonymity threshold (or the foundation isn't applied, or a
+  // query is in flight): never let a click reach a route that would have
+  // to refuse it. The route refuses it anyway (never trust a disabled
+  // attribute alone for an anonymity guarantee), but this is the honest
+  // first line — no misleading "nothing happened" click.
+  const exportDisabled = loading || !data?.available || !!data?.withheld;
 
   if (data && !data.available) {
     return (
@@ -127,12 +118,31 @@ export function EcosystemTab() {
           <button onClick={load} disabled={loading} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
             {loading ? 'Loading…' : 'Apply'}
           </button>
+          <div className="ml-auto flex gap-2">
+            <button
+              onClick={() => { window.location.href = `/api/backoffice/metrics/ecosystem?${currentParams()}&format=csv`; }}
+              disabled={exportDisabled}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Export CSV
+            </button>
+            <button
+              onClick={() => { window.open(`/metrics/ecosystem-report?${currentParams()}`, '_blank'); }}
+              disabled={exportDisabled}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Export PDF
+            </button>
+          </div>
         </div>
         {/* Always shown, regardless of anonymity — the cohort's own size is
             not itself sensitive; it's the metric AGGREGATES that get
             withheld below. */}
         <p className="mt-3 text-xs text-gray-500">
           Cohort: <span className="font-semibold text-gray-800">n = {data?.cohortN ?? '—'}</span>
+          {exportDisabled && data?.available && (
+            <span className="ml-2 text-gray-400">Export needs a segment at or above the anonymity threshold.</span>
+          )}
         </p>
       </Card>
 
