@@ -403,9 +403,14 @@ thead .bo-sticky-col { z-index: 3; }
    The origin row stays put and reads STRONGER while its shadow travels (a
    2px accent outline, background one tone up); the targets pulse once so it
    is clear where a row may be dropped; a confirmed drop collapses the row
-   (250ms) and pulses the count with a "+1". The vault door itself is inline
-   (PipelineDropTarget.tsx) because its angle depends on state. Every
-   animation here is switched off under prefers-reduced-motion (§1.7). */
+   (250ms) and pulses the count with a "+1". Every animation here is
+   switched off under prefers-reduced-motion (§1.7).
+   Prompt 704 — the vault-door target moved onto the six funnel cards
+   themselves (PipelineFunnel.tsx, Phase 4); these classes are unchanged
+   and now applied there directly instead of via the retired
+   PipelineDropTarget.tsx (deleted — its door-flip look didn't fit a card
+   this much bigger; the funnel cards use a plain ring/border swap instead,
+   same classes below). */
 body.pipeline-dragging { user-select: none; -webkit-user-select: none; cursor: grabbing; }
 body.pipeline-dragging a, body.pipeline-dragging button { cursor: grabbing; }
 tr.pipeline-drag-origin, tr.pipeline-drag-origin:hover {
