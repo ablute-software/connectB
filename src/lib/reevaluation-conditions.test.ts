@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   CONDITION_TRIGGER_CHIPS, UNDETECTABLE_CONDITION_KINDS, conditionKindLabel, conditionNeedsConsent,
-  detectConditionFulfillment, reapresentationMessage,
+  detectConditionFulfillment, founderConditionLabel, founderConditionPhrase, reapresentationMessage,
 } from './reevaluation-conditions';
 
 // Same hand-rolled fake-SupabaseClient pattern as reconciliation.test.ts —
@@ -144,5 +144,32 @@ describe('reapresentationMessage — template only, never a model', () => {
     expect(msg).toContain('Pilot completed with Acme Health');
     expect(msg).toContain('15 Nov 2026');
     expect(msg).toContain('Declared by the startup, not verified.');
+  });
+});
+
+// Prompt 717 Part D — the ONLY thing about a condition the founder ever
+// sees. Matches the prompt's own three literal examples exactly.
+describe('founderConditionLabel / founderConditionPhrase', () => {
+  it('matches the prompt\'s own three examples verbatim', () => {
+    expect(founderConditionLabel('pilot_completed', null)).toBe('Wants to look again when: pilot completed');
+    expect(founderConditionLabel('recurring_revenue', '50000')).toBe('Wants to look again when: recurring revenue reaches €50000');
+    expect(founderConditionLabel('lead_investor_confirmed', null)).toBe('Wants to look again when: a lead investor is confirmed');
+  });
+
+  it('includes condition_value only when it is numeric', () => {
+    expect(founderConditionPhrase('recurring_revenue', '50000')).toContain('50000');
+    expect(founderConditionPhrase('recurring_revenue', null)).not.toContain('€');
+  });
+
+  it('never includes a non-numeric value (team_complete\'s value is a role name, not a number)', () => {
+    const phrase = founderConditionPhrase('team_complete', 'Head of Sales');
+    expect(phrase).not.toContain('Head of Sales');
+    expect(phrase).toBe('the team is complete');
+  });
+
+  it('produces a non-empty phrase for every consent-needing kind', () => {
+    for (const kind of ['first_customer', 'pilot_completed', 'recurring_revenue', 'technical_validation', 'regulatory_milestone', 'team_complete', 'lead_investor_confirmed', 'new_round_condition'] as const) {
+      expect(founderConditionPhrase(kind, null)).not.toBe('');
+    }
   });
 });

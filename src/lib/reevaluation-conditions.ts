@@ -127,3 +127,39 @@ export function reapresentationMessage(obstacleLabel: string, factText: string, 
   const date = new Date(factDateIso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
   return `You asked to look again after ${obstacleLabel}. The startup declared "${factText}" on ${date}. Declared by the startup, not verified.`;
 }
+
+// Prompt 717 Part D — closing the gap flagged in Prompt 716's own report: a
+// reevaluation-triggered watch request used to look identical to a generic
+// one to the founder. This is the ONLY thing about a condition that ever
+// reaches the founder — never the obstacle, the private chips, the private
+// note, or review_by. `condition_value` is included only when it parses as
+// a plain number ("com o valor quando for numérico" — team_complete's own
+// value is a role NAME, not a number, so it never appears here even though
+// the field is populated).
+function isNumericConditionValue(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const trimmed = value.trim();
+  if (trimmed === '' || Number.isNaN(Number(trimmed))) return null;
+  return trimmed;
+}
+
+export function founderConditionPhrase(kind: ConditionKind, value: string | null | undefined): string {
+  const numeric = isNumericConditionValue(value);
+  switch (kind) {
+    case 'first_customer': return 'a first customer is signed';
+    case 'pilot_completed': return 'pilot completed';
+    case 'recurring_revenue': return numeric ? `recurring revenue reaches €${numeric}` : 'you have recurring revenue';
+    case 'technical_validation': return 'technical validation is complete';
+    case 'regulatory_milestone': return 'a regulatory milestone is reached';
+    case 'team_complete': return 'the team is complete';
+    case 'lead_investor_confirmed': return 'a lead investor is confirmed';
+    case 'new_round_condition': return 'the round terms change';
+    // 'date' and 'never_show_again' never reach here — conditionNeedsConsent()
+    // is false for both, so neither ever has a watch to attach this label to.
+    default: return '';
+  }
+}
+
+export function founderConditionLabel(kind: ConditionKind, value: string | null | undefined): string {
+  return `Wants to look again when: ${founderConditionPhrase(kind, value)}`;
+}
