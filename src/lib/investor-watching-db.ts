@@ -6,6 +6,8 @@ import 'server-only';
 // between callers.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { captureSnapshot, type SnapshotData } from './startup-snapshot';
+import { founderConditionLabel, type ConditionKind } from './reevaluation-conditions';
+import { reevaluationConditionsAvailable } from './reevaluation-capability';
 
 export type WatchStatus = 'requested' | 'active' | 'declined' | 'revoked';
 export interface WatchRow {
@@ -67,7 +69,13 @@ export async function revokeWatch(admin: SupabaseClient, watchId: string, orgId:
   return error ? { ok: false, error: error.message } : { ok: true };
 }
 
-export interface FounderWatcherRow { watchId: string; investorName: string; status: WatchStatus; requestedAt: string; decidedAt: string | null }
+export interface FounderWatcherRow {
+  watchId: string; investorName: string; status: WatchStatus; requestedAt: string; decidedAt: string | null;
+  // Prompt 717 Part D — the ONLY thing a reevaluation condition ever
+  // contributes to what the founder sees: the type of milestone (+ its
+  // value when numeric). Null for a plain watch request — unchanged text.
+  conditionLabel: string | null;
+}
 
 // Founder transparency ("quem me acompanha") — name and status only, NEVER
 // the investor's own notes/ratings/orderings (none of which live on this
@@ -76,8 +84,26 @@ export async function getWatchersForOrg(admin: SupabaseClient, orgId: string): P
   const { data } = await admin.from('investor_watches')
     .select('id, status, requested_at, decided_at, catalog_entities(name)')
     .eq('org_id', orgId).in('status', ['requested', 'active']).order('requested_at', { ascending: false });
-  return ((data ?? []) as unknown as { id: string; status: WatchStatus; requested_at: string; decided_at: string | null; catalog_entities: { name: string } | null }[])
-    .map((r) => ({ watchId: r.id, investorName: r.catalog_entities?.name ?? 'An investor', status: r.status, requestedAt: r.requested_at, decidedAt: r.decided_at }));
+  const rows = (data ?? []) as unknown as { id: string; status: WatchStatus; requested_at: string; decided_at: string | null; catalog_entities: { name: string } | null }[];
+
+  // Prompt 717 Part D — reevaluation-conditions.ts is client-safe (no
+  // server-only import), so requiring it dynamically here (a server-only
+  // file) is exactly as safe as a top-level import; done this way only so
+  // this file's own import list stays honest about which table it reads.
+  const conditionLabelByWatchId = new Map<string, string>();
+  if (rows.length > 0 && await reevaluationConditionsAvailable()) {
+    const { data: conditions } = await admin.from('investor_reevaluation_conditions')
+      .select('watch_id, condition_kind, condition_value').in('watch_id', rows.map((r) => r.id));
+    for (const c of conditions ?? []) {
+      if (!c.watch_id) continue;
+      conditionLabelByWatchId.set(c.watch_id as string, founderConditionLabel(c.condition_kind as ConditionKind, c.condition_value as string | null));
+    }
+  }
+
+  return rows.map((r) => ({
+    watchId: r.id, investorName: r.catalog_entities?.name ?? 'An investor', status: r.status,
+    requestedAt: r.requested_at, decidedAt: r.decided_at, conditionLabel: conditionLabelByWatchId.get(r.id) ?? null,
+  }));
 }
 
 export async function getActiveWatchesForInvestor(admin: SupabaseClient, investorCatalogEntityId: string): Promise<WatchRow[]> {

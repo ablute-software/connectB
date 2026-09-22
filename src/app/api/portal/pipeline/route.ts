@@ -50,6 +50,8 @@ import {
   isFirmTestOrInternal, swipePassReasonForChips, writeSignalEvent,
 } from '@/lib/investor-signal-events';
 import { currentMandateVersion } from '@/lib/investor-mandate-versions';
+import { CONDITION_OPTIONS, CONDITION_TRIGGER_CHIPS, type ConditionKind } from '@/lib/reevaluation-conditions';
+import { recordReevaluationCondition } from '@/lib/reevaluation-conditions-server';
 
 // AP-08 — free text, not the old fixed category list. Max 1000 chars,
 // not blank/whitespace-only.
@@ -114,9 +116,19 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({})) as {
     orgId?: string; action?: 'pass' | 'interest'; reason?: string; chips?: unknown; chipSubreason?: unknown;
+    reevaluationCondition?: { kind?: string; value?: string | null };
   };
   const { orgId, action, reason, chipSubreason } = body;
   const chips = body.chips;
+  // Prompt 716 Pedido A — "What would need to change...?", offered only
+  // when the pass chip is one of the four documented triggers; validated
+  // the same fail-closed way as chips above.
+  const CONDITION_KIND_IDS = new Set(CONDITION_OPTIONS.map((c) => c.id));
+  const reevalKindRaw = body.reevaluationCondition?.kind;
+  if (reevalKindRaw !== undefined && !CONDITION_KIND_IDS.has(reevalKindRaw as ConditionKind)) {
+    return NextResponse.json({ ok: false, error: 'Unknown reevaluation condition.' }, { status: 400 });
+  }
+  const reevalKind = reevalKindRaw as ConditionKind | undefined;
   if (!orgId || (action !== 'pass' && action !== 'interest')) {
     return NextResponse.json({ ok: false, error: 'orgId and a valid action are required.' }, { status: 400 });
   }
@@ -279,6 +291,31 @@ export async function POST(req: Request) {
       });
     } catch (signalError) {
       console.error('investor_signal_events write failed (decision still recorded):', signalError);
+    }
+
+    // Prompt 716 Pedido A — only offered on a pass, only for the 4
+    // documented trigger chips, only when the investor actually answered.
+    // Best-effort: a failure here must never undo the decision above.
+    if (action === 'pass' && reevalKind && passChips.some((c) => CONDITION_TRIGGER_CHIPS.has(c))) {
+      try {
+        const episodeId = await findOrOpenEpisode(admin, investorCatalogEntityId, orgId);
+        const isTestOrInternal = await isFirmTestOrInternal(admin, investorCatalogEntityId);
+        const recorded = await recordReevaluationCondition(admin, {
+          episodeId, orgId, investorCatalogEntityId, obstacle: passChips[0], conditionKind: reevalKind,
+          conditionValue: body.reevaluationCondition?.value ?? null, decidedBy: user.id, investorEmail: email, isTestOrInternal,
+        });
+        if (recorded.ok) {
+          await writeSignalEvent(admin, {
+            episodeId, actorUserId: user.id, level: 'condicao', kind: 'condition_declared',
+            sourceTable: 'investor_reevaluation_conditions', sourceId: recorded.conditionId,
+            isTestOrInternal,
+          });
+        } else {
+          console.error('recordReevaluationCondition failed (decision still recorded):', recorded.error);
+        }
+      } catch (conditionError) {
+        console.error('reevaluation condition recording failed (decision still recorded):', conditionError);
+      }
     }
   }
 

@@ -34,6 +34,7 @@ import { fetchPipelineShared } from '@/lib/portal-pipeline-client';
 import { StartupDossierPageInner } from '@/components/portal/StartupDossierContent';
 import { LoadingState } from '@/components/workspace-shell/LoadingState';
 import { PASS_REASON_CHIPS, TOO_EARLY_SUBREASONS } from '@/lib/investor-signal-events';
+import { CONDITION_OPTIONS, CONDITION_TRIGGER_CHIPS } from '@/lib/reevaluation-conditions';
 
 interface Card extends DraggableCard {
   orgId: string; name: string; oneLiner: string | null;
@@ -68,6 +69,11 @@ interface Card extends DraggableCard {
   hasGrantedLevel2: boolean;
   hasGrantedLevel3: boolean;
   hasPendingLevel3Request: boolean;
+  hasPendingFollowup?: boolean;
+  markedNote?: string | null;
+  // Prompt 716 Pedido C.
+  isReevaluation?: boolean;
+  reevaluationMessage?: string | null;
 }
 interface UnavailableCard { orgId: string; name: string; status: 'open' | 'passed' | 'interested'; decidedAt?: string | null; unavailable: true }
 type AnyCard = Card | UnavailableCard;
@@ -200,6 +206,10 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
   const [chipsDraft, setChipsDraft] = useState<string[]>([]);
   const [chipSubreasonDraft, setChipSubreasonDraft] = useState<string | null>(null);
   const [chipsRegisteredToast, setChipsRegisteredToast] = useState(false);
+  // Prompt 716 Pedido A — "What would need to change for you to look
+  // again?", offered only for the trigger chips (CONDITION_TRIGGER_CHIPS).
+  const [conditionKindDraft, setConditionKindDraft] = useState<string | null>(null);
+  const [conditionValueDraft, setConditionValueDraft] = useState('');
   useEffect(() => {
     if (!chipsRegisteredToast) return;
     const t = window.setTimeout(() => setChipsRegisteredToast(false), 2500);
@@ -287,6 +297,8 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
     setReasonDraft('');
     setChipsDraft([]);
     setChipSubreasonDraft(null);
+    setConditionKindDraft(null);
+    setConditionValueDraft('');
     setConfirming({ orgId, action });
     setMenuOpenOrgId(null);
   }
@@ -295,19 +307,26 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
     setReasonDraft('');
     setChipsDraft([]);
     setChipSubreasonDraft(null);
+    setConditionKindDraft(null);
+    setConditionValueDraft('');
   }
 
   // Prompt 715 Pedido B — chips are private (never sent to the founder,
   // never shown in any founder-facing view), optional, multi-select. The
   // toast on success is deliberately quiet ("Registered") — no promise
   // about future effect, since fase 0-1 never reorders or learns from them.
-  async function act(orgId: string, action: 'pass' | 'interest', reason?: string, chips?: string[], chipSubreason?: string) {
+  // Prompt 716 Pedido A — reevaluationCondition rides along on the same
+  // POST, optional, only meaningful on a pass.
+  async function act(
+    orgId: string, action: 'pass' | 'interest', reason?: string, chips?: string[], chipSubreason?: string,
+    reevaluationCondition?: { kind: string; value: string | null },
+  ) {
     setBusyOrgId(orgId);
     setCardError(orgId, null);
     try {
       const res = await fetch('/api/portal/pipeline', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ orgId, action, reason, chips, chipSubreason }),
+        body: JSON.stringify({ orgId, action, reason, chips, chipSubreason, reevaluationCondition }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || body.ok === false) {
@@ -317,6 +336,8 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
         setReasonDraft('');
         setChipsDraft([]);
         setChipSubreasonDraft(null);
+        setConditionKindDraft(null);
+        setConditionValueDraft('');
         if (chips && chips.length > 0) setChipsRegisteredToast(true);
       }
       load(true);
@@ -637,11 +658,14 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
                           chipsDraft={chipsDraft} onToggleChip={(chip) => setChipsDraft((prev) => (
                             prev.includes(chip) ? prev.filter((c2) => c2 !== chip) : [...prev, chip]))}
                           chipSubreasonDraft={chipSubreasonDraft} onChipSubreason={setChipSubreasonDraft}
+                          conditionKindDraft={conditionKindDraft} onConditionKind={setConditionKindDraft}
+                          conditionValueDraft={conditionValueDraft} onConditionValue={setConditionValueDraft}
                           onStartConfirm={(action) => startConfirm(c.orgId, action)} onCancelConfirm={cancelConfirm}
                           onConfirm={() => act(
                             c.orgId, confirming!.action, confirming!.action === 'pass' ? reasonDraft : undefined,
                             confirming!.action === 'pass' ? chipsDraft : undefined,
                             confirming!.action === 'pass' && chipsDraft.includes('too_early') ? (chipSubreasonDraft ?? undefined) : undefined,
+                            confirming!.action === 'pass' && conditionKindDraft ? { kind: conditionKindDraft, value: conditionValueDraft.trim() || null } : undefined,
                           )}
                           confirmingWithdraw={confirmingWithdrawOrgId === c.orgId}
                           onStartWithdraw={() => setConfirmingWithdrawOrgId(c.orgId)} onCancelWithdraw={() => setConfirmingWithdrawOrgId(null)}
@@ -758,7 +782,8 @@ function StartupDossierPanelWithKeyboard({ orgId, orgName, visibleRowIds, onNavi
 // one (345 §4's own hierarchy); everything else moves into the menu.
 function PipelineRow({
   card: c, expanded, openOrgId, onOpen, onToggleExpand, scorecardAvg, actionError, busy, archivedToast, onGoArchive,
-  confirming, reasonDraft, onReasonDraft, chipsDraft, onToggleChip, chipSubreasonDraft, onChipSubreason, onStartConfirm, onCancelConfirm, onConfirm,
+  confirming, reasonDraft, onReasonDraft, chipsDraft, onToggleChip, chipSubreasonDraft, onChipSubreason,
+  conditionKindDraft, onConditionKind, conditionValueDraft, onConditionValue, onStartConfirm, onCancelConfirm, onConfirm,
   confirmingWithdraw, onStartWithdraw, onCancelWithdraw, onWithdraw,
   followup, onRemind, onCancelReminder, onArchive, onOpenLog, onRequestLevel,
   menuOpen, onToggleMenu, wave, draggable, isDragOrigin, onRowPointerDown,
@@ -767,6 +792,8 @@ function PipelineRow({
   scorecardAvg?: number; actionError?: string; busy: boolean; archivedToast: boolean; onGoArchive: () => void;
   confirming: 'pass' | 'interest' | null; reasonDraft: string; onReasonDraft: (v: string) => void;
   chipsDraft: string[]; onToggleChip: (chip: string) => void; chipSubreasonDraft: string | null; onChipSubreason: (v: string | null) => void;
+  conditionKindDraft: string | null; onConditionKind: (v: string | null) => void;
+  conditionValueDraft: string; onConditionValue: (v: string) => void;
   onStartConfirm: (action: 'pass' | 'interest') => void; onCancelConfirm: () => void; onConfirm: () => void;
   confirmingWithdraw: boolean; onStartWithdraw: () => void; onCancelWithdraw: () => void; onWithdraw: () => void;
   followup: { id: string; date: string } | null; onRemind: () => void; onCancelReminder: (id: string) => void;
@@ -795,6 +822,15 @@ function PipelineRow({
             {!openOrgId && (
               <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-gray-400">
                 {(c.followOnSignals ?? []).map((s, i) => <FollowOnBadge key={i} signal={s} />)}
+                {/* Prompt 716 Pedido C — a passed startup back because its
+                    declared condition was met. Never a new wave/quota
+                    concept — this is the same 'passed' relationship card,
+                    just marked. */}
+                {c.isReevaluation && (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800" title={c.reevaluationMessage ?? undefined}>
+                    Re-evaluation
+                  </span>
+                )}
                 {c.viaPortfolio ? (
                   <span className="font-semibold text-emerald-700" title="You're already invested in this startup — not a new opportunity.">Portfolio</span>
                 ) : c.viaReferral ? (
@@ -902,6 +938,30 @@ function PipelineRow({
                     </div>
                   </div>
                 )}
+                {/* Prompt 716 Pedido A — offered on the trigger chips only;
+                    entirely optional, never blocks the pass itself. */}
+                {chipsDraft.some((chip) => CONDITION_TRIGGER_CHIPS.has(chip)) && (
+                  <div className="mt-2 rounded-lg border border-gray-200 bg-white p-2">
+                    <p className="mb-1 text-[11px] font-medium text-gray-700">What would need to change for you to look again? (optional)</p>
+                    <select autoComplete="off" value={conditionKindDraft ?? ''} onChange={(e) => onConditionKind(e.target.value || null)}
+                      className="w-full rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-900">
+                      <option value="">Don&apos;t ask again for this pass</option>
+                      {CONDITION_OPTIONS.map((opt) => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
+                    </select>
+                    {conditionKindDraft === 'date' && (
+                      <input autoComplete="off" type="date" value={conditionValueDraft} onChange={(e) => onConditionValue(e.target.value)}
+                        className="mt-1.5 w-full rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-900" />
+                    )}
+                    {conditionKindDraft && conditionKindDraft !== 'date' && conditionKindDraft !== 'never_show_again'
+                      && CONDITION_OPTIONS.find((o) => o.id === conditionKindDraft)?.hasOptionalValue && (
+                      <input autoComplete="off" value={conditionValueDraft} onChange={(e) => onConditionValue(e.target.value)} placeholder="Optional detail"
+                        className="mt-1.5 w-full rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-900" />
+                    )}
+                    {conditionKindDraft && conditionKindDraft !== 'never_show_again' && conditionKindDraft !== 'date' && (
+                      <p className="mt-1 text-[10px] text-gray-400">We&apos;ll ask the founder to let us know when this happens — same as a Watch request.</p>
+                    )}
+                  </div>
+                )}
               </>
             )}
             <div className="mt-2 flex items-center gap-2">
@@ -930,6 +990,13 @@ function PipelineRow({
         </div>
       )}
       {actionError && <p className="border-t border-gray-100 px-3 py-1.5 text-xs text-[#B00000]">{actionError}</p>}
+
+      {/* Prompt 715 Pedido F / Prompt 716 Pedido C — surfaced regardless of
+          the expanded gate below: a marked note or a reevaluation message
+          is exactly the kind of thing that shouldn't require a click to
+          discover. */}
+      {c.markedNote && <p className="border-t border-gray-100 px-3 py-1.5 text-xs font-medium text-amber-700">⚠ {c.markedNote}</p>}
+      {c.isReevaluation && c.reevaluationMessage && <p className="border-t border-gray-100 px-3 py-1.5 text-xs text-amber-800">{c.reevaluationMessage}</p>}
 
       {expanded && (c.description || c.introProblem || c.introSolution || c.trackingCount > 0 || c.passReason || c.isArchived) && (
         <div className="border-t border-gray-100 px-3 py-3">

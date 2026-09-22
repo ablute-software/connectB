@@ -300,7 +300,12 @@ export function SoftCommitsCard() {
 // following, name + status only — never notes/ratings/orderings, none of
 // which this table or query ever contains) plus accept/decline/revoke.
 // Same pending/decided split as InterestLevelRequestsCard above.
-interface Watcher { watchId: string; investorName: string; status: 'requested' | 'active' | 'declined' | 'revoked'; requestedAt: string; decidedAt: string | null }
+interface Watcher {
+  watchId: string; investorName: string; status: 'requested' | 'active' | 'declined' | 'revoked'; requestedAt: string; decidedAt: string | null;
+  // Prompt 717 Part D — the type of milestone this watch is for, when it
+  // came from a reevaluation condition; null for a plain watch request.
+  conditionLabel: string | null;
+}
 
 export function WatchersCard() {
   const [watchers, setWatchers] = useState<Watcher[] | null>(null);
@@ -338,6 +343,7 @@ export function WatchersCard() {
               <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Pending</span>
             </div>
             <p className="mt-0.5 text-[11px] text-gray-400">Requested {new Date(w.requestedAt).toLocaleDateString()}</p>
+            {w.conditionLabel && <p className="mt-0.5 text-[11px] font-medium text-gray-600">{w.conditionLabel}</p>}
             <div className="mt-2 flex items-center gap-2">
               <button onClick={() => act(w.watchId, 'accept')} disabled={busyId === w.watchId}
                 className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">Accept</button>
@@ -351,6 +357,7 @@ export function WatchersCard() {
             <div>
               <span className="text-sm font-medium text-gray-800">{w.investorName}</span>
               <p className="text-[11px] text-gray-400">Watching since {w.decidedAt ? new Date(w.decidedAt).toLocaleDateString() : '—'}</p>
+              {w.conditionLabel && <p className="text-[11px] font-medium text-gray-600">{w.conditionLabel}</p>}
             </div>
             <button onClick={() => act(w.watchId, 'revoke')} disabled={busyId === w.watchId}
               className="text-xs text-gray-400 hover:text-[#B00000] disabled:opacity-40">Revoke</button>

@@ -38,6 +38,12 @@ import { timeBlock } from './pipeline-timing';
 import { findOrOpenEpisode, isFirmTestOrInternal, writeSignalEvent } from './investor-signal-events';
 import { isVisibleToOthers, type ModerationStatus } from './account-moderation';
 import { getInvestorContext, isPauseActive } from './investor-context';
+import { reevaluationAlertsAvailable } from './reevaluation-capability';
+import { conditionKindLabel, reapresentationMessage, type ConditionKind } from './reevaluation-conditions';
+import {
+  fetchReevaluationCandidates, fulfillDateConditions, isOutOfCurrentMandate,
+  markReevaluationRepresented, selectReevaluationsToPresent,
+} from './reevaluation-presentation';
 
 const TRACKING_WINDOW_DAYS = 30;
 
@@ -485,6 +491,11 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       // then). null means nothing to flag; the rest of the card is
       // unaffected either way.
       markedNote: null as string | null,
+      // Prompt 716 Pedido C — set below, only on a 'passed' relationship
+      // card whose reevaluation condition was just fulfilled and is due
+      // to be shown this call.
+      isReevaluation: false,
+      reevaluationMessage: null as string | null,
       roundTargetCloseDate: (org as { round_target_close_date?: string | null }).round_target_close_date ?? null,
       description: descriptionByOrg.get(org.id as string) ?? null,
       // Prompt 325 — Discovery-visible reason to click "Interested",
@@ -782,6 +793,40 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   // can put a closed org back into play.) Prompt 715 §Pedido F extends the
   // SAME projection to a suspended/hidden relationship card.
   const unavailableOrgIds = new Set([...closedIds, ...suspendedOrHiddenOrgIds]);
+
+  // Prompt 716 Pedido C — reevaluation reapresentation. Complete no-op
+  // until Prompt 715's schema is live (reevaluationAlertsAvailable), per
+  // this prompt's own explicit feature-flag instruction. Attaches to the
+  // EXISTING 'passed' relationship card rather than a new wave kind — see
+  // reevaluation-presentation.ts's own header for why that already gets
+  // "fora da quota" and "never wave-gated" for free, and what that
+  // deliberately trades away (no independent "next wave to unlock" timing
+  // for a card that was never wave-gated to begin with).
+  if (investorCatalogEntityId && await reevaluationAlertsAvailable()) {
+    await fulfillDateConditions(admin, investorCatalogEntityId);
+    const candidates = await fetchReevaluationCandidates(admin, investorCatalogEntityId);
+    const toPresent = selectReevaluationsToPresent(candidates);
+    for (const candidate of toPresent) {
+      const card = relationshipCards.find((c) => c.orgId === candidate.orgId);
+      if (!card || unavailableOrgIds.has(candidate.orgId)) continue;
+      if (isOutOfCurrentMandate(card.matchReasons)) {
+        // Pedido B — fulfilled, but out of mandate now: recorded, never reapresented.
+        card.markedNote = 'Reevaluation condition met, but this startup no longer fits your current mandate.';
+      } else {
+        card.isReevaluation = true;
+        card.reevaluationMessage = reapresentationMessage(
+          conditionKindLabel(candidate.conditionKind as ConditionKind), candidate.fulfilledFactText, candidate.fulfilledAt,
+        );
+      }
+      try {
+        const episodeId = await findOrOpenEpisode(admin, investorCatalogEntityId, candidate.orgId);
+        await markReevaluationRepresented(admin, candidate.id, episodeId);
+        const isTestOrInternal = await isFirmTestOrInternal(admin, investorCatalogEntityId);
+        await writeSignalEvent(admin, { episodeId, level: 'sistema', kind: 'represented', isTestOrInternal });
+      } catch (e) { console.error('reevaluation representation bookkeeping failed:', e); }
+    }
+  }
+
   const projectedWaves = unavailableOrgIds.size === 0 ? waves : waves.map((w) => ({
     ...w,
     items: w.items.map((c) => (unavailableOrgIds.has(c.orgId as string)

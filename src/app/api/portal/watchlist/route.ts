@@ -10,6 +10,8 @@ import { getActiveWatchesForInvestor, getSnapshotData } from '@/lib/investor-wat
 import { readSnapshotData } from '@/lib/startup-snapshot';
 import { computeSnapshotDelta, deltaMagnitude, sortWatchItems, type WatchSort } from '@/lib/investor-watching';
 import { computeMatchScore, type InvestorThesis, type StartupRound } from '@/lib/investor-match-score';
+import { conditionKindLabel, detectConditionFulfillment, reapresentationMessage, type ConditionKind } from '@/lib/reevaluation-conditions';
+import { reevaluationAlertsAvailable } from '@/lib/reevaluation-capability';
 
 export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -107,6 +109,41 @@ export async function GET(req: Request) {
       });
     }
   }));
+
+  // Prompt 716 Pedido B — extends this SAME lazy, on-read alert mechanism
+  // (never a second one, never a cron) with the reevaluation-condition
+  // kinds. Gated by reevaluationAlertsAvailable() — the capability probe
+  // that only turns on once Prompt 715's schema is actually in production
+  // (Pedido 716 §8's own explicit feature-flag instruction). Each
+  // condition fires at most once (fulfilled_at is only ever set once,
+  // checked here before writing); definitive_pass rows are never even
+  // selected.
+  if (await reevaluationAlertsAvailable()) {
+    await Promise.all(items.map(async (item) => {
+      const watch = watches.find((w) => w.id === item.watchId);
+      if (!watch) return;
+      const { data: conditions } = await admin.from('investor_reevaluation_conditions')
+        .select('id, condition_kind, obstacle, decided_at').eq('watch_id', item.watchId).is('fulfilled_at', null).eq('definitive_pass', false);
+      for (const condition of conditions ?? []) {
+        const kind = condition.condition_kind as ConditionKind;
+        const fulfillment = await detectConditionFulfillment(admin, watch.org_id, kind, condition.decided_at as string);
+        if (!fulfillment) continue;
+        const now = new Date().toISOString();
+        // Guard against a race between two concurrent reads: only the
+        // update that actually flips fulfilled_at (still null) proceeds to
+        // write the alert — a second concurrent call sees rowCount 0 and
+        // stops, so the same condition can never fire twice.
+        const { data: updated } = await admin.from('investor_reevaluation_conditions')
+          .update({ fulfilled_at: now, fulfilled_fact_text: fulfillment.factText })
+          .eq('id', condition.id as string).is('fulfilled_at', null).select('id');
+        if (!updated || updated.length === 0) continue;
+        await admin.from('investor_watch_alerts').insert({
+          watch_id: item.watchId, kind, condition_id: condition.id,
+          fact_text: reapresentationMessage(conditionKindLabel(kind), fulfillment.factText, now),
+        });
+      }
+    }));
+  }
 
   return NextResponse.json({ items: sortWatchItems(items, sort), sort });
 }
