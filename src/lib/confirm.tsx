@@ -19,17 +19,9 @@
 // existing caller.
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { hasMissingRequiredField, type ConfirmField, type ConfirmValues } from './confirm-fields';
 
-export interface ConfirmField {
-  key: string;
-  label: string;
-  type: 'date' | 'text';
-  defaultValue?: string;
-  placeholder?: string;
-  min?: string;
-}
-
-export type ConfirmValues = Record<string, string>;
+export type { ConfirmField, ConfirmValues };
 
 export interface ConfirmOptions {
   title?: string;
@@ -75,6 +67,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
 
   function settle(ok: boolean) {
     if (settledRef.current || !pending) return;
+    if (ok && hasMissingRequiredField(pending.fields, values)) return;
     settledRef.current = true;
     pending.resolve(ok ? values : null);
     setPending(null);
@@ -90,7 +83,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
             <p className={`whitespace-pre-line text-sm text-gray-700 ${pending.title ? 'mt-1' : ''}`}>{pending.message}</p>
             {pending.fields?.map((f) => (
               <label key={f.key} className="mt-3 block text-xs font-medium text-gray-600">
-                {f.label}
+                {f.label}{f.required && <span className="text-[#B00000]"> *</span>}
                 <input
                   type={f.type}
                   value={values[f.key] ?? ''}
@@ -107,8 +100,8 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
               <button onClick={() => settle(false)} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50">
                 {pending.cancelLabel ?? 'Cancel'}
               </button>
-              <button onClick={() => settle(true)}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium text-white ${pending.destructive ? 'bg-[#B00000] hover:bg-[#960000]' : 'bg-[#0E7490] hover:bg-[#0c6379]'}`}>
+              <button onClick={() => settle(true)} disabled={hasMissingRequiredField(pending.fields, values)}
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 ${pending.destructive ? 'bg-[#B00000] hover:bg-[#960000]' : 'bg-[#0E7490] hover:bg-[#0c6379]'}`}>
                 {pending.confirmLabel ?? (pending.destructive ? 'Delete' : 'Confirm')}
               </button>
             </div>
