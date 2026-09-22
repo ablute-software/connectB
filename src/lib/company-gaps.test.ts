@@ -4,8 +4,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   detectGaps, ruleG1, ruleG2, ruleG3, ruleG3b, ruleG3c, ruleG4, ruleG5, ruleG6, ruleG7, ruleG8,
-  templateFor, QUESTION_TEMPLATES, routeAnswer, rankGaps, impactWhy, GAP_QUESTION_BUDGET,
-  isAwaitingDocumentSearch, type Gap, type GapContext,
+  templateFor, QUESTION_TEMPLATES, routeAnswer, routeAnswerMulti, isTrivialFreeText, rankGaps, impactWhy,
+  GAP_QUESTION_BUDGET, isAwaitingDocumentSearch, gapKey, isGapAnswered, STANDING_RULES, closesWhenText,
+  type Gap, type GapContext,
 } from './company-gaps';
 import { normalizeAtom, joinChipAndFreeText } from './company-claims';
 import type { CompanyClaim, ClaimCategory, ClaimSourceKind, ClaimStatus } from './types';
@@ -715,6 +716,108 @@ describe('routeAnswer — Prompt 358 Phase 1: which answers are claims, and whic
 
   it('an unrecognized rule/option combination defaults to claim, never silently drops an answer', () => {
     expect(routeAnswer('G8', undefined, false)).toEqual({ kind: 'claim' });
+  });
+});
+
+describe('gapKey / isGapAnswered — Prompt 718 Part A: G1/G3/G6 never remount on the first claim', () => {
+  it('G1/G3/G6 key as empty regardless of relatedClaimIds — the real bug: it used to change the instant the first claim in the category existed', () => {
+    const before: Gap = { rule: 'G1', severity: 'critical', message: 'x', relatedClaimIds: [] };
+    const after: Gap = { rule: 'G1', severity: 'critical', message: 'x', relatedClaimIds: ['claim-69097266'] };
+    expect(gapKey(before)).toBe('G1:');
+    expect(gapKey(after)).toBe('G1:');
+    expect(gapKey({ ...before, rule: 'G3' })).toBe('G3:');
+    expect(gapKey({ ...after, rule: 'G6' })).toBe('G6:');
+  });
+
+  it('every other rule keeps discriminating by claim id, founder, function or field — a real design choice, not an oversight', () => {
+    expect(gapKey({ rule: 'G2', severity: 'high', message: 'x', relatedClaimIds: ['c1'] })).toBe('G2:c1');
+    expect(gapKey({ rule: 'G3b', severity: 'medium', message: 'x', relatedClaimIds: [], meta: { founderName: 'Bob' } })).toBe('G3b:Bob');
+    expect(gapKey({ rule: 'G3c', severity: 'high', message: 'x', relatedClaimIds: [], meta: { functionKey: 'technical' } })).toBe('G3c:technical');
+    expect(gapKey({ rule: 'G8', severity: 'high', message: 'x', relatedClaimIds: ['c2'], meta: { field: 'valuation' } })).toBe('G8:valuation');
+  });
+
+  it('isGapAnswered matches an answer recorded with the NEW stable key', () => {
+    const g1: Gap = { rule: 'G1', severity: 'critical', message: 'x', relatedClaimIds: [] };
+    expect(isGapAnswered(g1, new Set(['G1:']))).toBe(true);
+    expect(isGapAnswered(g1, new Set(['G6:']))).toBe(false);
+  });
+
+  it('isGapAnswered still finds a G1/G3/G6 answer recorded BEFORE the stable-key fix (old claim-id-suffixed key)', () => {
+    const g6: Gap = { rule: 'G6', severity: 'high', message: 'x', relatedClaimIds: ['some-other-claim'] };
+    expect(isGapAnswered(g6, new Set(['G6:69097266']))).toBe(true);
+  });
+
+  it('never lets a rule-prefix match leak across a DIFFERENT rule\'s own answer', () => {
+    const g1: Gap = { rule: 'G1', severity: 'critical', message: 'x', relatedClaimIds: [] };
+    expect(isGapAnswered(g1, new Set(['G6:', 'G3:']))).toBe(false);
+  });
+
+  it('a discriminated rule (G3b) is NEVER prefix-matched — that would wrongly close a different founder\'s own still-open gap', () => {
+    const bob: Gap = { rule: 'G3b', severity: 'medium', message: 'x', relatedClaimIds: [], meta: { founderName: 'Bob' } };
+    expect(isGapAnswered(bob, new Set(['G3b:Alice']))).toBe(false);
+  });
+});
+
+describe('routeAnswerMulti — Prompt 718 Part G: multi-select dismisses only if ALL chosen chips are non-informative', () => {
+  it('a single option delegates straight to routeAnswer, unchanged — every non-multi-select rule\'s behavior is untouched', () => {
+    expect(routeAnswerMulti('G5', ['Still true'], false)).toEqual({ kind: 'refresh_claim' });
+    expect(routeAnswerMulti('G4', ['Yes — I will attach it'], false)).toEqual({ kind: 'attach_document' });
+    expect(routeAnswerMulti('G1', ['Not yet'], false)).toEqual({ kind: 'dismiss' });
+  });
+
+  it('two informative G1 chips together (paying customer AND paid pilot) still become a claim', () => {
+    expect(routeAnswerMulti('G1', ['Yes — paying customer', 'Yes — paid pilot / PO'], false)).toEqual({ kind: 'claim' });
+  });
+
+  it('G1 "Not yet" plus an informative chip is a claim — one real chip is enough', () => {
+    expect(routeAnswerMulti('G1', ['Not yet', 'Yes — paying customer'], false)).toEqual({ kind: 'claim' });
+  });
+
+  it('multiple G3 narrative chips (no dismiss chip exists for G3) always become a claim', () => {
+    expect(routeAnswerMulti('G3', ['We have complementary skills', 'We have built this before'], false)).toEqual({ kind: 'claim' });
+  });
+
+  it('free text with 2+ options still routes to claim (free text always means real information)', () => {
+    expect(routeAnswerMulti('G1', ['Yes — paying customer', 'Yes — paid pilot / PO'], true)).toEqual({ kind: 'claim' });
+  });
+});
+
+describe('isTrivialFreeText — Prompt 718 Part C: a bare "no" must never be treated as real content', () => {
+  it('flags a bare yes/no/sim/não, in either case, with or without a trailing period', () => {
+    expect(isTrivialFreeText('no')).toBe(true);
+    expect(isTrivialFreeText('No.')).toBe(true);
+    expect(isTrivialFreeText('SIM')).toBe(true);
+    expect(isTrivialFreeText('não')).toBe(true);
+  });
+
+  it('flags any answer under 3 words', () => {
+    expect(isTrivialFreeText('not sure')).toBe(true);
+    expect(isTrivialFreeText('maybe later')).toBe(true);
+  });
+
+  it('never flags a real sentence, even a short-ish one', () => {
+    expect(isTrivialFreeText('we have LOIs for our first pilots')).toBe(false);
+    expect(isTrivialFreeText('Signed our first customer')).toBe(false);
+  });
+
+  it('empty/whitespace-only text is never "trivial" — there is simply nothing to route', () => {
+    expect(isTrivialFreeText('')).toBe(false);
+    expect(isTrivialFreeText('   ')).toBe(false);
+  });
+});
+
+describe('closesWhenText / STANDING_RULES — Prompt 718 Part B: only G1/G6 can become a standing fact', () => {
+  it('G1 and G6 are the only standing rules', () => {
+    expect(STANDING_RULES.has('G1')).toBe(true);
+    expect(STANDING_RULES.has('G6')).toBe(true);
+    expect(STANDING_RULES.has('G3')).toBe(false);
+    expect(STANDING_RULES.has('G5')).toBe(false);
+  });
+
+  it('closesWhenText is defined for G1/G6 and null for everything else', () => {
+    expect(closesWhenText('G1')).toContain('paying customer');
+    expect(closesWhenText('G6')).toContain('use-of-funds');
+    expect(closesWhenText('G3')).toBeNull();
   });
 });
 

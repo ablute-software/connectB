@@ -79,6 +79,59 @@ export function selectTeamDocumentCandidates(docs: CandidateDoc[], maxDocs: numb
 }
 
 // -----------------------------------------------------------------------
+// Prompt 718 Part D — the actual cause of the G3 team-gap draft timing out:
+// with no team_governance folder and no name match, selectTeamDocumentCandidates
+// fell back to EVERY clean PDF in the org (46 pages across 3 documents in
+// the real org that timed out, one alone costing 52,026 tokens/23s per
+// Prompt 313's own comment), plus two sequential 4s LinkedIn fetches, all
+// inside a 30s function budget. A document-COUNT cap doesn't bound cost —
+// three one-page CVs and one 40-page pitch deck both pass the same
+// `maxDocs=3`. A PAGE cap does. Same budget applies to 711's own G6
+// (round-document) attachment path (Prompt 718 Part E, when that branch
+// merges) — kept generic here rather than duplicated per gap type.
+export const MAX_ATTACHED_PDF_PAGES = 15;
+
+function documentTier(d: CandidateDoc, nameSignal: RegExp): number {
+  if (d.portalSection === 'team_governance') return 0;
+  if (nameSignal.test(d.name) || (d.folderName && nameSignal.test(d.folderName))) return 1;
+  return 2;
+}
+
+export interface PageAwareDoc extends CandidateDoc { totalPages: number | null }
+
+// Ranks (never caps) every clean PDF: team_governance folder first, then a
+// name match, then everything else; fewest KNOWN pages first within a tier
+// (cheapest first) with an unknown page count sorted last (riskiest to
+// attach blind). selectWithinPageBudget below does the actual capping.
+export function rankTeamDocuments(docs: PageAwareDoc[]): PageAwareDoc[] {
+  const clean = docs.filter((d) => (d.malwareScanStatus === 'clean' || d.malwareScanStatus === 'local_only') && PDF_EXTENSION.test(d.storagePath || d.name));
+  return [...clean].sort((a, b) => {
+    const tierDiff = documentTier(a, TEAM_NAME_SIGNAL) - documentTier(b, TEAM_NAME_SIGNAL);
+    if (tierDiff !== 0) return tierDiff;
+    return (a.totalPages ?? Infinity) - (b.totalPages ?? Infinity);
+  });
+}
+
+// Greedily keeps adding ranked documents while the running page total stays
+// within budget. A document with an unknown page count (never extracted
+// yet) "counts as the cap" — its cost is the FULL budget, so it can only be
+// the one document attached when nothing else has used any of it yet;
+// never combined with anything else, since its real size is unverified.
+export function selectWithinPageBudget<T extends { totalPages: number | null }>(
+  rankedDocs: T[], maxPages: number = MAX_ATTACHED_PDF_PAGES,
+): T[] {
+  const selected: T[] = [];
+  let used = 0;
+  for (const doc of rankedDocs) {
+    const cost = doc.totalPages ?? maxPages;
+    if (used + cost > maxPages) continue;
+    selected.push(doc);
+    used += cost;
+  }
+  return selected;
+}
+
+// -----------------------------------------------------------------------
 // Part C — SSRF guard. The only URL this feature is ever allowed to fetch
 // is the exact linkedin_url the FOUNDER already saved on their own team
 // member (never a search, never a URL from any other source) — and even

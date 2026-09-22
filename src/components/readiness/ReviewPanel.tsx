@@ -21,7 +21,7 @@ import { authEnabled, browserClient } from '@/lib/supabase';
 import type { Contradiction } from '@/lib/action-plan';
 import { ReportView, type StructuredReport } from './ReportView';
 import { GapInterrogation, type GapView } from './GapInterrogation';
-import { KnowledgeHealthPanel } from './KnowledgeHealthPanel';
+import { KnowledgeHealthPanel, type StandingFact } from './KnowledgeHealthPanel';
 import { claimsNeedingStrengthening } from '@/lib/company-claims';
 import Link from 'next/link';
 import { pickCurrentGap } from '@/lib/gap-rotation';
@@ -124,6 +124,8 @@ export function ReviewPanel() {
   // report. gapAnalysisId lets a Review-flow answer register against the
   // same blueprint_analyses row Blueprint itself would use, if one exists.
   const [gaps, setGaps] = useState<GapView[]>([]);
+  // Prompt 718 Part B — same standing-facts list as BlueprintPanel.tsx.
+  const [standing, setStanding] = useState<StandingFact[]>([]);
   const [gapAnalysisId, setGapAnalysisId] = useState<string | undefined>(undefined);
   // Prompt 298 §3 — accepted claims (including gap answers, source_kind
   // 'founder_answer') merged into what Run review actually sends, alongside
@@ -155,6 +157,8 @@ export function ReviewPanel() {
   // and a skipped gap is still real and comes back once the others are
   // dealt with, exactly as the product decision requires.
   const [skippedKeys, setSkippedKeys] = useState<Set<string>>(new Set());
+  // Prompt 718 Part B — same reopen mechanism as BlueprintPanel.tsx.
+  const [reopenedGap, setReopenedGap] = useState<GapView | null>(null);
 
   function loadGaps() {
     fetch('/api/blueprint').then((r) => r.json()).then((body) => {
@@ -162,6 +166,7 @@ export function ReviewPanel() {
       setReconciliationBusy(!!body?.reconciliationSkipped);
       if (body.available) {
         setGaps(body.gaps ?? []);
+        setStanding(body.standing ?? []);
         setGapAnalysisId(body.analysis?.id);
         setClaims((body.claims ?? []) as CompanyClaim[]);
         setAcceptedClaimStatements(
@@ -177,9 +182,9 @@ export function ReviewPanel() {
   // budgeted pool by default; "Ask me more" (below) lifts the cap for this
   // session view, never persisted.
   const budgetedGaps = showAllGaps ? gaps : gaps.slice(0, GAP_QUESTION_BUDGET);
-  const currentGap = pickCurrentGap(budgetedGaps, skippedKeys);
+  const currentGap = reopenedGap ?? pickCurrentGap(budgetedGaps, skippedKeys);
 
-  async function submitGapAnswer(opts: { option?: string; answer?: string; dismissed: boolean; category?: string }) {
+  async function submitGapAnswer(opts: { options?: string[]; answer?: string; dismissed: boolean; category?: string }) {
     const gap = currentGap;
     if (!gap) return;
     if (opts.dismissed) setSkippedKeys((prev) => new Set(prev).add(gap.key));
@@ -189,7 +194,7 @@ export function ReviewPanel() {
       const res = await fetch('/api/blueprint/answer', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          gapKey: gap.key, rule: gap.rule, option: opts.option, answer: opts.answer, category: opts.category,
+          gapKey: gap.key, rule: gap.rule, options: opts.options, answer: opts.answer, category: opts.category,
           analysisId: gapAnalysisId, dismissed: opts.dismissed, relatedClaimIds: gap.relatedClaimIds,
         }),
       });
@@ -198,9 +203,10 @@ export function ReviewPanel() {
       if (data.routedAs === 'amend_target_claim') {
         setRoutingNote('Added to the existing claim rather than creating a new one.');
       }
+      if (data.routedAs === 'replace_target_claim') setRoutingNote('Updated your existing answer.');
+      setReopenedGap(null);
       loadGaps();
-      // Prompt 363 — see BlueprintPanel.tsx's submitAnswer for why.
-      return { stillOpen: data.stillOpen as boolean | undefined, reason: data.reason as string | undefined };
+      return data.note ? { note: data.note as string } : undefined;
     } finally { setGapBusy(false); }
   }
 
@@ -455,7 +461,7 @@ export function ReviewPanel() {
       )}
       {showInterrogation && (
         <Card title={<span className="text-[#0E7490]">Knowledge health</span>}>
-          <KnowledgeHealthPanel claims={claims} gaps={gaps} />
+          <KnowledgeHealthPanel claims={claims} gaps={gaps} standing={standing} onUpdateAnswer={(g) => setReopenedGap(g)} />
           {currentGap && (
             <div className="mt-3 border-t border-gray-100 pt-3">
               {routingNote && <p className="mb-2 text-xs text-[#0E7490]">{routingNote}</p>}

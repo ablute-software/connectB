@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   isTeamGap, formatTeamProfiles, selectTeamDocumentCandidates, isAllowedLinkedInUrl, looksLikeUsableLinkedInContent,
-  relevantPeopleForLinkedIn, type TeamProfile, type CandidateDoc, type LinkedInTargetPerson,
+  relevantPeopleForLinkedIn, rankTeamDocuments, selectWithinPageBudget, MAX_ATTACHED_PDF_PAGES,
+  type TeamProfile, type CandidateDoc, type PageAwareDoc, type LinkedInTargetPerson,
 } from './gap-assist-sources';
 import type { Gap } from './company-gaps';
 
@@ -91,6 +92,74 @@ describe('selectTeamDocumentCandidates', () => {
   it('caps the result to maxDocs', () => {
     const docs: CandidateDoc[] = [1, 2, 3, 4].map((n) => ({ ...base, id: String(n), name: `cv-${n}.pdf` }));
     expect(selectTeamDocumentCandidates(docs, 2)).toHaveLength(2);
+  });
+});
+
+// Prompt 718 Part D — the actual fix for the G3 draft timeout: a document
+// COUNT cap let one 40-page deck through as easily as a one-page CV; a
+// PAGE budget doesn't.
+describe('rankTeamDocuments — Prompt 718 Part D: tier first, then fewest known pages first', () => {
+  const basePage: PageAwareDoc = { id: '1', name: 'file.pdf', storagePath: 'org/file.pdf', folderName: null, portalSection: null, malwareScanStatus: 'clean', totalPages: null };
+
+  it('excludes non-clean and non-pdf exactly like selectTeamDocumentCandidates does', () => {
+    const docs: PageAwareDoc[] = [
+      { ...basePage, id: 'a', malwareScanStatus: 'pending' },
+      { ...basePage, id: 'b', name: 'deck.pptx', storagePath: 'org/deck.pptx' },
+    ];
+    expect(rankTeamDocuments(docs)).toEqual([]);
+  });
+
+  it('team_governance always ranks before a name match, which always ranks before the rest', () => {
+    const docs: PageAwareDoc[] = [
+      { ...basePage, id: 'rest', name: 'financials.pdf', totalPages: 1 },
+      { ...basePage, id: 'name', name: 'jane-cv.pdf', totalPages: 1 },
+      { ...basePage, id: 'gov', name: 'unrelated.pdf', portalSection: 'team_governance', totalPages: 1 },
+    ];
+    expect(rankTeamDocuments(docs).map((d) => d.id)).toEqual(['gov', 'name', 'rest']);
+  });
+
+  it('within the same tier, fewest KNOWN pages first', () => {
+    const docs: PageAwareDoc[] = [
+      { ...basePage, id: 'big', name: 'team-a.pdf', totalPages: 20 },
+      { ...basePage, id: 'small', name: 'team-b.pdf', totalPages: 2 },
+    ];
+    expect(rankTeamDocuments(docs).map((d) => d.id)).toEqual(['small', 'big']);
+  });
+
+  it('an unknown page count sorts LAST within its own tier — riskiest to attach blind', () => {
+    const docs: PageAwareDoc[] = [
+      { ...basePage, id: 'unknown', name: 'team-a.pdf', totalPages: null },
+      { ...basePage, id: 'known', name: 'team-b.pdf', totalPages: 5 },
+    ];
+    expect(rankTeamDocuments(docs).map((d) => d.id)).toEqual(['known', 'unknown']);
+  });
+});
+
+describe('selectWithinPageBudget — Prompt 718 Part D: an unextracted doc counts as the FULL cap', () => {
+  it('keeps adding ranked docs while the running total stays within budget', () => {
+    const docs = [{ id: 'a', totalPages: 5 }, { id: 'b', totalPages: 5 }, { id: 'c', totalPages: 5 }];
+    expect(selectWithinPageBudget(docs, 15).map((d) => d.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('skips a document that would push the total over budget, but keeps checking the rest', () => {
+    const docs = [{ id: 'a', totalPages: 10 }, { id: 'b', totalPages: 10 }, { id: 'c', totalPages: 3 }];
+    expect(selectWithinPageBudget(docs, 15).map((d) => d.id)).toEqual(['a', 'c']);
+  });
+
+  it('an unknown page count (null) costs the FULL budget — only ever selected alone', () => {
+    const docs = [{ id: 'unknown', totalPages: null }, { id: 'known', totalPages: 2 }];
+    expect(selectWithinPageBudget(docs, 15).map((d) => d.id)).toEqual(['unknown']);
+  });
+
+  it('a known-cheap doc first, THEN an unknown one, only keeps the cheap one — the unknown no longer fits', () => {
+    const docs = [{ id: 'known', totalPages: 2 }, { id: 'unknown', totalPages: null }];
+    expect(selectWithinPageBudget(docs, 15).map((d) => d.id)).toEqual(['known']);
+  });
+
+  it('defaults to MAX_ATTACHED_PDF_PAGES (15) when no explicit budget is passed', () => {
+    expect(MAX_ATTACHED_PDF_PAGES).toBe(15);
+    const docs = [{ id: 'a', totalPages: 15 }, { id: 'b', totalPages: 1 }];
+    expect(selectWithinPageBudget(docs).map((d) => d.id)).toEqual(['a']);
   });
 });
 

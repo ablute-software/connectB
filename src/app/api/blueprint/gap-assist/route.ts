@@ -23,11 +23,13 @@ import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { claimsAvailable } from '@/lib/blueprint-capability';
-import { readExistingClaims, hasAnyVaultDocument } from '@/lib/company-knowledge-db';
+import { readExistingClaims, readKnowledgeSources, hasAnyVaultDocument } from '@/lib/company-knowledge-db';
+import { knowledgeToAtoms } from '@/lib/company-knowledge';
 import { detectGaps, gapKey as computeGapKey, templateFor, type GapRule } from '@/lib/company-gaps';
 import {
-  isTeamGap, formatTeamProfiles, selectTeamDocumentCandidates, isAllowedLinkedInUrl, looksLikeUsableLinkedInContent,
-  relevantPeopleForLinkedIn, type TeamProfile, type CandidateDoc,
+  isTeamGap, formatTeamProfiles, rankTeamDocuments, selectWithinPageBudget, MAX_ATTACHED_PDF_PAGES,
+  isAllowedLinkedInUrl, looksLikeUsableLinkedInContent, relevantPeopleForLinkedIn,
+  type TeamProfile, type CandidateDoc, type PageAwareDoc,
 } from '@/lib/gap-assist-sources';
 import { malwareScanAvailable } from '@/lib/upload-security-capability';
 import { logAiCall } from '@/lib/ai-cost-log';
@@ -35,7 +37,14 @@ import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { chargeAiAction } from '@/lib/ai-credits';
 
-export const maxDuration = 30;
+// Prompt 718 Part D — raised from 30 to the Hobby-plan ceiling (Vercel
+// Hobby caps a serverless function at 60s; Pro/Enterprise allow more, but
+// this codebase runs on Hobby per CLAUDE.md's own cron-limits note, so 60
+// is the real available ceiling here, not an arbitrary choice). Reported
+// either way in this prompt's own execution report — if the deployed
+// platform ever rejects >60 for this project, this line is the first
+// place to check.
+export const maxDuration = 60;
 
 // Prompt 308 — G3c ("who leads the {function} side?") is reliably draftable
 // from company_people.title alone (a structured field — "CTO"/"Head of
@@ -64,10 +73,17 @@ const AI_ROLE: Record<GapRule, 'draft' | 'polish'> = {
 // cheap and fast even for an org with a large Vault/team roster: a real CV
 // is a handful of pages at most, and this is best-effort supplementary
 // context, not the primary document.
-const MAX_TEAM_DOCS = 3;
+//
+// Prompt 718 Part D — the document cap is now a PAGE budget
+// (MAX_ATTACHED_PDF_PAGES, gap-assist-sources.ts), not a document count —
+// a count cap let one 40-page deck through as easily as a one-page CV. The
+// LinkedIn fetches moved from 2 sequential 4s calls (worst case ~8s) to
+// parallel with a single 3s TOTAL budget — this and the page budget
+// together are what actually bounds this route's worst case under its
+// maxDuration, not the model call (which has no timeout of its own here).
 const MAX_PDF_BYTES = 8 * 1024 * 1024; // generous for any real CV; just a cost/latency ceiling
 const MAX_LINKEDIN_FETCHES = 2;
-const LINKEDIN_FETCH_TIMEOUT_MS = 4000;
+const LINKEDIN_TOTAL_BUDGET_MS = 3000;
 const MAX_LINKEDIN_CHARS = 4000;
 
 interface PersonRow {
@@ -114,14 +130,23 @@ async function gapContext(admin: SupabaseClient, orgId: string) {
 // has no precedent here. Fail-closed: if the malware-scan columns aren't
 // even applied yet, there is no way to confirm ANY document is 'clean', so
 // none become candidates — never assume clean for a document we can't check.
-async function fetchVaultCandidates(admin: SupabaseClient, orgId: string): Promise<CandidateDoc[]> {
+async function fetchVaultCandidates(admin: SupabaseClient, orgId: string): Promise<PageAwareDoc[]> {
   if (!(await malwareScanAvailable())) return [];
-  const [{ data: folders }, { data: docs }] = await Promise.all([
+  const [{ data: folders }, { data: docs }, { data: extractions }] = await Promise.all([
     admin.from('folders').select('id, name, portal_section').eq('org_id', orgId),
     admin.from('documents').select('id, name, storage_path, folder_id, malware_scan_status').eq('org_id', orgId),
+    // Prompt 718 Part D — the page count that actually bounds attachment
+    // cost. A document never extracted (no row here) has no known page
+    // count — selectWithinPageBudget treats that as the FULL budget, never
+    // as zero, so it's never attached alongside anything else blind.
+    admin.from('document_extractions').select('document_id, extracted').eq('org_id', orgId).eq('status', 'completed'),
   ]);
   const folderById = new Map(
     (folders ?? []).map((f) => [f.id as string, f as { name: string | null; portal_section: string | null }]),
+  );
+  const pagesByDocId = new Map(
+    ((extractions ?? []) as { document_id: string; extracted: { totalPages?: number } | null }[])
+      .map((e) => [e.document_id, e.extracted?.totalPages ?? null]),
   );
   return ((docs ?? []) as { id: string; name: string; storage_path: string; folder_id: string | null; malware_scan_status: string | null }[])
     .map((d) => {
@@ -129,7 +154,7 @@ async function fetchVaultCandidates(admin: SupabaseClient, orgId: string): Promi
       return {
         id: d.id, name: d.name, storagePath: d.storage_path,
         folderName: folder?.name ?? null, portalSection: folder?.portal_section ?? null,
-        malwareScanStatus: d.malware_scan_status,
+        malwareScanStatus: d.malware_scan_status, totalPages: pagesByDocId.get(d.id) ?? null,
       };
     });
 }
@@ -174,27 +199,30 @@ async function buildVaultDocumentBlocks(admin: SupabaseClient, candidates: Candi
 // completely bypassing the domain allowlist. With 'manual', a redirect comes
 // back as an opaque response with ok:false, so the existing !res.ok check
 // below already discards it — never followed, never read.
+// Prompt 718 Part D — was 2 SEQUENTIAL fetches at 4s each (worst case ~8s);
+// now parallel with a single 3s TOTAL budget shared across every target,
+// so this function's own worst case is bounded at 3s regardless of how
+// many LinkedIn URLs are on file, not multiplied by the fetch count.
 async function fetchLinkedInSnippets(people: TeamProfile[]): Promise<string[]> {
   const targets = people
     .filter((p) => isAllowedLinkedInUrl(p.linkedinUrl))
     .slice(0, MAX_LINKEDIN_FETCHES);
-  const snippets: string[] = [];
-  for (const p of targets) {
+  const results = await Promise.all(targets.map(async (p) => {
     try {
       const res = await fetch(p.linkedinUrl as string, {
-        signal: AbortSignal.timeout(LINKEDIN_FETCH_TIMEOUT_MS),
+        signal: AbortSignal.timeout(LINKEDIN_TOTAL_BUDGET_MS),
         headers: { accept: 'text/html' },
         redirect: 'manual',
       });
-      if (!res.ok) continue;
+      if (!res.ok) return null;
       const html = await res.text();
-      if (!looksLikeUsableLinkedInContent(html)) continue;
-      snippets.push(`${p.fullName}:\n${html.slice(0, MAX_LINKEDIN_CHARS)}`);
+      if (!looksLikeUsableLinkedInContent(html)) return null;
+      return `${p.fullName}:\n${html.slice(0, MAX_LINKEDIN_CHARS)}`;
     } catch {
-      continue;
+      return null;
     }
-  }
-  return snippets;
+  }));
+  return results.filter((s): s is string => s !== null);
 }
 
 async function callClaude(
@@ -286,12 +314,26 @@ export async function POST(req: Request) {
       : live.filter((c) => c.status === 'accepted'))
       .map((c) => `- [${c.category}] ${c.statement}`).join('\n');
 
+    // Prompt 718 Part F — a draft used to see ONLY accepted claims, even
+    // though a claim only ever gets created by running a Blueprint
+    // analysis. An org whose Settings/profile is populated but who never
+    // ran that analysis (blueprint_analyses has 0 rows) had real data —
+    // round_use_of_funds, round_target_eur, round_instruments, roadmap,
+    // team profiles — that this draft could never see. No new source, no
+    // migration: the exact same knowledgeToAtoms(readKnowledgeSources())
+    // ingestion already uses, read here as in-memory atoms rather than
+    // materialized into claims. Labeled distinctly in the prompt (and to
+    // the founder, via sourcesRead below) as NOT yet a confirmed claim.
+    const profileAtomsText = knowledgeToAtoms(await readKnowledgeSources(admin, orgId))
+      .map((a) => `- [${a.category}] ${a.statement}`).join('\n');
+
     // Prompt 308 — Parts A/B/C only ever run for the team-narrative gaps.
     // G4 ("is there a Vault doc for this claim") and G6 (round mechanism)
     // have nothing to do with people/bios/CVs/LinkedIn.
     const teamGap = isTeamGap(gap.rule);
     let teamProfilesText = '';
     let vaultBlocks: PromptContentBlock[] = [];
+    let attachedDocCount = 0;
     let linkedinSnippets: string[] = [];
     if (teamGap) {
       const profiles: TeamProfile[] = ctx.people.map((p) => ({
@@ -299,17 +341,38 @@ export async function POST(req: Request) {
       }));
       teamProfilesText = formatTeamProfiles(profiles);
       const [blocks, snippets] = await Promise.all([
-        fetchVaultCandidates(admin, orgId).then((candidates) => buildVaultDocumentBlocks(admin, selectTeamDocumentCandidates(candidates, MAX_TEAM_DOCS))),
+        // Prompt 718 Part D — page-budgeted, not count-capped: ranked
+        // team_governance-folder > name-match > rest, then fewest known
+        // pages first, and the running total is kept within
+        // MAX_ATTACHED_PDF_PAGES rather than a fixed document count.
+        fetchVaultCandidates(admin, orgId).then((candidates) => {
+          const withinBudget = selectWithinPageBudget(rankTeamDocuments(candidates), MAX_ATTACHED_PDF_PAGES);
+          attachedDocCount = withinBudget.length;
+          return buildVaultDocumentBlocks(admin, withinBudget);
+        }),
         fetchLinkedInSnippets(relevantPeopleForLinkedIn(gap, profiles)),
       ]);
       vaultBlocks = blocks;
       linkedinSnippets = snippets;
     }
 
+    // Prompt 718 Part F — exactly what THIS call actually read, for the
+    // founder-facing "AI drafted this from..." sentence (never a static,
+    // possibly-inaccurate list of everything the feature COULD read).
+    const sourcesRead: string[] = [];
+    if (contextClaims) sourcesRead.push('accepted claims');
+    if (profileAtomsText) sourcesRead.push('your profile and settings');
+    if (teamProfilesText) sourcesRead.push('team profiles');
+    if (attachedDocCount > 0) sourcesRead.push(`${attachedDocCount} Vault document${attachedDocCount === 1 ? '' : 's'}`);
+    if (linkedinSnippets.length > 0) sourcesRead.push(`LinkedIn (${linkedinSnippets.length} profile${linkedinSnippets.length === 1 ? '' : 's'})`);
+
     const sections = [
       `Question: "${question}"`,
       `Confirmed facts already on file for this company:\n${contextClaims ? wrapDocumentContent(contextClaims) : '(none)'}`,
     ];
+    if (profileAtomsText) {
+      sections.push(`From your profile and settings (not yet confirmed as a claim):\n${wrapDocumentContent(profileAtomsText)}`);
+    }
     if (teamProfilesText) {
       sections.push(`Team member profiles on file (entered by the founder in Settings → Team):\n${wrapDocumentContent(teamProfilesText)}`);
     }
@@ -346,9 +409,19 @@ export async function POST(req: Request) {
       orgId, 'blueprint_gap_draft',
     ) as { sufficient: boolean; draftAnswer: string };
     if (!output.sufficient || !output.draftAnswer?.trim()) {
-      return NextResponse.json({ ok: true, role: 'draft', text: null, message: 'Nothing on file yet answers this — you\'ll need to fill it in yourself.' });
+      // Prompt 718 Part F — say what was actually read and what to do next,
+      // instead of a flat "fill it in yourself" that doesn't tell the
+      // founder whether the platform even looked in the right place.
+      const readSummary = sourcesRead.length > 0 ? sourcesRead.join(', ') : 'nothing on file';
+      const nextStep = teamGap
+        ? 'Add it in Settings → Team, or upload a CV/bio in the Vault, then try again.'
+        : 'Add it in Settings, or attach a relevant document in the Vault, then try again.';
+      return NextResponse.json({
+        ok: true, role: 'draft', text: null, sourcesRead,
+        message: `Checked ${readSummary} — nothing there answers this. ${nextStep}`,
+      });
     }
-    return NextResponse.json({ ok: true, role: 'draft', text: output.draftAnswer });
+    return NextResponse.json({ ok: true, role: 'draft', text: output.draftAnswer, sourcesRead });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }

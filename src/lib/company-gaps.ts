@@ -723,9 +723,60 @@ export function detectGaps(claims: CompanyClaim[], context: GapContext): Gap[] {
 // igual nas três), o que fazia responder/saltar UMA apagar as outras duas
 // da fila como se também tivessem sido tratadas. field entra no discriminante
 // pela mesma razão que founderName/functionKey já lá estavam.
+//
+// Prompt 718 Part A — G1/G3/G6 are different from every rule above: their
+// relatedClaimIds is the ENTIRE category (ruleG1/ruleG3/ruleG6 map every
+// claim in tracao_gtm/equipa/funding+ask), not one claim about to this one
+// gap. Falling through to relatedClaimIds[0] there means the key changes
+// the instant the FIRST claim in that category is created (empty array →
+// one id) — which remounts GapInterrogation (React key change), drops its
+// answeredRules
+// match (the OLD key was what got written to source_ref), and made a just-
+// saved answer reappear as a brand-new question. These three rules have no
+// per-item discriminator to begin with (no founderName/functionKey/field,
+// unlike G3b/G3c/G2/G8 which DO need one) — the fix is simply to never
+// discriminate by claim id for them, ever.
+export const STABLE_KEY_RULES: ReadonlySet<GapRule> = new Set(['G1', 'G3', 'G6']);
+
 export function gapKey(gap: Gap): string {
+  if (STABLE_KEY_RULES.has(gap.rule)) return `${gap.rule}:`;
   const discriminator = gap.meta?.founderName ?? gap.meta?.functionKey ?? gap.meta?.field ?? gap.relatedClaimIds[0] ?? '';
   return `${gap.rule}:${discriminator}`;
+}
+
+// Prompt 718 Part A — answeredRules is a Set of gapKey strings (from
+// source_ref, /api/blueprint's GET). Exact match is right for every
+// discriminated rule (G3b per founder, G3c per function, G2/G8 per claim) —
+// two gaps of the same rule are genuinely different questions there. For a
+// STABLE_KEY_RULES rule, gapKey is now always `${rule}:` going forward, so
+// exact match already works for any answer recorded AFTER this fix — the
+// prefix fallback below exists only for an answer recorded BEFORE it, whose
+// stored source_ref still carries the old claim-id suffix.
+export function isGapAnswered(gap: Gap, answeredGapKeys: ReadonlySet<string>): boolean {
+  const key = gapKey(gap);
+  if (answeredGapKeys.has(key)) return true;
+  if (!STABLE_KEY_RULES.has(gap.rule)) return false;
+  const prefix = `${gap.rule}:`;
+  for (const k of answeredGapKeys) if (k.startsWith(prefix)) return true;
+  return false;
+}
+
+// Prompt 718 Part B — G1 and G6 are the two structural rules that can
+// legitimately keep firing after an honest, saved answer (the founder told
+// the truth, but the underlying fact — paid traction, a real use-of-funds —
+// still doesn't exist). Moved here from blueprint/answer/route.ts (Prompt
+// 363's original home for this) so /api/blueprint's GET can build the
+// "standing facts" list with the same text, never a second copy that could
+// drift. G3/G3b/G3c close via presumption-of-truth, G4/G5/G7/G8 close via
+// set_disposition/dismiss/refresh_claim, which never re-fire once answered
+// — only G1/G6 need this.
+export const STANDING_RULES: ReadonlySet<GapRule> = new Set(['G1', 'G6']);
+const STILL_OPEN_CLOSES_WHEN: Partial<Record<GapRule, string>> = {
+  G1: 'you have a paying customer or signed purchase order, not before',
+  G6: 'the ask is backed by a real use-of-funds and a real why-now, not just a number',
+};
+export function closesWhenText(rule: GapRule): string | null {
+  return STILL_OPEN_CLOSES_WHEN[rule] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -895,6 +946,36 @@ const OPTION_ROUTING: Partial<Record<GapRule, Record<string, AnswerRouting>>> = 
 export function routeAnswer(rule: GapRule, option: string | undefined, hasFreeText: boolean): AnswerRouting {
   if (hasFreeText || !option) return { kind: 'claim' };
   return OPTION_ROUTING[rule]?.[option] ?? { kind: 'claim' };
+}
+
+// Prompt 718 Part G — G1/G3/G6 allow picking more than one chip (a startup
+// can have BOTH a paying customer and a paid pilot; a team can have both
+// complementary skills and unique domain access). Every rule with real
+// per-option routing (G4's attach_document, G5's refresh_claim, G7's
+// set_disposition, …) is still single-select client-side, so this only
+// changes behavior once 2+ options are actually chosen: "dismisses only if
+// ALL chosen chips are non-informative" — one real chip among several still
+// means real information was given, so the combined pick becomes a claim.
+export function routeAnswerMulti(rule: GapRule, options: string[], hasFreeText: boolean): AnswerRouting {
+  if (options.length <= 1) return routeAnswer(rule, options[0], hasFreeText);
+  if (hasFreeText) return { kind: 'claim' };
+  const routings = options.map((o) => routeAnswer(rule, o, false));
+  if (routings.every((r) => r.kind === 'dismiss')) return { kind: 'dismiss' };
+  return { kind: 'claim' };
+}
+
+// Prompt 718 Part C — a bare "no"/"yes"/two words typed as free text is not
+// enough information to become or amend a claim; it's what turned a bare
+// "no" into "...such as accelerators. no" on a real production claim (the
+// AI router "amended" an unrelated claim in the same category rather than
+// recognizing there was nothing to add). Treated exactly like a
+// non-informative chip: recorded as answered, no claim written, no amend.
+const TRIVIAL_FREE_TEXT_WHOLE = /^(yes|no|sim|n[aã]o|n\/a|idk|not sure|maybe|talvez)\.?$/i;
+export function isTrivialFreeText(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (TRIVIAL_FREE_TEXT_WHOLE.test(trimmed)) return true;
+  return trimmed.split(/\s+/).filter(Boolean).length < 3;
 }
 
 // ---------------------------------------------------------------------------

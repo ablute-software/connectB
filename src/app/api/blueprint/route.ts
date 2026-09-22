@@ -18,11 +18,29 @@ import { claimsAvailable, blueprintAnalysesAvailable } from '@/lib/blueprint-cap
 import { readKnowledgeSources, readExistingClaims, hasAnyVaultDocument } from '@/lib/company-knowledge-db';
 import { knowledgeToAtoms, newAtoms } from '@/lib/company-knowledge';
 import { normalizeAtom, findDuplicateCandidate } from '@/lib/company-claims';
-import { detectGaps, templateFor, gapKey, rankGaps, impactWhy } from '@/lib/company-gaps';
+import {
+  detectGaps, templateFor, gapKey, rankGaps, impactWhy, isGapAnswered, STANDING_RULES, STABLE_KEY_RULES, closesWhenText,
+  type Gap,
+} from '@/lib/company-gaps';
+import type { CompanyClaim } from '@/lib/types';
 import { gapReconciliationsAvailable } from '@/lib/document-extraction-capability';
 import { runReconciliationForOrg, readReconcilableDocuments } from '@/lib/reconciliation';
 import { FAST_ROUTE_LOCK_WAIT_MS } from '@/lib/reconciliation-lock';
 import { markReadinessTrainFirstUsed } from '@/lib/readiness-usage';
+
+// Prompt 718 Part B — the founder's own cited answer to quote back in the
+// "standing fact" card. Exact gapKey match covers every answer recorded
+// after Part A's stable-key fix (G1/G6 always key as `${rule}:` now); the
+// rule-prefix fallback is only for an answer recorded before that fix.
+function findAnsweredClaim(
+  gap: Gap, key: string, answeredByKey: Map<string, CompanyClaim>, answeredClaims: CompanyClaim[],
+): CompanyClaim | null {
+  const exact = answeredByKey.get(key);
+  if (exact) return exact;
+  if (!STABLE_KEY_RULES.has(gap.rule)) return null;
+  const prefix = `${gap.rule}:`;
+  return answeredClaims.find((c) => (c.sourceRef as string).slice('gap:'.length).startsWith(prefix)) ?? null;
+}
 
 async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
   const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
@@ -137,10 +155,15 @@ export async function GET() {
   // já foi respondida (existe claim founder_answer aceite dessa regra)
   // desaparece da fila. O G5 (staleness) é que a reabre, e reabre pela via
   // normal — o claim antigo volta a disparar por idade.
-  const answeredRules = new Set(
-    claims.filter((c) => c.status === 'accepted' && c.sourceKind === 'founder_answer' && c.sourceRef?.startsWith('gap:'))
-      .map((c) => (c.sourceRef as string).slice('gap:'.length)),
-  );
+  //
+  // Prompt 718 Part A — keyed by gapKey string AND kept alongside the claim
+  // itself (not just the key), because Part B's "standing" facts need to
+  // quote the founder's own cited answer, not just know that ONE exists.
+  const answeredClaims = claims.filter((c) =>
+    c.status === 'accepted' && c.sourceKind === 'founder_answer' && c.sourceRef?.startsWith('gap:'));
+  const answeredByKey = new Map<string, CompanyClaim>(
+    answeredClaims.map((c) => [(c.sourceRef as string).slice('gap:'.length), c]));
+  const answeredGapKeys = new Set(answeredByKey.keys());
 
   let analysis: unknown = null;
   if (await blueprintAnalysesAvailable()) {
@@ -158,6 +181,32 @@ export async function GET() {
     c.status === 'proposed' ? { ...c, possibleDuplicateOf: findDuplicateCandidate(c, claims) } : c
   ));
 
+  // Prompt 718 Part B — "ask once, then inform, never re-ask." A gap of a
+  // STANDING_RULES rule (G1/G6) that is BOTH still firing AND already
+  // answered isn't a fresh question anymore — it's a structural fact the
+  // founder already told the truth about, shown once as a stated fact
+  // (with an "Update answer" link) rather than reappearing as a blank
+  // question every load. Every other answered gap just disappears, as
+  // before Part B ever existed.
+  const buildView = (g: (typeof gaps)[number]) => ({
+    ...g, key: gapKey(g), prompt: templateFor(g), why: impactWhy(g.rule),
+    reconciliationSuggestion: g.rule === 'G4' ? (reconciliationByClaimId.get(g.relatedClaimIds[0]) ?? null) : null,
+  });
+  const unanswered = gaps.filter((g) => !isGapAnswered(g, answeredGapKeys));
+  const standing = gaps
+    .filter((g) => STANDING_RULES.has(g.rule) && isGapAnswered(g, answeredGapKeys))
+    .map((g) => {
+      const key = gapKey(g);
+      const answerClaim = findAnsweredClaim(g, key, answeredByKey, answeredClaims);
+      return {
+        rule: g.rule, message: g.message, why: impactWhy(g.rule),
+        closesWhen: closesWhenText(g.rule),
+        answer: answerClaim?.statement ?? null,
+        answeredAt: answerClaim?.updatedAt ?? null,
+        gap: buildView(g),
+      };
+    });
+
   return NextResponse.json({
     available: true,
     // Prompt 480 §6 — true when another run held this org's lock longer
@@ -167,11 +216,8 @@ export async function GET() {
     reconciliationSkipped,
     analysesAvailable: await blueprintAnalysesAvailable(),
     claims: claimsWithDuplicates,
-    gaps: rankGaps(gaps.filter((g) => !answeredRules.has(gapKey(g))))
-      .map((g) => ({
-        ...g, key: gapKey(g), prompt: templateFor(g), why: impactWhy(g.rule),
-        reconciliationSuggestion: g.rule === 'G4' ? (reconciliationByClaimId.get(g.relatedClaimIds[0]) ?? null) : null,
-      })),
+    gaps: rankGaps(unanswered).map(buildView),
+    standing,
     analysis,
   });
 }

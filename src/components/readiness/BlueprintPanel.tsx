@@ -16,7 +16,7 @@ import Link from 'next/link';
 import { Card } from '@/components/ui';
 import type { CompanyClaim, ClaimCategory } from '@/lib/types';
 import { GapInterrogation, type GapView } from './GapInterrogation';
-import { KnowledgeHealthPanel } from './KnowledgeHealthPanel';
+import { KnowledgeHealthPanel, type StandingFact } from './KnowledgeHealthPanel';
 import { isWastedStrongClaim, claimsNeedingStrengthening } from '@/lib/company-claims';
 import { pickCurrentGap } from '@/lib/gap-rotation';
 import { GAP_QUESTION_BUDGET } from '@/lib/company-gaps';
@@ -26,6 +26,7 @@ interface BlueprintState {
   analysesAvailable?: boolean;
   claims: CompanyClaim[];
   gaps: GapView[];
+  standing?: StandingFact[];
   analysis: { id: string; status: string; started_at: string } | null;
 }
 
@@ -97,6 +98,10 @@ export function BlueprintPanel() {
   const [skippedKeys, setSkippedKeys] = useState<Set<string>>(new Set());
   // Prompt 358 Phase 3.2 — same budget cap as ReviewPanel.tsx's own copy.
   const [showAllGaps, setShowAllGaps] = useState(false);
+  // Prompt 718 Part B — "Update answer" on a standing fact reopens ITS
+  // GapView for a fresh answer, taking over from whatever the normal queue
+  // would otherwise show; cleared once that answer saves successfully.
+  const [reopenedGap, setReopenedGap] = useState<GapView | null>(null);
 
   function load() {
     fetch('/api/blueprint').then((r) => r.json()).then((body) => {
@@ -132,9 +137,13 @@ export function BlueprintPanel() {
 
   const allGaps = state?.gaps ?? [];
   const budgetedGaps = showAllGaps ? allGaps : allGaps.slice(0, GAP_QUESTION_BUDGET);
-  const gap = pickCurrentGap(budgetedGaps, skippedKeys);
+  const standing = state?.standing ?? [];
+  // Prompt 718 Part B — reopening a standing fact takes over the slot the
+  // normal queue would otherwise fill; once it saves, reopenedGap clears
+  // and pickCurrentGap resumes picking from the normal queue.
+  const gap = reopenedGap ?? pickCurrentGap(budgetedGaps, skippedKeys);
 
-  async function submitAnswer(opts: { option?: string; answer?: string; dismissed: boolean; category?: string }) {
+  async function submitAnswer(opts: { options?: string[]; answer?: string; dismissed: boolean; category?: string }) {
     if (!gap) return;
     if (opts.dismissed) setSkippedKeys((prev) => new Set(prev).add(gap.key));
     setBusy(true); setError(null); setRoutingNote(null);
@@ -142,18 +151,17 @@ export function BlueprintPanel() {
       const res = await fetch('/api/blueprint/answer', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          gapKey: gap.key, rule: gap.rule, option: opts.option, answer: opts.answer, category: opts.category,
+          gapKey: gap.key, rule: gap.rule, options: opts.options, answer: opts.answer, category: opts.category,
           analysisId: state?.analysis?.id, dismissed: opts.dismissed, relatedClaimIds: gap.relatedClaimIds,
         }),
       });
       const body = await res.json().catch(() => ({}));
       if (body.ok === false) { setError(body.error ?? 'Something went wrong.'); throw new Error(body.error ?? 'Something went wrong.'); }
       if (body.routedAs === 'amend_target_claim') setRoutingNote('Added to the existing claim rather than creating a new one.');
+      if (body.routedAs === 'replace_target_claim') setRoutingNote('Updated your existing answer.');
+      setReopenedGap(null);
       load();
-      // Prompt 363 — G1/G6 can legitimately stay open after an honest,
-      // saved answer; GapInterrogation needs this to show the "already told
-      // us" mode instead of a blank form for the same question.
-      return { stillOpen: body.stillOpen as boolean | undefined, reason: body.reason as string | undefined };
+      return body.note ? { note: body.note as string } : undefined;
     } finally { setBusy(false); }
   }
 
@@ -266,9 +274,10 @@ export function BlueprintPanel() {
           shared with ReviewPanel.tsx — Prompt 298 §1). Prompt 358 Phase 3.1 —
           the Knowledge Health panel replaces the old "N left" framing;
           Phase 3.2's budget caps which gaps the flow below can pull from. */}
-      {(allGaps.length > 0 || state.claims.some((c) => c.status === 'accepted')) && (
+      {(allGaps.length > 0 || standing.length > 0 || state.claims.some((c) => c.status === 'accepted')) && (
         <Card title={<span className="text-[#0E7490]">Knowledge health</span>}>
-          <KnowledgeHealthPanel claims={state.claims} gaps={allGaps} />
+          <KnowledgeHealthPanel claims={state.claims} gaps={allGaps} standing={standing}
+            onUpdateAnswer={(g) => setReopenedGap(g)} />
           {gap && (
             <div className="mt-3 border-t border-gray-100 pt-3">
               {routingNote && <p className="mb-2 text-xs text-[#0E7490]">{routingNote}</p>}
