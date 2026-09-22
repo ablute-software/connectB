@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dropDialog, dropTargetAccepts, planDrop, planUndo, revisitDaysFor, UNDO_WINDOW_MS } from './pipeline-drop';
+import { dropAllowedForStatus, dropDialog, dropTargetAccepts, planDrop, planUndo, revisitDaysFor, UNDO_WINDOW_MS } from './pipeline-drop';
 import { REVISIT_DAYS_DEFAULT } from './exit-effects';
 import type { Entity, TaskItem } from './types';
 
@@ -34,6 +34,28 @@ describe('dropTargetAccepts — Phase 4: the five real buckets, never the Active
     expect(dropTargetAccepts('stale')).toBe(false);
     expect(dropTargetAccepts('reported')).toBe(false);
     expect(dropTargetAccepts(null)).toBe(false);
+  });
+});
+
+describe('dropAllowedForStatus — Prompt 712: an invested row cannot be demoted to Contacted by a drag', () => {
+  it('refuses invested -> contacted', () => {
+    expect(dropAllowedForStatus('invested', 'contacted')).toBe(false);
+  });
+  it('still allows in_conversation -> contacted — a legitimate correction', () => {
+    expect(dropAllowedForStatus('in_conversation', 'contacted')).toBe(true);
+  });
+  it('invested is never blocked from any OTHER target — only contacted is guarded', () => {
+    expect(dropAllowedForStatus('invested', 'diligence')).toBe(true);
+    expect(dropAllowedForStatus('invested', 'frozen')).toBe(true);
+    expect(dropAllowedForStatus('invested', 'passed')).toBe(true);
+    expect(dropAllowedForStatus('invested', 'not_contacted')).toBe(true);
+  });
+  it('every other status is unaffected for every target', () => {
+    for (const status of ['not_contacted', 'contacted', 'in_conversation', 'diligence', 'passed', 'dormant'] as const) {
+      for (const target of ['not_contacted', 'contacted', 'diligence', 'frozen', 'passed'] as const) {
+        expect(dropAllowedForStatus(status, target)).toBe(true);
+      }
+    }
   });
 });
 

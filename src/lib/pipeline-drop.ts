@@ -62,6 +62,19 @@ export function dropTargetAccepts(view: string | null | undefined): view is Drop
     || view === 'frozen' || view === 'passed';
 }
 
+/**
+ * Prompt 712 — a per-status guard on top of dropTargetAccepts' per-card one:
+ * an entity already `invested` must never be demoted to Contacted by a
+ * drag — the dialog already shows the transition and requires a reason
+ * (not silent), but a real investment shouldn't be reversible by a gesture
+ * at all. `in_conversation` stays allowed: that one is a legitimate
+ * correction (e.g. marked prematurely). The caller treats `false` exactly
+ * like a drop outside any valid zone — no dialog, row returns to origin.
+ */
+export function dropAllowedForStatus(status: EntityStatus, target: DropTarget): boolean {
+  return !(status === 'invested' && target === 'contacted');
+}
+
 /** What the open door shows, above the current count. */
 export const DROP_TARGET_INTERIOR: Record<DropTarget, string> = {
   not_contacted: 'Drop to reset',

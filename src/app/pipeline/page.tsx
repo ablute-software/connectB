@@ -19,9 +19,13 @@ import { AddInvestorModal } from '@/components/AddInvestorModal';
 import { followUpTaskDisplayTitle, getStage, isPersonCandidate, isUnverifiedStub, relationshipSummary } from '@/lib/relationship';
 import { useConfirmWithFields } from '@/lib/confirm';
 import { useParkEntity } from '@/lib/use-park-entity';
-import { dropDialog, DROP_TARGET_INTERIOR, planDrop, planUndo, UNDO_WINDOW_MS, type DropTarget } from '@/lib/pipeline-drop';
+import { dropAllowedForStatus, dropDialog, DROP_TARGET_INTERIOR, planDrop, planUndo, UNDO_WINDOW_MS, type DropTarget } from '@/lib/pipeline-drop';
 import { PipelineFunnel, TONE, ICON } from '@/components/pipeline/PipelineFunnel';
 import { pipelineCounts, pipelineGroupForStatus, PIPELINE_CARDS, PIPELINE_GROUPS, type PipelineCardKey, type PipelineGroupKey } from '@/lib/pipeline-taxonomy';
+// Prompt 712 (679 §2) — reuses the back-office tables' own page-size
+// constant/helper rather than defining a second one, per the mini-prompt's
+// own instruction.
+import { DEFAULT_PAGE_SIZE, pageCount } from '@/lib/queue-table-state';
 import { pipelineTemperature, type Temperature } from '@/lib/pipeline-temperature';
 import { usePipelineRowDrag, useReducedMotion } from '@/components/pipeline/usePipelineRowDrag';
 import { CoachMark } from '@/components/onboarding/CoachMark';
@@ -42,24 +46,15 @@ import type { Db, Entity, Interaction, TaskItem } from '@/lib/types';
 const fitOrder = { high: 0, medium_high: 1, medium: 2, low: 3 };
 const SORT_STORAGE_KEY = 'ablute-pipeline-sort-v1';
 
-// Prompt 529 — replaces PIPELINE_LIST_MAX_HEIGHT_PX (888px = "32.5 thead +
-// 15 * 57 row"). Both numbers were re-measured in the live render before
-// this change and both were wrong: thead is 29px, and a row today is 53-113px
-// (median 73) at 1440px wide, 190-251px (median 218) at 390px. So the 888px
-// cap that was meant to show ~15 rows was showing about 4 on a phone.
-//
-// It is not replaced with a better pixel number, deliberately. That number
-// was accurate when written and went stale as soon as a badge was added to a
-// row — it will go stale again the moment the next one is. The cap is now
-// expressed in ROWS, and enforced in viewport units, so nothing has to be
-// re-measured when the row content changes.
-//
-// 40 = the largest plan quota today (motherfunding, catalog_quota=40). An
-// account cannot be delivered more catalog investors than its plan allows, so
-// at this cap every catalog-sourced pipeline fits without an internal scroll
-// on every plan. Above it the list is genuinely long — manual additions on top
-// of a full quota — and its own scroll is the right answer again.
-const PIPELINE_ROWS_WITHOUT_SCROLL_CAP = 40;
+// Prompt 712 (679 §2) — Prompt 529's viewport-relative scroll cap
+// (PIPELINE_ROWS_WITHOUT_SCROLL_CAP, an internal max-h-[75vh] scroll once a
+// list passed 40 rows) is retired: each band now paginates independently at
+// PAGE_SIZE rows, so no band's own row list ever needs an internal scrollbar
+// again — the page grows to fit whichever bands are open, same as a list
+// below the old cap always did. This deliberately reverses Fase 1+2's own
+// "no pagination, one continuous scroll" decision (Nuno, after testing the
+// full-scroll list live and finding it unusable at real row counts).
+const PIPELINE_BAND_PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
 // Column widths sum to 100% — table-fixed (below) then holds the table to
 // the container's width at every "wave" filter setting instead of growing
@@ -657,6 +652,19 @@ function PipelinePageInner() {
     if (next.has(g)) next.delete(g); else next.add(g);
     return next;
   }), []);
+  // Prompt 712 (679 §2) — each band paginates independently. Plain component
+  // state, same mechanism cardFilter/collapsedGroups already use above (not
+  // the URL): opening/closing the dossier panel (?entity=) doesn't remount
+  // this component (cardFilter/collapsedGroups already rely on that same
+  // fact), so a band's page survives it for free — confirmed, not assumed.
+  // Missing entry = page 1; clamped against the band's own current row count
+  // at read time below, so a filter change that shrinks a band never leaves
+  // its page pointing past the end.
+  const [bandPage, setBandPage] = useState<Partial<Record<PipelineGroupKey, number>>>({});
+  const pageFor = useCallback(
+    (groupKey: PipelineGroupKey, rowCount: number) => Math.min(bandPage[groupKey] ?? 1, pageCount(rowCount, PIPELINE_BAND_PAGE_SIZE)),
+    [bandPage],
+  );
   // Prompt 107 B.5 — which delivered entities are currently a suspended
   // investor. Derived at read time, never a mass write to `entities` (see
   // /api/pipeline/suspended-investors's own header for why).
@@ -912,13 +920,6 @@ function PipelinePageInner() {
 
   const countries = Array.from(new Set(db.entities.map((e) => e.hq_country).filter(Boolean))) as string[];
   const sectorOptions = Array.from(new Set(db.entities.flatMap((e) => e.sectors))).sort();
-  // Prompt 529 — drives the height rule below. Counts ONLY rows the account
-  // already has unlocked (`rows`, the rendered list), never the catalog rows
-  // the plan's quota is holding back — those are the frosted panel's business
-  // and must not shrink the founder's own list. Deliberately not the raw
-  // db.entities length either: `rows` is what is actually rendered under the
-  // current view/wave filter, and that is what has to fit.
-  const listExceedsCap = rows.length > PIPELINE_ROWS_WITHOUT_SCROLL_CAP;
 
   // Prompt 273 §3 / Prompt 282/283 — the row's Status pill shows the real
   // sub-class, not the raw 'dormant' status, but only inside the 3
@@ -958,6 +959,9 @@ function PipelinePageInner() {
   useEffect(() => () => { if (dropToastTimer.current) window.clearTimeout(dropToastTimer.current); }, []);
 
   const handleDrop = useCallback(async (entity: Entity, target: DropTarget): Promise<boolean> => {
+    // Prompt 712 — see dropAllowedForStatus's own comment: same "row
+    // returns to origin" outcome as a drop outside any valid zone.
+    if (!dropAllowedForStatus(entity.status, target)) return false;
     const now = new Date();
     // §2 — the question comes AFTER the shadow has fallen in, and nothing is
     // written before the answer. Cancel returns the shadow to the row.
@@ -1013,15 +1017,21 @@ function PipelinePageInner() {
   // is never a stop). Prompt 704 §A.2 — every band renders now regardless of
   // its row count (an empty one just has no ids to contribute), so there's
   // no longer a separate "hidden because empty" case to track here.
+  // Prompt 712 (679 §2) — a row on a band's page 2+ is exactly as "not
+  // currently visible" as one in a collapsed band; ↑/↓ stops at the current
+  // page's own edge rather than jumping across pages, same as it already
+  // stops at the very top/bottom of the whole list today.
   const visibleRowIds = useMemo(() => {
     const ids: string[] = [];
     for (const groupKey of PIPELINE_GROUPS) {
       if (collapsedGroups.has(groupKey)) continue;
       const groupRows = displayRows.filter((e) => pipelineGroupForStatus(e.status) === groupKey);
-      for (const e of groupRows) ids.push(e.id);
+      const page = pageFor(groupKey, groupRows.length);
+      const pageRows = groupRows.slice((page - 1) * PIPELINE_BAND_PAGE_SIZE, page * PIPELINE_BAND_PAGE_SIZE);
+      for (const e of pageRows) ids.push(e.id);
     }
     return ids;
-  }, [displayRows, collapsedGroups]);
+  }, [displayRows, collapsedGroups, pageFor]);
 
   // Prompt 672 — Esc closes the dossier; ↑/↓ move between investors without
   // closing it (both skipped while typing in a form field, same guard the
@@ -1373,32 +1383,18 @@ function PipelinePageInner() {
           there's only ever one column here now. (The md:flex-1/md:min-h-0
           this used to describe was removed by Prompt 529 — see the root
           div's comment for why.) */}
-      {/* Prompt 188 §1 capped this at ~15 rows via a fixed pixel height, so
-          the list never grew the whole page. Prompt 529 removed that cap
-          below PIPELINE_ROWS_WITHOUT_SCROLL_CAP rows: growing the page is
-          now the DESIRED outcome, because the alternative was hiding rows
-          the account already owns. */}
-      {/* Prompt 192 — corrects 188 §2: the blocked-panel used to live
-          inside THIS scroll container, after </table>, so it only became
-          visible once the user scrolled the 15-row list all the way down.
-          Split back into two sibling divs (blockedCount > 0 below) — this
-          one keeps its own scroll and, when a panel follows, only rounds
-          its TOP corners and drops its bottom border so the two read as
-          one continuous shape with no seam. */}
-      {/* Prompt 529 — the height rule, in one place.
-          At or below the cap: NO height constraint at all. Not a computed
-          pixel target either — with rows measured between 53px and 113px on
-          desktop and 190px to 251px on mobile, any single number is wrong for
-          most rows in both directions. Letting the table size to its content
-          is exact by construction: every row is visible, and the page's own
-          scrollbar handles the overflow.
-          Above the cap: a viewport-relative cap, so it cannot be squeezed by
-          banners the way flex-1 was, and cannot go stale when a row grows a
-          badge. overflow-y-auto stays either way — it simply has nothing to do
-          in the common case now.
-          The frosted catalog panel is unchanged and still the immediate next
-          sibling, so it continues to sit directly under the last unlocked row.
-          It was never hiding these rows and does not start now. */}
+      {/* Prompt 192 — corrects 188 §2: the blocked-panel used to live inside
+          THIS container, after </table>, so it only became visible once the
+          list scrolled all the way down. Split back into two sibling divs
+          (blockedCount > 0 below) — this one, when a panel follows, only
+          rounds its TOP corners and drops its bottom border so the two read
+          as one continuous shape with no seam.
+          Prompt 712 (679 §2) — Prompt 529's internal max-h-[75vh] scroll cap
+          is gone: each band now paginates on its own (PIPELINE_BAND_PAGE_SIZE
+          rows), so the table never grows past what fits without a scrollbar
+          of its own — the PAGE scrolls instead, same as any band already at
+          or below the old cap always did. overflow-y-auto dropped along with
+          it; overflow-x-auto stays, for the mobile column layout below md. */}
       {/* Prompt 672 — the dossier panel pushes the list, never overlays it: a
           two-column grid while open (list ~270-340px, panel takes the rest),
           matching the prototype's own split. Below ~900px (its breakpoint
@@ -1412,7 +1408,7 @@ function PipelinePageInner() {
           panel is open, so the eye reads "focus moved to the panel" without
           losing legibility or disabling clicks/↑↓ on the still-usable list. */}
       <div data-tour-id="pipeline-list"
-        className={`overflow-x-auto overflow-y-auto border border-gray-100 shadow-sm ${openEntityId ? 'bg-[#F8FAFC]' : 'bg-white'} ${listExceedsCap ? 'max-h-[75vh]' : ''} ${blockedCount > 0 ? 'rounded-t-2xl border-b-0' : 'rounded-2xl'}`}>
+        className={`overflow-x-auto border border-gray-100 shadow-sm ${openEntityId ? 'bg-[#F8FAFC]' : 'bg-white'} ${blockedCount > 0 ? 'rounded-t-2xl border-b-0' : 'rounded-2xl'}`}>
         {/* table-fixed + explicit column widths (colgroup) so the table
             holds to the container's width at every wave filter setting
             instead of growing with content and forcing horizontal scroll;
@@ -1480,6 +1476,12 @@ function PipelinePageInner() {
               // that can drift): a test fixture renders in the band but is not
               // counted, same exclusion as funnelCounts.
               const groupRealCount = groupRows.filter((e) => !e.is_test).length;
+              // Prompt 712 (679 §2) — this band's own page, independent of
+              // every other band's. A band at or below PIPELINE_BAND_PAGE_SIZE
+              // shows no controls at all (§2's own rule).
+              const groupTotalPages = pageCount(groupRows.length, PIPELINE_BAND_PAGE_SIZE);
+              const groupPage = pageFor(groupKey, groupRows.length);
+              const pageRows = groupRows.slice((groupPage - 1) * PIPELINE_BAND_PAGE_SIZE, groupPage * PIPELINE_BAND_PAGE_SIZE);
               return (
                 <Fragment key={groupKey}>
                   <tr className="border-t border-gray-200">
@@ -1509,7 +1511,7 @@ function PipelinePageInner() {
                       </td>
                     </tr>
                   )}
-                  {!isCollapsed && groupRows.map((e, i) => {
+                  {!isCollapsed && pageRows.map((e, i) => {
               const task = nextAction(db, e);
               const rowGroup = pipelineGroupForStatus(e.status);
               const isActiveGroup = rowGroup !== 'passed' && rowGroup !== 'frozen';
@@ -1765,6 +1767,26 @@ function PipelinePageInner() {
                 </tr>
               );
             })}
+                  {/* Prompt 712 (679 §2) — page numbers at the foot of THIS
+                      band only, never the whole table. A band at or below
+                      PIPELINE_BAND_PAGE_SIZE rows shows nothing here — no
+                      controls for a page that fits on one screen already. */}
+                  {!isCollapsed && groupTotalPages > 1 && (
+                    <tr>
+                      <td colSpan={SORT_COLUMNS.length} className="p-0">
+                        <div className="flex items-center justify-center gap-1 border-t border-gray-100 px-2 py-2">
+                          {Array.from({ length: groupTotalPages }, (_, i) => i + 1).map((p) => (
+                            <button key={p} type="button"
+                              onClick={() => setBandPage((prev) => ({ ...prev, [groupKey]: p }))}
+                              className={`min-w-[1.75rem] rounded px-2 py-1 text-xs font-medium ${
+                                p === groupPage ? 'bg-[#0E7490] text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
+                              {p}
+                            </button>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
                 </Fragment>
               );
             })}
