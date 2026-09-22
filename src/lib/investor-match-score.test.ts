@@ -96,4 +96,107 @@ describe('computeMatchScore', () => {
       expect(computeMatchScore({ ...PERFECT, exclusionsNotes: 'foodtech' }, ROUND).score).toBe(100);
     });
   });
+
+  // Prompt 714 (Fase 0) — "em falta" deixa de ser tratado como crédito total
+  // OU zero, consoante o critério; passa a ser excluído da conta (numerador
+  // E denominador), com uma marca em reasons/unknownCriteria só quando o
+  // investidor tinha mesmo declarado uma preferência nessa dimensão.
+  describe('em falta != credito total (Prompt 714)', () => {
+    // Investor declares a preference on every one of the five dimensions,
+    // and the startup round matches every one of them (same shape as
+    // PERFECT/ROUND above) — the baseline every single-field-missing test
+    // below starts from.
+    const DECLARES_ALL: InvestorThesis = {
+      sectors: ['health'], stagesInvested: ['pre_seed'], geographies: ['Portugal'],
+      instruments: ['equity'], ticketMin: 25000, ticketMax: 100000,
+    };
+
+    it('sector em falta: excluido do score, marcado "sector (unconfirmed)", nao credito nem penalizacao', () => {
+      const round: StartupRound = { ...ROUND, sectors: [] };
+      const result = computeMatchScore(DECLARES_ALL, round);
+      expect(result.unknownCriteria).toEqual(['sector']);
+      expect(result.reasons).toEqual(['sector (unconfirmed)', 'stage', 'ticket', 'geography', 'instrument']);
+      expect(result.coverage).toBe(65); // 100 - 35 (sector's own weight)
+      expect(result.score).toBe(100); // 100% of what's left to evaluate, not 65%
+    });
+
+    it('stage em falta: excluido do score, marcado "stage (unconfirmed)"', () => {
+      const round: StartupRound = { ...ROUND, stage: null };
+      const result = computeMatchScore(DECLARES_ALL, round);
+      expect(result.unknownCriteria).toEqual(['stage']);
+      expect(result.reasons).toContain('stage (unconfirmed)');
+      expect(result.reasons).not.toContain('stage');
+      expect(result.coverage).toBe(75); // 100 - 25
+      expect(result.score).toBe(100);
+    });
+
+    it('ticket em falta apenas quando AMBOS os valores da ronda sao nulos', () => {
+      const bothNull: StartupRound = { ...ROUND, roundMinTicketEur: null, roundTargetEur: null };
+      const result = computeMatchScore(DECLARES_ALL, bothNull);
+      expect(result.unknownCriteria).toEqual(['ticket']);
+      expect(result.reasons).toContain('ticket (unconfirmed)');
+      expect(result.coverage).toBe(80); // 100 - 20
+
+      // Only one of the two round-size fields set: still evaluable, not missing.
+      const onlyMin: StartupRound = { ...ROUND, roundTargetEur: null };
+      const evaluated = computeMatchScore(DECLARES_ALL, onlyMin);
+      expect(evaluated.unknownCriteria).toEqual([]);
+      expect(evaluated.reasons).toContain('ticket');
+      expect(evaluated.score).toBe(100);
+    });
+
+    it('geografia em falta: excluida do score, marcada "geography (unconfirmed)"', () => {
+      const round: StartupRound = { ...ROUND, country: null };
+      const result = computeMatchScore(DECLARES_ALL, round);
+      expect(result.unknownCriteria).toEqual(['geography']);
+      expect(result.reasons).toContain('geography (unconfirmed)');
+      expect(result.coverage).toBe(90); // 100 - 10
+      expect(result.score).toBe(100);
+    });
+
+    it('instrumento em falta: excluido do score, marcado "instrument (unconfirmed)"', () => {
+      const round: StartupRound = { ...ROUND, roundInstruments: [] };
+      const result = computeMatchScore(DECLARES_ALL, round);
+      expect(result.unknownCriteria).toEqual(['instrument']);
+      expect(result.reasons).toContain('instrument (unconfirmed)');
+      expect(result.coverage).toBe(90); // 100 - 10
+      expect(result.score).toBe(100);
+    });
+
+    it('combinacao de dois em falta: ambos excluidos, o resto avaliado normalmente', () => {
+      const round: StartupRound = { ...ROUND, stage: null, country: null };
+      const result = computeMatchScore(DECLARES_ALL, round);
+      expect(result.unknownCriteria).toEqual(['stage', 'geography']);
+      expect(result.reasons).toEqual(['sector', 'stage (unconfirmed)', 'ticket', 'geography (unconfirmed)', 'instrument']);
+      expect(result.coverage).toBe(65); // 100 - 25 (stage) - 10 (geography)
+      expect(result.score).toBe(100);
+    });
+
+    it('em falta e excluido do DENOMINADOR, nao so do numerador — nao infla o score quando outro criterio falha de verdade', () => {
+      // stage is missing (excluded); sector is a KNOWN mismatch (not missing —
+      // the startup did fill sectors in, they just don't overlap the thesis).
+      const round: StartupRound = { ...ROUND, stage: null, sectors: ['fintech'] };
+      const result = computeMatchScore(DECLARES_ALL, round);
+      expect(result.unknownCriteria).toEqual(['stage']);
+      expect(result.reasons).not.toContain('sector');
+      expect(result.reasons).not.toContain('sector (unconfirmed)');
+      // evaluable weight = 100 - 25 (stage) = 75; earned = ticket 20 + geography 10 + instrument 10 = 40
+      expect(result.coverage).toBe(75);
+      expect(result.score).toBe(53);
+    });
+
+    it('"por confirmar" so aparece quando o investidor declarou a dimensao — sem declaracao, dado em falta na startup nao e sequer olhado', () => {
+      const emptyThesis: InvestorThesis = {
+        sectors: [], stagesInvested: [], geographies: [], instruments: [], ticketMin: null, ticketMax: null,
+      };
+      const roundMissingEverything: StartupRound = {
+        sectors: [], stage: null, country: null, roundTargetEur: null, roundMinTicketEur: null, roundInstruments: [],
+      };
+      const result = computeMatchScore(emptyThesis, roundMissingEverything);
+      expect(result.unknownCriteria).toEqual([]);
+      expect(result.reasons).toEqual([]);
+      expect(result.coverage).toBe(100);
+      expect(result.score).toBe(100);
+    });
+  });
 });
