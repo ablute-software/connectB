@@ -22,6 +22,7 @@
 // but nothing tilts, falls or flies back.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { dropTargetAccepts, type DropTarget } from '@/lib/pipeline-drop';
+import { autoScroll, autoScrollDelta } from '@/lib/edge-autoscroll';
 import type { Entity } from '@/lib/types';
 
 const DRAG_START_PX = 6;
@@ -155,6 +156,12 @@ export function usePipelineRowDrag(opts: {
   onDropRef.current = opts.onDrop;
   const reducedRef = useRef(opts.reducedMotion);
   reducedRef.current = opts.reducedMotion;
+  // Prompt 704 — a row dragged near the top or bottom of the screen scrolls
+  // the page (or the row list's own capped container) toward it, so the
+  // funnel cards stay reachable however long the list is. Ties to the drag's
+  // own lifetime: started in startDrag, stopped in endDrag below — never a
+  // free-running loop on a page that isn't dragging anything.
+  const autoScrollRafRef = useRef<number | null>(null);
 
   const positionGhost = useCallback((d: Drag, lean: number) => {
     d.ghost.style.transform = ghostTransform(d.x - d.offsetX, d.y - d.offsetY, GHOST_SCALE, reducedRef.current ? 0 : GHOST_TILT_DEG + lean);
@@ -164,6 +171,16 @@ export function usePipelineRowDrag(opts: {
     const p = pendingRef.current;
     if (p?.holdTimer) window.clearTimeout(p.holdTimer);
     pendingRef.current = null;
+  }, []);
+
+  const tickAutoScroll = useCallback(() => {
+    const d = dragRef.current;
+    if (d) autoScroll(d.x, d.y, autoScrollDelta(d.y, window.innerHeight));
+    autoScrollRafRef.current = window.requestAnimationFrame(tickAutoScroll);
+  }, []);
+
+  const stopAutoScroll = useCallback(() => {
+    if (autoScrollRafRef.current != null) { window.cancelAnimationFrame(autoScrollRafRef.current); autoScrollRafRef.current = null; }
   }, []);
 
   // One entry for both the 6px mouse move and the 300ms touch hold.
@@ -181,7 +198,8 @@ export function usePipelineRowDrag(opts: {
     document.body.classList.add('pipeline-dragging');
     setActive(true);
     setOriginId(p.entity.id);
-  }, [clearPending, positionGhost]);
+    if (autoScrollRafRef.current == null) autoScrollRafRef.current = window.requestAnimationFrame(tickAutoScroll);
+  }, [clearPending, positionGhost, tickAutoScroll]);
 
   const leanTowards = useCallback((d: Drag): number => {
     if (!d.over || reducedRef.current) return 0;
@@ -213,6 +231,7 @@ export function usePipelineRowDrag(opts: {
       setActive(false);
       setOver(null);
       setOriginId(null);
+      stopAutoScroll();
     };
 
     const returnToOrigin = async (d: Drag, fromDoor: DropTarget | null) => {
@@ -236,13 +255,24 @@ export function usePipelineRowDrag(opts: {
       await playAnim(d.ghost, [{ transform: from, opacity: GHOST_OPACITY }, { transform: to, opacity: 0 }], FALL_MS, 'ease-in');
     };
 
+    // Prompt 704 §A.1 (18/09/2026) — a ghost was found stuck floating over the
+    // list in production until an unrelated click, surviving a drop that
+    // landed nowhere valid. endDrag(d) is the only thing that removes it, so
+    // every path here now runs it from a `finally` rather than as one more
+    // step that a thrown error (or a future change) could skip — cancelling,
+    // completing, or the window losing focus mid-drag (onBlur below) all
+    // guarantee the same cleanup instead of relying on each call site to
+    // remember it.
     const cancelDrag = async () => {
       clearPending();
       const d = dragRef.current;
       if (!d) return;
       suppressNextClick();
-      await returnToOrigin(d, null);
-      endDrag(d);
+      try {
+        await returnToOrigin(d, null);
+      } finally {
+        endDrag(d);
+      }
     };
 
     const onMove = (e: PointerEvent) => {
@@ -272,21 +302,29 @@ export function usePipelineRowDrag(opts: {
       if (!d) return;
       suppressNextClick();
       setActive(false);
-      if (!d.over) { await returnToOrigin(d, null); endDrag(d); return; }
-      const target = d.over;
-      // §1.4 — the shadow falls in, the door closes, only then the question.
-      await fallIntoDoor(d, target);
-      d.over = null;
-      setOver(null);
-      if (!reducedRef.current) await wait(DOOR_CLOSE_MS);
-      let committed = false;
-      try { committed = await onDropRef.current(d.entity, target); } catch { committed = false; }
-      if (!committed) await returnToOrigin(d, target);
-      endDrag(d);
+      try {
+        if (!d.over) { await returnToOrigin(d, null); return; }
+        const target = d.over;
+        // §1.4 — the shadow falls in, the door closes, only then the question.
+        await fallIntoDoor(d, target);
+        d.over = null;
+        setOver(null);
+        if (!reducedRef.current) await wait(DOOR_CLOSE_MS);
+        let committed = false;
+        try { committed = await onDropRef.current(d.entity, target); } catch { committed = false; }
+        if (!committed) await returnToOrigin(d, target);
+      } finally {
+        endDrag(d);
+      }
     };
 
     const onCancel = () => { void cancelDrag(); };
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && dragRef.current) void cancelDrag(); };
+    // A drag that outlives the window's own focus (alt-tab, an OS dialog
+    // stealing it, devtools) may never get a pointerup/pointercancel at all —
+    // cancel it defensively rather than leave the ghost with no event left
+    // that could ever clean it up.
+    const onBlur = () => { if (dragRef.current) void cancelDrag(); };
 
     document.addEventListener('pointermove', onMove, { passive: false });
     document.addEventListener('pointerup', onUp);
@@ -294,6 +332,7 @@ export function usePipelineRowDrag(opts: {
     document.addEventListener('keydown', onKey);
     document.addEventListener('touchmove', preventTouchScroll, { passive: false });
     document.addEventListener('contextmenu', preventContextMenu);
+    window.addEventListener('blur', onBlur);
     return () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
@@ -301,11 +340,12 @@ export function usePipelineRowDrag(opts: {
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('touchmove', preventTouchScroll);
       document.removeEventListener('contextmenu', preventContextMenu);
+      window.removeEventListener('blur', onBlur);
       clearPending();
       const d = dragRef.current;
       if (d) endDrag(d);
     };
-  }, [opts.enabled, clearPending, startDrag, positionGhost, leanTowards, suppressNextClick]);
+  }, [opts.enabled, clearPending, startDrag, positionGhost, leanTowards, suppressNextClick, stopAutoScroll]);
 
   const onRowPointerDown = useCallback((e: React.PointerEvent<HTMLTableRowElement>, entity: Entity) => {
     if (!opts.enabled || dragRef.current || pendingRef.current) return;

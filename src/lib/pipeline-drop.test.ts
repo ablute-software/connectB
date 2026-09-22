@@ -5,6 +5,9 @@ import type { Entity, TaskItem } from './types';
 
 // Prompt 647 — the decision behind the drag: what the dialog says, what a
 // confirmed drop commits, what Undo restores. The component only draws.
+//
+// Prompt 704 (18/09/2026) — Phase 4: all five real buckets accept a drop now
+// (not just Frozen/Passed), and every one of them requires a reason.
 
 const ENTITY = { id: 'e1', name: 'Indico Capital', status: 'contacted' } as Entity;
 const NOW = new Date('2026-09-10T10:00:00.000Z');
@@ -16,17 +19,25 @@ function task(over: Partial<TaskItem> = {}): TaskItem {
   } as TaskItem;
 }
 
-describe('dropTargetAccepts — §3, option (A)', () => {
-  it('Frozen and Passed take a row; Stale and Reported never do', () => {
+describe('dropTargetAccepts — Phase 4: the five real buckets, never the Active roll-up', () => {
+  it('every real bucket takes a row', () => {
+    expect(dropTargetAccepts('not_contacted')).toBe(true);
+    expect(dropTargetAccepts('contacted')).toBe(true);
+    expect(dropTargetAccepts('diligence')).toBe(true);
     expect(dropTargetAccepts('frozen')).toBe(true);
     expect(dropTargetAccepts('passed')).toBe(true);
+  });
+  it('Active never does — it is a roll-up (total − passed), not a bucket with a status of its own', () => {
+    expect(dropTargetAccepts('active')).toBe(false);
+  });
+  it('Stale and Reported never did and still do not', () => {
     expect(dropTargetAccepts('stale')).toBe(false);
     expect(dropTargetAccepts('reported')).toBe(false);
     expect(dropTargetAccepts(null)).toBe(false);
   });
 });
 
-describe('dropDialog — §2, the dialog tells the truth', () => {
+describe('dropDialog — §2, the dialog tells the truth, and Prompt 704: reason is required everywhere', () => {
   it('Frozen: names the revisit task, counts re-dated and closed tasks from the plan itself', () => {
     const d = dropDialog('frozen', ENTITY, [
       task({ id: 'a' }), task({ id: 'b' }), task({ id: 'c', action_type: 'follow_up_thread' }),
@@ -46,19 +57,22 @@ describe('dropDialog — §2, the dialog tells the truth', () => {
     expect(d.message.split('\n')[0]).toBe('Contacted → Frozen.');
   });
 
-  it('Frozen: the date field defaults to +30 days and cannot be set to today', () => {
+  it('Frozen: the date field defaults to +30 days and cannot be set to today; a required reason field sits alongside it', () => {
     const d = dropDialog('frozen', ENTITY, [], NOW);
-    expect(d.fields).toEqual([expect.objectContaining({ key: 'revisit_date', type: 'date', defaultValue: '2026-10-10', min: '2026-09-11' })]);
+    expect(d.fields).toEqual([
+      expect.objectContaining({ key: 'revisit_date', type: 'date', defaultValue: '2026-10-10', min: '2026-09-11' }),
+      expect.objectContaining({ key: 'reason', type: 'text', required: true }),
+    ]);
     expect(d.message).toContain('No open tasks to move.');
   });
 
-  it('Passed: counts the tasks planPass will close; the reason is optional', () => {
+  it('Passed: counts the tasks planPass will close; the reason is now required', () => {
     const d = dropDialog('passed', ENTITY, [task({ id: 'a' }), task({ id: 'b', done: true })], NOW);
     expect(d.title).toBe('Mark Indico Capital as passed?');
     expect(d.message).toBe('Contacted → Passed.\nCloses this relationship. 1 open task will be closed.');
     expect(d.confirmLabel).toBe('Pass');
     expect(d.destructive).toBe(true);
-    expect(d.fields).toEqual([expect.objectContaining({ key: 'reason', type: 'text' })]);
+    expect(d.fields).toEqual([expect.objectContaining({ key: 'reason', type: 'text', required: true })]);
   });
 
   it('names the true current stage, not always "Contacted" — a dormant row shows Frozen as its own current stage', () => {
@@ -69,6 +83,15 @@ describe('dropDialog — §2, the dialog tells the truth', () => {
   it('never counts another entity’s tasks', () => {
     const d = dropDialog('passed', ENTITY, [task({ id: 'x', entity_id: 'someone-else' })], NOW);
     expect(d.message).toContain('No open tasks to close.');
+  });
+
+  it('Not contacted / Contacted / Due diligence: a required-reason dialog, no task counting (nothing here is an exit)', () => {
+    for (const target of ['not_contacted', 'contacted', 'diligence'] as const) {
+      const d = dropDialog(target, ENTITY, [task()], NOW);
+      expect(d.destructive).toBe(false);
+      expect(d.fields).toEqual([expect.objectContaining({ key: 'reason', type: 'text', required: true })]);
+      expect(d.message).toContain(`Contacted → `);
+    }
   });
 });
 
@@ -84,12 +107,12 @@ describe('revisitDaysFor', () => {
 });
 
 describe('planDrop — what a confirmed drop commits', () => {
-  it('Frozen: dormant, the 527 note leads with the transition, planPark on the chosen date, a toast naming the date', () => {
-    const c = planDrop('frozen', ENTITY, [task({ id: 'a' })], NOW, { revisit_date: '2026-09-24' });
+  it('Frozen: dormant, the note leads with the transition and states the (now required) reason, planPark on the chosen date, a toast naming the date', () => {
+    const c = planDrop('frozen', ENTITY, [task({ id: 'a' })], NOW, { revisit_date: '2026-09-24', reason: 'No reply in 3 weeks' });
     expect(c.status).toBe('dormant');
     expect(c.stage).toBeUndefined();
     expect(c.dormantReason).toBe('Frozen — dragged from the Pipeline');
-    expect(c.note).toBe('Contacted → Frozen. Parked by choice — dragged onto Frozen in the Pipeline. Marked dormant on 2026-09-10.');
+    expect(c.note).toBe('Contacted → Frozen. Parked by choice — dragged onto Frozen in the Pipeline. Marked dormant on 2026-09-10. (No reply in 3 weeks)');
     expect(c.plan.revisitTask?.title).toBe('Revisit Indico Capital — frozen on 2026-09-10');
     expect(c.plan.revisitTask?.dueAt.slice(0, 10)).toBe('2026-09-24');
     expect(c.plan.dispositions).toEqual([expect.objectContaining({ taskId: 'a', action: 'reschedule' })]);
@@ -106,7 +129,7 @@ describe('planDrop — what a confirmed drop commits', () => {
     expect(c.toast).toBe('✕ Indico Capital passed — reason recorded.');
   });
 
-  it('Passed without a reason never claims one was recorded', () => {
+  it('Passed without a reason never claims one was recorded (a defensive default — the dialog itself now requires one)', () => {
     const c = planDrop('passed', ENTITY, [], NOW);
     expect(c.note).toBe('Contacted → Passed. Passed by choice — dragged onto Passed in the Pipeline. Marked passed on 2026-09-10.');
     expect(c.toast).toBe('✕ Indico Capital passed.');
@@ -117,13 +140,44 @@ describe('planDrop — what a confirmed drop commits', () => {
   // resolves the current session's own email); silent (no dangling "by")
   // when it can't.
   it('names who dragged it when an actor label is supplied', () => {
-    const c = planDrop('frozen', ENTITY, [], NOW, {}, 'nuno@ablute.pt');
-    expect(c.note).toBe('Contacted → Frozen — moved by nuno@ablute.pt. Parked by choice — dragged onto Frozen in the Pipeline. Marked dormant on 2026-09-10.');
+    const c = planDrop('frozen', ENTITY, [], NOW, { reason: 'r' }, 'nuno@ablute.pt');
+    expect(c.note).toBe('Contacted → Frozen — moved by nuno@ablute.pt. Parked by choice — dragged onto Frozen in the Pipeline. Marked dormant on 2026-09-10. (r)');
   });
 
   it('never invents an actor when none is supplied', () => {
     const c = planDrop('passed', ENTITY, [], NOW);
     expect(c.note).not.toContain('moved by');
+  });
+
+  describe('Not contacted / Contacted / Due diligence — pure requalifications, no stage change, no task disposition', () => {
+    it('Not contacted: status only, an empty plan, the reason quoted in the note', () => {
+      const c = planDrop('not_contacted', ENTITY, [task()], NOW, { reason: 'Re-approaching after a long gap' });
+      expect(c.status).toBe('not_contacted');
+      expect(c.stage).toBeUndefined();
+      expect(c.dormantReason).toBeUndefined();
+      expect(c.plan).toEqual({ dispositions: [], confirmation: '' });
+      expect(c.note).toBe('Contacted → Not contacted. Moved to Not contacted — dragged in the Pipeline (Re-approaching after a long gap). Marked not contacted on 2026-09-10.');
+      expect(c.toast).toBe('↺ Indico Capital marked Not contacted.');
+    });
+
+    it('Contacted: status only', () => {
+      const c = planDrop('contacted', { ...ENTITY, status: 'not_contacted' }, [], NOW, { reason: 'Sent the first outreach' });
+      expect(c.status).toBe('contacted');
+      expect(c.note).toBe('Not contacted → Contacted. Moved to Contacted — dragged in the Pipeline (Sent the first outreach). Marked contacted on 2026-09-10.');
+      expect(c.toast).toBe('💬 Indico Capital marked Contacted.');
+    });
+
+    it('Due diligence: status only', () => {
+      const c = planDrop('diligence', ENTITY, [], NOW, { reason: 'They asked for the data room' });
+      expect(c.status).toBe('diligence');
+      expect(c.note).toBe('Contacted → Due diligence. Moved to Due diligence — dragged in the Pipeline (They asked for the data room). Marked due diligence on 2026-09-10.');
+      expect(c.toast).toBe('📄 Indico Capital marked Due diligence.');
+    });
+
+    it('never touches tasks — planPark/planPass are for exits, and none of these three is one', () => {
+      const c = planDrop('diligence', ENTITY, [task({ id: 'a' }), task({ id: 'b' })], NOW, { reason: 'x' });
+      expect(c.plan.dispositions).toEqual([]);
+    });
   });
 });
 
@@ -139,6 +193,13 @@ describe('planUndo — §1.6', () => {
     const u = planUndo('passed', { status: 'contacted', stage: 'contacted' }, NOW);
     expect(u).toMatchObject({ status: 'contacted', stage: 'contacted' });
     expect(u.note).toContain('reopened');
+  });
+
+  it('Not contacted / Contacted / Due diligence: restores status only, worded as a plain revert (nothing was "parked" or "reopened")', () => {
+    const u = planUndo('contacted', { status: 'not_contacted', stage: 'not_contacted' }, NOW);
+    expect(u.status).toBe('not_contacted');
+    expect(u.stage).toBeUndefined();
+    expect(u.note).toBe('Undone — reverted moments later; status restored to not contacted on 2026-09-10.');
   });
 
   it('the Undo window is eight seconds', () => {

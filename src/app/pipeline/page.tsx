@@ -19,8 +19,7 @@ import { AddInvestorModal } from '@/components/AddInvestorModal';
 import { followUpTaskDisplayTitle, getStage, isPersonCandidate, isUnverifiedStub, relationshipSummary } from '@/lib/relationship';
 import { useConfirmWithFields } from '@/lib/confirm';
 import { useParkEntity } from '@/lib/use-park-entity';
-import { dropDialog, planDrop, planUndo, UNDO_WINDOW_MS, type DropTarget } from '@/lib/pipeline-drop';
-import { PipelineDropTarget } from '@/components/pipeline/PipelineDropTarget';
+import { dropDialog, DROP_TARGET_INTERIOR, planDrop, planUndo, UNDO_WINDOW_MS, type DropTarget } from '@/lib/pipeline-drop';
 import { PipelineFunnel, TONE, ICON } from '@/components/pipeline/PipelineFunnel';
 import { pipelineCounts, pipelineGroupForStatus, PIPELINE_CARDS, PIPELINE_GROUPS, type PipelineCardKey, type PipelineGroupKey } from '@/lib/pipeline-taxonomy';
 import { pipelineTemperature, type Temperature } from '@/lib/pipeline-temperature';
@@ -1009,20 +1008,20 @@ function PipelinePageInner() {
   }, [rows, leavingRow]);
 
   // Prompt 672 — the exact set of entity ids the founder can currently see,
-  // in on-screen order: same group membership/collapse rule the render loop
-  // below applies, so ↑/↓ only ever lands on a row that's actually visible
-  // (a collapsed band, or a band hidden entirely because it's empty and not
-  // the active card filter, is never a stop).
+  // in on-screen order: same collapse rule the render loop below applies, so
+  // ↑/↓ only ever lands on a row that's actually visible (a collapsed band
+  // is never a stop). Prompt 704 §A.2 — every band renders now regardless of
+  // its row count (an empty one just has no ids to contribute), so there's
+  // no longer a separate "hidden because empty" case to track here.
   const visibleRowIds = useMemo(() => {
     const ids: string[] = [];
     for (const groupKey of PIPELINE_GROUPS) {
-      const groupRows = displayRows.filter((e) => pipelineGroupForStatus(e.status) === groupKey);
-      if (groupRows.length === 0 && cardFilter !== groupKey) continue;
       if (collapsedGroups.has(groupKey)) continue;
+      const groupRows = displayRows.filter((e) => pipelineGroupForStatus(e.status) === groupKey);
       for (const e of groupRows) ids.push(e.id);
     }
     return ids;
-  }, [displayRows, cardFilter, collapsedGroups]);
+  }, [displayRows, collapsedGroups]);
 
   // Prompt 672 — Esc closes the dossier; ↑/↓ move between investors without
   // closing it (both skipped while typing in a form field, same guard the
@@ -1181,7 +1180,8 @@ function PipelinePageInner() {
       <div className="md:shrink-0"><PipelineTopUpBanner unlock={unlock} onDelivered={refreshUnlock} /></div>
       {/* Prompt 650 Phase 1 — the six-card funnel, one vocabulary, counts that
           add up. Clicking a card filters the list to that bucket. */}
-      <PipelineFunnel counts={funnelCounts} activeFilter={cardFilter} onFilter={setCardFilter} />
+      <PipelineFunnel counts={funnelCounts} activeFilter={cardFilter} onFilter={setCardFilter}
+        dragActive={drag.active} dragOver={drag.over} dragPulse={dropPulse} />
       {noneClassified && <div className="md:shrink-0"><EmptyCompanyBlock variant="banner" unlock={unlock} onDelivered={refreshUnlock} /></div>}
       {/* Prompt 880 §4 — shown only when the header "Summary" toggle is on. */}
       {summaryOpen && (
@@ -1332,40 +1332,13 @@ function PipelinePageInner() {
             "Frozen" is the name kept (see frozen-view-grouping.ts's own
             header for why). No granularity lost: the row pill still shows
             "Stale"/"Never contacted" for what used to be the Stale rows. */}
-        {/* Prompt 647 — the same toggle, now also a drop target with a vault
-            door: a row dragged over it opens the face and shows the count
-            behind; dropping it asks before writing (handleDrop above). */}
-        {/* Prompt 880 §4 — the right group is right-aligned by the Summary
-            button's ml-auto now (it sits between the country filter and this),
-            so Frozen no longer carries ml-auto or it would split the two. */}
-        {/* Prompt 663 — the drop targets are landing zones during a drag only;
-            the funnel's Frozen/Passed cards own the persistent count and the
-            filter, so the toolbar no longer duplicates them. Phase 4 moves the
-            drop onto the cards themselves. */}
-        {drag.active && (
-          <PipelineDropTarget target="frozen"
-            label={`❄ Frozen (${funnelCounts.frozen})`}
-            title="Not moving right now — either an impasse, or fell through the cracks. Drag a row here to freeze it."
-            count={funnelCounts.frozen} active={cardFilter === 'frozen'}
-            onClick={() => setCardFilter((v) => v === 'frozen' ? null : 'frozen')}
-            armed={drag.active} open={drag.over === 'frozen'} pulse={dropPulse === 'frozen'} reducedMotion={reducedMotion} />
-        )}
-        {/* Prompt 852 §C — both directions of "no" in one view, each row
-            labelled with which way it went. Same shape as the three above;
-            hidden at 0 like Reported, and kept visible while it IS the
-            active view so toggling back off never needs a second control. */}
-        {/* Prompt 647 — also shown while a row is being dragged, even at 0:
-            a door has to exist to be dropped on. */}
-        {/* Prompt 663 — landing zone during a drag only (see the Frozen note
-            above); the funnel's Passed card owns the persistent count. */}
-        {drag.active && (
-          <PipelineDropTarget target="passed"
-            label={`✕ Passed (${funnelCounts.passed})`}
-            title="Decided, either way — they passed, or you ruled them out. Drag a row here to mark it passed."
-            count={funnelCounts.passed} active={cardFilter === 'passed'}
-            onClick={() => setCardFilter((v) => v === 'passed' ? null : 'passed')}
-            armed={drag.active} open={drag.over === 'passed'} pulse={dropPulse === 'passed'} reducedMotion={reducedMotion} />
-        )}
+        {/* Prompt 647/663 — this toolbar used to grow a "vault door" drop
+            target here whenever a row was dragged (Frozen, then Passed).
+            Prompt 704 (18/09/2026) — Phase 4, which Prompt 663's own comment
+            already named: the doors moved onto the six funnel cards
+            themselves (PipelineFunnel's dragActive/dragOver/dragPulse props
+            above), now covering all five real buckets, not just two. Nothing
+            left to render here. */}
         {/* Prompt 271 §3 / Prompt 282 — bulk ask moved to the Stale view
             (Stand by no longer has its own button), but still only ever
             acts on the stand_by rows WITHIN it, never the no_data ones now
@@ -1489,11 +1462,16 @@ function PipelinePageInner() {
               only switches off the long-press callout on touch (§1.1). */}
           <tbody className={drag.enabled ? 'pipeline-drag-rows' : undefined}>
             {/* Prompt 650 Phase 2 — the five taxonomy bands, in order. Each is a
-                collapsible header row spanning the table, then its rows. An empty
-                band is hidden unless the funnel is filtered to it. */}
+                collapsible header row spanning the table, then its rows.
+                Prompt 704 §A.2 (18/09/2026) — an empty band used to hide
+                entirely unless the funnel was filtered to it, which meant a
+                status with zero investors had nowhere in the row list to
+                drop onto. Every band renders now; an empty one shows a
+                "Drop here" placeholder instead of rows, itself a real drop
+                target (the funnel cards above already are too — this is a
+                second, equally valid landing spot, not a replacement). */}
             {PIPELINE_GROUPS.map((groupKey) => {
               const groupRows = displayRows.filter((e) => pipelineGroupForStatus(e.status) === groupKey);
-              if (groupRows.length === 0 && cardFilter !== groupKey) return null;
               const groupCard = PIPELINE_CARDS.find((c) => c.key === groupKey)!;
               const groupTone = TONE[groupCard.tone];
               const isCollapsed = collapsedGroups.has(groupKey);
@@ -1519,6 +1497,18 @@ function PipelinePageInner() {
                       </button>
                     </td>
                   </tr>
+                  {!isCollapsed && groupRows.length === 0 && (
+                    <tr>
+                      <td colSpan={SORT_COLUMNS.length} className="p-0">
+                        <div data-drop-target={groupKey}
+                          className={`m-2 rounded-lg border border-dashed px-3 py-3 text-center text-[11.5px] transition
+                            ${drag.active ? 'pipeline-drop-armed border-gray-300 text-gray-400' : 'border-gray-200 text-gray-400'}
+                            ${drag.over === groupKey ? 'border-solid bg-[#E8F4F8] font-semibold text-[#0E7490]' : ''}`}>
+                          {drag.over === groupKey ? DROP_TARGET_INTERIOR[groupKey] : `No investors here yet — drag a row here to move it to ${groupCard.label}.`}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
                   {!isCollapsed && groupRows.map((e, i) => {
               const task = nextAction(db, e);
               const rowGroup = pipelineGroupForStatus(e.status);
