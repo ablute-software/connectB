@@ -11,6 +11,7 @@ import { resolveInvestorCatalogEntityId, resolveInvestorProfile } from '@/lib/po
 import { pipelineEligibleOrgIds } from '@/lib/investor-pipeline';
 import { createArchiveEntry, getArchiveEntries } from '@/lib/investor-archive';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { findOrOpenEpisode, isFirmTestOrInternal, writeSignalEvent } from '@/lib/investor-signal-events';
 
 export async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -63,6 +64,26 @@ export async function POST(req: Request) {
     if (!orgIds.includes(body.archiveOrgId)) return NextResponse.json({ ok: false, error: 'This startup is not in your Pipeline.' }, { status: 403 });
     const { error, entryId } = await createArchiveEntry(admin, body.archiveOrgId, email, 'manual', body.reason ?? null);
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+    // Prompt 715 Pedido A — a MANUAL archive (this branch only — a pass's
+    // own automatic archive is the same act as its 'decisao' event, and
+    // must not double it) is its own 'condicao'-level event: tidying up,
+    // never a rejection signal. Best-effort.
+    const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, user.id);
+    if (investorCatalogEntityId) {
+      try {
+        const episodeId = await findOrOpenEpisode(admin, investorCatalogEntityId, body.archiveOrgId);
+        const isTestOrInternal = await isFirmTestOrInternal(admin, investorCatalogEntityId);
+        await writeSignalEvent(admin, {
+          episodeId, actorUserId: user.id, level: 'condicao', kind: 'archived',
+          sourceTable: 'investor_archive_entries', sourceId: entryId,
+          dedupKey: entryId ? `${investorCatalogEntityId}:${body.archiveOrgId}:archived:${entryId}` : null,
+          isTestOrInternal,
+        });
+      } catch (signalError) {
+        console.error('investor_signal_events write failed (archive still recorded):', signalError);
+      }
+    }
 
     // Prompt 345 §A.3 — no longer writes a pass swipe. Archiving tidies up;
     // it never decides (AP-06 stays the only path to a real Pass). The

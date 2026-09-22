@@ -47,8 +47,19 @@ export interface PipelineWave<T> {
 // Tidying up IS treating it (Nuno's own call, documented in the prompt).
 // Moved here from investor-pipeline.ts by Prompt 850 §C so all the wave
 // mechanics have one home.
-export function isTreatedForWaveDosage(card: { status: string; isArchived?: boolean }): boolean {
-  return card.status !== 'open' || !!card.isArchived;
+//
+// Prompt 715 Pedido E — "tratada" was blocking whoever was actually waiting
+// on something, not just whoever hadn't acted yet: a watch, a "revisit
+// on…" follow-up, or a pending level-3 request all leave `status` at
+// 'open' (none of them is a decision), so a card in any of those states
+// sat forever untreated and blocked every wave behind it. None of these
+// three is a rejection signal or a decision — they only unblock; nothing
+// here teaches anything (that stays fase 3+). A card genuinely never
+// presented is still untreated, same as before.
+export function isTreatedForWaveDosage(card: {
+  status: string; isArchived?: boolean; isWatching?: boolean; hasPendingFollowup?: boolean; hasPendingLevel3Request?: boolean;
+}): boolean {
+  return card.status !== 'open' || !!card.isArchived || !!card.isWatching || !!card.hasPendingFollowup || !!card.hasPendingLevel3Request;
 }
 
 /**

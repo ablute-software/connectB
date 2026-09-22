@@ -33,6 +33,7 @@ import { useConfirmWithFields } from '@/lib/confirm';
 import { fetchPipelineShared } from '@/lib/portal-pipeline-client';
 import { StartupDossierPageInner } from '@/components/portal/StartupDossierContent';
 import { LoadingState } from '@/components/workspace-shell/LoadingState';
+import { PASS_REASON_CHIPS, TOO_EARLY_SUBREASONS } from '@/lib/investor-signal-events';
 
 interface Card extends DraggableCard {
   orgId: string; name: string; oneLiner: string | null;
@@ -195,6 +196,15 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
   const [data, setData] = useState<PipelineResponse | null>(null);
   const [confirming, setConfirming] = useState<{ orgId: string; action: 'pass' | 'interest' } | null>(null);
   const [reasonDraft, setReasonDraft] = useState('');
+  // Prompt 715 Pedido B — private, optional, multi-select chips on a pass.
+  const [chipsDraft, setChipsDraft] = useState<string[]>([]);
+  const [chipSubreasonDraft, setChipSubreasonDraft] = useState<string | null>(null);
+  const [chipsRegisteredToast, setChipsRegisteredToast] = useState(false);
+  useEffect(() => {
+    if (!chipsRegisteredToast) return;
+    const t = window.setTimeout(() => setChipsRegisteredToast(false), 2500);
+    return () => window.clearTimeout(t);
+  }, [chipsRegisteredToast]);
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
   function setCardError(orgId: string, message: string | null) {
     setActionErrors((prev) => {
@@ -275,21 +285,29 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
   function startConfirm(orgId: string, action: 'pass' | 'interest') {
     setCardError(orgId, null);
     setReasonDraft('');
+    setChipsDraft([]);
+    setChipSubreasonDraft(null);
     setConfirming({ orgId, action });
     setMenuOpenOrgId(null);
   }
   function cancelConfirm() {
     setConfirming(null);
     setReasonDraft('');
+    setChipsDraft([]);
+    setChipSubreasonDraft(null);
   }
 
-  async function act(orgId: string, action: 'pass' | 'interest', reason?: string) {
+  // Prompt 715 Pedido B — chips are private (never sent to the founder,
+  // never shown in any founder-facing view), optional, multi-select. The
+  // toast on success is deliberately quiet ("Registered") — no promise
+  // about future effect, since fase 0-1 never reorders or learns from them.
+  async function act(orgId: string, action: 'pass' | 'interest', reason?: string, chips?: string[], chipSubreason?: string) {
     setBusyOrgId(orgId);
     setCardError(orgId, null);
     try {
       const res = await fetch('/api/portal/pipeline', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ orgId, action, reason }),
+        body: JSON.stringify({ orgId, action, reason, chips, chipSubreason }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || body.ok === false) {
@@ -297,6 +315,9 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
       } else {
         setConfirming(null);
         setReasonDraft('');
+        setChipsDraft([]);
+        setChipSubreasonDraft(null);
+        if (chips && chips.length > 0) setChipsRegisteredToast(true);
       }
       load(true);
     } finally { setBusyOrgId(null); }
@@ -613,8 +634,15 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
                           onGoArchive={() => { setCardFilter('archived'); setCollapsedGroups((s) => { const n = new Set(s); n.delete('archived'); return n; }); }}
                           confirming={confirming?.orgId === c.orgId ? confirming.action : null}
                           reasonDraft={reasonDraft} onReasonDraft={setReasonDraft}
+                          chipsDraft={chipsDraft} onToggleChip={(chip) => setChipsDraft((prev) => (
+                            prev.includes(chip) ? prev.filter((c2) => c2 !== chip) : [...prev, chip]))}
+                          chipSubreasonDraft={chipSubreasonDraft} onChipSubreason={setChipSubreasonDraft}
                           onStartConfirm={(action) => startConfirm(c.orgId, action)} onCancelConfirm={cancelConfirm}
-                          onConfirm={() => act(c.orgId, confirming!.action, confirming!.action === 'pass' ? reasonDraft : undefined)}
+                          onConfirm={() => act(
+                            c.orgId, confirming!.action, confirming!.action === 'pass' ? reasonDraft : undefined,
+                            confirming!.action === 'pass' ? chipsDraft : undefined,
+                            confirming!.action === 'pass' && chipsDraft.includes('too_early') ? (chipSubreasonDraft ?? undefined) : undefined,
+                          )}
                           confirmingWithdraw={confirmingWithdrawOrgId === c.orgId}
                           onStartWithdraw={() => setConfirmingWithdrawOrgId(c.orgId)} onCancelWithdraw={() => setConfirmingWithdrawOrgId(null)}
                           onWithdraw={() => withdrawInterest(c.orgId)}
@@ -686,6 +714,14 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
           )}
         </div>
       )}
+
+      {/* Prompt 715 Pedido B — quiet, no promise of future effect ("vai
+          pesar na próxima wave" is fase 4's own language, not this one's). */}
+      {chipsRegisteredToast && (
+        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-gray-900 px-4 py-2.5 text-sm text-white shadow-xl">
+          Registered
+        </div>
+      )}
     </div>
   );
 }
@@ -722,7 +758,7 @@ function StartupDossierPanelWithKeyboard({ orgId, orgName, visibleRowIds, onNavi
 // one (345 §4's own hierarchy); everything else moves into the menu.
 function PipelineRow({
   card: c, expanded, openOrgId, onOpen, onToggleExpand, scorecardAvg, actionError, busy, archivedToast, onGoArchive,
-  confirming, reasonDraft, onReasonDraft, onStartConfirm, onCancelConfirm, onConfirm,
+  confirming, reasonDraft, onReasonDraft, chipsDraft, onToggleChip, chipSubreasonDraft, onChipSubreason, onStartConfirm, onCancelConfirm, onConfirm,
   confirmingWithdraw, onStartWithdraw, onCancelWithdraw, onWithdraw,
   followup, onRemind, onCancelReminder, onArchive, onOpenLog, onRequestLevel,
   menuOpen, onToggleMenu, wave, draggable, isDragOrigin, onRowPointerDown,
@@ -730,6 +766,7 @@ function PipelineRow({
   card: Card; expanded: boolean; openOrgId: string | null; onOpen: () => void; onToggleExpand: () => void;
   scorecardAvg?: number; actionError?: string; busy: boolean; archivedToast: boolean; onGoArchive: () => void;
   confirming: 'pass' | 'interest' | null; reasonDraft: string; onReasonDraft: (v: string) => void;
+  chipsDraft: string[]; onToggleChip: (chip: string) => void; chipSubreasonDraft: string | null; onChipSubreason: (v: string | null) => void;
   onStartConfirm: (action: 'pass' | 'interest') => void; onCancelConfirm: () => void; onConfirm: () => void;
   confirmingWithdraw: boolean; onStartWithdraw: () => void; onCancelWithdraw: () => void; onWithdraw: () => void;
   followup: { id: string; date: string } | null; onRemind: () => void; onCancelReminder: (id: string) => void;
@@ -837,11 +874,34 @@ function PipelineRow({
             ) : (
               <>
                 <p className="mb-1 text-sm font-bold text-[#B00000]">Pass on {c.name} — this is final</p>
-                <label className="mb-1 block text-xs font-medium text-gray-700">Reason for passing (required)</label>
+                <label className="mb-1 block text-xs font-medium text-gray-700">Reason for passing (required, sent to the founder)</label>
                 <textarea value={reasonDraft} onChange={(e) => onReasonDraft(e.target.value.slice(0, REASON_MAX_LEN))}
                   rows={3} placeholder="Why isn't this a fit right now?" className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs" />
                 <p className="mt-0.5 text-[11px] font-medium text-[#B00000]">The data room will be revoked and this can&apos;t be undone.</p>
                 <p className="text-[10px] text-gray-400">{reasonDraft.length}/{REASON_MAX_LEN}</p>
+                {/* Prompt 715 Pedido B — private, optional, never sent to the founder. */}
+                <label className="mb-1 mt-2 block text-xs font-medium text-gray-700">For you only (optional, never shared with the founder)</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {PASS_REASON_CHIPS.map((chip) => (
+                    <button key={chip.id} type="button" onClick={() => onToggleChip(chip.id)}
+                      className={`rounded-full border px-2 py-1 text-[11px] font-medium transition ${chipsDraft.includes(chip.id) ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-100'}`}>
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
+                {chipsDraft.includes('too_early') && (
+                  <div className="mt-1.5">
+                    <p className="mb-1 text-[11px] text-gray-500">What would need to change? (optional)</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {TOO_EARLY_SUBREASONS.map((sub) => (
+                        <button key={sub.id} type="button" onClick={() => onChipSubreason(chipSubreasonDraft === sub.id ? null : sub.id)}
+                          className={`rounded-full border px-2 py-1 text-[11px] font-medium transition ${chipSubreasonDraft === sub.id ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-100'}`}>
+                          {sub.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </>
             )}
             <div className="mt-2 flex items-center gap-2">

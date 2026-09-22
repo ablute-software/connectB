@@ -30,11 +30,14 @@ import { canWithdrawInterest, resolveWithdrawWindowSignals } from './investor-in
 import { interactionLogAvailable } from './investor-interaction-log-capability';
 import { buildPipelineWaves } from './pipeline-waves';
 import type { PipelineQuota } from './pipeline-quota-line';
-import { computeAdmissions } from './pipeline-admissions';
+import { calendarMonthStartIso, computeAdmissions, computeReservationTargets } from './pipeline-admissions';
 import { investorPipelineStage, investorPipelineStageDetail, type InvestorPipelineStage } from './investor-pipeline-stage';
 import { computeEvaluationTraceOrgIds } from './investor-evaluation-trace';
 import { hasPortfolioRelationship } from './investor-portfolio-relationship';
 import { timeBlock } from './pipeline-timing';
+import { findOrOpenEpisode, isFirmTestOrInternal, writeSignalEvent } from './investor-signal-events';
+import { isVisibleToOthers, type ModerationStatus } from './account-moderation';
+import { getInvestorContext, isPauseActive } from './investor-context';
 
 const TRACKING_WINDOW_DAYS = 30;
 
@@ -286,9 +289,14 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       admin.from('investor_tasks').select('org_id, title, due_at, reminder_at, snoozed_until').eq('investor_email', email).eq('done', false).in('org_id', orgIds),
       admin.from('investor_followups').select('org_id, note, remind_at').eq('investor_email', email).eq('done', false).in('org_id', orgIds),
     ]),
+    // Prompt 715 Pedido F — round_raising, moderation_status and
+    // moderation_suspended_until are read here (not fetched specially
+    // later) so the card-marking pass at the end of this function has them
+    // in hand for every card, relationship or discovery, with no new
+    // per-card query.
     basisAvailable
-      ? admin.from('orgs').select('id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country, round_valuation_eur, round_valuation_basis, intro_problem, intro_solution, round_target_close_date, website').in('id', orgIds)
-      : admin.from('orgs').select('id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country, round_valuation_eur, intro_problem, intro_solution, round_target_close_date, website').in('id', orgIds),
+      ? admin.from('orgs').select('id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country, round_valuation_eur, round_valuation_basis, intro_problem, intro_solution, round_target_close_date, website, round_raising, moderation_status, moderation_suspended_until').in('id', orgIds)
+      : admin.from('orgs').select('id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country, round_valuation_eur, intro_problem, intro_solution, round_target_close_date, website, round_raising, moderation_status, moderation_suspended_until').in('id', orgIds),
     admin.from('matchdeal_profiles').select('id, membership_id, description').eq('kind', 'startup').in('membership_id', orgIds),
     investorCatalogEntityId
       ? admin.from('investor_watches').select('org_id').eq('investor_catalog_entity_id', investorCatalogEntityId).eq('status', 'active').in('org_id', orgIds)
@@ -301,9 +309,12 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
     // discoveryCards, only on investorCatalogEntityId. The upsert itself
     // still happens after cards/discoveryCards are computed below — this
     // only moves the READ earlier.
+    // Prompt 715 Pedido G — reserved_at/presented_at added here (same
+    // query, no new round trip): the reservation/consume/quota logic below
+    // needs all three timestamps.
     investorCatalogEntityId
-      ? admin.from('investor_pipeline_admissions').select('org_id, admitted_at').eq('investor_catalog_entity_id', investorCatalogEntityId)
-      : Promise.resolve({ data: [] as { org_id: string; admitted_at: string }[] }),
+      ? admin.from('investor_pipeline_admissions').select('org_id, admitted_at, reserved_at, presented_at').eq('investor_catalog_entity_id', investorCatalogEntityId)
+      : Promise.resolve({ data: [] as { org_id: string; admitted_at: string; reserved_at: string | null; presented_at: string | null }[] }),
     // Prompt 419 §B.3 — hoisted the same way: depends on orgIds/
     // investorCatalogEntityId only, not on `cards`.
     interactionLogOn && investorCatalogEntityId
@@ -352,6 +363,9 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   for (const list of nextActionCandidatesByOrg.values()) {
     list.sort((a, b) => (a.at ?? '9999').localeCompare(b.at ?? '9999'));
   }
+  // Prompt 715 Pedido E — a card with a pending "revisit on…" follow-up
+  // unblocks the next wave, same as a watch or a pending level-3 request.
+  const followupPendingOrgIds = new Set((pendingFollowups ?? []).map((f) => f.org_id as string));
 
   // Item 3.1 — a membership_id an eligible source resolved that doesn't
   // exist in orgs used to fall through this .in() silently: the card just
@@ -366,6 +380,9 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   if (missingOrgIds.length > 0) {
     console.error('getPipelineWaves: eligible org id(s) resolved to no row in orgs — data inconsistency, not expected:', missingOrgIds);
   }
+  // Prompt 715 Pedido F — the raw org row per id, for the late card-marking
+  // pass at the end of this function (round_raising, moderation state).
+  const orgById = new Map((orgs ?? []).map((o) => [o.id as string, o as Record<string, unknown>]));
 
   const startupProfiles = startupProfilesResult.data;
   const profileByOrg = new Map((startupProfiles ?? []).map((p) => [p.membership_id as string, p.id as string]));
@@ -461,6 +478,13 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       orgId: org.id, name: org.name, oneLiner: org.one_liner, website: org.website ?? null,
       hype: hypeOrgIds.has(org.id as string),
       isWatching: watchingOrgIds.has(org.id as string),
+      // Prompt 715 Pedido E.
+      hasPendingFollowup: followupPendingOrgIds.has(org.id as string),
+      // Prompt 715 Pedido F — set below, after this array exists (needs the
+      // reservation/eligibility state every card already has in hand by
+      // then). null means nothing to flag; the rest of the card is
+      // unaffected either way.
+      markedNote: null as string | null,
       roundTargetCloseDate: (org as { round_target_close_date?: string | null }).round_target_close_date ?? null,
       description: descriptionByOrg.get(org.id as string) ?? null,
       // Prompt 325 — Discovery-visible reason to click "Interested",
@@ -592,71 +616,158 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   const relationshipCards = resolvedCards.filter((c) => c.viaGrant || c.viaDecision || c.viaReferral || c.viaPortfolio);
   const discoveryCards = resolvedCards.filter((c) => !c.viaGrant && !c.viaDecision && !c.viaReferral && !c.viaPortfolio);
 
-  // Prompt 153 — monthlyCap (plans.ts, by investor plan tier) now limits
-  // how many NEW discovery candidates this investor firm is ever admitted
-  // to, per calendar month; WAVE_SIZE (unchanged, below) still controls how
-  // many of the admitted set are shown at once. Coexistence model, not
-  // "WAVE_SIZE = monthlyCap" — confirmed with Nuno. investor_pipeline_admissions
-  // (migration 0157) is what makes "new this month" answerable at all: this
-  // function recomputes discoveryCards from scratch on every call, with no
-  // other record of when a candidate first became visible.
+  // Prompt 715 Pedido G — replaces the old "admit everything the month's
+  // budget affords, all at once" model. Reservation is now PROGRESSIVE (one
+  // wave's worth at a time, only once the previous wave is fully treated —
+  // computeReservationTargets, pipeline-admissions.ts) and ATOMIC (the
+  // actual write happens inside reserve_pipeline_admissions(), an advisory-
+  // locked SQL function — see this prompt's own migration). computeAdmissions
+  // (Prompt 850 §D) is untouched; it's reused below only to produce the
+  // quota DISPLAY line, now fed presented_at instead of admitted_at, because
+  // the quota is what's been shown, not what's been set aside.
   let admittedDiscoveryCards = discoveryCards;
   let quota: PipelineQuota | null = null;
+  const admissionRows = admissionRowsResult.data ?? [];
+  const presentedBeforeOrgIds = new Set(admissionRows.filter((a) => a.presented_at).map((a) => a.org_id as string));
   if (investorCatalogEntityId) {
-    const admittedAtByOrg = new Map((admissionRowsResult.data ?? []).map((a) => [a.org_id as string, a.admitted_at as string]));
-
     // Prompt 402 — resolver centralized in portal-access.ts (same mapping,
     // same 'tier_a' fallback) so this and the startup dossier's Hype badge
     // gate can't drift into two different tier mappings. Reuses viewerPlanTier
     // (resolved once, in stage 1, for the 🔥 Hype marker) rather than a
     // second call.
     const monthlyCap = investorPlanRow(viewerPlanTier).monthlyCap;
+    const reservedOrgIds = new Set(admissionRows.filter((a) => a.reserved_at).map((a) => a.org_id as string));
 
-    // Prompt 850 §D — the cap arithmetic itself lives in
-    // pipeline-admissions.ts, pure and unit-tested (permanence, the month
-    // boundary, and §D's one correction: an admitted org that is no longer
-    // eligible stops consuming the budget). eligibleNowOrgIds is exactly
-    // eligiblePipelineOrgIds' answer for THIS request, so "still eligible"
-    // cannot drift from "would be admitted today".
-    const admission = computeAdmissions({
-      discoveryCards,
-      admittedAtByOrg,
-      eligibleNowOrgIds: new Set(publishedOrgIds),
-      monthlyCap,
-      nowIso: new Date().toISOString(),
-    });
-    admittedDiscoveryCards = admission.admitted;
-    quota = admission.quota;
-    const newlyAdmitted = admission.newlyAdmittedOrgIds.map((org_id) => ({
-      investor_catalog_entity_id: investorCatalogEntityId, org_id,
-    }));
-    // Prompt 336 — this used to skip persisting admission for
-    // is_ablute_developer() sessions (measured in production: the
-    // "ablute_ — Internal QA" firm had eaten 4/10 of its tier's monthly
-    // cap from dogfood swipes before that gate existed). Now that these
-    // accounts are real investors, they're meant to have a real monthly
-    // cap like anyone else — the gate is gone, admission persists
-    // unconditionally.
-    //
-    // Prompt 687 §4 — confirmed this stays a no-op read+skip (no write at
-    // all) whenever there's nothing new: newlyAdmitted.length is 0 unless
-    // computeAdmissions actually found a candidate this investor has never
-    // seen before, so a repeat call against an unchanged eligible set never
-    // reaches this branch.
-    if (newlyAdmitted.length > 0) {
-      // Idempotent by the table's own unique(investor_catalog_entity_id,
-      // org_id) constraint — a concurrent call admitting the same
-      // candidate is a harmless no-op, not a double-spend of the budget.
-      await timeBlock('admissions.upsert', () => admin.from('investor_pipeline_admissions').upsert(newlyAdmitted, {
-        onConflict: 'investor_catalog_entity_id,org_id', ignoreDuplicates: true,
+    const { alreadyReserved, candidateOrgIds: computedCandidateOrgIds } = computeReservationTargets(discoveryCards, reservedOrgIds);
+    admittedDiscoveryCards = alreadyReserved;
+    // Prompt 715 Pedido C — "a admissão do Pedido G não reserva enquanto a
+    // pausa estiver activa". Only NEW reservations stop; anything already
+    // reserved/presented keeps showing exactly as before.
+    const context = await getInvestorContext(admin, investorCatalogEntityId);
+    const candidateOrgIds = isPauseActive(context, new Date().toISOString()) ? [] : computedCandidateOrgIds;
+    if (candidateOrgIds.length > 0) {
+      const { data: reserveResult } = await timeBlock('admissions.reserve', () => admin.rpc('reserve_pipeline_admissions', {
+        p_investor_catalog_entity_id: investorCatalogEntityId, p_org_ids: candidateOrgIds,
+        p_monthly_cap: monthlyCap, p_month_start: calendarMonthStartIso(new Date().toISOString()),
       }));
+      const newlyReservedIds = new Set(
+        (reserveResult as { org_id: string; reserved: boolean }[] | null ?? []).filter((r) => r.reserved).map((r) => r.org_id),
+      );
+      admittedDiscoveryCards = [...alreadyReserved, ...discoveryCards.filter((c) => newlyReservedIds.has(c.orgId as string))];
     }
+
+    // "N of M presented this month" — computeAdmissions' own arithmetic,
+    // reused verbatim, fed PRESENTED timestamps rather than admitted ones.
+    const presentedAtByOrg = new Map(admissionRows.filter((a) => a.presented_at).map((a) => [a.org_id as string, a.presented_at as string]));
+    quota = computeAdmissions({
+      discoveryCards: admittedDiscoveryCards, admittedAtByOrg: presentedAtByOrg,
+      eligibleNowOrgIds: new Set(publishedOrgIds), monthlyCap, nowIso: new Date().toISOString(),
+    }).quota;
   }
 
   // Prompt 850 §C — the relationship group is no longer numbered as a wave;
   // buildPipelineWaves tags each group with its kind and, for discovery,
   // its own 0-based discoveryIndex so the panel's labels start at "Wave 1".
   const waves = buildPipelineWaves(relationshipCards, admittedDiscoveryCards);
+
+  // Prompt 715 Pedido G (consume) / Pedido H (position+visibility record).
+  // The FIRST time a reserved discovery card is actually inside an UNLOCKED
+  // wave, of ANY user at the firm, it is "presented" — this is what counts
+  // against the monthly quota from here on, never reservation alone. Pedido
+  // H asked for position/visibility to be "consultável por episódio";
+  // rather than a new table, this reuses investor_signal_events (Pedido A)
+  // with a 'sistema:wave_presented' event carrying wave_index/
+  // position_in_wave in its snapshot — see this prompt's own DECISIONS.md
+  // for why that's cheaper than a dedicated table, per the prompt's own
+  // "escolham o mais barato" instruction. Skips entirely (zero extra
+  // queries) on the common case of a repeat page load with nothing new to
+  // present.
+  if (investorCatalogEntityId) {
+    const unlockedDiscoveryWaves = waves.filter((w) => w.kind === 'discovery' && w.unlocked);
+    const presentedNowIds = unlockedDiscoveryWaves.flatMap((w) => w.items.map((c) => (c as { orgId: string }).orgId));
+    const newlyPresentedIds = presentedNowIds.filter((id) => !presentedBeforeOrgIds.has(id));
+    if (presentedNowIds.length > 0) {
+      await timeBlock('admissions.present', () => admin.rpc('mark_pipeline_presented', {
+        p_investor_catalog_entity_id: investorCatalogEntityId, p_org_ids: presentedNowIds,
+      }));
+    }
+    if (newlyPresentedIds.length > 0) {
+      const isTestOrInternal = await isFirmTestOrInternal(admin, investorCatalogEntityId);
+      await timeBlock('admissions.presentedSignals', () => Promise.all(unlockedDiscoveryWaves.flatMap((w) => w.items.map(async (c, i) => {
+        const orgId = (c as { orgId: string }).orgId;
+        if (!newlyPresentedIds.includes(orgId)) return;
+        try {
+          const episodeId = await findOrOpenEpisode(admin, investorCatalogEntityId, orgId);
+          await writeSignalEvent(admin, {
+            episodeId, level: 'sistema', kind: 'wave_presented',
+            snapshot: { wave_index: w.index, position_in_wave: i, visibility: 'presented', policy_version: 1 },
+            isTestOrInternal,
+          });
+        } catch (e) { console.error('wave_presented signal event failed:', e); }
+      }))));
+    }
+  }
+
+  // Prompt 715 Pedido F — a card that stops being cleanly "still on offer"
+  // stays IN PLACE, marked and explained, instead of silently vanishing or
+  // (for three of the four cases below) instead of losing the rest of its
+  // own data. Computed here, at the LAST point before projection, over
+  // every card actually about to be shown (relationship + this request's
+  // admitted discovery set) — never over the full candidate pool, so a
+  // card that was never shown can't gain a note it was never entitled to.
+  const shownCards = [...relationshipCards, ...admittedDiscoveryCards];
+  let revokedOrgIds = new Set<string>();
+  if (shownCards.length > 0) {
+    const shownOrgIds = shownCards.map((c) => c.orgId as string);
+    // Case (a): the founder revoked a grant that once existed. hasDataRoomAccess
+    // already reflects "is a grant active RIGHT NOW"; this only asks "did one
+    // ever exist and get revoked" for the cards where the answer is no.
+    const { data: revokedGrants } = await timeBlock('grants.revoked', () => admin.from('access_grants')
+      .select('org_id, revoked_at').in('org_id', shownOrgIds).not('revoked_at', 'is', null)
+      .or(`grantee_email.eq.${email},invited_email.eq.${email}`));
+    revokedOrgIds = new Set((revokedGrants ?? []).map((g) => g.org_id as string));
+    const revokedAtByOrg = new Map((revokedGrants ?? []).map((g) => [g.org_id as string, g.revoked_at as string]));
+
+    for (const c of shownCards) {
+      const orgId = c.orgId as string;
+      const org = orgById.get(orgId) as { round_raising?: boolean | null } | undefined;
+      if (revokedOrgIds.has(orgId) && !c.hasDataRoomAccess) {
+        c.markedNote = `The founder revoked data room access on ${fmtDateOnly(revokedAtByOrg.get(orgId))}.`;
+      } else if (c.matchReasons.includes('excluded')) {
+        // Case (c) — a relationship (or, rarely, a small-pool discovery)
+        // card that no longer fits a mandate exclusion added since it was
+        // let in. matchReasons already reflects the CURRENT thesis — no
+        // second computeMatchScore call needed.
+        c.markedNote = 'No longer fits your mandate — you added an exclusion that now covers this startup.';
+      } else if (org && org.round_raising === false) {
+        // Case (d) — "sem presumir que a empresa desapareceu; continua abrível".
+        c.markedNote = 'This round has closed.';
+      }
+    }
+  }
+
+  // Prompt 715 Pedido F, case (b) — a relationship card (grant/decision/
+  // referral/portfolio, which bypasses eligiblePipelineOrgIds entirely) can
+  // point at a startup account that's since been hidden or suspended — the
+  // exact hole Prompt 556 §C already closed for CLOSED orgs, generalized
+  // here to the other two moderation states. A discovery card can't reach
+  // this: eligiblePipelineOrgIds already excludes anything not currently
+  // visible.
+  const orgModerationById = new Map(shownCards.map((c) => {
+    const org = orgById.get(c.orgId as string) as { moderation_status?: string | null; moderation_suspended_until?: string | null } | undefined;
+    return [c.orgId as string, org];
+  }));
+  const nowIsoForModeration = new Date().toISOString();
+  const suspendedOrHiddenOrgIds = new Set(
+    relationshipCards
+      .map((c) => c.orgId as string)
+      .filter((orgId) => !closedIds.has(orgId))
+      .filter((orgId) => {
+        const org = orgModerationById.get(orgId);
+        if (!org) return false;
+        return !isVisibleToOthers((org.moderation_status ?? 'active') as ModerationStatus, org.moderation_suspended_until ?? null, nowIsoForModeration);
+      }),
+  );
 
   // Prompt 556 §C — a closed org (orgs.closed_at, migration 0305) is
   // projected down to name + status here, at the LAST possible point, after
@@ -668,12 +779,21 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   // exclude it upstream now. (closedIds itself was fetched in stage 2 —
   // Prompt 556 §C's ordering guarantee is about PROJECTION happening last,
   // not about the READ happening last; nothing between stage 2 and here
-  // can put a closed org back into play.)
-  const projectedWaves = closedIds.size === 0 ? waves : waves.map((w) => ({
+  // can put a closed org back into play.) Prompt 715 §Pedido F extends the
+  // SAME projection to a suspended/hidden relationship card.
+  const unavailableOrgIds = new Set([...closedIds, ...suspendedOrHiddenOrgIds]);
+  const projectedWaves = unavailableOrgIds.size === 0 ? waves : waves.map((w) => ({
     ...w,
-    items: w.items.map((c) => (closedIds.has(c.orgId as string) ? projectUnavailableCard(c) : c)),
+    items: w.items.map((c) => (unavailableOrgIds.has(c.orgId as string)
+      ? projectUnavailableCard(c, closedIds.has(c.orgId as string) ? 'closed' : 'unavailable')
+      : c)),
   }));
 
   console.log(`[pipeline-timing] TOTAL: ${Date.now() - pipelineStart}ms`);
   return { linked: true as const, waves: projectedWaves, usualCoInvestors, quota };
+}
+
+function fmtDateOnly(iso: string | undefined): string {
+  if (!iso) return 'an earlier date';
+  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }

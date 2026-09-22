@@ -36,6 +36,7 @@ import { getInterestLevelRows, toInvestorFacingLevelRows } from '@/lib/investor-
 import { interestLevelAvailable } from '@/lib/investor-interest-level-capability';
 import { fetchDossierRawData } from '@/lib/dossier-fetch';
 import { isStartupHype, HYPE_GATE_PLAN_TIER } from '@/lib/matchdeal-hype';
+import { findOrOpenEpisode, isFirmTestOrInternal, writeSignalEvent } from '@/lib/investor-signal-events';
 
 export async function GET(req: Request, { params }: { params: { orgId: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -91,6 +92,19 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
     ? await getInterestLevelRows(admin, params.orgId, investorCatalogEntityId) : [];
   const level = currentInterestLevel(decisionForLevel, levelRows);
   const shareEmail = levelRows.some((r) => r.level === 3 && r.status === 'granted' && r.shareDirectEmail);
+
+  // Prompt 715 Pedido A/H — "'Aberto' = evento envolvimento:card_opened na
+  // rota do dossier". Best-effort, fire-and-forget-safe (never blocks or
+  // fails the dossier response the investor is waiting on).
+  if (investorCatalogEntityId) {
+    try {
+      const episodeId = await findOrOpenEpisode(admin, investorCatalogEntityId, params.orgId);
+      const isTestOrInternal = await isFirmTestOrInternal(admin, investorCatalogEntityId);
+      await writeSignalEvent(admin, { episodeId, actorUserId: user.id, level: 'envolvimento', kind: 'card_opened', isTestOrInternal });
+    } catch (signalError) {
+      console.error('investor_signal_events write failed (card_opened):', signalError);
+    }
+  }
 
   // Prompt 306 — the read sequence itself now lives in dossier-fetch.ts,
   // shared with the founder-only "see it like an investor" preview so the
