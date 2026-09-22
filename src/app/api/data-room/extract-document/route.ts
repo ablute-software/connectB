@@ -21,6 +21,13 @@
 // is gone (465 §A). extractDocument's OTHER real caller, ensureDocumentSummary
 // (an investor opening a document summary in the portal), is deliberately
 // CRON_ONLY instead — see its own comment.
+//
+// Prompt 708 §B — brought into the AI-credits wallet (the gap Prompt 706
+// found and flagged rather than silently including or ignoring):
+// MarketDataPanel's deliberate click sends trigger:'button' and gets
+// charged (extractDocument, right before the real model call, never for a
+// cached hit); store-supabase.tsx's automatic trigger sends none and stays
+// free, exactly the reconciliation/run precedent this reuses verbatim.
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
@@ -60,10 +67,16 @@ export async function POST(req: NextRequest) {
 
   if (!(await documentExtractionsAvailable())) return NextResponse.json({ ok: true, skipped: true });
 
-  const { documentId } = await req.json().catch(() => ({})) as { documentId?: string };
+  // Prompt 708 §B — trigger:'button' is the SAME flag reconciliation/run
+  // already uses to tell the deliberate "Read my documents" click
+  // (MarketDataPanel.tsx) apart from the automatic upload/rename trigger
+  // (store-supabase.tsx, which sends no trigger at all). Only the button
+  // path ever reaches the wallet — see extractDocument's own comment on why
+  // it's charged there and not here, right before the actual model call.
+  const { documentId, trigger } = await req.json().catch(() => ({})) as { documentId?: string; trigger?: string };
   if (!documentId) return NextResponse.json({ ok: false, error: 'Missing documentId.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const outcome = await extractDocument(admin, apiKey, orgId, documentId);
+  const outcome = await extractDocument(admin, apiKey, orgId, documentId, trigger === 'button' ? { sb } : undefined);
   return NextResponse.json(outcome);
 }

@@ -20,6 +20,7 @@ import {
   type MiniPitchClaim, type MiniPitchSlideKind, type StoredMiniPitchSlide,
 } from '@/lib/mini-pitch';
 import type { ClaimCategory, ClaimSourceKind, ClaimSpecificity, ClaimStatus, DocumentRef, EvidenceClass } from '@/lib/types';
+import { chargeAiAction } from '@/lib/ai-credits';
 
 const NOT_CONFIGURED_MSG = 'AI-assisted mini-pitch generation isn’t available in your workspace yet.';
 const MAX_WORDS_PER_SLIDE = 25;
@@ -180,7 +181,7 @@ async function requireOrgMember(req: Request) {
   if (!orgId) return { error: NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 }) };
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  return { admin, orgId };
+  return { admin, orgId, sb };
 }
 
 export async function GET(req: Request) {
@@ -236,7 +237,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const auth = await requireOrgMember(req);
   if ('error' in auth) return auth.error;
-  const { admin, orgId } = auth;
+  const { admin, orgId, sb } = auth;
 
   let activate = false;
   let keepKinds: MiniPitchSlideKind[] = [];
@@ -319,6 +320,14 @@ export async function POST(req: Request) {
           .filter(Boolean).join('\n')
         : s.claims.map((c) => c.statement).join('\n'),
     }));
+
+  // Prompt 706 — only when there's actually a model call to make (an
+  // all-"ask"-slide plan has nothing to synthesize) — charging for zero
+  // requests would bill for nothing.
+  if (aiRequests.length > 0) {
+    const charge = await chargeAiAction(sb, orgId, 'mini_pitch_synthesis');
+    if (!charge.ok) return NextResponse.json({ ok: false, error: charge.reason });
+  }
 
   try {
     const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';

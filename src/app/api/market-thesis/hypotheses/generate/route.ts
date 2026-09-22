@@ -14,6 +14,7 @@ import { marketThesisReadyForHypotheses, MAX_ACTIVE_HYPOTHESES, canHaveActiveHyp
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
+import { chargeAiAction } from '@/lib/ai-credits';
 
 export const maxDuration = 60;
 const ROUTE = '/api/market-thesis/hypotheses/generate';
@@ -84,6 +85,10 @@ export async function POST(req: Request) {
       ok: false, error: `You already have ${MAX_ACTIVE_HYPOTHESES} active hypotheses — archive one before generating more.`,
     }, { status: 400 });
   }
+
+  // Prompt 706 — after both free gates above, before the one model call below.
+  const charge = await chargeAiAction(sb, orgId, 'market_thesis_hypotheses_generate');
+  if (!charge.ok) return NextResponse.json({ ok: false, error: charge.reason }, { status: 200 });
 
   const thesisLines = [
     thesis!.product_summary && `What we do: ${thesis!.product_summary}`,

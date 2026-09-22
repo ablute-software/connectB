@@ -24,6 +24,10 @@ export function extractionSkipReasonMessage(reason: ExtractionSkipReason): strin
     case 'pdf_parse_failed': return 'that PDF could not be opened';
     case 'claude_failed': return 'reading that document failed — try again';
     case 'link_unreadable': return 'that link did not return a readable file';
+    // Prompt 708 §B — the deliberate "Read my documents" click is now
+    // metered (chargeAiAction, 'document_extraction'); this is the one new
+    // skip reason that can come back from that path.
+    case 'ai_credit_limit': return 'this month\'s AI credits have run out';
   }
 }
 

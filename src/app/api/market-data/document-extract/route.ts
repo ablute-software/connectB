@@ -28,6 +28,7 @@ import { upsertOrEnrichResearchItem } from '@/lib/market-research-item-upsert';
 import { MAX_EXTRACTION_PAGES } from '@/lib/document-extraction';
 import { maxOutputTokensForBudget, MIN_USEFUL_MODEL_BUDGET_MS } from '@/lib/document-extract-budget';
 import { isSupersededByTypedFacts } from '@/lib/market-legacy-typed-items';
+import { chargeAiAction } from '@/lib/ai-credits';
 import {
   auditRawCompetitors, countProposalsBySection, countRawSections,
   describeExtractionTelemetry, emptyOutcomeTally,
@@ -423,6 +424,14 @@ export async function POST(req: Request) {
         error: 'Preparing those documents used up the time Sherlock had to read them. Try again with fewer documents selected.',
       }, { status: 504 });
     }
+
+    // Prompt 706 — after the time-budget check above (no point charging a
+    // call that's about to be refused for lack of time), before the model
+    // call below. A signature-cache hit (alreadyRanForThisSignature) never
+    // reaches this block at all, so a repeat pass over the same documents
+    // stays free.
+    const charge = await chargeAiAction(sb, orgId, 'market_document_extract');
+    if (!charge.ok) return NextResponse.json({ ok: false, error: charge.reason }, { status: 200 });
 
     // Prompt 485 — the ask is sized to the time that is actually left, at a
     // rate deliberately slower than the best one ever measured here. The old

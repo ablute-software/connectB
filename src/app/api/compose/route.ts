@@ -5,9 +5,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { lintMessage } from '@/lib/rules';
 import { serverClient, resolveRole, authEnabled } from '@/lib/supabase-server';
 import { resolveUserPlan } from '@/lib/plan-server';
-import { planEntitlements, AI_COMPOSER_LOCKED_COPY, WATSON_DRAFT_QUOTA } from '@/lib/plans';
-import { recordWatsonDraft } from '@/lib/watson-draft-record';
+import { planEntitlements, AI_COMPOSER_LOCKED_COPY } from '@/lib/plans';
 import { logAiCall } from '@/lib/ai-cost-log';
+import { chargeAiAction } from '@/lib/ai-credits';
 import type { ComposerContext, ComposerIntent } from '@/lib/composer';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
@@ -218,17 +218,18 @@ export async function POST(req: NextRequest) {
   // handler shows `message` without a client change); paid plans and the
   // platform org proceed. Skipped in demo mode (no auth to resolve a plan).
   // Enforced here server-side, not just hidden in the UI.
-  let watsonOrgId: string | null = null;
-  let watsonQuota = 0;
-  let watsonSb: Awaited<ReturnType<typeof serverClient>> | null = null;
-  // Prompt 293 §1 — separate from watsonOrgId on purpose: that one is
-  // scoped to the watson-quota exemption (null for developer role even
-  // though developer DOES have a real org), but AI cost logging needs the
-  // caller's actual org regardless of quota exemption.
+  // Prompt 706 — composeSb/composeOrgId replace watsonSb/watsonOrgId: the
+  // AI-credits wallet is what gates and charges this route now
+  // (chargeAiAction, right before the first callClaude below), not
+  // Watson's own ai_drafts_used_this_month/watson_drafts_status — never
+  // both at once (Bloco B.2). composeSb is still kept outside the `if
+  // (authEnabled)` block's local `sb` so the charge call below can reuse
+  // the exact same request-scoped client AI cost logging already did.
+  let composeSb: Awaited<ReturnType<typeof serverClient>> | null = null;
   let composeOrgId: string | null = null;
   if (authEnabled) {
     const sb = await serverClient();
-    watsonSb = sb;
+    composeSb = sb;
     const { data: { user } } = await sb.auth.getUser();
     if (user) {
       const [role, { orgId, plan }] = await Promise.all([
@@ -239,20 +240,18 @@ export async function POST(req: NextRequest) {
       if (!planEntitlements(plan, role === 'developer').aiComposer) {
         return NextResponse.json({ configured: false, locked: true, message: AI_COMPOSER_LOCKED_COPY }, { status: 200 });
       }
-      // Prompt 106 §B — Watson monthly draft credits. The platform org
-      // (developer role) is exempt, same spirit as the plan gate above.
-      if (orgId && role !== 'developer') {
-        watsonOrgId = orgId;
-        watsonQuota = WATSON_DRAFT_QUOTA[plan];
-        const { data: statusRow } = await sb.rpc('watson_drafts_status', { p_org_id: orgId, p_quota: watsonQuota });
-        const status = (statusRow as { used: number; remaining: number; reset_at: string }[] | null)?.[0];
-        if (status && status.remaining <= 0) {
-          return NextResponse.json({
-            configured: false, locked: true,
-            message: `You've used all ${watsonQuota} Watson drafts this month — they reset ${new Date(status.reset_at).toLocaleDateString()}. You can still write the message manually below.`,
-          }, { status: 200 });
-        }
-      }
+    }
+  }
+
+  // Prompt 706 — the wallet charge itself: BEFORE either model call below,
+  // org-scoped (is_test exemption lives in the RPC, not a role check —
+  // consistent with every other route this prompt touches). No org (demo
+  // mode, or authEnabled but no resolvable org) means nothing to charge
+  // against, same tolerance ai_call_log's own orgId:null already allows.
+  if (composeSb && composeOrgId) {
+    const charge = await chargeAiAction(composeSb, composeOrgId, 'compose_outreach');
+    if (!charge.ok) {
+      return NextResponse.json({ configured: false, locked: true, message: charge.reason }, { status: 200 });
     }
   }
 
@@ -303,23 +302,12 @@ export async function POST(req: NextRequest) {
       findings = lintMessage(draft.body, personLike, entityLike, channel, threadSnippets);
     }
 
-    // Prompt 106 §B — "incremented whenever a draft is generated successfully"
-    // — only reached here, after callClaude actually returned a draft. A
-    // Regenerate is a fresh POST to this same route, so it's counted too, per
-    // spec ("um Regenerate conta como um novo pedido"). Continua a não falhar
-    // o pedido — o founder já tem o draft, e deitá-lo fora por uma falha de
-    // contabilidade seria pior — mas a falha deixou de ser muda (Prompt 203
-    // §A): fica em log com contexto e sai na resposta.
-    //
-    // quotaRecorded arranca a true e só desce numa falha real do RPC: quando
-    // não há watsonOrgId/watsonSb não há consumo nenhum a registar (developer,
-    // ou plano sem gate), portanto não há nada em dívida.
-    let quotaRecorded = true;
-    if (watsonOrgId && watsonSb) {
-      quotaRecorded = await recordWatsonDraft(watsonSb, watsonOrgId, watsonQuota);
-    }
-
-    return NextResponse.json({ configured: true, draft, lint: findings, quotaRecorded });
+    // Prompt 706 — no post-call accounting step anymore: chargeAiAction
+    // already incremented the wallet BEFORE this draft was generated (a
+    // Regenerate is a fresh POST, charged again, same "counts as a new
+    // request" rule the old Watson counter used) — there's nothing left to
+    // record here, and so nothing that could fail to record.
+    return NextResponse.json({ configured: true, draft, lint: findings });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 502 });
   }

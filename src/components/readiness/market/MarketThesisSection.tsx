@@ -20,6 +20,9 @@ import { useEffect, useRef, useState } from 'react';
 import { SectionResearchButton, SECTIONS, SECTION_LABEL, type Section, type SectionOutcome } from './SectionResearchButtons';
 import { TIMEOUT_MESSAGE } from '@/lib/market-research-outcome';
 import { MARKET_THESIS_TEXT_MAX, type MarketThesisTextFieldKey } from '@/lib/market-thesis';
+import { useConfirm } from '@/lib/confirm';
+import { insufficientInfoDialog, shouldWarnBeforeSpending } from '@/lib/ai-spend-confirm';
+import { fetchCriticalGapCount, fetchWalletStatus } from '@/lib/ai-spend-confirm-client';
 
 interface MarketThesis {
   product_summary: string | null; core_problem: string | null; primary_user: string | null;
@@ -305,6 +308,7 @@ export function MarketThesisSection() {
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
   const [genError, setGenError] = useState('');
   const [confirming, setConfirming] = useState(false);
+  const confirmDialog = useConfirm();
   const [editingId, setEditingId] = useState<string | null>(null);
   // Prompt 471 §A — the founder-initiated, document-based suggestion pass.
   // Kept separate from the passive GET load above: this one costs real
@@ -381,6 +385,22 @@ export function MarketThesisSection() {
     // a click landing while the page's own pass is still running is
     // ignored rather than paying twice.
     if (docSuggestBusy) return;
+
+    // Prompt 706 Bloco D — only the deliberate click warns first; the
+    // automatic pass above (auto:true) has no user interaction to
+    // interrupt, so it proceeds straight through if its own eligibility
+    // re-check (server-side) says yes — same "auto only restricts, never
+    // grants anything different" principle Prompt 473 already established
+    // for this function, just applied to the new wallet warning too.
+    if (!auto) {
+      const criticalGapCount = await fetchCriticalGapCount();
+      if (shouldWarnBeforeSpending(criticalGapCount)) {
+        const wallet = await fetchWalletStatus('market_thesis_document_suggest');
+        const proceed = await confirmDialog(insufficientInfoDialog({ actionLabel: 'Market thesis suggestions', criticalGapCount, wallet }));
+        if (!proceed) return;
+      }
+    }
+
     // Adversarial pass (Prompt 471) — deliberately does NOT clear
     // docSuggestResult here: an earlier successful run's "not found in your
     // documents" notes (rendered below, keyed off docSuggestResult being

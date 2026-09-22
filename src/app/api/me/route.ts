@@ -27,7 +27,8 @@ import { ecosystemFactsAvailable } from '@/lib/ecosystem-facts-capability';
 import { vaultPinOwnerManagedAvailable } from '@/lib/vault-pin-owner-managed-capability';
 import { taskRemindersAvailable } from '@/lib/task-reminders-capability';
 import { resolveUserPlan } from '@/lib/plan-server';
-import { planEntitlements, WATSON_DRAFT_QUOTA, REVIEW_QUOTA } from '@/lib/plans';
+import { planEntitlements, REVIEW_QUOTA } from '@/lib/plans';
+import { aiWalletStatus } from '@/lib/ai-credits';
 import { stripeConfigured } from '@/lib/stripe-env';
 import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
 import { aiReviewDocumentLinkAvailable } from '@/lib/ai-review-document-link-capability';
@@ -88,15 +89,23 @@ export async function GET(req: NextRequest) {
     const { data: orgRow } = await sb.from('orgs').select('pioneer_badge').eq('id', orgId).maybeSingle();
     pioneerBadge = !!orgRow?.pioneer_badge;
   }
-  // Prompt 106 §B — Watson drafts-left, for the "/log" card. Display-truth
-  // only, same as `entitlements` above; /api/compose re-checks and is the
-  // real enforcement point. Not resolved for the platform org (unlimited).
+  // Prompt 706 — Watson's own quota (ai_drafts_used_this_month/
+  // ai_drafts_reset_at, watson_drafts_status) is retired now that
+  // /api/compose charges the shared AI-credits wallet instead (Bloco B.2's
+  // own instruction: never run both in parallel — a route left reading the
+  // old counter here would show a frozen, ever-full number once nothing
+  // increments it anymore). This card now reads the wallet's own remaining
+  // balance for compose_outreach specifically. Display-truth only, same as
+  // `entitlements` above; /api/compose re-checks and is the real
+  // enforcement point. is_test orgs (the platform org among them) are
+  // exempt in the wallet itself, so the card hides for them the same way
+  // it always has, just keyed on the org flag now rather than user role.
   let watson: { quota: number; used: number; remaining: number; resetAt: string } | null = null;
-  const watsonQuota = WATSON_DRAFT_QUOTA[plan];
-  if (orgId && role !== 'developer' && watsonQuota > 0) {
-    const { data: statusRow } = await sb.rpc('watson_drafts_status', { p_org_id: orgId, p_quota: watsonQuota });
-    const status = (statusRow as { used: number; remaining: number; reset_at: string }[] | null)?.[0];
-    if (status) watson = { quota: watsonQuota, used: status.used, remaining: status.remaining, resetAt: status.reset_at };
+  if (orgId) {
+    const status = await aiWalletStatus(sb, orgId, 'compose_outreach');
+    if (status && !status.isTest) {
+      watson = { quota: status.monthlyLimit, used: status.used, remaining: status.remaining, resetAt: status.resetAt };
+    }
   }
   // Prompt 166 §B — investability-review monthly quota (REVIEW_QUOTA in
   // plans.ts), display-truth for the "X of Y reviews used this month" line

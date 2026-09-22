@@ -11,6 +11,7 @@ import { truncatePdfToPages } from './pdf-truncate';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from './prompt-injection-defense';
 import { logAiCall, computeCostEur, type AnthropicUsage } from './ai-cost-log';
 import { providerErrorMessage } from './ai-provider-error';
+import { chargeAiAction } from './ai-credits';
 import {
   MAX_EXTRACTION_PAGES, MAX_DOWNLOAD_BYTES, EXTRACTION_TOOL_SCHEMA, SUMMARY_TOOL_SCHEMA, rawExtractionToData, rawExtractionToSummary,
   type DocumentExtractionData,
@@ -26,7 +27,7 @@ import { ensureLinkSnapshot } from './document-link-snapshot';
 // isn't lost, just not threaded through this narrower union too.
 export type ExtractionSkipReason =
   | 'scan_unavailable' | 'not_found' | 'not_clean' | 'not_pdf' | 'too_large' | 'download_failed' | 'pdf_parse_failed' | 'claude_failed'
-  | 'link_unreadable';
+  | 'link_unreadable' | 'ai_credit_limit';
 
 export interface ExtractionOutcome {
   ok: boolean;
@@ -188,8 +189,18 @@ export async function prepareDocumentForAi(
   return { ok: true, prepared: { docRow: { id: docRow.id, name: docRow.name, storage_path: docRow.storage_path }, bytes, sha256 } };
 }
 
+// Prompt 708 §B — `charge` is present ONLY for the deliberate "Read my
+// documents" click (api/data-room/extract-document/route.ts, trigger:
+// 'button'); the automatic upload/rename trigger (store-supabase.tsx) and
+// ensureDocumentSummary's own internal call below both omit it, so neither
+// ever reaches the wallet — same trigger:'button' pattern already
+// established for reconciliation, not a new mechanism. `sb` is the
+// request-scoped client (never `admin`): charge_ai_action's is_org_member
+// check needs a real auth.uid() session, same requirement every other
+// chargeAiAction call site in this codebase already follows.
 export async function extractDocument(
   admin: SupabaseClient, apiKey: string, orgId: string, documentId: string,
+  charge?: { sb: SupabaseClient },
 ): Promise<ExtractionOutcome> {
   const prep = await prepareDocumentForAi(admin, orgId, documentId);
   if (!prep.ok) return { ok: false, skippedReason: prep.skippedReason };
@@ -236,6 +247,16 @@ export async function extractDocument(
       updated_at: new Date().toISOString(),
     }, { onConflict: 'document_id,sha256' });
     return { ok: false, skippedReason: 'pdf_parse_failed' };
+  }
+
+  // Charged HERE, not at the top of the function: everything above this
+  // point (the cache hit, the PDF-parse failure) never reaches the model,
+  // so charging any earlier would spend a credit for a call the founder
+  // never actually got — same principle already applied to market-data/
+  // research's own forceRefresh/cached gate.
+  if (charge) {
+    const result = await chargeAiAction(charge.sb, orgId, 'document_extraction');
+    if (!result.ok) return { ok: false, skippedReason: 'ai_credit_limit' };
   }
 
   let raw: unknown; let usage: AnthropicUsage | undefined;

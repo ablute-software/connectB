@@ -46,6 +46,7 @@ interface OrgRow {
   status: 'active' | 'quiet' | 'inactive';
   filesInVault: number; visiblePipelineSize: number; eligiblePoolSize: number;
   stage: string | null; aiDraftsThisMonth: number; aiReviewsThisMonth: number;
+  aiCreditsUsed: number; aiCreditsLimit: number; isTest: boolean;
   moderationStatus: ModerationStatus; moderationQuarantineUntil: string | null;
   // Prompt 184 §4 — informative only, never used to filter or hide a row.
   // MatchDeal is an extra tool, not a requirement to be managed here.
@@ -67,7 +68,7 @@ const MATCHDEAL_LABEL: Record<OrgRow['matchDealStatus'], string> = {
   complete: 'Complete', incomplete: 'Incomplete', not_started: 'Not started',
 };
 
-type SortKey = 'name' | 'plan' | 'createdAt' | 'members' | 'completenessPct' | 'interactionsThisWeek' | 'lastLogin' | 'status' | 'filesInVault' | 'visiblePipelineSize' | 'stage' | 'aiDraftsThisMonth' | 'aiReviewsThisMonth' | 'matchDealStatus';
+type SortKey = 'name' | 'plan' | 'createdAt' | 'members' | 'completenessPct' | 'interactionsThisWeek' | 'lastLogin' | 'status' | 'filesInVault' | 'visiblePipelineSize' | 'stage' | 'aiDraftsThisMonth' | 'aiReviewsThisMonth' | 'aiCreditsUsed' | 'matchDealStatus';
 
 // Prompt 576 Fase 3 — hoisted to module scope: it's a static list (never
 // depends on component state), and the URL-state hook needs the key list
@@ -96,6 +97,7 @@ const COLUMNS: { key: SortKey; label: string; type: ColumnSortType; tip: string 
   { key: 'stage', label: 'Stage', type: 'text', tip: 'Fundraising stage the founder set.' },
   { key: 'aiDraftsThisMonth', label: 'AI drafts', type: 'number', tip: 'AI-drafted outreach messages used this month.' },
   { key: 'aiReviewsThisMonth', label: 'AI review', type: 'number', tip: 'AI reviews (deck / one-pager / market) run this month.' },
+  { key: 'aiCreditsUsed', label: 'AI credits', type: 'number', tip: 'AI-credits wallet: used / monthly limit for this org. is_test orgs are unlimited (never blocked). Click to assign a custom plan or manually adjust the balance.' },
   { key: 'matchDealStatus', label: 'MatchDeal', type: 'text', tip: 'Whether the startup published a MatchDeal card (complete / incomplete / not started).' },
 ];
 
@@ -126,6 +128,80 @@ function MembersCell({ orgId, count }: { orgId: string; count: number }) {
   );
 }
 
+// Prompt 706 Bloco C.2 — the wallet balance (read-only) plus, on click, a
+// small panel to assign a custom plan's credit allowance to this one org
+// (a plan_overrides row, never touching orgs.plan itself) or manually set
+// the used count (support case: "forgive" a month). Same expand-on-click
+// shape as MembersCell above.
+function AiCreditsCell({ orgId, used, limit, isTest, customPlans, onChanged }: {
+  orgId: string; used: number; limit: number; isTest: boolean;
+  customPlans: { key: string; label: string; monthly_ai_credits: number }[];
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [planKey, setPlanKey] = useState('');
+  const [manualUsed, setManualUsed] = useState(String(used));
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  async function assignPlan(key: string) {
+    setBusy(true); setErr('');
+    try {
+      const res = await fetch('/api/backoffice/set-ai-credit-override', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId, planKey: key || null }),
+      });
+      const body = await res.json();
+      if (!body.ok) { setErr(body.error ?? 'Could not save.'); return; }
+      onChanged();
+    } finally { setBusy(false); }
+  }
+
+  async function adjustUsed() {
+    setBusy(true); setErr('');
+    try {
+      const res = await fetch('/api/backoffice/adjust-ai-credits', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId, used: Number(manualUsed) }),
+      });
+      const body = await res.json();
+      if (!body.ok) { setErr(body.error ?? 'Could not save.'); return; }
+      onChanged();
+    } finally { setBusy(false); }
+  }
+
+  if (isTest) return <span className="text-gray-400">unlimited (test)</span>;
+
+  return (
+    <div>
+      <button onClick={() => setOpen((o) => !o)} className="text-gray-700 hover:text-[#0E7490] hover:underline">
+        {used} / {limit}
+      </button>
+      {open && (
+        <div className="mt-1 w-56 rounded-lg border border-gray-100 bg-gray-50 p-2 text-[11px] space-y-2">
+          <label className="block">
+            Custom plan override
+            <select value={planKey} onChange={(e) => { setPlanKey(e.target.value); void assignPlan(e.target.value); }} disabled={busy}
+              className="mt-0.5 w-full rounded border border-gray-300 px-1.5 py-1 text-[11px]">
+              <option value="">— none (use plan default) —</option>
+              {customPlans.map((p) => <option key={p.key} value={p.key}>{p.label} ({p.monthly_ai_credits}/mo)</option>)}
+            </select>
+          </label>
+          <label className="block">
+            Set used credits (support adjustment)
+            <div className="mt-0.5 flex gap-1">
+              <input type="number" min={0} step={1} value={manualUsed} onChange={(e) => setManualUsed(e.target.value)} autoComplete="off"
+                className="w-full rounded border border-gray-300 px-1.5 py-1 text-[11px]" />
+              <button onClick={adjustUsed} disabled={busy} className="rounded border border-[#0E7490] px-2 text-[#0E7490] disabled:opacity-40">Set</button>
+            </div>
+          </label>
+          {err && <p className="text-[#B00000]">{err}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StartupsTable() {
   const [orgs, setOrgs] = useState<OrgRow[] | null>(null);
   const [planManagement, setPlanManagement] = useState(false);
@@ -144,6 +220,13 @@ function StartupsTable() {
     }).catch(() => {});
   }, []);
   useEffect(loadBadges, [loadBadges]);
+  // Prompt 706 Bloco C.2 — custom plans, for the AI credits override picker.
+  const [customPlans, setCustomPlans] = useState<{ key: string; label: string; monthly_ai_credits: number }[]>([]);
+  useEffect(() => {
+    fetch('/api/backoffice/ai-plans').then((r) => r.json()).then((body) => {
+      if (body.ok) setCustomPlans((body.plans ?? []).filter((p: { is_custom: boolean }) => p.is_custom));
+    }).catch(() => {});
+  }, []);
   // Prompt 576 Fase 3 — page/sort/dir/search/status filter all live in the
   // URL now, same shape the Queue already uses (queue-table-state.ts): a
   // shared link opens the same view. Defaults (name, asc, no filter) match
@@ -340,6 +423,10 @@ function StartupsTable() {
                   <td className="pr-3 text-gray-600">{o.stage ?? '—'}</td>
                   <td className="pr-3 text-gray-600">{o.aiDraftsThisMonth}</td>
                   <td className="pr-3 text-gray-600">{o.aiReviewsThisMonth}</td>
+                  <td className="pr-3">
+                    <AiCreditsCell orgId={o.orgId} used={o.aiCreditsUsed} limit={o.aiCreditsLimit} isTest={o.isTest}
+                      customPlans={customPlans} onChanged={load} />
+                  </td>
                   <td className="pr-3">
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${MATCHDEAL_STYLE[o.matchDealStatus]}`}>
                       {MATCHDEAL_LABEL[o.matchDealStatus]}

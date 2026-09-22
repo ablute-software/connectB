@@ -8159,6 +8159,433 @@ within normal run-to-run local-measurement noise, not a signal. CLS is
 ~0.000–0.001 on both pages either way (the 4th card doesn't introduce
 layout shift). No material regression, confirmed rather than assumed.
 
+## 18/09/2026 — Prompt 704: dragging a Pipeline row between state cards didn't requalify it, and the page never followed the drag up toward them
+
+Nuno's report, with two screenshots: dragging an investor dossier from one
+funnel card to another (e.g. "Not contacted" → "Active") did nothing — no
+status change, nothing in the dossier's history — and separately, dragging a
+row up toward the top of the screen never auto-scrolled, so the funnel
+cards it needed to land on went off-screen above the fold and stayed there.
+
+**This was Phase 4, already named and unbuilt.** `PipelineFunnel.tsx`'s own
+header said so before this prompt existed: "The drag-to-card gesture (the
+door flip, Active refusing drops) is Phase 4; this phase is the static,
+filtering header." Prompt 647/663 had built exactly one working instance of
+the mechanism — drag a row onto a "vault door" toolbar button — but wired it
+to only two of the five real buckets (Frozen, Passed), as separate buttons
+in the filter toolbar, never onto the funnel cards themselves where Nuno
+was actually dragging.
+
+**What Phase 4 turned out to need, once built:**
+
+- `src/lib/pipeline-drop.ts` — `DropTarget` widened from `'frozen' |
+  'passed'` to all five real buckets (`not_contacted`, `contacted`,
+  `diligence`, `passed`, `frozen`). **Active is deliberately excluded** —
+  `pipeline-taxonomy.ts`'s own words: it "is total − passed, overlaps the
+  buckets, is not a drop target, has no group." There is no single status a
+  drop on a roll-up could mean, so it keeps refusing drops, exactly as
+  `PipelineFunnel.tsx`'s header always said it would — confirmed live: an
+  end-to-end simulated drag onto Active opens no dialog, changes no count,
+  and the row returns to its origin, indistinguishable from a drop that
+  misses every target. `dropDialog`/`planDrop`/`planUndo` generalized from
+  their two-case if/else into a per-target table; Not contacted/Contacted/
+  Due diligence are pure requalifications (status only, no stage change, no
+  task disposition — the same empty `ExitPlan` `useParkEntity.applyPlan`
+  already treats as a safe no-op for every other caller with nothing to
+  apply).
+- **Every drop now requires a reason**, not just Passed's optional one
+  (Nuno's own words: "campo de razão obrigatório antes de gravar").
+  `src/lib/confirm-fields.ts` (new, pulled out of `confirm.tsx` so it's
+  testable without a DOM — this project's vitest has no jsdom) adds
+  `required?: boolean` to a dialog field and `hasMissingRequiredField()`;
+  `confirm.tsx` disables its own Confirm button while any required field is
+  empty. Frozen keeps its revisit-date field and gains a required reason
+  alongside it; Passed's reason goes from optional to required; the three
+  new targets each get one.
+- `src/components/pipeline/PipelineFunnel.tsx` — the six cards ARE the drop
+  targets now (`data-drop-target`, the exact attribute
+  `usePipelineRowDrag`'s `hitTest` already scanned for), reusing
+  `dropTargetAccepts` itself rather than a second `!card.rollup` check, so
+  the two rules can't drift apart. The toolbar's separate "vault door"
+  buttons (`PipelineDropTarget.tsx`) are retired and deleted — Prompt 663's
+  own comment had already flagged them as a stopgap ("Phase 4 moves the
+  drop onto the cards themselves"); the funnel cards' own door-flip
+  treatment is a plain ring/border swap rather than the toolbar buttons'
+  3D perspective flip, which didn't fit a card this much bigger.
+- **Auto-scroll** (`src/lib/edge-autoscroll.ts`, new) — a pure
+  `autoScrollDelta(pointerY, viewportHeight)` (unit-tested: zero in the
+  middle, scales up to the edge, symmetric top/bottom) plus a DOM
+  `autoScroll(x, y, dy)` that walks up from whatever's under the pointer to
+  the nearest scrollable ancestor still able to move that way — the
+  Pipeline table's own capped list (`max-h-[75vh]`, Prompt 529) first, the
+  page itself once that bottoms out — so scrolling always bubbles up to the
+  funnel cards instead of getting stuck against an inner list.
+  `usePipelineRowDrag.ts` runs this as a `requestAnimationFrame` loop tied
+  exactly to the drag's own lifetime: started in `startDrag`, stopped in
+  `endDrag` — never a free-running loop on a page that isn't dragging
+  anything.
+
+**Verified live** (real `PointerEvent`s dispatched through the actual
+listeners — `left_click_drag` mouse-synthesis doesn't reliably cross this
+gesture's 6px/pointer-capture threshold, so this was the reliable way to
+drive it end-to-end): dragging "Bynd VC" from Not contacted onto Contacted
+opened "Mark Bynd VC as Contacted?" with the Confirm button genuinely
+disabled until a reason was typed; confirming moved the funnel counts
+(12/2, from 13/1), changed the row's own STATUS cell, and wrote a dossier
+history entry dated today ("Not contacted → Contacted. Moved to Contacted
+— dragged in the Pipeline (Sent the first LinkedIn outreach today).", under
+"You wrote · stage change — 2026-09-18" in Approach & Log). Dropping a
+second row onto Active opened nothing and changed nothing. Dropping a third
+row onto Due diligence and clicking Cancel left every count unchanged.
+
+**One thing NOT verified live, stated plainly:** the auto-scroll itself.
+`requestAnimationFrame` does not fire at all while the host window is
+minimized/occluded — confirmed independently with a trivial isolated rAF
+counter (0 ticks in a full second, unrelated to any of this prompt's code)
+— so the live drag-and-scroll behavior could not be exercised in this
+session; the pane's own screenshot tool hit the identical wall
+("Claude's window is minimized or hidden, which can stop the page from
+drawing"). Coverage instead: `autoScrollDelta`'s pure math is unit-tested
+(5 tests: dead zone, both edges, the boundary exactly at the edge
+threshold), and `autoScroll`'s DOM half is a small, standard
+elementFromPoint + scrollable-ancestor walk — not exercised live, but not
+novel or risky logic either.
+
+**Scoping note on the mini-prompt's own repro:** its Verificação section
+names "Not contacted → Active" as the example drag to reproduce and expects
+the status to change. That's the one case this implementation deliberately
+does NOT do — Active has no status of its own to move an entity to (see
+above), and refusing it is a pre-existing, Nuno-authored design decision
+(`pipeline-taxonomy.ts`, Prompt 650 v2 §1), not something this prompt asked
+to revisit. Flagging this explicitly rather than silently picking a
+different target for the repro.
+
+**Verified:** `tsc --noEmit` exit 0. `next build` exit 0 (the first attempt
+exited 1 with `unhandledRejection [PageNotFoundError]: Cannot find module
+for page: /_document` — self-inflicted by running `next build` and `next
+dev` concurrently in the same worktree against the same `.next` directory;
+stopping the dev server, clearing `.next`, and rebuilding alone fixed it
+immediately). Worktree-safe `eslint` exit 0, 265 pre-existing warnings, 0
+errors. `vitest` 3915/3916 — the one failure is the same pre-existing
+`market-facts-view.test.ts` locale-formatting flake every prior run this
+session hits. 15 new tests across `pipeline-drop.test.ts` (rewritten),
+`confirm-fields.test.ts`, `edge-autoscroll.test.ts`, and
+`PipelineFunnel.test.ts`.
+
+**Not merged.** Pushing the branch for visibility per standing practice;
+holding for a fresh, explicit merge authorization.
+
+## 18/09/2026 — Prompt 704 §A.1/§A.2: two more findings from testing the pre-fix code live in production, folded into the same branch before merge
+
+Nuno went and reproduced his own original report directly against
+`sherlockdeal.com@gmail.com` in production — the OLD, unfixed code, since
+none of the above had merged yet — and found two more concrete issues
+worth covering now rather than reopening this branch after landing it.
+
+**§A.1 — a drag's ghost row could survive the drag.** Dropping "Mercia
+Ventures" somewhere invalid left a semi-transparent floating copy of the
+row stuck on screen, overlapping the next row, until an unrelated click
+elsewhere. `endDrag()` (the only thing that calls `ghost.remove()`) was
+reached from several different places in `usePipelineRowDrag.ts` as "one
+more step" after some `await`s rather than as something structurally
+guaranteed — if anything between the drop and that point ever threw, or if
+the window lost focus mid-drag with no `pointerup`/`pointercancel` ever
+following (alt-tab, an OS dialog stealing focus), nothing was left to run
+it. Fixed by moving the cleanup into a `finally` in both `onUp` and
+`cancelDrag`, and adding a `window` `blur` listener that cancels an
+in-progress drag defensively. Verified live: starting a real drag (`ghosts:
+1`) and firing a `blur` event with no pointerup at all still leaves
+`ghosts: 0` and `pipeline-dragging` off afterward, and the dragged
+investor's own status is untouched — a cancel, not a hidden commit.
+
+**§A.2 — a status with zero investors had nowhere in the row list to drop
+onto.** Separate from the funnel cards above (which already render
+unconditionally, count or no count): the row list's own per-status bands
+(Prompt 650 Phase 2) hid entirely when empty — "an empty band is hidden
+unless the funnel is filtered to it" was the original, deliberate design,
+aimed at decluttering an account with few contacts. With Contacted and Due
+diligence at zero in Nuno's real account, only Not contacted and Passed
+had a section to drop into at all. Every band now always renders; an empty
+one shows a dashed "No investors here yet — drag a row here to move it to
+X" placeholder instead of rows, carrying the identical `data-drop-target`
+attribute the funnel cards use — so `hitTest` picks it up for free, no
+second drop-handling path. This is a second, additional landing spot, not
+a replacement for the funnel cards. Verified live: dragging COREangels
+Porto directly onto the row list's own "Due diligence" placeholder (not
+the funnel card) opened the same "Move COREangels Porto to Due diligence?"
+dialog, and confirming moved it there (funnel counts and the row's own
+STATUS cell both updated).
+
+**Verified:** `tsc`/`build` exit 0 (this time on the first attempt — the
+dev server was stopped before building, per the concurrency lesson just
+learned on this same branch). Worktree-safe `eslint` exit 0, 265
+pre-existing warnings. `vitest` 3921/3922 — the one failure is the same
+pre-existing locale-formatting flake. 4 new tests
+(`usePipelineRowDrag.test.ts`) plus 3 more added to `PipelineFunnel.test.ts`
+for the row-list placeholder.
+
+Same branch, same "not merged" status as above — these two findings landed
+as additional commits before any merge, exactly so the branch that
+eventually merges covers everything found against production, not just
+the original report.
+
+## 21/09/2026 — Prompt 706: an AI-credits wallet, per org, with configurable plans, a per-action kill switch, and a pre-spend warning — and a critical exemption bug caught before it shipped
+
+Nuno's own decisions (from the strategy doc a verification session wrote
+first): wallet per-org, not per-user; blocks outright at zero; abstract
+credits, not euros; `is_test` orgs exempt; backoffice/internal tools stay
+out entirely. This prompt implements it end to end: schema, the central
+charge function wired into every real AI-calling route, two backoffice
+screens, a pre-spend confirmation on the four expensive/data-dependent
+actions, and the verification tooling to keep it honest going forward.
+
+**Two real contradictions inside the mini-prompt itself, resolved with
+Nuno before writing code (AskUserQuestion):**
+1. Items "Review with AI" / "Find contradictions" / "Benchmark my market"
+   all live in `/api/ai-review`, which the prompt's own exclusion list
+   named as staying OUT of the wallet — while the billable-actions table
+   listed all three as chargeable. **Resolved: bring `/api/ai-review` into
+   scope** (`document_review` for the six doc-review kinds, plus
+   `cross_document_review` and `market_data_review`; `message_review`, the
+   disabled Watson draft-review card, stays untouched).
+2. The `reconciliation` AI call is shared code reached from four places —
+   the named route, a direct route, an ordinary `/api/blueprint` GET that
+   fires on every Readiness page load, and a daily cron sweeping every
+   org. **Resolved: charge only the deliberate, user-clicked path.**
+
+**A third, unasked nuance discovered while implementing #2: even the
+"named route" wasn't what it looked like.** `/api/blueprint/reconcile` —
+the literal route the mini-prompt's own table named — turned out to have
+**no direct UI button at all**: it's `store-supabase.tsx`'s own automatic
+trigger on a document rename, exactly as automatic as the GET/cron paths
+Nuno already said to exclude. The only genuinely deliberate click reaching
+the shared `reconcileGapCandidates()` engine is `MarketDataPanel.tsx`'s
+"Read my documents" button, via `/api/reconciliation/run` (which
+`/api/blueprint/reconcile` merely delegates to). Implemented via an
+explicit `trigger: 'button'` request flag, sent only by that one caller —
+mechanically precise rather than trusting "which route name" as a proxy
+for "which click." `market_thesis_document_suggest` has the identical
+shape (an `auto`-flagged background pass sharing one function with the
+manual button, Prompt 473's own "auto only restricts, never grants
+anything different" design) — charged on BOTH paths there, since that
+prompt's own comments treat the two as equivalent real work, but the
+Bloco D warning only ever fires on the manual click (nothing to interrupt
+in a background effect).
+
+**A factual correction to the mini-prompt's own premise:** it named two
+plan tiers to seed (`idea`, `motherfunding`). Production has three —
+`garage` is a real, selectable tier in `src/lib/plans.ts`'s `PLAN_TIERS`
+with zero orgs on it today but a live UI path to get there. Seeded all
+three; an FK from `orgs.plan` to the new `plans.key` would have silently
+broken the moment anyone chose it otherwise.
+
+**The critical finding, caught by verifying against real production data
+before trusting the spec's own exemption rule:** the mini-prompt says
+"`orgs.is_test`, já existe a coluna, só é preciso usá-la." Querying
+production directly: `ablute_`'s own org
+(`bca54499-03c8-469b-a48d-b9f442e44f69`) — the account the STRATEGY DOC
+itself named as generating 216 of ~600 historical `ai_call_log` rows, the
+exact account this exemption exists to protect — is `is_test: false`,
+`is_internal: true`. `is_test` alone would have blocked the one account
+the requirement was written for, on day one, the same `is_test`-vs-
+`is_internal` confusion this codebase has hit before (several existing
+routes already undercount "real customers" by filtering only `is_test`).
+Fixed: both RPCs exempt on `is_test OR is_internal`. Verified live via a
+rolled-back transaction against `ablute_`'s real row: charging its org
+(seeded on the zero-credit `idea` plan for the test) returns `ok: true,
+monthly_limit: null` — unlimited, exactly as it must be.
+
+**Schema (Bloco A, proposed migration
+`20260921090000_ai_credits_wallet.sql`, NOT applied):** `ai_actions` (18
+rows — the mini-prompt's own ~15 estimate undercounts because `ai-review`
+splits into 3 sub-actions and `market_research`'s 7 `ai_call_log` sub-
+purposes consolidate into 1 charge point), `plans` (3 built-in +
+admin-creatable custom), `plan_overrides` (per-org whole-plan or per-
+action overrides, enforced by an expression unique index so a NULL
+`action_key` still collides with itself), `orgs.ai_credits_used_this_period`
+/`ai_credits_reset_at` (same counter+reset-timestamp shape as
+`ai_drafts_used_this_month`, migration 0102), and — beyond the mini-
+prompt's own ask — `ai_credit_charges`, a per-event ledger (Bloco E.2
+below). `credit_cost` values (1/3/5, a clean scale) and `monthly_ai_credits`
+(idea 0, garage 200, motherfunding 500) are PROPOSED starting points sized
+against real average `cost_eur` per purpose queried from production
+(2026-09-21), explicitly flagged for Nuno to confirm/adjust, never
+presented as official numbers.
+
+**Bloco B — `charge_ai_action`/`ai_wallet_status`, two SECURITY DEFINER
+RPCs (same shape as `watson_drafts_status`/`watson_record_draft`, `for
+update` row lock, lazy reset, resolved from `plans`/`ai_actions`/
+`plan_overrides` INSIDE the function so a backoffice edit takes effect on
+the next call with zero app-code changes).** A real bug caught during
+implementation, before any production verification: the refusal branch
+persisted a due reset's new `reset_at` without persisting the reset
+`used` value alongside it — an org whose reset landed on a refused call
+(e.g. `idea`, permanently limit 0) would show a perpetually-advancing
+reset date over a never-actually-reset counter. Fixed to update both
+columns together, in every branch. `chargeAiAction()` (the TS wrapper,
+`src/lib/ai-credits.ts`) fails CLOSED on an RPC error — the opposite of
+`watson_record_draft`'s fail-OPEN, deliberately: that RPC runs AFTER a
+draft already exists (throwing it away over an accounting failure is
+worse); this runs BEFORE the model call, so refusing costs nothing.
+`/api/compose` fully retires `ai_drafts_used_this_month`/
+`watson_drafts_status`/`watson_record_draft` per the mini-prompt's own
+"never both at once" guard — `recordWatsonDraft`/`watson-draft-record.ts`
+deleted as dead code, `/api/me`'s wallet display and `RailLogForm.tsx`'s
+"N drafts left" copy both updated to read the new shared wallet instead
+of a frozen, never-again-incremented column.
+
+**All 18 actions wired, confirmed by exhaustive grep audit (Bloco B.3) —
+the full list, one `chargeAiAction(...)` call site per action key, is in
+`src/lib/ai-credits-wiring.test.ts`, which also asserts each charge sits
+BEFORE its route's real model call, not after — a source-text regression
+guard, not just a one-time check, since a future edit to any of these 15
+route files could otherwise silently drop the charge with nothing to
+catch it.** Confirmed the explicit exclusion list stays excluded too
+(`enrichment-worker`, `classify-entity`, `classify-interaction`,
+`reawakening/*`, `backoffice/research`) — zero `chargeAiAction` references
+in any of them.
+
+**A genuine gap found but deliberately NOT closed in this pass, flagged
+rather than silently expanded into:** `/api/data-room/extract-document`
+(triggered both automatically on every document upload/rename AND,
+per-document, by "Read my documents") makes its own real, non-trivial AI
+call — `document_extraction`/`document_extraction_backfill` in
+`ai_call_log`, €0.68–2.35 of real historical cost — and was never named in
+the mini-prompt's own action table at all. Left uncharged: bringing it in
+scope needs the same automatic-vs-deliberate split `reconciliation`
+needed, and the mini-prompt never asked for it. Flagged here so it isn't
+mistaken for an oversight later.
+
+**Bloco C — backoffice.** New screen `/backoffice/ai-plans`: plans
+list+create (same "list + create form" shape as the Promo Codes screen,
+the closest existing precedent) and an actions list with per-action cost,
+the "warns first" flag, and the Bloco C.3 kill switch (`enabled`, checked
+by `charge_ai_action` before ever reaching the caller's model call).
+Startups list gains an "AI credits" column (used/limit, `unlimited (test)`
+for is_test orgs) with a click-to-expand panel: assign a custom plan's
+allowance to one org (`plan_overrides`, action_key null — deliberately
+NOT by changing `orgs.plan` itself, which stays whatever real entitlement
+tier the org is on for every OTHER thing that column gates: Watson quota,
+MatchDeal tier, catalog quota — none of that machinery understands a
+custom AI-credit plan and none of it needed to) or manually set the used
+count (support case: "forgive" a month). One real bug caught before
+shipping: a `plan_overrides` upsert targeting `(org_id, action_key)`
+cannot match the table's actual unique constraint, an EXPRESSION index on
+`(org_id, coalesce(action_key, ''))` — Supabase's `onConflict` can't target
+an expression, so this is a manual select-then-write instead.
+
+**Bloco D — the pre-spend warning, generalized from Nuno's own
+investability example to all four `needs_confirmation` actions.** Reuses
+`company-gaps.ts`'s `detectGaps()` + the exact `severity === 'critical' ||
+'high'` filter `ReviewPanel.tsx` already applies for its own card — no new
+calculation. Structurally: a pure `insufficientInfoDialog()`
+(`src/lib/ai-spend-confirm.ts`) builds a `ConfirmOptions` object from the
+gap count and wallet status, handed to the EXISTING `useConfirm()` dialog
+— the same `dropDialog()`-then-`useConfirmWithFields()` split
+`pipeline-drop.ts` already established for this codebase's confirm
+dialogs, not a new modal component. "Continue anyway" = Confirm (the
+caller then calls the real route, which charges); "Fill in more
+information first" = Cancel (nothing happens) — Bloco D.3's own
+requirement (closing the popup, or choosing to fill in more info, never
+spends a credit) falls out for free from that reuse, since
+`chargeAiAction` only ever runs inside the route itself.
+
+**Bloco E — verified, not just built.** E.1: `ai_wallet_status`/
+`charge_ai_action`'s actual behavior — the exact-limit boundary, the
+is_test/is_internal exemption, the disabled-action lockout, the lazy
+reset — verified live via `BEGIN`/`ROLLBACK` transactions against
+production (never committed), including the ablute_ finding above. The
+wiring itself (does every route actually call it, in the right place) is
+the 27-assertion source-text test noted above, which stays a regression
+guard rather than a one-time check. E.2: beyond the mini-prompt's own ask,
+added `ai_credit_charges` — a per-event ledger (org, action, credits,
+timestamp) written inside `charge_ai_action`'s own transaction on every
+SUCCESSFUL charge, giving `scripts/_verify_ai_credits_reconciliation.mjs`
+something real to compare against `ai_call_log` going forward. Without
+it, "compare what was logged to what was charged" (E.2's own wording) had
+nothing on the wallet side but a single current-period counter — the
+exact shape of gap `blueprint_analyses.consumed_kind` already proved this
+codebase is capable of (a column that looked like it tracked consumption
+and never was reconciled against anything). The script could not be RUN
+end-to-end in this session (no `.env.local` in this worktree, and the
+table it reads doesn't exist in production until the migration is
+applied) — its query logic was validated by hand against the real
+`ai_call_log` purpose list and via `to_regclass()` confirming the ledger
+table's absence matches the expected pre-migration state.
+
+**Verification, stated plainly against the mini-prompt's own list:**
+- Exact-limit exhaustion + refusal: verified via rollback transaction
+  (org-level override dropped to 3 credits, a 1-credit charge succeeds,
+  the next 5-credit charge is refused, balance stays at 1 — not
+  partially charged).
+- `is_test`/`is_internal` never blocked: verified (see the ablute_ finding).
+- Custom plan created in backoffice and applied to a test org: the
+  MECHANISM is verified (the override write path, tested via rollback
+  transaction with a synthetic override) and the UI renders without
+  error in `dev:verify`, but **the live click-through end-to-end could
+  not be done** — `dev:verify`'s demo mode has no real Supabase
+  connection, and every one of these routes needs one (this is the same
+  category of gap this session's own memory already names —
+  `dev_verify_masks_middleware_bugs` — now confirmed for an entire new
+  DB-backed backoffice feature, not just an `authEnabled`-gated UI branch).
+- Reproducing Nuno's own investability scenario (thin data, "Run review,"
+  see the warning first): **not reproducible in this environment** for
+  the same reason — the Review tab's own AI features are gated behind
+  `caps.ai`/a real plan in a way `dev:verify` never satisfies. Confirmed
+  by direct render instead: `/readiness`, `/readiness?tab=market_data`,
+  and the new `/backoffice/ai-plans` and `/backoffice/startups` screens
+  all render with zero console errors in demo mode and degrade
+  gracefully (a permanent "Loading…"/"not configured" state, never a
+  crash) when the backend they need isn't there — proves the new code
+  doesn't break rendering, not that the feature works end to end.
+- Screenshots of the new backoffice screens: not meaningful to take in
+  demo mode (no real data behind them) — recommend a real staging check
+  or Nuno's own click-through once the migration is applied.
+
+**Verified:** `tsc`/`build` exit 0. Worktree-safe `eslint` exit 0, 265
+pre-existing warnings (0 new — two rounds of fixes: one real
+`react/no-unescaped-entities` error and four missing `autoComplete="off"`
+attributes on new inputs, both this session's own CLAUDE.md rules).
+`vitest` 3928/3929 — the one failure is the same pre-existing
+`market-facts-view.test.ts` locale-formatting flake every prior run this
+session hits. 61 new tests across `ai-credits.test.ts`,
+`ai-credits-wiring.test.ts`, and `ai-spend-confirm.test.ts`.
+
+**Not merged, and — per this prompt's own explicit "migração PROPOR NÃO
+APLICAR" — the migration itself was never applied to production either,
+only verified against it via rolled-back transactions.** Pushing the
+branch for visibility per standing practice; holding both the merge and
+the migration's real application for Nuno's explicit go-ahead.
+
+## 21/09/2026 — Prompt 708: closing Prompt 706 — numbers confirmed final, `/api/data-room/extract-document` brought into the wallet
+
+Nuno read the 706 report and this session's own independent verification (the `is_test`/`is_internal` finding, re-confirmed against production; the migration SQL read back from GitHub) and made three calls:
+
+**1. Numbers are final, unchanged.** `credit_cost` (1/3/5 scale) and `monthly_ai_credits` (idea=0/garage=200/motherfunding=500) needed no adjustment — only their status in the migration's own comments, from "PROPOSED, flagged for Nuno to confirm" to "CONFIRMED FINAL by Nuno (Prompt 708)". No logic change, no value change — comments only, in `supabase/migrations/20260921090000_ai_credits_wallet.sql`.
+
+**2. The two AskUserQuestion resolutions from 706 (bringing `/api/ai-review` into scope; charging only reconciliation's 2 user-initiated paths) are confirmed as exactly what Nuno meant.** Recorded here for the log; nothing to change.
+
+**3. `/api/data-room/extract-document` — the gap 706 found and flagged instead of silently including or ignoring — comes into the wallet now, urgently.**
+
+**A real, material correction surfaced along the way.** 706's own report estimated this route's real cost at €0.68–2.35/call, and Nuno's prompt explicitly asked for a NEW credit tier above 5 if that number held — a theoretical worst case (a full 30-page PDF at `MAX_EXTRACTION_PAGES`). Before proposing a tier, I queried the actual `ai_call_log` history for `purpose='document_extraction'` (15 real production calls, 2026-09-21): avg €0.0454, median €0.0428, max observed €0.1039 — cheaper than `entity_enrich`/`team_sherlock_research` (€0.10-0.11 avg, already priced at 3 credits) and only ~34% above `reconciliation` (€0.0338 avg, 1 credit). The €0.68-2.35 figure does not hold against what founders have actually experienced. Priced at **1 credit**, same same-methodology comparison as the other 18 — not the mini-prompt's own illustrative 15-20 credit suggestion, which was built on the unconfirmed theoretical number. Flagged clearly in the migration's own comment for Nuno to confirm this one row; if he'd rather price for the observed ceiling instead of the average, 3 credits (matching the entity_enrich/team_sherlock_research band) is the documented safer alternative — either is a one-line backoffice edit, no deploy.
+
+**Two real callers, confirmed by re-reading the route's own header comment (Prompt 465 §A.1's coverage matrix) rather than re-deriving it:**
+- `store-supabase.tsx`'s `triggerDocumentExtraction` — automatic, fires on every clean PDF upload/version-add. Sends no `trigger` field. Stays free.
+- `MarketDataPanel.tsx`'s `runDocumentExtraction` ("Read my documents" button) — deliberate, once per selected document. Now sends `trigger: 'button'`.
+
+Exactly the same `trigger:'button'` gate reconciliation already established — not a new mechanism, per the prompt's own instruction.
+
+**Where the charge actually lives is the one design decision worth explaining.** `extractDocument()` (`document-extraction-pipeline.ts`) has its own cache: a document already extracted for its exact `(document_id, sha256)` returns instantly with NO real model call. Charging in the ROUTE, before calling `extractDocument`, would have charged a credit even for a free cache hit — the same class of over-charging Bloc B already guards against elsewhere (`market-data/research`'s `if (forceRefresh || !cached)` gate). Instead, `extractDocument()` now takes an optional `charge?: { sb }` parameter, and the actual `chargeAiAction` call sits inside the function, immediately before `callExtractionModel(...)` — after the cache-hit early-return and after the PDF-parse step, both of which can fail for free. `ensureDocumentSummary` (the investor-triggered, CRON_ONLY caller, already excluded from the wallet since 706) calls `extractDocument` without the `charge` option and is completely unaffected. A new `ExtractionSkipReason` value, `ai_credit_limit`, surfaces a refusal through the exact same never-silent reporting path (`extractionSkipReasonMessage`) every other skip reason already uses — no parallel UI needed.
+
+**`needs_confirmation: false` — decided, not defaulted.** The SAME "Read my documents" button already shows ONE upfront Bloc D warning for the whole flow, gated on the `reconciliation` charge that unconditionally follows every extraction pass (`runDocumentExtraction`'s own existing comment: "checked once, up front, for the whole flow"). Adding a second warning for `document_extraction` itself would either double-prompt the same click or require restructuring an already-confirmed flow. The Bloc D "insufficient info" signal (readiness/blueprint gap count) also has no real bearing on whether a specific uploaded PDF is worth reading — that's a property of the document, not the founder's own readiness answers. This is exactly the "near-mandatory step within another confirmed flow" exception the mini-prompt's own §B.4 anticipated. If the wallet genuinely runs dry mid-loop across several selected documents, the founder still finds out — `extractDocument` refuses that document and it surfaces through the existing per-document failure list, never silently.
+
+**Verification:**
+- `ai-credits-wiring.test.ts` extended with a dedicated `document_extraction` describe block (charge-before-model-call ordering inside `extractDocument`, the route's trigger gate, `MarketDataPanel`'s flag on the correct fetch call specifically — not just anywhere in the file — and `store-supabase.tsx`'s automatic call staying unflagged) plus a migration-content assertion for the new row. `extraction-skip-reason.test.ts` extended for the new `ai_credit_limit` case (non-empty, distinct from all others, exact wording pinned).
+- Repeated the `BEGIN`/`ROLLBACK`-against-production verification for this specific action: a synthetic org on a 2-credit plan, three consecutive `document_extraction` charges — first two succeed (`used` 1→2, `remaining` 1→0), the third refuses with the same message shape every other action already produces. Zero rows ever persisted (rolled back).
+- tsc: EXIT=0. eslint (worktree-safe form): 265 problems, 0 errors — identical baseline, zero new warnings (the one `MarketDataPanel.tsx` hit in the log is a pre-existing warning ~600 lines from anything touched here). vitest: 3934/3935 passing, same single pre-existing `market-facts-view.test.ts` locale artifact as 706, confirmed unrelated. Build: pending at the time of this entry — see the session's own report for the final EXIT code.
+
+**Status**: same branch, `claude/prompt-706-ai-credits-wallet`. Migration still PROPOSED, NOT applied — Part A made the 18 original numbers final in comments only; the 19th row's cost (1 credit, or 3 if Nuno prefers the ceiling) is the one number still open, exactly as this prompt asked. Merge and migration application both wait on Nuno's explicit go-ahead, per this prompt's own closing note that nothing else needs a decision unless something new comes up.
+
 ## 21/09/2026 — Prompt 710: Vault Data Room — cancel a wrong file pick, move a document without drag-and-drop
 
 Two usability gaps Nuno hit for real while uploading his own business plan, confirmed directly in `src/app/documents/page.tsx` before writing any fix (both against a `.docx`-extension-swapped PDF pick with no way back, and a document stuck in "Investor deck" instead of "Business plan" with no way to move it besides drag-and-drop).
@@ -8174,3 +8601,22 @@ Two usability gaps Nuno hit for real while uploading his own business plan, conf
 - **Cancel could NOT be live-tested**: the entire "Or upload a file" block (including the new Cancel button) is gated behind `{authEnabled && (...)}`, and `dev:verify`'s forced demo mode always has `authEnabled=false` — same pre-existing, previously-documented limitation that blocks any file-upload UI test in this sandbox, not something new to this prompt. Verified instead by code review: `clearPendingFiles()` is a simple, synchronous state reset with no async/side-effect surface, wired identically to both the Cancel button and the panel's Close button.
 
 **Status**: committed and pushed to `claude/prompt-710-vault-cancel-and-move`. No migration involved. Merge held for Nuno's explicit ok, per this prompt's own wording — and per that same note, he already has a real case queued to test the new path with: moving `SherlockDeal_Plano_Negocio_V3.pdf` from "Investor deck" to "Business plan."
+
+## 22/09/2026 — Prompt 712: merging Prompt 704 into `main`, an invested-row hardening, and banded pagination (679 §2)
+
+**Part A — merged `claude/prompt-704-pipeline-drag-requalify` into `main`.** Per Nuno's explicit "sim, fundir" (22/09) — `07b86c5`/`2b45b53` had been holding for exactly this authorization since 18/09. Verified before merging (per this prompt's own checklist) that the branch's real behavior still matched Prompt 679 §1's decisions: the five real buckets accept a drop, Active refuses it; dragging onto "Contacted" writes `contacted`, never `in_conversation`/`invested`; every drop requires a reason and writes an attributed note. `DECISIONS.md` was the only conflict (no code-file overlap between Pipeline and the wallet/review work already on `main`) — resolved by keeping both sides' entries, reordered into actual chronological order (704's two entries, 18/09, now sit before 706/708's, 21/09, rather than after) rather than a mechanical "theirs after ours" splice. `PipelineDropTarget.tsx` confirmed still deleted post-merge.
+
+**Small hardening, done in the same train (fit in a few lines):** an entity already `invested` could still be dragged onto "Contacted" — the dialog already shows the transition and requires a reason, so not silent, but a real investment shouldn't be reversible by a gesture at all. Added `dropAllowedForStatus(status, target)` in `pipeline-drop.ts` (pure, unit-tested — 5 new tests) and one early-return in `handleDrop`: `if (!dropAllowedForStatus(...)) return false`, which the drag hook already treats identically to a drop outside any valid zone (row snaps back, no dialog). `in_conversation` stays allowed — that one is a legitimate correction, not a demotion of a closed deal.
+
+**Part B — banded pagination (679 §2), reversing Fase 1+2's own "no pagination, one continuous scroll" decision** on Nuno's own correction after testing the full-scroll list live. Each of the five row-list bands now paginates independently at 25 rows (`PIPELINE_BAND_PAGE_SIZE = DEFAULT_PAGE_SIZE`, reused from `queue-table-state.ts` rather than a second constant, per the prompt's own instruction) — a band at or below the page size shows no controls at all. Page state is plain per-band component `useState` (`bandPage: Partial<Record<PipelineGroupKey, number>>`), the same mechanism `cardFilter`/`collapsedGroups` already use rather than the URL — chosen because those two already prove, in this exact file, that plain state survives opening/closing the `?entity=` dossier panel (no remount), which is the one hard requirement here; verified directly, not assumed (see below). Prompt 529's `max-h-[75vh]` internal scroll cap (`PIPELINE_ROWS_WITHOUT_SCROLL_CAP`) is retired entirely — the page grows to fit instead, same as any band below the old cap always did. `visibleRowIds` (↑/↓ keyboard navigation) now also respects the current page per band: a row on page 2+ is exactly as "not currently visible" as one in a collapsed band, so arrow navigation stops at the current page's edge rather than jumping across pages (not asked for, not built).
+
+**Verified live** (dev:verify demo mode; seed data too small to exceed 25 rows on its own, so 30 synthetic rows were injected directly into the client-side demo localStorage store — never touching production — specifically to exercise real pagination):
+- "Not contacted" (43 rows after injection) showed exactly 2 page buttons and exactly 24 rows on page 1; clicking "2" showed rows 25-43 continuing with no gap or duplicate. Bands at/below 25 (Contacted=1, Due diligence=0, Passed=0, Frozen=1) showed zero pagination controls.
+- Page state survives the dossier panel: opened a dossier from page 2 (`?entity=ent-nina`), closed it with a real `Escape` keydown event, and page 2 was still selected afterward — confirmed via the page-button's own active class, not assumed from the code.
+- The list container's own `scrollHeight === clientHeight` after removing the height cap — confirmed structurally that it no longer traps an internal scroll, so `edge-autoscroll.ts`'s existing "walk up to the nearest scrollable ancestor" will reach the page itself during a drag, same as Prompt 704 intended. A live drag-and-observe-scroll rerun was not attempted — Prompt 704's own report already found `requestAnimationFrame` does not fire on this session's hidden/minimized window, an environment limitation, not something this prompt could newly verify.
+- Card-row-to-list right-edge alignment (Prompt 676) checked via a DOM measurement (9px apart on the specific elements measured) rather than a screenshot (same hidden-window limitation) — likely measuring slightly different boundary elements rather than a real regression, since nothing in this prompt touches the funnel row's own layout/width, only the list container's overflow classes and the table's own internal rows. Flagged rather than asserted as pixel-perfect.
+- The `invested`-drag hardening was NOT re-verified with a live drag gesture (a real pointer-drag simulation is a substantial separate exercise, per Prompt 704's own precedent) — covered instead by 5 new unit tests on `dropAllowedForStatus` directly, plus the one-line, low-risk nature of the `handleDrop` change itself.
+
+**Verified (tooling):** tsc EXIT=0. eslint (worktree-safe `--no-eslintrc` form): 265 problems, 0 errors — identical baseline, zero new warnings. vitest: 3970/3971 passing (34 new tests: 5 for `dropAllowedForStatus`, the rest already shipped with 704 itself) — the 1 failure is the same pre-existing `market-facts-view.test.ts` locale artifact confirmed unrelated across every branch this session touched. Build: EXIT=0 (one earlier background build run raced against Part B's still-in-progress edits and failed — caught via its own `BUILD_EXIT=1` in the raw log, not the task runner's own "exit 0" summary of the outer bash chain; re-run clean once edits were complete, per this repo's own documented build/dev-concurrency lesson, generalized here to build/edit).
+
+**Status**: pushed directly to `main` per this prompt's own explicit authorization (no PR/holding branch — Part A's merge commit and Part B's pagination commit both land here). Deploy confirmed via a fresh `buildId` on `www.sherlockdeal.com` — see the session's own report for the exact before/after values.

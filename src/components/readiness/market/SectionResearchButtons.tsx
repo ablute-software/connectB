@@ -21,6 +21,9 @@
 import { useEffect, useState } from 'react';
 import { SECTIONS, type Section } from '@/lib/market-research-sections';
 import { classifySectionResponse, type SectionOutcome } from '@/lib/market-research-outcome';
+import { useConfirm } from '@/lib/confirm';
+import { insufficientInfoDialog, shouldWarnBeforeSpending } from '@/lib/ai-spend-confirm';
+import { fetchCriticalGapCount, fetchWalletStatus } from '@/lib/ai-spend-confirm-client';
 
 const SECTION_LABEL: Record<Section, string> = {
   definition: 'Definition & scope', sizing: 'Market size', growth: 'Growth', players: 'Competitors',
@@ -40,6 +43,7 @@ export function SectionResearchButton({ section, hypothesisId, onDone }: {
 }) {
   const [estimate, setEstimate] = useState<{ estimateEur: number; basedOnRuns: number } | null>(null);
   const [running, setRunning] = useState(false);
+  const confirm = useConfirm();
 
   useEffect(() => {
     setEstimate(null);
@@ -50,6 +54,15 @@ export function SectionResearchButton({ section, hypothesisId, onDone }: {
   }, [section]);
 
   async function run() {
+    // Prompt 706 Bloco D — market_research is one of the four actions that
+    // warns first. Fetched independently (this component has no gaps state
+    // of its own) — see ai-spend-confirm-client.ts's own header for why.
+    const criticalGapCount = await fetchCriticalGapCount();
+    if (shouldWarnBeforeSpending(criticalGapCount)) {
+      const wallet = await fetchWalletStatus('market_research');
+      const proceed = await confirm(insufficientInfoDialog({ actionLabel: 'Market data research', criticalGapCount, wallet }));
+      if (!proceed) return;
+    }
     setRunning(true);
     try {
       const res = await fetch(`/api/market-data/research?hypothesisId=${encodeURIComponent(hypothesisId)}&section=${section}&force=1`);

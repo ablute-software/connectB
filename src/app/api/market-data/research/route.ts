@@ -40,6 +40,7 @@ import {
 import { computeVerdict, type FounderBaseline } from '@/lib/market-assessment-engine';
 
 import { SECTIONS, type Section } from '@/lib/market-research-sections';
+import { chargeAiAction } from '@/lib/ai-credits';
 
 // Prompt 378 §0 — THE production bug. This was the only AI route in the app
 // doing a web search without a maxDuration export: its siblings all have one
@@ -444,6 +445,15 @@ export async function GET(req: Request) {
     });
   }
   if (forceRefresh || !cached) {
+    // Prompt 706 — charged once per invocation regardless of `section`
+    // (one action key, `market_research`, covers all seven sub-types —
+    // they're one charge point, not seven). A cache hit above never
+    // reaches here, so a repeat request for the same signature is free,
+    // same as it costs nothing in ai_call_log either.
+    const charge = await chargeAiAction(sb, orgId, 'market_research');
+    if (!charge.ok) {
+      return NextResponse.json({ available: true, items: [], gate, costEur: null, ran: false, ok: false, aiError: charge.reason });
+    }
     try {
       const result = await runResearchPass(admin, apiKey, orgId, hypothesis, thesisFields, thesisVersion, orgRow.country, orgRow.stage, section);
       costEur = result.costEur;
