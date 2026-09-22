@@ -24,6 +24,8 @@ import { investorBillingConfigured } from '@/lib/stripe-env';
 import { isBlockedState } from '@/lib/investor-billing-access';
 import { ensureInvestorAccessStarted } from '@/lib/investor-access-period';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { bumpMandateVersion } from '@/lib/investor-mandate-versions';
+import { getInvestorContext } from '@/lib/investor-context';
 
 const EDITABLE = [
   'sectors', 'geographies', 'stages_invested', 'instruments', 'instrument_other',
@@ -184,5 +186,25 @@ export async function POST(req: Request) {
   const { data: updated, error } = await admin.from('matchdeal_profiles').update(patch)
     .eq('membership_id', member.id).eq('kind', 'investor').select('*').single();
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+  // Prompt 715 Pedido D — a new mandate version only when the patch actually
+  // touches a mandate field (the ones computeMatchScore reads); editing
+  // photo_url/focus_keywords/etc. doesn't change WHAT the investor is
+  // looking for, so it shouldn't mint a new version. Best-effort.
+  const MANDATE_FIELDS = ['sectors', 'geographies', 'stages_invested', 'instruments', 'ticket_min', 'ticket_max', 'exclusions_sectors', 'exclusions_notes'];
+  if (MANDATE_FIELDS.some((f) => f in patch) && updated) {
+    const context = await getInvestorContext(admin, member.catalog_entity_id);
+    await bumpMandateVersion(admin, member.catalog_entity_id, {
+      sectors: updated.sectors ?? [], stagesInvested: updated.stages_invested ?? [],
+      geographies: updated.geographies ?? [], instruments: updated.instruments ?? [],
+      ticketMin: updated.ticket_min, ticketMax: updated.ticket_max,
+      exclusionsSectors: updated.exclusions_sectors, exclusionsNotes: updated.exclusions_notes,
+      context: context ? {
+        priorityNote: context.priorityNote, pauseNewCandidates: context.pauseNewCandidates,
+        capacity: context.capacity, expiresAt: context.expiresAt,
+      } : null,
+    }, user.id);
+  }
+
   return NextResponse.json({ ok: true, profile: updated, completeness: completeness(updated ?? {}) });
 }

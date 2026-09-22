@@ -20,6 +20,7 @@ import { AutomationsTab } from './about-tabs/AutomationsTab';
 import { AppAccessTab } from './about-tabs/AppAccessTab';
 import { PhotosMediaTab } from './about-tabs/PhotosMediaTab';
 import { MatchDealHistoryTab } from './about-tabs/MatchDealHistoryTab';
+import { InvestorContextCard } from './InvestorContextCard';
 
 interface Profile {
   sectors: string[]; geographies: string[]; stages_invested: string[]; instruments: string[];
@@ -463,6 +464,8 @@ function InvestorProfilePanelInner({ onCompletenessChange, onEntityNameChange, o
 
       {data.identityStatus === 'pending_verification' && <VerificationUploadCard />}
       {data.identityStatus && data.identityStatus !== 'verified' && <VouchingCard />}
+
+      <InvestorContextCard />
 
       <Tabs items={ABOUT_TABS} active={tab} onChange={setTab} />
 

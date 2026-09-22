@@ -96,4 +96,22 @@ describe('isTreatedForWaveDosage', () => {
   it('leaves an untouched open card untreated', () => {
     expect(isTreatedForWaveDosage({ status: 'open' })).toBe(false);
   });
+
+  // Prompt 715 Pedido E — a watch, a pending follow-up, or a pending
+  // level-3 request all unblock the next wave without being a decision.
+  it('unblocks an open card that is being watched', () => {
+    expect(isTreatedForWaveDosage({ status: 'open', isWatching: true })).toBe(true);
+  });
+
+  it('unblocks an open card with a pending "revisit on…" follow-up', () => {
+    expect(isTreatedForWaveDosage({ status: 'open', hasPendingFollowup: true })).toBe(true);
+  });
+
+  it('unblocks an open card with a pending level-3 information request', () => {
+    expect(isTreatedForWaveDosage({ status: 'open', hasPendingLevel3Request: true })).toBe(true);
+  });
+
+  it('a card genuinely never presented (no watch, no follow-up, no request) stays untreated', () => {
+    expect(isTreatedForWaveDosage({ status: 'open', isWatching: false, hasPendingFollowup: false, hasPendingLevel3Request: false })).toBe(false);
+  });
 });

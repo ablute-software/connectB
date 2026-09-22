@@ -19,7 +19,15 @@
 // one-liner, sectors, round, valuation, intro, tracking count, data-room
 // flag, conversation flag, match score or match reasons.
 
-export const UNAVAILABLE_CARD_KEYS = ['orgId', 'name', 'status', 'decidedAt', 'unavailable'] as const;
+export const UNAVAILABLE_CARD_KEYS = ['orgId', 'name', 'status', 'decidedAt', 'unavailable', 'reason'] as const;
+
+// Prompt 715 Pedido F — generalizes this projection from "closed org"
+// (Prompt 556 §C) to any startup account no longer visible to this
+// investor: closed (orgs.closed_at) or suspended/hidden (moderation_status),
+// caught for a relationship card the same way Prompt 556 §C caught a
+// closed one — a discovery card can't reach this state at all, since
+// eligiblePipelineOrgIds already excludes anything not currently visible.
+export type UnavailableReason = 'closed' | 'unavailable';
 
 export type UnavailableCard = {
   orgId: string;
@@ -27,17 +35,19 @@ export type UnavailableCard = {
   status: string;
   decidedAt: string | null;
   unavailable: true;
+  reason: UnavailableReason;
 };
 
 export function projectUnavailableCard(card: {
   orgId: string; name: string; status: string; decidedAt?: string | null;
-}): UnavailableCard {
+}, reason: UnavailableReason = 'closed'): UnavailableCard {
   return {
     orgId: card.orgId,
     name: card.name,
     status: card.status,
     decidedAt: card.decidedAt ?? null,
     unavailable: true,
+    reason,
   };
 }
 

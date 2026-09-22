@@ -20,16 +20,23 @@ const fullCard = {
 };
 
 describe('projectUnavailableCard', () => {
-  it('returns exactly the five contracted keys and nothing else', () => {
+  it('returns exactly the six contracted keys and nothing else', () => {
     const projected = projectUnavailableCard(fullCard);
     expect(Object.keys(projected).sort()).toEqual([...UNAVAILABLE_CARD_KEYS].sort());
   });
 
-  it('keeps the four history fields and marks the card unavailable', () => {
+  it('keeps the four history fields, marks the card unavailable, and defaults reason to "closed"', () => {
     expect(projectUnavailableCard(fullCard)).toEqual({
       orgId: 'org-1', name: 'Krohnsty', status: 'interested',
-      decidedAt: '2026-09-01T10:00:00Z', unavailable: true,
+      decidedAt: '2026-09-01T10:00:00Z', unavailable: true, reason: 'closed',
     });
+  });
+
+  // Prompt 715 Pedido F — generalized to a suspended/hidden relationship
+  // card, not only a closed org; the reason is what lets the client tell
+  // the two apart without a second boolean.
+  it('accepts an explicit reason for a suspended/hidden (not closed) account', () => {
+    expect(projectUnavailableCard(fullCard, 'unavailable').reason).toBe('unavailable');
   });
 
   // Every one of these leaked into the investor's Pipeline for the deleted

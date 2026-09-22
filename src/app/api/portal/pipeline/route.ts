@@ -45,12 +45,27 @@ import { recordInvestorDecisionFact } from '@/lib/ecosystem-facts';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { closedOrgGuard } from '@/lib/org-closed';
 import { investorInterestNotifyAvailable } from '@/lib/investor-interest-notify-capability';
+import {
+  PASS_REASON_CHIPS, TOO_EARLY_SUBREASONS, decisionDedupKey, findOrOpenEpisode,
+  isFirmTestOrInternal, swipePassReasonForChips, writeSignalEvent,
+} from '@/lib/investor-signal-events';
+import { currentMandateVersion } from '@/lib/investor-mandate-versions';
 
 // AP-08 — free text, not the old fixed category list. Max 1000 chars,
 // not blank/whitespace-only.
 const REASON_MAX_LEN = 1000;
 function validReason(reason: string | undefined): reason is string {
   return !!reason && reason.trim().length > 0 && reason.length <= REASON_MAX_LEN;
+}
+
+// Prompt 715 Pedido B — chips are OPTIONAL and PRIVATE: an empty/absent
+// array is valid (nothing selected), an unknown id is rejected outright
+// (never silently dropped — a typo'd chip id should be visible in a 400,
+// not vanish).
+const PASS_REASON_CHIP_IDS = new Set(PASS_REASON_CHIPS.map((c) => c.id));
+const TOO_EARLY_SUBREASON_IDS = new Set(TOO_EARLY_SUBREASONS.map((c) => c.id));
+function validChips(chips: unknown): chips is string[] {
+  return chips === undefined || (Array.isArray(chips) && chips.every((c) => typeof c === 'string' && PASS_REASON_CHIP_IDS.has(c)));
 }
 
 export async function GET() {
@@ -97,8 +112,11 @@ export async function POST(req: Request) {
   const viewerBlock = await assertNotViewer(sb, req);
   if (viewerBlock) return viewerBlock;
 
-  const body = await req.json().catch(() => ({})) as { orgId?: string; action?: 'pass' | 'interest'; reason?: string };
-  const { orgId, action, reason } = body;
+  const body = await req.json().catch(() => ({})) as {
+    orgId?: string; action?: 'pass' | 'interest'; reason?: string; chips?: unknown; chipSubreason?: unknown;
+  };
+  const { orgId, action, reason, chipSubreason } = body;
+  const chips = body.chips;
   if (!orgId || (action !== 'pass' && action !== 'interest')) {
     return NextResponse.json({ ok: false, error: 'orgId and a valid action are required.' }, { status: 400 });
   }
@@ -106,6 +124,13 @@ export async function POST(req: Request) {
   if (action === 'pass' && !validReason(reason)) {
     return NextResponse.json({ ok: false, error: 'A reason for passing is required (max 1000 characters).' }, { status: 400 });
   }
+  if (!validChips(chips)) {
+    return NextResponse.json({ ok: false, error: 'Unknown reason chip.' }, { status: 400 });
+  }
+  if (chipSubreason !== undefined && (typeof chipSubreason !== 'string' || !TOO_EARLY_SUBREASON_IDS.has(chipSubreason))) {
+    return NextResponse.json({ ok: false, error: 'Unknown "too early" sub-reason.' }, { status: 400 });
+  }
+  const passChips = action === 'pass' ? (chips ?? []) : [];
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
@@ -170,7 +195,10 @@ export async function POST(req: Request) {
     await admin.from('matchdeal_swipes').upsert({
       actor_profile_id: investorProfile.id, target_profile_id: startupProfile.id,
       direction: action === 'pass' ? 'pass' : 'like',
-      pass_reason: action === 'pass' ? 'other' : null,
+      // Prompt 715 Pedido B — the first chip that maps onto the old fixed
+      // category, else 'other'; investor_signal_events.private_reason_chips
+      // (written below) is the real source of truth from here on.
+      pass_reason: action === 'pass' ? swipePassReasonForChips(passChips) : null,
     }, { onConflict: 'actor_profile_id,target_profile_id' });
   }
 
@@ -223,6 +251,37 @@ export async function POST(req: Request) {
   await logEvent(admin, {
     organizationId: orgId, organizationType: 'startup', eventType: `matchdeal_pipeline_${action}_confirmed`, sourceOfAction: 'manual',
   });
+
+  // Prompt 715 Pedido A/B — exactly ONE 'decisao' event for this act, keyed
+  // off investor_relationship_decisions (the source of truth), never off
+  // the additive matchdeal_swipes/investor_archive_entries writes above —
+  // that is what keeps a single pass from ever counting as 2-4 opportunities.
+  // Best-effort: this is an observational ledger, a failure here must never
+  // undo or block the decision that already committed via the RPC above.
+  const { data: decisionRow } = await admin.from('investor_relationship_decisions').select('id')
+    .eq('org_id', orgId).eq('investor_catalog_entity_id', investorCatalogEntityId).single();
+  if (decisionRow) {
+    try {
+      const episodeId = await findOrOpenEpisode(admin, investorCatalogEntityId, orgId);
+      const isTestOrInternal = await isFirmTestOrInternal(admin, investorCatalogEntityId);
+      // Prompt 715 Pedido D — stamp the mandate version active AT THE
+      // MOMENT of this decision, so a later exclusion never rewrites what
+      // this decision was actually made under.
+      const mandateVersion = await currentMandateVersion(admin, investorCatalogEntityId);
+      await writeSignalEvent(admin, {
+        episodeId, actorUserId: user.id, level: 'decisao', kind: action === 'pass' ? 'passed' : 'interested',
+        sourceTable: 'investor_relationship_decisions', sourceId: decisionRow.id as string,
+        dedupKey: decisionDedupKey(investorCatalogEntityId, orgId, decisionRow.id as string),
+        privateReasonChips: passChips,
+        snapshot: chipSubreason ? { too_early_subreason: chipSubreason } : null,
+        mandateVersionId: mandateVersion?.id ?? null,
+        isTestOrInternal,
+      });
+    } catch (signalError) {
+      console.error('investor_signal_events write failed (decision still recorded):', signalError);
+    }
+  }
+
   // Prompt 122 Block B (F1) §2.2 — best-effort observation of a decision
   // that already happened via the RPC above; never influences the decision
   // itself, zero touches to decide_investor_relationship.

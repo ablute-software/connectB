@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { calendarMonthStartIso, computeAdmissions } from './pipeline-admissions';
+import { calendarMonthStartIso, computeAdmissions, computeReservationTargets } from './pipeline-admissions';
+import { WAVE_SIZE } from './pipeline-waves';
 import { firstOfNextMonth, pipelineQuotaLine } from './pipeline-quota-line';
 
 type Card = { orgId: string };
@@ -149,5 +150,60 @@ describe('pipelineQuotaLine — three states, no invented numbers', () => {
   it('rolls the reset date into next year in December', () => {
     expect(firstOfNextMonth('2026-12-15T00:00:00Z')).toBe('1 January 2027');
     expect(firstOfNextMonth('2026-09-04T12:00:00Z')).toBe('1 October');
+  });
+});
+
+describe('computeReservationTargets — progressive-by-wave (Prompt 715 Pedido G)', () => {
+  type Card = { orgId: string; status: string; isArchived?: boolean; isWatching?: boolean; hasPendingFollowup?: boolean; hasPendingLevel3Request?: boolean };
+  const open = (orgId: string): Card => ({ orgId, status: 'open' });
+  const treated = (orgId: string): Card => ({ orgId, status: 'passed' });
+  const discovery = (n: number, make = open, prefix = 'd') => Array.from({ length: n }, (_, i) => make(`${prefix}${i + 1}`));
+
+  it('proposes the first WAVE_SIZE candidates when nothing is reserved yet', () => {
+    const cards = discovery(20);
+    const result = computeReservationTargets(cards, new Set());
+    expect(result.alreadyReserved).toEqual([]);
+    expect(result.candidateOrgIds).toEqual(discovery(WAVE_SIZE).map((c) => c.orgId));
+  });
+
+  it('never re-proposes an already-reserved candidate', () => {
+    const cards = discovery(20);
+    const reserved = new Set(discovery(WAVE_SIZE).map((c) => c.orgId));
+    const result = computeReservationTargets(cards, reserved);
+    expect(result.alreadyReserved.map((c) => c.orgId)).toEqual(discovery(WAVE_SIZE).map((c) => c.orgId));
+    expect(result.candidateOrgIds).not.toContain('d1');
+  });
+
+  it('proposes nothing new while the reserved tail wave is not fully treated', () => {
+    const cards = discovery(20);
+    const reserved = new Set(discovery(WAVE_SIZE).map((c) => c.orgId));
+    // One card in the reserved wave is still open (untreated) — the rest passed.
+    const mixedCards = cards.map((c, i) => (reserved.has(c.orgId) && i < WAVE_SIZE - 1 ? treated(c.orgId) : c));
+    const result = computeReservationTargets(mixedCards, reserved);
+    expect(result.candidateOrgIds).toEqual([]);
+  });
+
+  it('proposes the next batch once every card in the reserved tail wave is treated', () => {
+    const cards = discovery(20);
+    const reservedIds = discovery(WAVE_SIZE).map((c) => c.orgId);
+    const reserved = new Set(reservedIds);
+    const allTreated = cards.map((c) => (reserved.has(c.orgId) ? treated(c.orgId) : c));
+    const result = computeReservationTargets(allTreated, reserved);
+    expect(result.candidateOrgIds).toEqual(discovery(WAVE_SIZE, open, 'd').map((_, i) => `d${WAVE_SIZE + i + 1}`));
+  });
+
+  it('never reserves the whole month in one go — proposes at most WAVE_SIZE at a time even with plenty of untreated candidates left', () => {
+    const cards = discovery(50);
+    const result = computeReservationTargets(cards, new Set());
+    expect(result.candidateOrgIds).toHaveLength(WAVE_SIZE);
+  });
+
+  it('a watch/follow-up/level-3 request on the tail wave unblocks the next reservation, same as it unblocks the next wave', () => {
+    const cards = discovery(20);
+    const reservedIds = discovery(WAVE_SIZE).map((c) => c.orgId);
+    const reserved = new Set(reservedIds);
+    const withWatch = cards.map((c, i) => (reserved.has(c.orgId) ? (i === 0 ? { ...c, isWatching: true } : treated(c.orgId)) : c));
+    const result = computeReservationTargets(withWatch, reserved);
+    expect(result.candidateOrgIds.length).toBeGreaterThan(0);
   });
 });
