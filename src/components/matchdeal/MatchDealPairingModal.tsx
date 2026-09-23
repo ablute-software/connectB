@@ -156,7 +156,7 @@ export function MatchDealPairingModal({ kind, onClose }: { kind: PairingKind; on
         {state === 'launch_gate' && (
           <div className="mt-3 text-center">
             <div className="text-3xl">🚀</div>
-            <p className="mt-2 text-sm font-semibold text-gray-800">MatchDeal launches in September 2026</p>
+            <p className="mt-2 text-sm font-semibold text-gray-800">MatchDeal launches in October 2026</p>
             <p className="mt-1 text-xs text-gray-500">Check back soon — we&apos;re not quite ready for you yet.</p>
           </div>
         )}
