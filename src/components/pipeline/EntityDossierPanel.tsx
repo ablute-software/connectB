@@ -42,21 +42,65 @@ import { TicketSignalCard } from '@/components/TicketSignalCard';
 import { ThreadDrawer } from '@/components/ThreadDrawer';
 import { ReportFraudModal } from '@/components/ReportFraudModal';
 import { computeEntitySummaryPrefill, matchEntityToCatalog } from '@/lib/entity-catalog-prefill';
-import { isPersonCandidate, isUnverifiedStub, relatedContacts, relationshipSummary } from '@/lib/relationship';
+import {
+  isPersonCandidate, isUnverifiedStub, relatedContacts, relationshipSummary, nextContactPerson,
+  effectiveMode, suggestNextAction,
+} from '@/lib/relationship';
 import { computeAlignment } from '@/lib/company-canon-logic';
 import { vaultAccessAdviceFromDb } from '@/lib/vault-access-advice';
 import { pipelineStageLabel } from '@/lib/pipeline-taxonomy';
 import { findEffectiveGrant, computeCellEffect } from '@/lib/people-access-matrix';
 import { useInterestRequests } from '@/lib/interest-requests-client';
+import { authEnabled, browserClient } from '@/lib/supabase';
+import { emitProductEvent } from '@/lib/product-events';
+import type { Person, Entity, Channel } from '@/lib/types';
 
+// Prompt 727 §1 — "Next step" is now first: opening a dossier answers "what
+// do I do about this firm" before anything else, not after paging through
+// Overview. Prompt 728 (Fase 1) is expected to introduce the real shared
+// recommendInterlocutor()/recommendChannel() — this stays deliberately
+// separate and local, since 727 is explicitly "sem IA, o mínimo da Fase 0".
 const TABS = [
-  { key: 'overview', label: 'Overview' },
+  { key: 'log', label: 'Next step' },
   { key: 'people', label: 'People & Team' },
-  { key: 'log', label: 'Approach & Log' },
   { key: 'messages', label: 'Messages' },
   { key: 'files', label: 'Files' },
+  { key: 'overview', label: 'Overview' },
 ] as const;
 type TabKey = typeof TABS[number]['key'];
+
+// Prompt 727 §4 — "sem IA, o mínimo da Fase 0": LinkedIn verified > email
+// verified > the entity's own institutional channel (submission_channel_type,
+// the field this prompt's own brief called catalogContactFields — no such
+// separate concept exists; this is the real field) > "confirm" fallback.
+// LinkedIn always keeps its own caveat even when verified — a real URL
+// doesn't guarantee a DM lands, per the prompt's own explicit instruction.
+function dossierChannelSuggestion(person: Person | undefined, entity: Entity): { value: Channel | null; label: string; needsConfirmation: boolean } {
+  if (person?.linkedin_verified && person.linkedin_url) return { value: 'linkedin_note', label: 'LinkedIn note', needsConfirmation: true };
+  if (person?.email_verified) return { value: 'email', label: 'Email', needsConfirmation: false };
+  if (entity.submission_channel_type === 'form' && entity.submission_channel) return { value: 'web_form', label: 'Submission form', needsConfirmation: false };
+  if (entity.submission_channel_type === 'email' && entity.submission_channel) return { value: 'email', label: 'General email', needsConfirmation: false };
+  return { value: null, label: 'Channel to confirm', needsConfirmation: true };
+}
+
+// Prompt 727 §3 — the three honest empty-state shapes, replacing a bare "—"
+// everywhere in this panel: work is actually running/scheduled ('preparing'
+// — only ever shown when a real enrichment is pending, never a promise of
+// work that isn't happening); only the founder can know this ('founder',
+// with an edit affordance); or the field is real but its precondition
+// hasn't happened yet ('not_yet', with the condition stated).
+function EmptyField({ kind, onEdit, editLabel, condition }: {
+  kind: 'preparing' | 'founder' | 'not_yet';
+  onEdit?: () => void; editLabel?: string; condition?: string;
+}) {
+  if (kind === 'preparing') return <span className="italic text-gray-400">Sherlock is preparing this</span>;
+  if (kind === 'founder') return (
+    <span className="text-gray-400">
+      Only you know this.{onEdit && <button onClick={onEdit} className="ml-1 text-cyan-700 hover:underline">{editLabel ?? 'Write'}</button>}
+    </span>
+  );
+  return <span className="text-gray-400">Doesn&apos;t apply yet{condition ? ` — ${condition}` : ''}</span>;
+}
 
 export function EntityDossierPanel({ entityId, onClose }: {
   entityId: string;
@@ -64,12 +108,17 @@ export function EntityDossierPanel({ entityId, onClose }: {
 }) {
   const { db, setInterest, markEntityVerified, updateEntity, updatePerson, resolveHardFilter, toggleTask } = useStore();
   const entity = db.entities.find((e) => e.id === entityId);
-  const [tab, setTab] = useState<TabKey>('overview');
+  const [tab, setTab] = useState<TabKey>('log');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [classifyNonce, setClassifyNonce] = useState(0);
   const [focusInteraction, setFocusInteraction] = useState<{ id: string; nonce: number }>({ id: '', nonce: 0 });
   const [logMode, setLogMode] = useState<'history' | 'log'>('history');
   const [logPrefill, setLogPrefill] = useState<{ personId?: string; nonce: number }>({ nonce: 0 });
+  // Prompt 727 §5 — "Already sent — log it" prefills person AND channel AND
+  // direction/date together (RailLogForm already supports all three
+  // independently; this dossier just never wired channel/draft before).
+  const [logChannelPrefill, setLogChannelPrefill] = useState<{ channel?: Channel; nonce: number }>({ nonce: 0 });
+  const [logDraftPrefill, setLogDraftPrefill] = useState<{ direction?: 'out' | 'in'; date?: string; nonce: number }>({ nonce: 0 });
   const [contributionsRefreshKey, setContributionsRefreshKey] = useState(0);
   const [keyPeopleShownInTeam, setKeyPeopleShownInTeam] = useState(false);
   const [justAddedPersonId, setJustAddedPersonId] = useState<string | null>(null);
@@ -87,14 +136,52 @@ export function EntityDossierPanel({ entityId, onClose }: {
   // shared catalog value, exactly like those other fields.
   const [editingThesis, setEditingThesis] = useState(false);
   const [thesisDraft, setThesisDraft] = useState('');
+  // Prompt 727 §3 — same pencil-icon pattern as Thesis above, for the two
+  // "only you know this" fields in the Approach card.
+  const [editingOurAngle, setEditingOurAngle] = useState(false);
+  const [ourAngleDraft, setOurAngleDraft] = useState('');
+  const [editingTheAsk, setEditingTheAsk] = useState(false);
+  const [theAskDraft, setTheAskDraft] = useState('');
+  // Prompt 727 §3 — "Sherlock prepara" is only ever shown when real
+  // enrichment work is actually pending for this entity's catalog match —
+  // never a promise of work that isn't happening. A live read (same
+  // catalog_deliveries -> catalog_entities.enrichment_status join
+  // EntityPeoplePanel.tsx already does for its own purpose), since
+  // enrichment_status lives only on the real Postgres row, never in the
+  // client `db` store's own CatalogEntity type.
+  const [catalogPending, setCatalogPending] = useState(false);
 
   // Reset tab-local UI state whenever the panel switches to a different
-  // investor — otherwise "Approach & Log" could stay open on Log mode with
+  // investor — otherwise "Next step" could stay open on Log mode with
   // stale prefill from the previous row.
   useEffect(() => {
-    setTab('overview'); setLogMode('history'); setClassifyNonce(0);
+    setTab('log'); setLogMode('history'); setClassifyNonce(0);
     setFocusInteraction({ id: '', nonce: 0 }); setLogPrefill({ nonce: 0 });
-    setAddingPerson(false); setEditingThesis(false);
+    setLogChannelPrefill({ nonce: 0 }); setLogDraftPrefill({ nonce: 0 });
+    setAddingPerson(false); setEditingThesis(false); setEditingOurAngle(false); setEditingTheAsk(false);
+    emitProductEvent('dossier_opened', { entityId });
+  }, [entityId]);
+
+  // Prompt 727 §6 — "Next step" is the default tab now, so simply opening
+  // the dossier already satisfies next_step_seen; also fires on an explicit
+  // tab switch back to it.
+  useEffect(() => {
+    if (tab === 'log') emitProductEvent('next_step_seen', { entityId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, entityId]);
+
+  useEffect(() => {
+    if (!authEnabled) { setCatalogPending(false); return; }
+    let cancelled = false;
+    (async () => {
+      const sb = browserClient();
+      const { data: delivery } = await sb.from('catalog_deliveries').select('catalog_id').eq('entity_id', entityId).maybeSingle();
+      if (cancelled) return;
+      if (!delivery) { setCatalogPending(false); return; }
+      const { data: catalogEntity } = await sb.from('catalog_entities').select('enrichment_status').eq('id', delivery.catalog_id as string).maybeSingle();
+      if (!cancelled) setCatalogPending(catalogEntity?.enrichment_status === 'pending');
+    })();
+    return () => { cancelled = true; };
   }, [entityId]);
 
   useEffect(() => {
@@ -142,7 +229,46 @@ export function EntityDossierPanel({ entityId, onClose }: {
   const tasks = db.tasks.filter((t) => t.entity_id === entity.id && !t.done);
   const recentTouches = [...db.interactions].filter((i) => i.entity_id === entity.id)
     .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at)).slice(0, 2);
-  const location = [entity.hq_city, entity.hq_country].filter(Boolean).join(', ') || summaryPrefill.hqCity || summaryPrefill.hqCountry || '—';
+  const location = [entity.hq_city, entity.hq_country].filter(Boolean).join(', ') || summaryPrefill.hqCity || summaryPrefill.hqCountry
+    || (catalogPending ? 'Sherlock is preparing this' : 'Not on file yet');
+
+  // Prompt 727 §1/§4 — the "Next step" action block's own inputs. mode
+  // decides the terminal branch (passed/dormant); relSummary.whoseTurn
+  // ('us' = they replied, we owe a move; 'them'/'overdue' = we're waiting)
+  // decides between the two live branches; nextContactPerson/
+  // dossierChannelSuggestion are the "sem IA, mínimo da Fase 0" person/
+  // channel picks — Prompt 728's recommendInterlocutor()/recommendChannel()
+  // are expected to replace these with the real shared rule.
+  const mode = effectiveMode(db, entity.id);
+  const recommendedPerson = nextContactPerson(db, entity.id);
+  const recommendedChannel = dossierChannelSuggestion(recommendedPerson, entity);
+  const lastInboundInteraction = [...db.interactions].filter((i) => i.entity_id === entity.id && i.direction === 'in')
+    .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))[0];
+  const lastOutboundInteraction = [...db.interactions].filter((i) => i.entity_id === entity.id && i.direction === 'out')
+    .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))[0];
+  // Prompt 727 §1 — the pass reason lives on the INTERACTION that recorded
+  // it (classification='pass'), not on the entity itself — Entity has no
+  // pass_reason field of its own. reopenSignal()/suggestedReapproach()
+  // (reopen-signals.ts) — the existing reevaluation mechanism this prompt
+  // pointed at — take a ReopenSignalsDb (catalogDeliveries/
+  // investorInvestments/approvedClaims/catalogCurrent), a strictly richer
+  // shape than this panel's client-side Db and, confirmed by grep, called
+  // from nowhere in production today (only its own test file) — wiring it
+  // properly is more than this prompt's own "sem IA, mínimo" scope for a
+  // dossier panel already this large, so it's flagged in the report rather
+  // than force-fit here.
+  const lastPassInteraction = mode !== 'active'
+    ? [...db.interactions].filter((i) => i.entity_id === entity.id && i.classification === 'pass')
+      .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))[0]
+    : undefined;
+
+  function prefillAlreadySent() {
+    setLogPrefill((p) => ({ personId: recommendedPerson?.id, nonce: p.nonce + 1 }));
+    setLogChannelPrefill((p) => ({ channel: recommendedChannel.value ?? undefined, nonce: p.nonce + 1 }));
+    setLogDraftPrefill((p) => ({ direction: 'out', date: new Date().toISOString().slice(0, 10), nonce: p.nonce + 1 }));
+    setLogMode('log');
+    emitProductEvent('log_prefilled', { entityId });
+  }
 
   // Prompt 889 §2 / 672 — the "missing hook" indication belongs here (and on
   // the open person profile), never as a task on the founder's own list
@@ -206,8 +332,16 @@ export function EntityDossierPanel({ entityId, onClose }: {
             </div>
           </div>
           </div>
-          <button onClick={onClose} aria-label="Close dossier" title="Close (Esc)"
-            className="shrink-0 rounded-full border border-gray-200 px-2 py-1 text-sm text-gray-400 hover:bg-gray-50 hover:text-gray-700">✕</button>
+          <div className="flex shrink-0 items-center gap-2">
+            {/* Prompt 727 §2 — unconditional (unlike "← Back to list" above,
+                which is narrow-width-only), so this is visible in both the
+                wide and narrow layouts without needing a second copy. */}
+            <Link href={`/entities/${entity.id}`} className="whitespace-nowrap text-xs font-medium text-[#0E7490] hover:underline">
+              Open full dossier ↗
+            </Link>
+            <button onClick={onClose} aria-label="Close dossier" title="Close (Esc)"
+              className="shrink-0 rounded-full border border-gray-200 px-2 py-1 text-sm text-gray-400 hover:bg-gray-50 hover:text-gray-700">✕</button>
+          </div>
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
           <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10.5px] font-semibold text-gray-700">{pipelineStageLabel(entity.status)}</span>
@@ -267,7 +401,8 @@ export function EntityDossierPanel({ entityId, onClose }: {
                 <dl className="space-y-1.5 text-sm text-gray-600">
                   <div>Website: {entity.website
                     ? <a className="text-[#0E7490] hover:underline" href={entity.website} target="_blank" rel="noreferrer">{entity.website.replace('https://', '')}</a>
-                    : summaryPrefill.website ? <a className="text-[#0E7490] hover:underline" href={summaryPrefill.website} target="_blank" rel="noreferrer">{summaryPrefill.website.replace('https://', '')}</a> : '—'}
+                    : summaryPrefill.website ? <a className="text-[#0E7490] hover:underline" href={summaryPrefill.website} target="_blank" rel="noreferrer">{summaryPrefill.website.replace('https://', '')}</a>
+                    : catalogPending ? <EmptyField kind="preparing" /> : <EmptyField kind="not_yet" condition="not on file" />}
                     {entity.website && <VerBadge state={entity.website_verified ? 'verified' : 'missing'} label={entity.website_verified ? '' : 'unverified'} />}
                   </div>
                   {/* Prompt 677 — this used to duplicate EntityClassificationEditor's
@@ -410,13 +545,113 @@ export function EntityDossierPanel({ entityId, onClose }: {
 
         {tab === 'log' && (
           <div className="space-y-3">
+            {/* Prompt 727 §1 — the action block: what changes per relationship
+                state is THIS card, never the History/Log tools below it.
+                Priority order: parked/closed (terminal) first, then
+                not-yet-contacted, then whichever side owes the next move. */}
+            {mode !== 'active' ? (
+              <Card title="Why this is parked" tint="amber">
+                <p className="text-sm text-gray-700">
+                  {entity.status === 'dormant' ? (entity.dormant_reason ?? 'Manually parked.') : (lastPassInteraction?.pass_reason ?? 'Passed.')}
+                </p>
+                <p className="mt-1"><EmptyField kind="not_yet" condition="no reopening condition on file yet" /></p>
+              </Card>
+            ) : relSummary.stage === 'not_contacted' ? (
+              recommendedPerson ? (
+                <Card title="Prepare your approach" tint="blue">
+                  <p className="text-sm text-gray-700">
+                    <PersonLink id={recommendedPerson.id}><span className="font-medium">{recommendedPerson.full_name}</span></PersonLink>
+                    {' '}— most senior contactable person; no documented affinity yet.
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Channel: {recommendedChannel.label}{recommendedChannel.needsConfirmation ? ' (possibility to confirm)' : ''}.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button onClick={prefillAlreadySent} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white">
+                      Already sent — log it
+                    </button>
+                  </div>
+                </Card>
+              ) : (
+                <Card title="Nobody to contact here yet" tint="amber">
+                  <p className="text-sm text-gray-700">There&apos;s no contactable person on file for this firm yet.</p>
+                  <button onClick={() => setTab('people')} className="mt-1 text-xs text-cyan-700 hover:underline">Go to People &amp; Team →</button>
+                  {entity.submission_channel && (entity.submission_channel_type === 'form' || entity.submission_channel_type === 'email') && (
+                    <p className="mt-2 text-xs text-gray-500">
+                      Institutional channel: {entity.submission_channel_type === 'form' ? 'Submission form' : 'General email'} — {entity.submission_channel}
+                    </p>
+                  )}
+                </Card>
+              )
+            ) : relSummary.whoseTurn === 'them' || relSummary.whoseTurn === 'overdue' ? (
+              <Card title="Waiting on their reply" tint="blue">
+                <p className="text-sm text-gray-700">Awaiting a reply since {relSummary.lastTouchAt?.slice(0, 10)}.</p>
+                {lastOutboundInteraction && (() => {
+                  const suggestion = suggestNextAction(lastOutboundInteraction.direction, lastOutboundInteraction.channel, undefined, lastOutboundInteraction.occurred_at, { entityName: entity.name });
+                  return suggestion ? <p className="mt-1 text-xs text-gray-500">{suggestion.title}</p> : null;
+                })()}
+                <button onClick={() => setLogMode('log')} className="mt-2 rounded-lg border border-[#0E7490] px-3 py-1.5 text-xs font-medium text-[#0E7490] hover:bg-[#E8F4F8]">
+                  Register their reply
+                </button>
+              </Card>
+            ) : (() => {
+              const classification = lastInboundInteraction?.classification;
+              const verb = classification === 'meeting_request' ? 'Schedule the meeting'
+                : classification === 'question' ? 'Answer their question'
+                : classification === 'interested' ? 'Send material'
+                : 'Reply';
+              return (
+                <Card title={verb} tint="blue">
+                  <p className="text-sm text-gray-700">
+                    They replied on {relSummary.lastTouchAt?.slice(0, 10)}{classification ? ` — ${classification.replace('_', ' ')}` : ''}.
+                  </p>
+                  <button onClick={() => setLogMode('log')} className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white">{verb} →</button>
+                </Card>
+              );
+            })()}
+
             <Card title="Approach" tint="blue">
               <dl className="space-y-2 text-sm">
-                <div><dt className="text-xs text-gray-500">Our angle</dt><dd>{entity.our_angle ?? '—'}</dd></div>
-                <div><dt className="text-xs text-gray-500">The ask (one, small)</dt><dd className="font-medium">{entity.the_ask ?? '—'}</dd></div>
+                <div>
+                  <dt className="text-xs text-gray-500">Our angle</dt>
+                  {editingOurAngle ? (
+                    <dd className="mt-1">
+                      <textarea value={ourAngleDraft} onChange={(e) => setOurAngleDraft(e.target.value)} autoFocus rows={2}
+                        placeholder="Your angle for this firm…" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
+                      <div className="mt-1 flex gap-2">
+                        <button onClick={() => { updateEntity(entity.id, { our_angle: ourAngleDraft.trim() || undefined }); setEditingOurAngle(false); }}
+                          className="rounded bg-[#0E7490] px-2 py-0.5 text-[11px] font-medium text-white">Save</button>
+                        <button onClick={() => setEditingOurAngle(false)} className="text-[11px] text-gray-500">Cancel</button>
+                      </div>
+                    </dd>
+                  ) : (
+                    <dd>{entity.our_angle ?? <EmptyField kind="founder" editLabel="Write" onEdit={() => { setOurAngleDraft(entity.our_angle ?? ''); setEditingOurAngle(true); }} />}</dd>
+                  )}
+                </div>
+                <div>
+                  <dt className="text-xs text-gray-500">The ask (one, small)</dt>
+                  {editingTheAsk ? (
+                    <dd className="mt-1">
+                      <textarea value={theAskDraft} onChange={(e) => setTheAskDraft(e.target.value)} autoFocus rows={2}
+                        placeholder="The one, small thing to ask for…" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
+                      <div className="mt-1 flex gap-2">
+                        <button onClick={() => { updateEntity(entity.id, { the_ask: theAskDraft.trim() || undefined }); setEditingTheAsk(false); }}
+                          className="rounded bg-[#0E7490] px-2 py-0.5 text-[11px] font-medium text-white">Save</button>
+                        <button onClick={() => setEditingTheAsk(false)} className="text-[11px] text-gray-500">Cancel</button>
+                      </div>
+                    </dd>
+                  ) : (
+                    <dd className="font-medium">{entity.the_ask ?? <EmptyField kind="founder" editLabel="Write" onEdit={() => { setTheAskDraft(entity.the_ask ?? ''); setEditingTheAsk(true); }} />}</dd>
+                  )}
+                </div>
                 <div>
                   <dt className="text-xs text-gray-500">Committed by this investor</dt>
-                  <dd className="mt-1 text-xs text-gray-400">Current: {fmtEur(entity.interest_eur)}
+                  <dd className="mt-1 text-xs text-gray-400">
+                    {entity.interest_eur == null ? (
+                      <EmptyField kind="not_yet" condition="appears after a positive response" />
+                    ) : (
+                      <>Current: {fmtEur(entity.interest_eur)}</>
+                    )}
                     <button onClick={() => { const v = window.prompt('Amount (€)', String(entity.interest_eur ?? '')); if (v !== null) setInterest(entity.id, v ? Number(v) : undefined); }}
                       className="ml-2 text-cyan-700 hover:underline">Edit</button>
                   </dd>
@@ -426,12 +661,16 @@ export function EntityDossierPanel({ entityId, onClose }: {
             <div className="flex gap-3">
               <div className="min-w-0 flex-1 rounded-xl bg-gray-50 px-3 py-2.5">
                 <div className="text-[11px] text-gray-500">First contact</div>
-                <div className="text-sm font-bold text-[#0E7490]">{relSummary.firstContactAt?.slice(0, 10) ?? '—'}</div>
+                <div className="text-sm font-bold text-[#0E7490]">
+                  {relSummary.firstContactAt?.slice(0, 10) ?? <EmptyField kind="not_yet" condition="appears after your first logged contact" />}
+                </div>
                 <div className="text-[11px] text-gray-500">{relSummary.touchCount} touches</div>
               </div>
               <div className="min-w-0 flex-1 rounded-xl bg-gray-50 px-3 py-2.5">
                 <div className="text-[11px] text-gray-500">Last touch</div>
-                <div className="text-sm font-bold text-[#0E7490]">{relSummary.lastTouchAt?.slice(0, 10) ?? '—'}</div>
+                <div className="text-sm font-bold text-[#0E7490]">
+                  {relSummary.lastTouchAt?.slice(0, 10) ?? <EmptyField kind="not_yet" condition="appears after your first logged contact" />}
+                </div>
                 <div className="text-[11px] font-semibold text-[#0E7490]">{relSummary.daysSinceLastTouch != null ? `${relSummary.daysSinceLastTouch}d ago` : ' '}</div>
               </div>
             </div>
@@ -450,7 +689,10 @@ export function EntityDossierPanel({ entityId, onClose }: {
                 )}
                 {logMode === 'log' && (
                   <RailLogForm entity={entity} defaultPersonId={logPrefill.personId} prefillNonce={logPrefill.nonce}
-                    onSaved={() => setLogMode('history')} />
+                    defaultChannel={logChannelPrefill.channel} channelNonce={logChannelPrefill.nonce}
+                    defaultDraft={logDraftPrefill.direction ? { direction: logDraftPrefill.direction, date: logDraftPrefill.date } : undefined}
+                    draftNonce={logDraftPrefill.nonce}
+                    onSaved={() => { setLogMode('history'); emitProductEvent('interaction_logged', { entityId }); }} />
                 )}
               </div>
             </div>
