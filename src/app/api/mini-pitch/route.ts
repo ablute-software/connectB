@@ -22,6 +22,14 @@ import {
 import type { ClaimCategory, ClaimSourceKind, ClaimSpecificity, ClaimStatus, DocumentRef, EvidenceClass } from '@/lib/types';
 import { chargeAiAction } from '@/lib/ai-credits';
 
+// Prompt 723 — this route made 3 real Anthropic calls in ~41s in production
+// (ai_call_log) with no evidence of a timeout that day; raised anyway to
+// line up with the ~20 other AI-synthesis routes in this codebase that set
+// this explicitly (gap-assist/route.ts, market-thesis/hypotheses/generate,
+// …), all on 30 or 60 — preventive hardening, not a confirmed fix for a
+// timeout that was ever actually observed here.
+export const maxDuration = 60;
+
 const NOT_CONFIGURED_MSG = 'AI-assisted mini-pitch generation isn’t available in your workspace yet.';
 const MAX_WORDS_PER_SLIDE = 25;
 

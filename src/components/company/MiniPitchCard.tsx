@@ -15,7 +15,7 @@
 //  §D one optional image per slide, chosen from the org's own Photos & media
 //     library. Content personalisation only — see MiniPitchSlideView's own
 //     header for the product decision on why layout is NOT configurable.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Card } from '@/components/ui';
 import { authEnabled } from '@/lib/supabase';
@@ -48,6 +48,15 @@ export function MiniPitchCard({ canEdit }: { canEdit: boolean }) {
   // §C.3 — after a regeneration that replaced hand-edited slides, the
   // founder is asked per slide whether to keep their own version.
   const [replacedEdits, setReplacedEdits] = useState<MiniPitchSlideKind[]>([]);
+  // Prompt 723 — a successful regenerate whose content happens to come out
+  // identical (facts unchanged since last time) was indistinguishable, to
+  // the founder, from a button that does nothing: the org_mini_pitches row
+  // is a single upsert, not a history, and generatedAt was never shown
+  // anywhere. This is the transient confirmation; "Last regenerated" below
+  // is the persistent one.
+  const [regenNote, setRegenNote] = useState('');
+  const regenNoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (regenNoteTimer.current) clearTimeout(regenNoteTimer.current); }, []);
 
   function load() {
     // Demo mode has no real org/claims for the server route to read from —
@@ -62,8 +71,17 @@ export function MiniPitchCard({ canEdit }: { canEdit: boolean }) {
   }
   useEffect(load, []);
 
+  // Prompt 723 — the content-comparison key, ignoring fields that always
+  // change on write (mediaId/imageUrl are resolved elsewhere and unaffected
+  // by whether the model's OWN output changed) so an identical regeneration
+  // is actually detected as identical.
+  function slidesFingerprint(list: Slide[]): string {
+    return JSON.stringify(list.map((s) => ({ kind: s.kind, title: s.title, body: s.body })));
+  }
+
   function generate(activate: boolean, keepKinds: MiniPitchSlideKind[] = []) {
-    setBusy(true); setError(''); setReplacedEdits([]);
+    setBusy(true); setError(''); setReplacedEdits([]); setRegenNote('');
+    const priorFingerprint = slidesFingerprint(pitch?.slides ?? []);
     fetch('/api/mini-pitch', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ activate, keepKinds }),
@@ -76,6 +94,15 @@ export function MiniPitchCard({ canEdit }: { canEdit: boolean }) {
         // explicit question, not a silent loss.
         const replaced = ((b.choices ?? []) as RegenChoice[]).filter((c) => c.hadFounderEdit && !c.kept).map((c) => c.kind);
         setReplacedEdits(replaced);
+        // Prompt 723 — a regeneration that completed but produced identical
+        // copy (facts unchanged since last time) still deserves a visible
+        // "it worked" — otherwise it reads exactly like a no-op button.
+        const newFingerprint = slidesFingerprint((b.pitch?.slides ?? []) as Slide[]);
+        setRegenNote(priorFingerprint !== '[]' && newFingerprint === priorFingerprint
+          ? 'Regenerated — no changes to your facts since last time.'
+          : 'Regenerated ✓');
+        if (regenNoteTimer.current) clearTimeout(regenNoteTimer.current);
+        regenNoteTimer.current = setTimeout(() => setRegenNote(''), 5000);
         load();
       })
       .catch(() => setError('Could not reach the server — try again.'))
@@ -250,6 +277,16 @@ export function MiniPitchCard({ canEdit }: { canEdit: boolean }) {
               {pitch?.activatedAt && (
                 <span className="text-[11px] text-emerald-700">Live — investors who reach Level 1 with you see this.</span>
               )}
+              {/* Prompt 723 — persistent proof a regeneration actually
+                  happened, even when the resulting copy comes out identical
+                  (facts unchanged since last time): org_mini_pitches is a
+                  single upsert per org, never a history, so without this a
+                  successful no-change regenerate was indistinguishable from
+                  a button doing nothing. */}
+              {pitch?.generatedAt && (
+                <span className="text-[11px] text-gray-400">Last regenerated: {new Date(pitch.generatedAt).toLocaleString()}</span>
+              )}
+              {regenNote && <span className="text-[11px] font-medium text-emerald-700">{regenNote}</span>}
             </div>
           )}
           {showActivationCopy && <p className="text-[11px] text-gray-500">{ACTIVATION_COPY}</p>}
