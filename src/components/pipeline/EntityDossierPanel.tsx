@@ -43,8 +43,8 @@ import { ThreadDrawer } from '@/components/ThreadDrawer';
 import { ReportFraudModal } from '@/components/ReportFraudModal';
 import { computeEntitySummaryPrefill, matchEntityToCatalog } from '@/lib/entity-catalog-prefill';
 import {
-  isPersonCandidate, isUnverifiedStub, relatedContacts, relationshipSummary, nextContactPerson,
-  effectiveMode, suggestNextAction,
+  isPersonCandidate, isUnverifiedStub, relatedContacts, relationshipSummary,
+  effectiveMode, suggestNextAction, recommendInterlocutor, recommendChannel,
 } from '@/lib/relationship';
 import { computeAlignment } from '@/lib/company-canon-logic';
 import { vaultAccessAdviceFromDb } from '@/lib/vault-access-advice';
@@ -53,13 +53,11 @@ import { findEffectiveGrant, computeCellEffect } from '@/lib/people-access-matri
 import { useInterestRequests } from '@/lib/interest-requests-client';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { emitProductEvent } from '@/lib/product-events';
-import type { Person, Entity, Channel } from '@/lib/types';
+import type { Channel } from '@/lib/types';
 
 // Prompt 727 §1 — "Next step" is now first: opening a dossier answers "what
 // do I do about this firm" before anything else, not after paging through
-// Overview. Prompt 728 (Fase 1) is expected to introduce the real shared
-// recommendInterlocutor()/recommendChannel() — this stays deliberately
-// separate and local, since 727 is explicitly "sem IA, o mínimo da Fase 0".
+// Overview.
 const TABS = [
   { key: 'log', label: 'Next step' },
   { key: 'people', label: 'People & Team' },
@@ -69,19 +67,12 @@ const TABS = [
 ] as const;
 type TabKey = typeof TABS[number]['key'];
 
-// Prompt 727 §4 — "sem IA, o mínimo da Fase 0": LinkedIn verified > email
-// verified > the entity's own institutional channel (submission_channel_type,
-// the field this prompt's own brief called catalogContactFields — no such
-// separate concept exists; this is the real field) > "confirm" fallback.
-// LinkedIn always keeps its own caveat even when verified — a real URL
-// doesn't guarantee a DM lands, per the prompt's own explicit instruction.
-function dossierChannelSuggestion(person: Person | undefined, entity: Entity): { value: Channel | null; label: string; needsConfirmation: boolean } {
-  if (person?.linkedin_verified && person.linkedin_url) return { value: 'linkedin_note', label: 'LinkedIn note', needsConfirmation: true };
-  if (person?.email_verified) return { value: 'email', label: 'Email', needsConfirmation: false };
-  if (entity.submission_channel_type === 'form' && entity.submission_channel) return { value: 'web_form', label: 'Submission form', needsConfirmation: false };
-  if (entity.submission_channel_type === 'email' && entity.submission_channel) return { value: 'email', label: 'General email', needsConfirmation: false };
-  return { value: null, label: 'Channel to confirm', needsConfirmation: true };
-}
+// Prompt 727 §4's own local "sem IA, mínimo" channel rule and person pick
+// (dossierChannelSuggestion + a bare nextContactPerson call) are replaced
+// here by Prompt 728's real shared recommendInterlocutor()/
+// recommendChannel() (relationship.ts) — same LinkedIn/email/institutional-
+// channel priority, now with the documented reason and the affinity
+// alternatives 728 §3 asks for.
 
 // Prompt 727 §3 — the three honest empty-state shapes, replacing a bare "—"
 // everywhere in this panel: work is actually running/scheduled ('preparing'
@@ -232,16 +223,16 @@ export function EntityDossierPanel({ entityId, onClose }: {
   const location = [entity.hq_city, entity.hq_country].filter(Boolean).join(', ') || summaryPrefill.hqCity || summaryPrefill.hqCountry
     || (catalogPending ? 'Sherlock is preparing this' : 'Not on file yet');
 
-  // Prompt 727 §1/§4 — the "Next step" action block's own inputs. mode
-  // decides the terminal branch (passed/dormant); relSummary.whoseTurn
-  // ('us' = they replied, we owe a move; 'them'/'overdue' = we're waiting)
-  // decides between the two live branches; nextContactPerson/
-  // dossierChannelSuggestion are the "sem IA, mínimo da Fase 0" person/
-  // channel picks — Prompt 728's recommendInterlocutor()/recommendChannel()
-  // are expected to replace these with the real shared rule.
+  // Prompt 727 §1/§4, now on Prompt 728's real shared rule — mode decides
+  // the terminal branch (passed/dormant); relSummary.whoseTurn ('us' = they
+  // replied, we owe a move; 'them'/'overdue' = we're waiting) decides
+  // between the two live branches; the interlocutor recommendation
+  // (person, reason, and any documented-affinity alternatives) and channel
+  // pick both come from relationship.ts's shared functions now.
   const mode = effectiveMode(db, entity.id);
-  const recommendedPerson = nextContactPerson(db, entity.id);
-  const recommendedChannel = dossierChannelSuggestion(recommendedPerson, entity);
+  const interlocutor = recommendInterlocutor(db, entity.id);
+  const recommendedPerson = interlocutor.person;
+  const recommendedChannel = recommendChannel(recommendedPerson, entity);
   const lastInboundInteraction = [...db.interactions].filter((i) => i.entity_id === entity.id && i.direction === 'in')
     .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))[0];
   const lastOutboundInteraction = [...db.interactions].filter((i) => i.entity_id === entity.id && i.direction === 'out')
@@ -561,11 +552,29 @@ export function EntityDossierPanel({ entityId, onClose }: {
                 <Card title="Prepare your approach" tint="blue">
                   <p className="text-sm text-gray-700">
                     <PersonLink id={recommendedPerson.id}><span className="font-medium">{recommendedPerson.full_name}</span></PersonLink>
-                    {' '}— most senior contactable person; no documented affinity yet.
+                    {' '}— {interlocutor.reason}
                   </p>
                   <p className="mt-1 text-xs text-gray-500">
                     Channel: {recommendedChannel.label}{recommendedChannel.needsConfirmation ? ' (possibility to confirm)' : ''}.
                   </p>
+                  {/* Prompt 728 §3 — visible and a click away, never
+                      automatic: there's no honest way yet to say a hook is
+                      relevant to THIS startup specifically, only that one
+                      exists. Promoting the alphabetically/seniority-first
+                      alternative here would be exactly the unearned
+                      confidence Fase 1 explicitly avoids. */}
+                  {interlocutor.alternatives.length > 0 && (
+                    <div className="mt-2 rounded-lg border border-[#0E7490]/30 bg-[#E8F4F8] px-2.5 py-2 text-xs text-[#0E7490]">
+                      Person with documented affinity —{' '}
+                      <PersonLink id={interlocutor.alternatives[0].person.id}>
+                        <span className="font-medium">{interlocutor.alternatives[0].person.full_name}</span>
+                      </PersonLink>
+                      {interlocutor.alternatives[0].hook && <span className="italic"> — &ldquo;{interlocutor.alternatives[0].hook}&rdquo;</span>}
+                      {' '}
+                      <button onClick={() => { setLogPrefill((p) => ({ personId: interlocutor.alternatives[0].person.id, nonce: p.nonce + 1 })); }}
+                        className="font-medium underline hover:no-underline">Contact this one instead</button>
+                    </div>
+                  )}
                   <div className="mt-2 flex flex-wrap gap-2">
                     <button onClick={prefillAlreadySent} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white">
                       Already sent — log it

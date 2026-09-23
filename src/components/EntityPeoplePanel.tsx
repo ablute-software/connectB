@@ -63,7 +63,12 @@ export function EntityPeoplePanel({ entityId, onShowsKeyPeopleFallback, onPerson
   // person's id (addPerson returns the row synchronously).
   onPersonAdded?: (personId: string) => void;
 }) {
-  const { db, addPerson } = useStore();
+  const { db, addPerson, ensureOrgPersonFromCatalog } = useStore();
+  // Prompt 728 §2 — which catalog person id (if any) is mid-materialization,
+  // so a double-click can't fire two concurrent requests from the SAME
+  // button (the server-side idempotency is the real guard; this is just UI
+  // politeness on top of it).
+  const [materializing, setMaterializing] = useState<string | null>(null);
   const entity = db.entities.find((e) => e.id === entityId);
   const [state, setState] = useState<PanelState>({ kind: 'loading' });
   // Prompt 262 — entities.key_people (free-text research, e.g. Karista.vc's
@@ -230,11 +235,17 @@ export function EntityPeoplePanel({ entityId, onShowsKeyPeopleFallback, onPerson
             // RailLogForm's "Select person" dropdown and EntityDossierPanel's
             // own people card (both read db.people, never this catalog read)
             // never saw them — the Log form's only option stayed "No
-            // specific person". Same idempotent-by-render check as the
-            // key_people fallback above, so a person already added (from a
-            // previous click, or any other path) shows the same
-            // "Added as contact" label rather than a duplicate button.
-            const alreadyContact = db.people.some((x) => x.entity_id === entityId && normalizePersonName(x.full_name) === normalizePersonName(p.full_name));
+            // specific person".
+            //
+            // Prompt 728 §1/§2 — checked by (entity_id, catalog_person_id)
+            // now, the same key the proposed unique index protects, not by
+            // normalized name (a name collision doesn't prove it's the same
+            // person — the whole point of materializing through
+            // catalog_person_id at all). ensureOrgPersonFromCatalog is
+            // itself idempotent, so this check is a display nicety (skip
+            // rendering "Add as contact" for an obviously-already-added
+            // row), never the actual duplicate guard.
+            const alreadyContact = db.people.some((x) => x.entity_id === entityId && x.catalog_person_id === p.id);
             return (
               <li key={p.id} className="py-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -254,20 +265,25 @@ export function EntityPeoplePanel({ entityId, onShowsKeyPeopleFallback, onPerson
                     <span className="text-xs text-gray-400">Added as contact</span>
                   ) : (
                     <button
-                      onClick={() => {
-                        // Carries the researched LinkedIn/hook over, not just
-                        // name/title — the point of this catalog is exactly
-                        // this richer data, and it would be wasted if
-                        // "adding as contact" dropped it the same way the
-                        // key_people fallback's own quick-add already does.
-                        const newPerson = addPerson({
-                          entity_id: entityId, full_name: p.full_name, role: row.title ?? undefined,
-                          linkedin_url: p.linkedin_url ?? undefined, hook: hook ?? undefined,
-                        });
-                        onPersonAdded?.(newPerson.id);
+                      disabled={materializing === p.id}
+                      onClick={async () => {
+                        // Prompt 728 §2 — the real materialization function
+                        // now (seniority_rank from the catalog affiliation,
+                        // idempotent under concurrency via the proposed
+                        // unique index), replacing 724's direct addPerson
+                        // call — same "carry the researched LinkedIn/hook
+                        // over" goal, done through the shared path every
+                        // other catalog-person caller is meant to use too.
+                        setMaterializing(p.id);
+                        try {
+                          const result = await ensureOrgPersonFromCatalog({ entityId, catalogPersonId: p.id });
+                          onPersonAdded?.(result.person.id);
+                        } finally {
+                          setMaterializing(null);
+                        }
                       }}
-                      className="rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50">
-                      Add as contact
+                      className="rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+                      {materializing === p.id ? 'Adding…' : 'Add as contact'}
                     </button>
                   )}
                 </div>

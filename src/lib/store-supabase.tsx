@@ -25,6 +25,7 @@ import type { NeglectOutcome } from './neglect-evaluation';
 import { STAGE_LABEL, getStage } from './relationship';
 import { revisitTasksToClose } from './exit-effects';
 import { matchEntityToCatalog } from './entity-catalog-prefill';
+import { ensureOrgPersonFromCatalog as materializeOrgPersonFromCatalog, type MaterializeClient } from './catalog-materialize';
 
 type SB = ReturnType<typeof browserClient>;
 
@@ -1295,6 +1296,19 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       const o = orgIdRef.current;
       if (o) persist(sb.from('people').insert({ ...person, org_id: o }), 'addPerson');
       return person;
+    },
+
+    async ensureOrgPersonFromCatalog(p) {
+      const o = orgIdRef.current;
+      if (!o) throw new Error('No organization.');
+      const result = await materializeOrgPersonFromCatalog(sb as unknown as MaterializeClient, {
+        orgId: o, entityId: p.entityId, catalogPersonId: p.catalogPersonId,
+      });
+      if (result.created) {
+        const prev = dbRef.current;
+        commit({ ...prev, people: [...prev.people, result.person] });
+      }
+      return result;
     },
 
     markEntityVerified(entityId: string) {

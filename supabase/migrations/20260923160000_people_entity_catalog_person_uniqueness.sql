@@ -1,0 +1,32 @@
+-- PROPOSTA — NÃO APLICAR SEM OK DO NUNO.
+--
+-- Prompt 728 §1 — verified live in production on 2026-09-23, right before
+-- writing this: pg_indexes on public.people shows only people_pkey,
+-- people_catalog_person_id_idx (a non-unique partial btree on
+-- catalog_person_id, migration 0322), and people_org_id_entity_id_idx.
+-- pg_constraint shows only the PK and FKs. No uniqueness exists today over
+-- (entity_id, catalog_person_id) — as a constraint or as an index. Zero
+-- duplicate (entity_id, catalog_person_id) pairs exist today (checked
+-- against all 1,782 rows in people, 527 of which carry catalog_person_id,
+-- all in a single org) — this index can be created cleanly, with nothing
+-- to clean up first.
+--
+-- Key = (entity_id, catalog_person_id), not catalog_person_id alone: the
+-- same catalog person at a DIFFERENT firm is a genuinely different
+-- affiliation and a different row in `people` (people.entity_id is the
+-- org's own per-entity record) — that must stay legal. What must never
+-- happen is materializing the SAME catalog person at the SAME entity
+-- twice, which is exactly the race
+-- ensureOrgPersonFromCatalog (src/lib/catalog-materialize.ts) closes:
+-- without a real DB constraint, "check then insert" repeats the exact
+-- race condition flagged in the addendum to Prompt 721 — two concurrent
+-- requests can both pass the "does this exist yet" check before either
+-- insert lands.
+--
+-- concurrently: this only ever protects a NEW code path
+-- (ensureOrgPersonFromCatalog) not yet wired into anything when this
+-- migration would be applied — no existing writer needs to be blocked
+-- while it builds.
+create unique index concurrently if not exists people_entity_catalog_person_uidx
+  on public.people (entity_id, catalog_person_id)
+  where catalog_person_id is not null;

@@ -195,9 +195,17 @@ export async function POST(req: NextRequest) {
     if (!it.entity_id) continue;
     byEntity.set(it.entity_id, [...(byEntity.get(it.entity_id) ?? []), it]);
   }
-  // nextContactPerson's own rule (relationship.ts): most senior contactable
-  // (never do_not_contact) person, reimplemented against this route's own
-  // service-role query rather than importing the Db-shaped version.
+  // Prompt 728 Fase 1 — DRIFT, disclosed rather than silently left: this
+  // reimplements nextContactPerson's OLD rule (senior-first, do_not_contact
+  // excluded) against this route's own service-role query, not the shared
+  // Db shape relationship.ts's recommendInterlocutor() now expects. It does
+  // NOT get rules 1-3 (active relationship / institutional channel /
+  // documented responsibility) that the real nextContactPerson wrapper now
+  // applies everywhere else. Reusing recommendInterlocutor() here would
+  // mean building a Db-shaped object from this route's raw arrays — a
+  // larger refactor of an AI-classification pipeline than this pass
+  // attempted under time pressure. Left as a known, reported gap rather
+  // than risk destabilizing reawakening/neglect-evaluate to close it.
   const peopleByEntity = new Map<string, Person[]>();
   for (const p of people) {
     if (!p.entity_id) continue;

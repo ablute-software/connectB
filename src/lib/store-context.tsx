@@ -216,6 +216,17 @@ export interface StoreApi {
     // `people` (migration 0001) — this only plumbs the value through.
     hook?: string;
   }) => Person;
+  // Prompt 728 §2 — the ONE materialization path for a catalog person,
+  // idempotent under concurrency (people_entity_catalog_person_uidx,
+  // proposed — see the migration's own header): a second call for the same
+  // (entityId, catalogPersonId) always returns the SAME row, never a
+  // duplicate. "Add as contact" (EntityPeoplePanel.tsx's catalog list) is
+  // the one caller wired to this today; the other callers this prompt
+  // names (interaction/task logging, buildComposerContext when the chosen
+  // person comes straight from the catalog) have no existing UI path that
+  // selects an unmaterialized catalog person — flagged in the report,
+  // not silently assumed done.
+  ensureOrgPersonFromCatalog: (p: { entityId: string; catalogPersonId: string }) => Promise<{ person: Person; created: boolean; needsLinkReview: boolean }>;
   // Prompt 397 §C.1 — returns the created row's id so a caller that needs to
   // chain off it (RailLogForm's "attach from this computer", which links the
   // fresh document to the interaction it's attached from) doesn't have to

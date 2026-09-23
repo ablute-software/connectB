@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { followUpTaskDisplayTitle, relationshipSummary, suggestNextAction } from './relationship';
-import type { Db, Entity, Interaction, TaskItem } from './types';
+import { followUpTaskDisplayTitle, relationshipSummary, suggestNextAction, recommendInterlocutor, recommendChannel, nextContactPerson } from './relationship';
+import type { Db, Entity, Interaction, Person, TaskItem } from './types';
 
 const OCCURRED = '2026-07-30T10:00:00.000Z';
 
@@ -17,11 +17,15 @@ function makeInteraction(overrides: Partial<Interaction> & { id: string; entity_
   return { channel: 'email', content: '', ...overrides };
 }
 
-function makeDb(entities: Entity[], interactions: Interaction[] = []): Db {
+function makePerson(overrides: Partial<Person> & { id: string; entity_id: string; full_name: string; seniority_rank: number }): Person {
+  return { linkedin_verified: false, bounce_count: 0, linked_companies: [], linked_funds: [], hook_status: 'to_research', kill_words: [], preferred_language: 'en', privacy_notice_sent: false, do_not_contact: false, ...overrides };
+}
+
+function makeDb(entities: Entity[], interactions: Interaction[] = [], people: Person[] = []): Db {
   return {
     catalog: [], packs: [], unlocks: [], submissions: [],
     org: { id: 'org-1', name: 'ablute_', plan: 'idea', daily_cap: 5, weekly_cap: 20 },
-    entities, people: [], personAffiliations: [], interactions,
+    entities, people, personAffiliations: [], interactions,
     tasks: [], relationshipState: [], overrides: [], folders: [], documents: [],
     grants: [], views: [], templates: [], automations: [], runs: [], aiReviews: [], companyFacts: [], ndas: [], documentVersions: [], reawakeningProposals: [],
     companyPeople: [], tractionMetrics: [], roadmapMilestones: [], fundingRounds: [], roadmapCategories: [], roadmapEvents: [], rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
@@ -217,5 +221,110 @@ describe('followUpTaskDisplayTitle — Prompt 414 §1', () => {
   it('leaves a hand-edited title that no longer matches the exact template untouched', () => {
     const t = makeTask({ title: 'Wait for a reply until 2026-08-20, then call them' }); // no " — " separator
     expect(followUpTaskDisplayTitle(t, new Date('2026-09-01T00:00:00.000Z'))).toBe(t.title);
+  });
+});
+
+describe('recommendInterlocutor — Prompt 728 §3: one shared rule, order matters', () => {
+  const entity = makeEntity({ id: 'ent-1', name: 'Investors Portugal' });
+
+  it('rule 1 — an already-active relationship wins over a more senior colleague, never switched silently', () => {
+    const senior = makePerson({ id: 'p-senior', entity_id: 'ent-1', full_name: 'Senior Partner', seniority_rank: 1 });
+    const junior = makePerson({ id: 'p-junior', entity_id: 'ent-1', full_name: 'Junior Associate', seniority_rank: 2 });
+    const db = makeDb([entity], [
+      makeInteraction({ id: 'i1', entity_id: 'ent-1', person_id: 'p-junior', occurred_at: '2026-08-01T00:00:00.000Z', direction: 'out' }),
+    ], [senior, junior]);
+    const rec = recommendInterlocutor(db, 'ent-1');
+    expect(rec.person?.id).toBe('p-junior');
+    expect(rec.source).toBe('active_relationship');
+  });
+
+  it('rule 2 — an institutional channel means no person is required, but ONLY when none is on file at all', () => {
+    const noPeopleEntity = makeEntity({ id: 'ent-2', name: 'Nina Capital', submission_channel: 'dealflow@nina.capital', submission_channel_type: 'email' });
+    const rec = recommendInterlocutor(makeDb([noPeopleEntity], [], []), 'ent-2');
+    expect(rec.person).toBeUndefined();
+    expect(rec.source).toBe('explicit_instruction');
+  });
+
+  it('rule 2 does NOT discard a real contactable person just because the firm also has an institutional channel', () => {
+    const withChannel = makeEntity({ id: 'ent-3', name: 'Nina Capital', submission_channel: 'dealflow@nina.capital', submission_channel_type: 'email' });
+    const person = makePerson({ id: 'p-1', entity_id: 'ent-3', full_name: 'Partner X', seniority_rank: 1 });
+    const rec = recommendInterlocutor(makeDb([withChannel], [], [person]), 'ent-3');
+    expect(rec.person?.id).toBe('p-1');
+    expect(rec.source).not.toBe('explicit_instruction');
+  });
+
+  it('rule 3 — a documented decision-making title (Partner/GP/Investment Manager/Principal) goes ahead of pure seniority', () => {
+    const senior = makePerson({ id: 'p-senior', entity_id: 'ent-1', full_name: 'Senior Analyst', role: 'Senior Analyst', seniority_rank: 1 });
+    const partner = makePerson({ id: 'p-partner', entity_id: 'ent-1', full_name: 'Real Partner', role: 'General Partner', seniority_rank: 2 });
+    const rec = recommendInterlocutor(makeDb([entity], [], [senior, partner]), 'ent-1');
+    expect(rec.person?.id).toBe('p-partner');
+    expect(rec.source).toBe('documented_responsibility');
+  });
+
+  it('rule 4 — seniority is the deterministic tiebreak when nothing else applies', () => {
+    const a = makePerson({ id: 'p-a', entity_id: 'ent-1', full_name: 'A', role: 'Analyst', seniority_rank: 2 });
+    const b = makePerson({ id: 'p-b', entity_id: 'ent-1', full_name: 'B', role: 'Analyst', seniority_rank: 1 });
+    const rec = recommendInterlocutor(makeDb([entity], [], [a, b]), 'ent-1');
+    expect(rec.person?.id).toBe('p-b');
+    expect(rec.source).toBe('seniority');
+  });
+
+  it('do_not_contact is excluded up front and can never resurface through any later rule', () => {
+    const blocked = makePerson({ id: 'p-blocked', entity_id: 'ent-1', full_name: 'Blocked', role: 'General Partner', seniority_rank: 1, do_not_contact: true });
+    const rec = recommendInterlocutor(makeDb([entity], [], [blocked]), 'ent-1');
+    expect(rec.person).toBeUndefined();
+    expect(rec.source).toBe('none');
+  });
+
+  it('a documented, sourced hook is listed as an alternative, never auto-promoted to the recommended person', () => {
+    const senior = makePerson({ id: 'p-senior', entity_id: 'ent-1', full_name: 'Senior', role: 'Analyst', seniority_rank: 1 });
+    const hooked = makePerson({ id: 'p-hooked', entity_id: 'ent-1', full_name: 'Hooked', role: 'Analyst', seniority_rank: 2, hook: 'Quoted a shared alma mater.', hook_status: 'researched' });
+    const rec = recommendInterlocutor(makeDb([entity], [], [senior, hooked]), 'ent-1');
+    expect(rec.person?.id).toBe('p-senior');
+    expect(rec.alternatives).toHaveLength(1);
+    expect(rec.alternatives[0].person.id).toBe('p-hooked');
+    expect(rec.alternatives[0].reason).toBe('documented affinity');
+  });
+
+  it('a hook with no researched status is never listed as a documented-affinity alternative', () => {
+    const senior = makePerson({ id: 'p-senior', entity_id: 'ent-1', full_name: 'Senior', seniority_rank: 1 });
+    const unresearched = makePerson({ id: 'p-2', entity_id: 'ent-1', full_name: 'Unresearched', seniority_rank: 2, hook: 'A guess, not sourced.', hook_status: 'to_research' });
+    const rec = recommendInterlocutor(makeDb([entity], [], [senior, unresearched]), 'ent-1');
+    expect(rec.alternatives).toHaveLength(0);
+  });
+
+  it('nextContactPerson stays a thin wrapper — same signature, same return, every existing caller keeps compiling unchanged', () => {
+    const person = makePerson({ id: 'p-1', entity_id: 'ent-1', full_name: 'Someone', seniority_rank: 1 });
+    const db = makeDb([entity], [], [person]);
+    expect(nextContactPerson(db, 'ent-1')?.id).toBe(recommendInterlocutor(db, 'ent-1').person?.id);
+  });
+});
+
+describe('recommendChannel — Prompt 728 §4: LinkedIn keeps its own caveat even when verified', () => {
+  const entityNoChannel = makeEntity({ id: 'ent-1' });
+
+  it('LinkedIn verified → LinkedIn note, always with needsConfirmation (a real URL never guarantees a DM lands)', () => {
+    const person = makePerson({ id: 'p-1', entity_id: 'ent-1', full_name: 'X', seniority_rank: 1, linkedin_verified: true, linkedin_url: 'https://linkedin.com/in/x' });
+    const rec = recommendChannel(person, entityNoChannel);
+    expect(rec.value).toBe('linkedin_note');
+    expect(rec.needsConfirmation).toBe(true);
+  });
+
+  it('email verified (and no LinkedIn) → Email, no confirmation caveat', () => {
+    const person = makePerson({ id: 'p-1', entity_id: 'ent-1', full_name: 'X', seniority_rank: 1, email_verified: 'x@example.com' });
+    const rec = recommendChannel(person, entityNoChannel);
+    expect(rec).toEqual({ value: 'email', label: 'Email', needsConfirmation: false });
+  });
+
+  it('no verified LinkedIn/email but a submission form on file → the institutional channel, no meeting request implied', () => {
+    const entity = makeEntity({ id: 'ent-2', submission_channel: 'https://vc.example.com/apply', submission_channel_type: 'form' });
+    const rec = recommendChannel(undefined, entity);
+    expect(rec).toEqual({ value: 'web_form', label: 'Submission form', needsConfirmation: false });
+  });
+
+  it('nothing known at all → an honest "confirm" fallback, never a default meeting request', () => {
+    const rec = recommendChannel(undefined, entityNoChannel);
+    expect(rec.value).toBeNull();
+    expect(rec.needsConfirmation).toBe(true);
   });
 });

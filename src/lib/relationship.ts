@@ -221,18 +221,126 @@ export function needsReopenTrigger(entity: Pick<Entity, 'status' | 'reopen_trigg
     && !entity.reopen_trigger && !entity.reopen_eligible_after;
 }
 
+// Prompt 728 Fase 1 — the shared interlocutor rule, replacing the plain
+// seniority sort below with an explained decision. Order: an already-active
+// relationship never switches silently; a firm that names its own
+// institutional channel (and has NO other contactable person at all) needs
+// no person; a documented decision-making title (Partner/GP/Investment
+// Manager/Principal) goes ahead of pure seniority; seniority is the
+// tiebreak. do_not_contact is excluded at the very first filter, so it can
+// never resurface through any later rule.
+//
+// Rule 2 (institutional channel) is scoped narrower than the prompt's own
+// literal ordering: it only replaces the person pick with "none needed"
+// when there is genuinely NO contactable person on file. When a real person
+// already exists, the firm's institutional channel is still real
+// information (surfaced separately, via recommendChannel below) but never
+// discards an already-known contact — that would have regressed all three
+// existing production callers (RailLogForm's auto-fill fallback,
+// SherlockInsightBanner, reopen-signals.ts's suggestedReapproach), which
+// all currently expect "some contactable person" whenever one exists.
+// Flagged here rather than silently deviating from the prompt's own table.
+//
+// Personal affinity (Fase 1's own explicit scope): a documented hook is
+// listed in `alternatives`, never promoted to `person` automatically —
+// there's no honest way yet to say a hook is RELEVANT to this specific
+// startup, only that one exists. hook_status==='researched' is read as
+// "has a hook with a real source" by construction: ensureOrgPersonFromCatalog
+// (catalog-materialize.ts) only ever sets that status when
+// catalog_people.hook_source was actually present at materialization time —
+// never optimistically — so no separate hook_source column is needed on
+// `people` itself to make this check honest.
+export type InterlocutorSource = 'active_relationship' | 'explicit_instruction' | 'documented_responsibility' | 'seniority' | 'none';
+export interface InterlocutorAlternative { person: Person; reason: string; hook?: string }
+export interface InterlocutorRecommendation {
+  person: Person | undefined;
+  reason: string;
+  source: InterlocutorSource;
+  uncertainty?: string;
+  alternatives: InterlocutorAlternative[];
+}
+
+const DECISION_MAKER_TITLE = /\b(partner|general partner|\bgp\b|investment manager|principal)\b/i;
+
+function documentedAffinityAlternatives(contactable: Person[], excludeId?: string): InterlocutorAlternative[] {
+  return contactable
+    .filter((p) => p.id !== excludeId && p.hook_status === 'researched' && !!p.hook)
+    .map((p) => ({ person: p, reason: 'documented affinity', hook: p.hook }));
+}
+
+export function recommendInterlocutor(db: Db, entityId: string): InterlocutorRecommendation {
+  const entity = db.entities.find((e) => e.id === entityId);
+  const contactable = db.people.filter((p) => p.entity_id === entityId && !p.do_not_contact);
+
+  if (contactable.length === 0) {
+    if (entity && entity.submission_channel && (entity.submission_channel_type === 'form' || entity.submission_channel_type === 'email')) {
+      return {
+        person: undefined, source: 'explicit_instruction', alternatives: [],
+        reason: `This firm is reached via its own ${entity.submission_channel_type === 'form' ? 'submission form' : 'general email'} — no person on file, none required.`,
+      };
+    }
+    return { person: undefined, source: 'none', reason: 'No contactable person on file for this firm yet.', alternatives: [] };
+  }
+
+  // Rule 1 — an already-active relationship (a real interaction tied to a
+  // specific, still-contactable person) always wins and is never switched
+  // silently, whoever else might rank higher below.
+  const lastPersonTouch = [...db.interactions]
+    .filter((i) => i.entity_id === entityId && i.person_id)
+    .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))[0];
+  const activePerson = lastPersonTouch ? contactable.find((p) => p.id === lastPersonTouch.person_id) : undefined;
+  if (activePerson) {
+    return {
+      person: activePerson, source: 'active_relationship', reason: 'Already in an active relationship with this person.',
+      alternatives: documentedAffinityAlternatives(contactable, activePerson.id),
+    };
+  }
+
+  // Rule 3 — documented professional responsibility ahead of pure seniority.
+  const decisionMaker = contactable.filter((p) => p.role && DECISION_MAKER_TITLE.test(p.role))
+    .sort((a, b) => a.seniority_rank - b.seniority_rank)[0];
+  if (decisionMaker) {
+    return {
+      person: decisionMaker, source: 'documented_responsibility',
+      reason: `${decisionMaker.role} — documented decision-making responsibility.`,
+      alternatives: documentedAffinityAlternatives(contactable, decisionMaker.id),
+    };
+  }
+
+  // Rule 4 — seniority, the deterministic tiebreak.
+  const senior = [...contactable].sort((a, b) => a.seniority_rank - b.seniority_rank)[0];
+  return {
+    person: senior, source: 'seniority', reason: 'Most senior contactable person — no documented decision-making title or affinity yet.',
+    alternatives: documentedAffinityAlternatives(contactable, senior.id),
+  };
+}
+
 // Prompt 254 — preflight() operates on a PERSON, the Tip is about the
 // ENTITY. The contact-order doctrine (preflight's own seniority check,
 // and the "People — one at a time, senior first" panel) already answers
 // "which person does this apply to": whoever the founder would actually
-// approach next — the most senior contactable (non-do-not-contact)
-// person. Not "the best case" or an "N of M ready" tally: for a
-// not-yet-contacted entity there is only ever ONE actionable next
-// person, and preflight's own check 5 already blocks anyone else.
+// approach next.
+//
+// Prompt 728 Fase 1 — kept as a thin wrapper over recommendInterlocutor()
+// so every existing caller (RailLogForm.tsx, SherlockInsightBanner.tsx,
+// reopen-signals.ts) keeps compiling and behaving correctly with zero
+// changes of their own, while transparently gaining the fuller rule above.
 export function nextContactPerson(db: Db, entityId: string): Person | undefined {
-  return db.people
-    .filter((p) => p.entity_id === entityId && !p.do_not_contact)
-    .sort((a, b) => a.seniority_rank - b.seniority_rank)[0];
+  return recommendInterlocutor(db, entityId).person;
+}
+
+// Prompt 728 §4 — "sem pedido de reunião por defeito." LinkedIn verified
+// keeps its own caveat even when verified (a real URL doesn't guarantee a
+// DM lands); email verified is the one case with no caveat attached, since
+// a verified email is the closest thing to a guarantee this data model has.
+export interface ChannelRecommendation { value: Channel | null; label: string; needsConfirmation: boolean }
+
+export function recommendChannel(person: Person | undefined, entity: Pick<Entity, 'submission_channel' | 'submission_channel_type'>): ChannelRecommendation {
+  if (person?.linkedin_verified && person.linkedin_url) return { value: 'linkedin_note', label: 'LinkedIn note', needsConfirmation: true };
+  if (person?.email_verified) return { value: 'email', label: 'Email', needsConfirmation: false };
+  if (entity.submission_channel_type === 'form' && entity.submission_channel) return { value: 'web_form', label: 'Submission form', needsConfirmation: false };
+  if (entity.submission_channel_type === 'email' && entity.submission_channel) return { value: 'email', label: 'General email', needsConfirmation: false };
+  return { value: null, label: 'Channel to confirm', needsConfirmation: true };
 }
 
 export function nextBestAction(db: Db, entityId: string, now = new Date(), dealMessageTouches: DealMessageTouch[] = []): string | undefined {

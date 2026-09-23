@@ -660,6 +660,29 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       return person;
     },
 
+    // Prompt 728 §2 — demo mode's own db.catalog carries none of the rich
+    // catalog_people/catalog_person_affiliations schema this reads in
+    // production (EntityPeoplePanel's catalog fetch is itself gated to
+    // !authEnabled -> 'no_catalog_link', so the one real caller, "Add as
+    // contact" on the catalog list, never renders here at all) — this
+    // exists only so the store interface stays honest and compiling, with
+    // the same idempotent-by-id check `addPerson` doesn't otherwise need.
+    async ensureOrgPersonFromCatalog(p) {
+      const existing = db.people.find((x) => x.entity_id === p.entityId && x.catalog_person_id === p.catalogPersonId);
+      if (existing) return { person: existing, created: false, needsLinkReview: false };
+      const siblings = db.people.filter((x) => x.entity_id === p.entityId);
+      const seniority_rank = siblings.length ? Math.max(...siblings.map((x) => x.seniority_rank)) + 1 : 1;
+      const person: Person = {
+        id: uid('p'), entity_id: p.entityId, full_name: 'Demo catalog person', catalog_person_id: p.catalogPersonId,
+        seniority_rank, linkedin_verified: false, bounce_count: 0, linked_companies: [], linked_funds: [],
+        hook_status: 'to_research', kill_words: [], preferred_language: 'pt',
+        privacy_notice_sent: false, do_not_contact: false, identity_verified: false,
+        data_source: 'Added from catalog',
+      };
+      setDb((prev) => ({ ...prev, people: [...prev.people, person] }));
+      return { person, created: true, needsLinkReview: false };
+    },
+
     markEntityVerified(entityId) {
       setDb((prev) => ({
         ...prev,
