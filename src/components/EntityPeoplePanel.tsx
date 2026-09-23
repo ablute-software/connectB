@@ -225,18 +225,50 @@ export function EntityPeoplePanel({ entityId, onShowsKeyPeopleFallback, onPerson
             const research = Array.isArray(p.catalog_people_research) ? p.catalog_people_research[0] : p.catalog_people_research;
             const sourceCount = p.catalog_entity_enrichment_sources?.length ?? 0;
             const hook = p.hook_status === 'researched' && sourceCount > 0 ? research?.hook ?? null : null;
+            // Prompt 724 §2 — the exact bug the founder hit: a real catalog
+            // person (this list) had no way to ever reach db.people, so
+            // RailLogForm's "Select person" dropdown and EntityDossierPanel's
+            // own people card (both read db.people, never this catalog read)
+            // never saw them — the Log form's only option stayed "No
+            // specific person". Same idempotent-by-render check as the
+            // key_people fallback above, so a person already added (from a
+            // previous click, or any other path) shows the same
+            // "Added as contact" label rather than a duplicate button.
+            const alreadyContact = db.people.some((x) => x.entity_id === entityId && normalizePersonName(x.full_name) === normalizePersonName(p.full_name));
             return (
               <li key={p.id} className="py-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  {/* Prompt 291 §4 — the only change this prompt makes
-                      here: the catalog-level profile page (all of this
-                      person's current affiliations, not just this one). */}
-                  <Link href={`/catalog-people/${p.id}`} className="font-medium text-gray-900 hover:text-[#0E7490] hover:underline">{p.full_name}</Link>
-                  {row.title && <span className="text-xs text-gray-500">{row.title}</span>}
-                  {p.linkedin_verified && p.linkedin_url && (
-                    <a href={p.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-xs text-[#0E7490] hover:underline">
-                      LinkedIn
-                    </a>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Prompt 291 §4 — the only change this prompt makes
+                        here: the catalog-level profile page (all of this
+                        person's current affiliations, not just this one). */}
+                    <Link href={`/catalog-people/${p.id}`} className="font-medium text-gray-900 hover:text-[#0E7490] hover:underline">{p.full_name}</Link>
+                    {row.title && <span className="text-xs text-gray-500">{row.title}</span>}
+                    {p.linkedin_verified && p.linkedin_url && (
+                      <a href={p.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-xs text-[#0E7490] hover:underline">
+                        LinkedIn
+                      </a>
+                    )}
+                  </div>
+                  {alreadyContact ? (
+                    <span className="text-xs text-gray-400">Added as contact</span>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        // Carries the researched LinkedIn/hook over, not just
+                        // name/title — the point of this catalog is exactly
+                        // this richer data, and it would be wasted if
+                        // "adding as contact" dropped it the same way the
+                        // key_people fallback's own quick-add already does.
+                        const newPerson = addPerson({
+                          entity_id: entityId, full_name: p.full_name, role: row.title ?? undefined,
+                          linkedin_url: p.linkedin_url ?? undefined, hook: hook ?? undefined,
+                        });
+                        onPersonAdded?.(newPerson.id);
+                      }}
+                      className="rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50">
+                      Add as contact
+                    </button>
                   )}
                 </div>
                 {hook && <p className="mt-1 text-sm italic text-gray-600">“{hook}”</p>}

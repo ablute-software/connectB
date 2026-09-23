@@ -1284,7 +1284,10 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         id: uuid(), entity_id: p.entity_id, full_name: p.full_name, role: p.role, gender: p.gender,
         linkedin_url: p.linkedin_url, email_guess: p.email_guess, phone: p.phone,
         seniority_rank, linkedin_verified: false, bounce_count: 0, linked_companies: [], linked_funds: [],
-        hook_status: 'to_research', kill_words: [], preferred_language: 'pt',
+        // Prompt 724 §2 — a hook passed in is already researched (it came
+        // from catalog_people_research, not guessed), so it's stored as
+        // 'researched' rather than the usual quick-add default.
+        hook: p.hook, hook_status: p.hook ? 'researched' : 'to_research', kill_words: [], preferred_language: 'pt',
         privacy_notice_sent: false, do_not_contact: false, identity_verified: false,
         data_source: 'Quick-created during logging',
       };

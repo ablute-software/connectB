@@ -201,24 +201,39 @@ export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
           it is now a line in secondary text, and the tone survives as the
           text colour so the "not yet" case still reads differently from the
           "you are findable" one. */}
-      {investorCopy && !status.platformSuspended && (
-        <div className={`mt-1 w-full text-xs ${
-          investorCopy.tone === 'ok' ? 'text-emerald-700' : 'text-amber-700'}`}>
-          {investorCopy.detail}
-          {status.investorVisibility === 'incomplete' && gateMissing.length > 0 && (
-            <>
-              {' '}Still needed:{' '}
-              {gateMissing.map((m, i) => (
-                <span key={m.fieldId}>
-                  {i > 0 && ', '}
-                  <Link href={`/settings?flash=${m.fieldId}`} className="font-medium underline hover:no-underline">{m.label}</Link>
-                </span>
-              ))}
-              .
-            </>
-          )}
-        </div>
-      )}
+      {investorCopy && !status.platformSuspended && (() => {
+        // Prompt 724 §1 — a short sentence with nothing following it fits
+        // naturally on the pills' own line (their container is already
+        // `flex flex-wrap`); the two variants that carry more than a short
+        // sentence — the "incomplete" missing-fields list, and the "visible"
+        // variant's "N investor firms have you in their pipeline" — keep the
+        // forced own-line block, since neither reads well squeezed in beside
+        // two buttons.
+        const hasMissingList = status.investorVisibility === 'incomplete' && gateMissing.length > 0;
+        const isLongVisibleVariant = status.investorVisibility === 'visible' && !!status.pipelineFirmCount;
+        const needsOwnLine = hasMissingList || isLongVisibleVariant;
+        const toneClass = investorCopy.tone === 'ok' ? 'text-emerald-700' : 'text-amber-700';
+        const content = (
+          <>
+            {investorCopy.detail}
+            {hasMissingList && (
+              <>
+                {' '}Still needed:{' '}
+                {gateMissing.map((m, i) => (
+                  <span key={m.fieldId}>
+                    {i > 0 && ', '}
+                    <Link href={`/settings?flash=${m.fieldId}`} className="font-medium underline hover:no-underline">{m.label}</Link>
+                  </span>
+                ))}
+                .
+              </>
+            )}
+          </>
+        );
+        return needsOwnLine
+          ? <div className={`mt-1 w-full text-xs ${toneClass}`}>{content}</div>
+          : <span className={`text-xs ${toneClass}`}>{content}</span>;
+      })()}
 
       {!investorCopy && status.suspended && !status.platformSuspended && (
         <div className="mt-1 w-full rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">

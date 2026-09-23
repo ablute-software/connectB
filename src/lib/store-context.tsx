@@ -209,6 +209,12 @@ export interface StoreApi {
   addPerson: (p: {
     entity_id: string; full_name: string; role?: string; gender?: string;
     linkedin_url?: string; email_guess?: string; phone?: string;
+    // Prompt 724 §2 — lets a caller adding a catalog person as a contact
+    // carry over the researched hook (catalog_people_research.hook) instead
+    // of losing it the way the key_people fallback path already does today
+    // (it only ever passed full_name/role). Both columns already exist on
+    // `people` (migration 0001) — this only plumbs the value through.
+    hook?: string;
   }) => Person;
   // Prompt 397 §C.1 — returns the created row's id so a caller that needs to
   // chain off it (RailLogForm's "attach from this computer", which links the
