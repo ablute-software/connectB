@@ -15,8 +15,9 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import type { Entity } from '@/lib/types';
+import type { Entity, EntityStatus } from '@/lib/types';
 import { useStore } from '@/lib/store';
+import { MANUAL_STATUS_OVERRIDE_OPTIONS, pipelineStageLabel } from '@/lib/pipeline-taxonomy';
 import {
   relationshipSummary, nextBestAction, nextBestActionButton, nextContactPerson, needsReopenTrigger,
   type DealMessageTouch,
@@ -125,7 +126,7 @@ export function SherlockInsightBanner({
 }) {
   const focusInterest = focus === 'interest';
   const focusOverdue = focus === 'follow_up_overdue';
-  const { db, updateEntity, revertInvestorDecision, revertPass } = useStore();
+  const { db, updateEntity, revertInvestorDecision, revertPass, overrideEntityStatus } = useStore();
   const [reopenTriggerDraft, setReopenTriggerDraft] = useState<string | null>(null);
   // Prompt 853 §2c — both the pass and the "not a fit for us" decision are
   // revertible from the card that shows them, gated on the same capability
@@ -133,6 +134,15 @@ export function SherlockInsightBanner({
   const canRevertDecisions = useOrgCapability('investor_decisions');
   const confirm = useConfirm();
   const [revertError, setRevertError] = useState<string | null>(null);
+  // Prompt 731 §2 — offered ONLY when a revert-pass attempt just failed
+  // because previous_status was never recorded (pre-0341 data, or an
+  // interaction written outside the normal pass-and-close flow) — the
+  // automatic mechanism has nowhere to go, so this is the manual escape
+  // hatch rather than leaving the founder stuck (the COREangels Porto case
+  // this was built for).
+  const [manualOverrideOpen, setManualOverrideOpen] = useState(false);
+  const [overrideStatus, setOverrideStatus] = useState<EntityStatus | ''>('');
+  const [overrideBusy, setOverrideBusy] = useState(false);
   // Prompt 410 §2.3 — this banner's own copy of "is there a pending L3
   // interest request for this entity", same source (useInterestRequests)
   // the entity page already reads independently for its own small banner
@@ -169,9 +179,26 @@ export function SherlockInsightBanner({
   }
   async function handleRevertPass(interactionId: string) {
     setRevertError(null);
+    setManualOverrideOpen(false);
     if (!(await confirm({ message: 'This puts the investor back in your active pipeline and restores where things stood before the pass. Continue?' }))) return;
     const { error } = await revertPass(interactionId);
-    if (error) setRevertError(error);
+    if (error) {
+      setRevertError(error);
+      // Prompt 731 §2 — this exact message (revert-pass/route.ts's own
+      // backstop) means there's nothing recorded to restore automatically;
+      // offer the manual selector instead of leaving the founder stuck.
+      if (error === 'Nothing recorded to restore for this pass.') setManualOverrideOpen(true);
+    }
+  }
+  async function handleManualOverride() {
+    if (!overrideStatus) return;
+    setOverrideBusy(true);
+    const { error } = await overrideEntityStatus(entity.id, overrideStatus);
+    setOverrideBusy(false);
+    if (error) { setRevertError(error); return; }
+    setRevertError(null);
+    setManualOverrideOpen(false);
+    setOverrideStatus('');
   }
 
   const s = relationshipSummary(db, entity.id, new Date(), dealMessageTouches);
@@ -343,6 +370,29 @@ export function SherlockInsightBanner({
       {decisionNotes.length > 0 && <DecisionNotesCards notes={decisionNotes} />}
       {revertError && (
         <p className="-mt-1 text-[11px] text-[#B00000]">{revertError}</p>
+      )}
+      {/* Prompt 731 §2 — manual status selector, shown only after a revert
+          attempt just failed with "nothing recorded", gated on the same
+          capability the revert/decision actions above already require. */}
+      {manualOverrideOpen && canRevertDecisions && (
+        <div className="-mt-1 flex flex-wrap items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900">
+          <span>No prior state on record to restore automatically — set it manually:</span>
+          <select value={overrideStatus} onChange={(e) => setOverrideStatus(e.target.value as EntityStatus)}
+            className="rounded border border-amber-300 bg-white px-1 py-0.5 text-[11px] text-amber-900">
+            <option value="">Choose…</option>
+            {MANUAL_STATUS_OVERRIDE_OPTIONS.filter((s) => s !== entity.status).map((s) => (
+              <option key={s} value={s}>{pipelineStageLabel(s)}</option>
+            ))}
+          </select>
+          <button disabled={!overrideStatus || overrideBusy} onClick={() => void handleManualOverride()}
+            className="rounded-full bg-amber-700 px-2 py-0.5 text-[11px] font-semibold text-white disabled:opacity-40">
+            {overrideBusy ? 'Setting…' : 'Set'}
+          </button>
+          <button onClick={() => { setManualOverrideOpen(false); setOverrideStatus(''); }}
+            className="text-[11px] text-amber-700 underline">
+            Dismiss
+          </button>
+        </div>
       )}
 
       {parkedOrClosed && (

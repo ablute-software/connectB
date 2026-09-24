@@ -25,6 +25,7 @@ import type { NeglectOutcome } from './neglect-evaluation';
 import { STAGE_LABEL, getStage } from './relationship';
 import { revisitTasksToClose } from './exit-effects';
 import { matchEntityToCatalog } from './entity-catalog-prefill';
+import { pipelineStageLabel } from './pipeline-taxonomy';
 
 type SB = ReturnType<typeof browserClient>;
 
@@ -1115,6 +1116,34 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
               ? { ...r, stage: it.previous_stage as RelationshipStage, updated_at: now } : r)
             : [...cur.relationshipState, { entity_id: it.entity_id, stage: it.previous_stage as RelationshipStage, updated_at: now }])
           : cur.relationshipState,
+      });
+      return {};
+    },
+    // Prompt 731 §2 — see store-context.tsx's own comment on why this
+    // exists. The server (entity-status-override/route.ts) is the source of
+    // truth for the gate and the write; this only mirrors its own note text
+    // locally so the founder sees the new history line without a refetch.
+    async overrideEntityStatus(entityId, status, reason) {
+      const res = await fetch('/api/company/entity-status-override', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ entityId, status, reason }),
+      });
+      const b = await res.json().catch(() => null);
+      if (!b?.ok) return { error: b?.error ?? 'Could not change this manually.' };
+      if (b.unchanged) return {};
+      const cur = dbRef.current;
+      const entity = cur.entities.find((e) => e.id === entityId);
+      if (!entity) return {};
+      const now = new Date().toISOString();
+      const note: Interaction = {
+        id: uuid(), entity_id: entityId, occurred_at: now, direction: 'out', channel: 'stage_change',
+        content: `${pipelineStageLabel(entity.status)} → ${pipelineStageLabel(status)} — set manually (the automatic revert had nothing recorded to restore)${reason?.trim() ? `: ${reason.trim()}` : '.'}`,
+        author_user_id: userIdRef.current ?? undefined,
+      };
+      commit({
+        ...cur,
+        interactions: [...cur.interactions, note],
+        entities: cur.entities.map((e) => e.id === entityId ? { ...e, status } : e),
       });
       return {};
     },
