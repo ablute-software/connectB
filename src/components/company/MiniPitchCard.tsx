@@ -95,11 +95,17 @@ export function MiniPitchCard({ canEdit }: { canEdit: boolean }) {
         const replaced = ((b.choices ?? []) as RegenChoice[]).filter((c) => c.hadFounderEdit && !c.kept).map((c) => c.kind);
         setReplacedEdits(replaced);
         // Prompt 723 — a regeneration that completed but produced identical
-        // copy (facts unchanged since last time) still deserves a visible
-        // "it worked" — otherwise it reads exactly like a no-op button.
+        // copy still deserves a visible "it worked" — otherwise it reads
+        // exactly like a no-op button. Prompt 725 C — this fingerprint only
+        // proves the SLIDE CONTENT came out the same; it says nothing about
+        // whether the underlying facts changed (the model can echo the same
+        // text for different facts, or different text for the same facts).
+        // The server already knows the real answer (input_snapshot / stale),
+        // but wiring that through is left for later — the wording below is
+        // deliberately scoped to what was actually measured here.
         const newFingerprint = slidesFingerprint((b.pitch?.slides ?? []) as Slide[]);
         setRegenNote(priorFingerprint !== '[]' && newFingerprint === priorFingerprint
-          ? 'Regenerated — no changes to your facts since last time.'
+          ? 'Regenerated — the content came out the same as before.'
           : 'Regenerated ✓');
         if (regenNoteTimer.current) clearTimeout(regenNoteTimer.current);
         regenNoteTimer.current = setTimeout(() => setRegenNote(''), 5000);
