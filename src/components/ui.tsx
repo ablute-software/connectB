@@ -97,8 +97,8 @@ export function Toggle({ checked, onChange, label }: { checked: boolean; onChang
   );
 }
 
-export function Card({ title, children, tint, right }: {
-  title?: React.ReactNode; children: React.ReactNode;
+export function Card({ id, title, children, tint, right }: {
+  id?: string; title?: React.ReactNode; children: React.ReactNode;
   tint?: 'red' | 'amber' | 'blue'; right?: React.ReactNode;
 }) {
   const tints = {
@@ -106,7 +106,7 @@ export function Card({ title, children, tint, right }: {
     blue: 'bg-[#E8F4F8] border-cyan-100', none: 'bg-white border-gray-100 shadow-sm',
   };
   return (
-    <div className={`rounded-2xl border p-5 ${tints[tint ?? 'none']}`}>
+    <div id={id} className={`rounded-2xl border p-5 ${tints[tint ?? 'none']}`}>
       {title && (
         <div className="mb-2.5 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-900">{title}</h3>

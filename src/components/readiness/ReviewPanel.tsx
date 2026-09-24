@@ -276,9 +276,12 @@ export function ReviewPanel() {
     ...db.companyFacts.filter((f) => f.status === 'confirmed').map((f) => f.statement),
     ...acceptedClaimStatements,
   ])];
+  // Prompt 733 §A.2 — description is more positioning context at zero cost,
+  // for every org's own AI reviews below (not just investability's).
   const companyContext = {
     name: db.org.name, sector: db.org.sector, stage: db.org.stage,
     round_target_eur: db.org.round_target_eur, country: db.org.country, one_liner: db.org.one_liner,
+    description: db.org.description,
   };
 
   // Prompt 212 §B.2 — o nome importa tanto como o numero. Isto ia para o

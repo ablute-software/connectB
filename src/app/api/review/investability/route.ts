@@ -62,6 +62,18 @@ const BULLET_LENGTH_RULE = '~12 words, one clear clause — pick the single most
   + 'two in the same bullet. Never drop information to fit: if a point has more than one relevant fact (e.g. a number '
   + 'AND a consequence), splitting into a second short bullet is the DEFAULT, not the exception.';
 
+// Prompt 733 §A — this route is shared by every startup on the platform, so
+// this rule is deliberately generic (never a specific company's own
+// positioning hard-coded here). A recommendation that contradicts what the
+// COMPANY itself has already stated about how it operates is worse than no
+// recommendation — the founder reads it as the platform not having read
+// its own inputs. Belt and suspenders with BULLET_LENGTH_RULE above: stated
+// in the schema description AND the prompt AND the system message.
+const RECOMMENDATION_CONSISTENCY_RULE = 'Before suggesting a change, check it against COMPANY and CONFIRMED FACTS. '
+  + 'Never recommend the literal opposite of something the company has explicitly stated about its own model, '
+  + 'approach or positioning — if a recommendation would conflict with a stated fact, either drop it or state the '
+  + 'tension explicitly (e.g. "this would cut against your stated approach of X — worth weighing").';
+
 export async function POST(req: Request) {
   const { facts, pipeline, company } = await req.json() as {
     facts?: string[]; pipeline?: Record<string, unknown>; company?: Record<string, unknown>;
@@ -156,6 +168,7 @@ export async function POST(req: Request) {
     + 'distinct from Risks/Recommendations, which stay internal/operational. Same discipline throughout: only from '
     + 'confirmed facts, never invented.\n\n'
     + `Every bullet, in all 6 categories (strengths/weaknesses/opportunities/threats/risks/recommendations): ${BULLET_LENGTH_RULE}\n\n`
+    + `${RECOMMENDATION_CONSISTENCY_RULE}\n\n`
     + 'Always finish by calling report_investability.'
     + clarificationsBlock;
 
@@ -170,7 +183,7 @@ export async function POST(req: Request) {
           + 'readiness assessment grounded strictly in the facts given — no invented traction, revenue, or clinical claims. '
           + 'Opportunities and Threats are external/strategic (the market, competitors, timing) — never restate an '
           + 'internal Weakness as a Threat or an internal fix as an Opportunity. Every bullet you write is short: '
-          + `${BULLET_LENGTH_RULE} You never send or mutate anything; you return a report. ${DOCUMENT_CONTENT_INSTRUCTION}`,
+          + `${BULLET_LENGTH_RULE} ${RECOMMENDATION_CONSISTENCY_RULE} You never send or mutate anything; you return a report. ${DOCUMENT_CONTENT_INSTRUCTION}`,
         messages: [{ role: 'user', content: prompt }],
         tools: [{
           name: 'report_investability',
@@ -202,7 +215,7 @@ export async function POST(req: Request) {
               },
               recommendations: {
                 type: 'array', items: { type: 'string' },
-                description: `Concrete things to improve, most impactful first. ${BULLET_LENGTH_RULE}`,
+                description: `Concrete things to improve, most impactful first. ${BULLET_LENGTH_RULE} ${RECOMMENDATION_CONSISTENCY_RULE}`,
               },
             },
             required: ['score', 'summary', 'strengths', 'weaknesses', 'opportunities', 'threats', 'risks', 'recommendations'],
