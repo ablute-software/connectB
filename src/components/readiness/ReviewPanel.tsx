@@ -31,15 +31,23 @@ import { planName, REVIEW_OPTIMIZATION_PREVIEW_COPY } from '@/lib/plans';
 import { useConfirm } from '@/lib/confirm';
 import { countCriticalGaps, insufficientInfoDialog, shouldWarnBeforeSpending } from '@/lib/ai-spend-confirm';
 import { fetchWalletStatus } from '@/lib/ai-spend-confirm-client';
+import type { WalletStatus } from '@/lib/ai-credits';
 import { can, type OrgRole } from '@/lib/permissions';
 import { SwotVisualCard } from './SwotVisualCard';
+import { StaleReportBanner } from './StaleReportBanner';
+import { diffReportInputs, legacyRoundTargetHint, type ReportStalenessResult } from '@/lib/report-staleness';
 import { ClarificationBullet } from './ClarificationBullet';
 import type { SwotData, CompanyClaim } from '@/lib/types';
 import { clarificationsByKey, clarificationKey, upsertClarification, type ReviewClarification } from '@/lib/review-clarifications';
 import { splitFundraisingExecution } from '@/lib/founder-report-split';
 import { InvestorFeedbackCard } from './InvestorFeedbackCard';
 
-interface ReviewRun { id: string; score: number | null; summary: string | null; report: InvestabilityReport; created_at: string }
+interface ReviewRun {
+  id: string; score: number | null; summary: string | null; report: InvestabilityReport; created_at: string;
+  // Prompt 729 §3.2/§3.3 — absent on every run predating the (proposed)
+  // migration, and on any run made while it wasn't yet applied.
+  input_snapshot?: string | null;
+}
 interface InvestabilityReport extends SwotData { score: number; summary: string; risks: string[]; recommendations: string[] }
 
 const DOC_KINDS = [
@@ -116,6 +124,11 @@ export function ReviewPanel() {
 
   const [runs, setRuns] = useState<ReviewRun[]>([]);
   const [runLoading, setRunLoading] = useState(false);
+  // Prompt 729 §3.4 — read once on mount (never charges), refreshed from
+  // the route's own `walletAfter` after a real run so the balance updates
+  // without a second request.
+  const [investabilityWallet, setInvestabilityWallet] = useState<WalletStatus | null>(null);
+  useEffect(() => { fetchWalletStatus('investability_report').then(setInvestabilityWallet); }, []);
   const [runErr, setRunErr] = useState('');
 
   // Prompt 298 §1/§2 — the SAME gap-detection engine Pitch Blueprint already
@@ -396,6 +409,9 @@ export function ReviewPanel() {
       const data = await res.json();
       if (!data.ok) { setRunErr(data.error ?? data.message ?? 'Failed'); return; }
       setRuns((prev) => [data.run, ...prev]);
+      // Prompt 729 §3.3 — the route reads the wallet AFTER charging, so
+      // this updates the balance shown with no second request.
+      if (data.walletAfter) setInvestabilityWallet(data.walletAfter);
     } catch (e) { setRunErr((e as Error).message); } finally { setRunLoading(false); }
   }
 
@@ -412,6 +428,19 @@ export function ReviewPanel() {
     ? (!caps.ai || !caps.reviewRuns
       ? REVIEW_OPTIMIZATION_PREVIEW_COPY
       : `You've used your ${caps.reviewQuota?.quota} review${caps.reviewQuota?.quota === 1 ? '' : 's'} this month — resets on the 1st.`)
+    : null;
+
+  // Prompt 729 §3.4 — a real snapshot (diffReportInputs) always takes
+  // priority; legacyRoundTargetHint is only the bridge for a run made
+  // before the (proposed) migration existed, or before it was applied —
+  // every run today falls into that second case.
+  const investabilityStaleness: ReportStalenessResult | null = latest
+    ? (latest.input_snapshot
+      ? diffReportInputs(latest.input_snapshot, { company: companyContext, facts: confirmedFacts, pipeline: pipelineStats() })
+      : (() => {
+          const hint = legacyRoundTargetHint(JSON.stringify(latest.report ?? {}) + ' ' + (latest.summary ?? ''), db.org.round_target_eur ?? null);
+          return hint ? { stale: true, changes: [hint] } : { stale: false, changes: [] };
+        })())
     : null;
 
   // Prompt 168 §B — one lookup shared by SwotVisualCard's four categories and
@@ -573,10 +602,43 @@ export function ReviewPanel() {
           : !caps.reviewRuns || !caps.ai ? <ComingSoon />
           : (
             <>
-              <button disabled={runLoading || !canRunReview} onClick={runInvestability}
-                className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
-                {runLoading ? 'Running…' : 'Run review'}
-              </button>
+              {/* Prompt 729 §3.4 — the outdated banner, with what changed,
+                  BEFORE the button — a founder should know why they're
+                  about to spend a credit before the button even offers to. */}
+              {latest && investabilityStaleness?.stale && (
+                <div className="mb-2">
+                  <StaleReportBanner generatedAt={latest.created_at} changes={investabilityStaleness.changes} />
+                </div>
+              )}
+              {latest && investabilityStaleness && !investabilityStaleness.stale && (
+                <p className="mb-2 text-[11px] text-gray-400">
+                  Generated on {latest.created_at.slice(0, 10)} · up to date with your current data.
+                </p>
+              )}
+              {(() => {
+                const notEnoughCredits = !!investabilityWallet && !investabilityWallet.isTest && investabilityWallet.actionEnabled
+                  && investabilityWallet.remaining < investabilityWallet.actionCost;
+                const planDisabled = !!investabilityWallet && !investabilityWallet.actionEnabled;
+                const costLabel = !investabilityWallet ? ''
+                  : investabilityWallet.isTest ? ' · no cost (internal account)'
+                  : planDisabled ? ' · unavailable on your plan'
+                  : notEnoughCredits ? ' · not enough credits'
+                  : ` · ${investabilityWallet.actionCost} credit${investabilityWallet.actionCost === 1 ? '' : 's'} · balance after: ${investabilityWallet.remaining - investabilityWallet.actionCost} of ${investabilityWallet.monthlyLimit}`;
+                return (
+                  <>
+                    <button disabled={runLoading || !canRunReview || notEnoughCredits || planDisabled} onClick={runInvestability}
+                      className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+                      {runLoading ? 'Running…' : `${latest ? 'Update' : 'Run review'}${costLabel}`}
+                    </button>
+                    {notEnoughCredits && investabilityWallet && (
+                      <p className="mt-1 text-xs text-amber-700">
+                        Not enough credits — renews on {new Date(investabilityWallet.resetAt).toLocaleDateString()}.{' '}
+                        <a href="/plans" className="font-medium underline hover:no-underline">View plans</a>
+                      </p>
+                    )}
+                  </>
+                );
+              })()}
               {caps.reviewQuota && (
                 <p className="mt-1 text-xs text-gray-400">
                   {caps.reviewQuota.quota === 0

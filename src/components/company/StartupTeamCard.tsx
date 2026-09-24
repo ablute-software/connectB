@@ -40,6 +40,28 @@ function linkedInToStore(raw: string): string | undefined {
   return r.ok ? r.url : undefined;
 }
 
+// Prompt 729 §2.2 — same initials-fallback MatchDealDeck.tsx already uses
+// for a person with no photo (not exported there, so reimplemented here
+// rather than reaching into a private helper of an unrelated component).
+function initialsOf(name: string): string {
+  const words = name.replace(/[^\p{L}\p{N} ]/gu, ' ').split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+
+function PersonAvatar({ name, photoUrl, size }: { name: string; photoUrl: string; size: number }) {
+  return (
+    <div className="flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#E8F4F8] text-[10px] font-semibold text-[#0E7490]"
+      style={{ width: size, height: size }}>
+      {photoUrl
+        // eslint-disable-next-line @next/next/no-img-element
+        ? <img src={photoUrl} alt="" className="h-full w-full object-cover" />
+        : initialsOf(name || '?')}
+    </div>
+  );
+}
+
 export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolean; missing: Field[]; flashId: string | null }) {
   const { db, updateOrg, addCompanyPerson, updateCompanyPerson, removeCompanyPerson } = useStore();
   const org = db.org;
@@ -50,6 +72,29 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState(BLANK);
   const [countDraft, setCountDraft] = useState<string | null>(null);
+  // Prompt 729 §2.2 — a single pair of upload/error states, not one per
+  // draft: the add form and an edit form are never open at the same time
+  // in this UI (adding vs editingId are mutually exclusive), so this is
+  // safe without needing to key it per-row.
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadErr, setUploadErr] = useState('');
+
+  async function uploadPhoto(file: File, personId: string | undefined, v: typeof BLANK, set: (v: typeof BLANK) => void) {
+    setUploadingPhoto(true); setUploadErr('');
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      if (personId) form.append('personId', personId);
+      const res = await fetch('/api/company/team-photo', { method: 'POST', body: form });
+      const body = await res.json().catch(() => null);
+      if (!body?.ok) { setUploadErr(body?.error ?? 'Upload failed — try again.'); return; }
+      set({ ...v, photo_url: body.url });
+    } catch {
+      setUploadErr('Could not reach the server — try again.');
+    } finally {
+      setUploadingPhoto(false);
+    }
+  }
 
   const founderCount = org.founder_count_override ?? people.filter((p) => p.is_founder).length;
 
@@ -84,7 +129,7 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
     setEditingId(null);
   }
 
-  const personFields = (v: typeof BLANK, set: (v: typeof BLANK) => void) => (
+  const personFields = (v: typeof BLANK, set: (v: typeof BLANK) => void, personId?: string) => (
     <div className="grid grid-cols-2 gap-2">
       <input autoComplete="off" value={v.full_name} onChange={(e) => set({ ...v, full_name: e.target.value })} placeholder="Full name *" className="rounded border border-gray-300 px-2 py-1 text-sm" />
       <input autoComplete="off" value={v.title} onChange={(e) => set({ ...v, title: e.target.value })} placeholder="Title / role" className="rounded border border-gray-300 px-2 py-1 text-sm" />
@@ -98,7 +143,22 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
           silent reader that treats the row as empty. */}
       <LinkedInHint value={v.linkedin_url} />
       <input autoComplete="off" value={v.email} onChange={(e) => set({ ...v, email: e.target.value })} type="email" placeholder="Email (optional)" className="rounded border border-gray-300 px-2 py-1 text-sm" />
-      <input autoComplete="off" value={v.photo_url} onChange={(e) => set({ ...v, photo_url: e.target.value })} placeholder="Photo URL (optional — shown on MatchDeal)" className="col-span-2 rounded border border-gray-300 px-2 py-1 text-sm" />
+      {/* Prompt 729 §2.2 — upload alongside the URL field, which stays for
+          anyone who'd rather paste a link. A successful upload overwrites
+          photo_url in the draft exactly like typing one would; Save is
+          still what persists it, same as every other field here. */}
+      <div className="col-span-2 flex items-center gap-2">
+        <input autoComplete="off" value={v.photo_url} onChange={(e) => set({ ...v, photo_url: e.target.value })} placeholder="Photo URL (optional — shown on MatchDeal)" className="flex-1 rounded border border-gray-300 px-2 py-1 text-sm" />
+        {v.photo_url && <PersonAvatar name={v.full_name} photoUrl={v.photo_url} size={48} />}
+      </div>
+      <div className="col-span-2 flex items-center gap-2">
+        <label className="cursor-pointer rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50">
+          {uploadingPhoto ? 'Uploading…' : 'Upload photo'}
+          <input type="file" accept="image/*" className="hidden" disabled={uploadingPhoto}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadPhoto(f, personId, v, set); e.target.value = ''; }} />
+        </label>
+        {uploadErr && <span className="text-xs text-[#B00000]">{uploadErr}</span>}
+      </div>
       <label className="col-span-2 flex items-center gap-1.5 text-xs text-gray-600">
         <input type="checkbox" checked={v.is_founder} onChange={(e) => set({ ...v, is_founder: e.target.checked })} /> Founder
       </label>
@@ -115,7 +175,7 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
               <li key={p.id} className={`rounded-lg border p-2.5 text-sm transition-colors duration-700 ${flashId === 'team.founder' && p.is_founder ? 'border-amber-300 bg-amber-50' : 'border-gray-100'}`}>
                 {editingId === p.id ? (
                   <div className="space-y-2">
-                    {personFields(editDraft, setEditDraft)}
+                    {personFields(editDraft, setEditDraft, p.id)}
                     <div className="flex gap-2">
                       <button onClick={() => saveEdit(p.id)} className="rounded bg-[#0E7490] px-2 py-1 text-xs font-medium text-white">Save</button>
                       <button onClick={() => setEditingId(null)} className="rounded border border-gray-300 px-2 py-1 text-xs">Cancel</button>
@@ -124,10 +184,11 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
                 ) : (
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-start gap-2">
-                      {p.photo_url && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={p.photo_url} alt="" className="mt-0.5 h-8 w-8 shrink-0 rounded-full object-cover" />
-                      )}
+                      {/* Prompt 729 §2.2 — an avatar now exists for every
+                          row, not just the ones with a photo already: a
+                          photo when there is one, initials (MatchDealDeck's
+                          own fallback) when there isn't. */}
+                      <div className="mt-0.5"><PersonAvatar name={p.full_name} photoUrl={p.photo_url ?? ''} size={40} /></div>
                       <div>
                         <span className="font-medium text-gray-900">{p.full_name}</span>
                         {p.is_founder && <span className="ml-1.5 rounded-full bg-[#E8F4F8] px-1.5 py-0.5 text-[9px] font-semibold text-[#0E7490]">FOUNDER</span>}

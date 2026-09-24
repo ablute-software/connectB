@@ -100,6 +100,11 @@ interface PortalData {
   // investor's own thesis) when no deal-level value has been saved yet.
   currentDealSignal?: { considering: string | null; instruments: string[] } | null;
   dealSignalDefaults?: { lead_or_colead: string | null; instruments: string[] | null } | null;
+  // Prompt 729 §1 — only present in the zero-active-grants branch: which of
+  // three real situations this account is in, never anything about a third
+  // party's own access.
+  accountKind?: 'founder' | 'investor_member' | 'unknown';
+  founderOrgName?: string | null;
 }
 
 // Prompt 54 Bloco 2 — fixed ranges per the spec, plus a free "Other" input.
@@ -367,6 +372,10 @@ function PortalPageInner() {
   // P133 (item 10) — the same Interaction log drawer PipelinePanel opens
   // from a card, reachable here too from the startup's own data-room view.
   const [interactionLogOpen, setInteractionLogOpen] = useState(false);
+  // Prompt 729 §1.2 — the 'unknown' account state's "Contact support" opens
+  // this in a modal (controlled), never the discreet corner link — a real
+  // dead end deserves a real way out.
+  const [supportOpen, setSupportOpen] = useState(false);
 
   function loadAccess(orgId?: string) {
     setLoading(true);
@@ -526,20 +535,26 @@ function PortalPageInner() {
   // both footers below. Investor-facing: target only, never secured.
   const footerSuffix = portalFooterSuffix(real?.snapshot, fmtRoundEur);
   const orgName = authEnabled ? real?.orgName : db.org.name;
-  const senderEmail = authEnabled ? real?.senderEmail : db.org.sender_email;
   const pendingNdaCount = authEnabled ? real?.pendingNdaCount ?? 0 : demoPendingNdaCount;
   const folders = authEnabled ? real?.folders ?? [] : demoFolders;
   const documents = authEnabled ? real?.documents ?? [] : demoDocs;
   const hasAccess = authEnabled
     ? ((real?.documents.length ?? 0) + (real?.folders.length ?? 0) + (real?.pendingNdaCount ?? 0)) > 0
     : demoAllGrants.length > 0;
+  // Prompt 729 §1.2 — a real investor_member with zero grants is NOT a
+  // dead end: Pipeline, MatchDeal, Evaluation, and Support inside
+  // InvestorWorkspaceShell don't depend on any grant at all, only the
+  // startup-specific data-room card does. accountKind only ever comes back
+  // populated when activeGrants was empty server-side (see /api/portal/
+  // access), so this can never also be true for a real hasAccess session.
+  const isInvestorMemberNoAccess = authEnabled && real?.accountKind === 'investor_member';
 
   // Investor Workspace shell (prompt 57) — once there's real access to
   // show, the page switches from the plain header+card layout (used for
   // every pre-auth/pending/no-access state above) to the sidebar shell.
   // Demo mode keeps the old flat layout unchanged (no sidebar concept
   // there yet) — only the real-auth + real-access path gets it.
-  if (authEnabled && signedIn && hasAccess && !loading && activePendingConfirmation.length === 0) {
+  if (authEnabled && signedIn && (hasAccess || isInvestorMemberNoAccess) && !loading && activePendingConfirmation.length === 0) {
     const startupCard = (
       <div className="space-y-4">
         {authEnabled && real?.orgId && <RoundUpdatesFeed orgId={real.orgId} />}
@@ -582,7 +597,15 @@ function PortalPageInner() {
             )}
           </div>
         )}
-        {authEnabled && real?.sections ? (
+        {isInvestorMemberNoAccess && !real?.sections?.length && folders.length === 0 && documents.length === 0 ? (
+          // Prompt 729 §1.2 — the honest empty state for a real investor
+          // account nobody has shared anything with yet — never the old
+          // "No active access" dead end, which read the same for this case
+          // as for an unknown/misspelled email.
+          <div className="rounded-lg border border-gray-200 bg-white p-6 text-center text-sm text-gray-500">
+            No startup has shared documents with you yet. When a founder gives you access, it will appear here.
+          </div>
+        ) : authEnabled && real?.sections ? (
           // Prompt 55 — data room as a diligence journey: 6 fixed sections
           // in a fixed order, never a flat folder list. A section with no
           // documents shows "In preparation" instead of just vanishing —
@@ -743,12 +766,33 @@ function PortalPageInner() {
               </div>
             );
           })()
-        ) : !hasAccess ? (
-          // Deliberately generic — identical wording whether this email has
-          // no grant, an expired grant, or was never invited. Never reveals
-          // which emails do or don't have access.
+        ) : !hasAccess && authEnabled && real?.accountKind === 'founder' ? (
+          // Prompt 729 §1.2 — the exact dead end the founder's own test hit:
+          // a founder account logging in through /login?as=investor used to
+          // see "contact {senderEmail}" with senderEmail always undefined in
+          // this branch (activeGrants.length===0 never returns it) — no
+          // email could ever appear, and the only way out was the logout
+          // button or a discreet corner link this wasn't recognised as.
           <div className="mt-16 text-center text-sm text-gray-500">
-            No active access for this account. If you believe this is an error, contact {senderEmail ?? 'the founder'}.
+            This is a founder account for <span className="font-medium text-gray-700">{real.founderOrgName ?? 'your startup'}</span>.
+            The investor portal is for people startups have shared documents with.
+            <div className="mt-4 flex flex-col items-center gap-2">
+              <Link href="/pipeline" className="rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white">
+                Go to my workspace
+              </Link>
+              {authEnabled && <LogoutButton />}
+            </div>
+          </div>
+        ) : !hasAccess ? (
+          // 'unknown' — genuinely no investor membership and no grant found
+          // for this email. Deliberately generic wording (never reveals
+          // which emails do or don't have access), but now with a real exit:
+          // a modal "Contact support" (source investor_portal, email
+          // pre-filled from the session), not the discreet corner link this
+          // was never recognised as before.
+          <div className="mt-16 text-center text-sm text-gray-500">
+            We couldn&apos;t find an investor account or shared access for <span className="font-medium text-gray-700">{sessionEmail ?? 'this email'}</span>.
+            If a founder invited you, ask them to resend the invite to this exact email address.
             {/* Prompt 515 — this branch was a dead end: a live Supabase
                 session with nowhere to go and no way out but clearing
                 cookies by hand. Same fix InvestorWorkspaceShell already
@@ -756,10 +800,15 @@ function PortalPageInner() {
                 sign-in branches above have no session to end yet, and
                 "Is this you?" has its own exit. */}
             {authEnabled && (
-              <div className="mt-4 flex justify-center">
+              <div className="mt-4 flex flex-col items-center gap-2">
+                <button onClick={() => setSupportOpen(true)}
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:border-[#0E7490] hover:text-[#0E7490]">
+                  Contact support
+                </button>
                 <LogoutButton />
               </div>
             )}
+            <HelpSupportWidget source="investor_portal" open={supportOpen} onOpenChange={setSupportOpen} />
           </div>
         ) : (
           <div className="space-y-4">

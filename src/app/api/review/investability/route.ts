@@ -50,7 +50,9 @@ import { logAiCall } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { markReadinessTrainFirstUsed } from '@/lib/readiness-usage';
-import { chargeAiAction } from '@/lib/ai-credits';
+import { chargeAiAction, aiWalletStatus } from '@/lib/ai-credits';
+import { computeReportInputSnapshot, type InvestabilitySnapshotInput } from '@/lib/report-staleness';
+import { reviewRunSnapshotAvailable } from '@/lib/report-snapshot-capability';
 import type { SwotData } from '@/lib/types';
 
 interface Report extends SwotData {
@@ -237,15 +239,33 @@ export async function POST(req: Request) {
     const investorSafe = await generateInvestorSafeSwot(apiKey, company, facts, orgId);
 
     const admin = createClient(url, service, { auth: { persistSession: false } });
-    const { data: row, error } = await admin.from('review_runs').insert({
+
+    // Prompt 729 §3.3 — the snapshot is computed from exactly what THIS
+    // call received (facts/pipeline/company), never re-read from the DB —
+    // the point is "what the report was actually generated from," and the
+    // client already sent that. Written only once the column exists
+    // (report-snapshot-capability.ts); a pre-migration insert degrades to
+    // exactly today's row shape, never an error.
+    const insertRow: Record<string, unknown> = {
       org_id: orgId, score: Math.round(report.score), summary: report.summary,
       report: { ...report, investor_safe: investorSafe }, created_by: user.id,
-    }).select().single();
+    };
+    if (await reviewRunSnapshotAvailable()) {
+      insertRow.input_snapshot = computeReportInputSnapshot('investability', {
+        company: (company ?? {}) as InvestabilitySnapshotInput['company'], facts: facts ?? [], pipeline: pipeline ?? {},
+      });
+    }
+    const { data: row, error } = await admin.from('review_runs').insert(insertRow).select().single();
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
     await markReadinessTrainFirstUsed(admin, orgId);
 
-    return NextResponse.json({ ok: true, run: row });
+    // Prompt 729 §3.3 — read AFTER the charge above, so the UI can update
+    // its own "saldo depois" display from this one response, no second
+    // request needed.
+    const walletAfter = await aiWalletStatus(sb, orgId, 'investability_report');
+
+    return NextResponse.json({ ok: true, run: row, walletAfter });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }

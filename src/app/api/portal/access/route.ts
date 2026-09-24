@@ -212,8 +212,35 @@ export async function GET(req: Request) {
   // those accounts are real investors now, so an empty activeGrants list
   // means exactly what it means for anyone else — nothing has been shared
   // with them yet.
+  //
+  // Prompt 729 §1.1 — a founder who lands here (via /login?as=investor,
+  // e.g.) used to see "contact {senderEmail ?? 'the founder'}" with no
+  // email ever possible in this branch, and no way out except a logout
+  // button or the discreet "Help & support" link. accountKind tells the
+  // page which of three real situations this is — never anything about a
+  // THIRD party's own access (no ids, no other emails): only what the
+  // caller's own account is. Founder check first (org_members, org not
+  // closed), then a real investor membership, else unknown — a user who
+  // is both a founder and an investor member reads as 'founder' here,
+  // matching this prompt's own explicit priority.
   if (activeGrants.length === 0) {
-    return NextResponse.json({ orgName: null, pendingNdaCount: 0, ndaPending: [], folders: [], documents: [], pendingConfirmation });
+    let accountKind: 'founder' | 'investor_member' | 'unknown' = 'unknown';
+    let founderOrgName: string | null = null;
+    const { data: memberRow } = await admin.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
+    if (memberRow) {
+      const { data: orgRow } = await admin.from('orgs').select('name, closed_at').eq('id', memberRow.org_id as string).maybeSingle();
+      if (orgRow && !orgRow.closed_at) {
+        accountKind = 'founder';
+        founderOrgName = orgRow.name as string;
+      }
+    }
+    if (accountKind === 'unknown' && await resolveActiveInvestorMember(admin, userId)) {
+      accountKind = 'investor_member';
+    }
+    return NextResponse.json({
+      orgName: null, pendingNdaCount: 0, ndaPending: [], folders: [], documents: [], pendingConfirmation,
+      accountKind, ...(accountKind === 'founder' ? { founderOrgName } : {}),
+    });
   }
 
   // Prompt 121 §2.3 — one org's grants at a time, but now CHOSEN (by
