@@ -18,8 +18,8 @@ import { claimsAvailable, blueprintAnalysesAvailable } from '@/lib/blueprint-cap
 import { readKnowledgeSources, readExistingClaims, hasAnyVaultDocument } from '@/lib/company-knowledge-db';
 import { knowledgeToAtoms, newAtoms } from '@/lib/company-knowledge';
 import { normalizeAtom, findDuplicateCandidate } from '@/lib/company-claims';
-import { detectGaps, templateFor, gapKey, rankGaps, impactWhy } from '@/lib/company-gaps';
-import { gapReconciliationsAvailable } from '@/lib/document-extraction-capability';
+import { detectGaps, templateFor, gapKey, rankGaps, impactWhy, AI_ROLE, STILL_OPEN_CLOSES_WHEN, type GapRule } from '@/lib/company-gaps';
+import { gapReconciliationsAvailable, gapQuestionsAvailable } from '@/lib/document-extraction-capability';
 import { runReconciliationForOrg, readReconcilableDocuments } from '@/lib/reconciliation';
 import { FAST_ROUTE_LOCK_WAIT_MS } from '@/lib/reconciliation-lock';
 import { markReadinessTrainFirstUsed } from '@/lib/readiness-usage';
@@ -142,6 +142,41 @@ export async function GET() {
       .map((c) => (c.sourceRef as string).slice('gap:'.length)),
   );
 
+  // Prompt 732 §D — answeredRules above only catches answers that created a
+  // founder_answer claim ('claim' routing). The other four routings
+  // (dismiss/refresh_claim/set_disposition/set_founder_prompt_state — "No
+  // one yet", "Still true", etc.) never create that claim, so the SAME
+  // question kept reappearing after Save even though gap_questions (written
+  // on every routing, not just 'claim') already had a row for it. Read that
+  // ledger directly rather than relying on a side effect that not every
+  // routing produces.
+  //
+  // G5 is excluded entirely: it re-fires by claim staleness (the old claim
+  // going stale AGAIN since the last "Still true"), which is genuinely new
+  // information each time, not a repeat of the same unanswered question —
+  // a gap_questions row from the PREVIOUS staleness cycle must never
+  // suppress or reframe this one.
+  //
+  // G1/G6 are handled specially, not excluded: verified by tracing the code
+  // that answer/route.ts's STILL_OPEN_CLOSES_WHEN mechanism only ever
+  // reaches the client in the immediate POST response right after Save —
+  // nothing persists it for a later GET, so without doing something here a
+  // dismissed G1 ("Not yet") would reappear exactly as blank on the next
+  // page load as it did before this fix, for these two rules specifically.
+  // If a G1/G6 gap is present in `gaps` at all, detectGaps has already
+  // confirmed it's genuinely still firing (equivalent to checkStillOpen's
+  // own stillOpen:true) — so a gap_questions row for it means "already
+  // told us, and it's still open for the same structural reason", using
+  // the identical closesWhen wording checkStillOpen shows right after Save.
+  const gapQuestionDisposition = new Map<string, string>();
+  if (await gapQuestionsAvailable()) {
+    const { data: gapQuestionRows } = await admin.from('gap_questions')
+      .select('gap_key, disposition').eq('org_id', orgId);
+    for (const row of (gapQuestionRows ?? []) as { gap_key: string; disposition: string | null }[]) {
+      if (row.disposition) gapQuestionDisposition.set(row.gap_key, row.disposition);
+    }
+  }
+
   let analysis: unknown = null;
   if (await blueprintAnalysesAvailable()) {
     const { data } = await admin.from('blueprint_analyses')
@@ -168,10 +203,30 @@ export async function GET() {
     analysesAvailable: await blueprintAnalysesAvailable(),
     claims: claimsWithDuplicates,
     gaps: rankGaps(gaps.filter((g) => !answeredRules.has(gapKey(g))))
-      .map((g) => ({
-        ...g, key: gapKey(g), prompt: templateFor(g), why: impactWhy(g.rule),
-        reconciliationSuggestion: g.rule === 'G4' ? (reconciliationByClaimId.get(g.relatedClaimIds[0]) ?? null) : null,
-      })),
+      .map((g) => {
+        const key = gapKey(g);
+        const disposition = gapQuestionDisposition.get(key);
+        const closesWhen = STILL_OPEN_CLOSES_WHEN[g.rule as GapRule];
+        let previouslyAnswered = false;
+        let previouslyAnsweredReason: string | undefined;
+        if (disposition && g.rule !== 'G5') {
+          previouslyAnswered = true;
+          previouslyAnsweredReason = closesWhen
+            ? `${impactWhy(g.rule)} It stays open until ${closesWhen}.`
+            : `${impactWhy(g.rule)} You already answered this — recorded as "${disposition.replace(/_/g, ' ')}".`;
+        }
+        return {
+          ...g, key, prompt: templateFor(g), why: impactWhy(g.rule),
+          // Prompt 732 §B — the client needs to know 'draft' vs 'polish'
+          // BEFORE the founder clicks anything, so the button can say the
+          // true thing (gap-assist/route.ts already knew this, but only
+          // after the call — too late to avoid promising the wrong action).
+          assistRole: AI_ROLE[g.rule],
+          // Prompt 732 §D — see gapQuestionDisposition's own comment above.
+          previouslyAnswered, previouslyAnsweredReason,
+          reconciliationSuggestion: g.rule === 'G4' ? (reconciliationByClaimId.get(g.relatedClaimIds[0]) ?? null) : null,
+        };
+      }),
     analysis,
   });
 }

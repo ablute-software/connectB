@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Card } from './ui';
+import { LoadingState } from './workspace-shell/LoadingState';
 
 type TicketSummary = {
   id: string; created_at: string; category: string; subject: string;
@@ -84,7 +85,7 @@ export function SupportTicketsPanel() {
       </Link>
       {err && <p className="text-sm text-[#B00000]">{err}</p>}
       {!tickets ? (
-        <p className="text-sm text-gray-400">Loading…</p>
+        <LoadingState text="Loading…" compact />
       ) : tickets.length === 0 ? (
         <p className="text-sm text-gray-400">No tickets yet — use Help &amp; support to reach us.</p>
       ) : (
@@ -146,7 +147,7 @@ function TicketThread({ id, onBack }: { id: string; onBack: () => void }) {
       <button onClick={onBack} className="mb-3 text-xs text-gray-400 hover:underline">← Back to tickets</button>
       {err && <p className="text-sm text-[#B00000]">{err}</p>}
       {!ticket || !events ? (
-        <p className="text-sm text-gray-400">Loading…</p>
+        <LoadingState text="Loading…" compact />
       ) : (
         <>
           <div className="mb-3 flex items-start justify-between gap-2">

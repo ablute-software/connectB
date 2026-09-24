@@ -23,6 +23,7 @@ import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { buildSession, type Question, type Finding } from '@/lib/train-questions';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 interface CoachingRun {
   id: string; created_at: string;
@@ -97,7 +98,7 @@ export function TrainPanel() {
     } catch (e) { setErr((e as Error).message); } finally { setGrading(false); }
   }
 
-  if (!loaded) return <p className="text-sm text-gray-400">Loading…</p>;
+  if (!loaded) return <LoadingState text="Loading…" compact />;
   const hasReviewMaterial = latestWeaknessesAndRisks.length > 0 || latestRecommendations.length > 0;
 
   return (

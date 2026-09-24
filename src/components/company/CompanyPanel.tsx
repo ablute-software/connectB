@@ -28,6 +28,7 @@ import { useStore } from '@/lib/store';
 import { useConfirm } from '@/lib/confirm';
 import { Card } from '@/components/ui';
 import { authEnabled } from '@/lib/supabase';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 import { OrganisationCard } from '@/components/OrganisationCard';
 import { CompanyFactsPanel } from '@/components/CompanyFactsPanel';
 import { IdentityCard } from './IdentityCard';
@@ -145,7 +146,7 @@ export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashI
     setActive('cap-table');
   }, [capTableRequestItemParam]);
 
-  if (companyProfileAvailable === null) return <p className="text-sm text-gray-400">Loading…</p>;
+  if (companyProfileAvailable === null) return <LoadingState text="Loading…" compact />;
 
   // Prompt 357 §C1 — Badges & awards moves out of the vertical flow into a
   // fixed right-hand column, in the space that was previously just dead

@@ -12,6 +12,7 @@ import { useConfirm } from '@/lib/confirm';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { ORG_ROLES, ROLE_LABELS, type OrgRole } from '@/lib/permissions';
 import { MATRIX_CAPABILITIES, resolveMatrix, type MatrixCapability } from '@/lib/org-permissions';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 export function PermissionsMatrixCard() {
   const { db } = useStore();
@@ -80,7 +81,7 @@ export function PermissionsMatrixCard() {
         Configure what each role can do. The <b>owner</b> always keeps every right (fixed). Changes are enforced
         server-side, not just in the interface.
       </p>
-      {!matrix ? <p className="text-sm text-gray-400">Loading…</p> : (
+      {!matrix ? <LoadingState text="Loading…" compact /> : (
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>

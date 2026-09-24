@@ -18,6 +18,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 // Prompt 599 §1 — the audit panel that used to live inline here is now
 // src/components/backoffice/AuditLogPanel.tsx, shared with the back-office's
 // own Audit log page (one implementation, two homes).
@@ -169,7 +170,7 @@ function OverviewTab() {
     <div className="space-y-5">
       <PeriodPicker period={period} onChange={setPeriod} />
       {err && <p className="text-sm text-[#B00000]">{err}</p>}
-      {!data ? <p className="text-sm text-gray-400">Loading…</p> : (
+      {!data ? <LoadingState text="Loading…" compact /> : (
         <>
           <div>
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Growth</h2>
@@ -318,7 +319,7 @@ function OverviewTab() {
 // or `next build` fails at prerender (CLAUDE.md rule 5 — paid for once).
 export default function MetricsPage() {
   return (
-    <Suspense fallback={<p className="text-sm text-gray-400">Loading…</p>}>
+    <Suspense fallback={<LoadingState text="Loading…" compact />}>
       <MetricsPageContent />
     </Suspense>
   );

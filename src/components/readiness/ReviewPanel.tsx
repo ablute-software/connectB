@@ -13,7 +13,10 @@
 // (score/strengths/weaknesses/risks/recommendations) for every one of them,
 // not just investability.
 import { useEffect, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import type { Components } from 'react-markdown';
 import { ReconciliationBusyNotice } from './ReconciliationBusyNotice';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 import { useStore } from '@/lib/store';
 import { Card, Toggle } from '@/components/ui';
 import { softCircledThisRound } from '@/lib/round-capital';
@@ -29,7 +32,7 @@ import { GAP_QUESTION_BUDGET } from '@/lib/company-gaps';
 import { PlanBadge } from '@/components/PlanBadge';
 import { planName, REVIEW_OPTIMIZATION_PREVIEW_COPY } from '@/lib/plans';
 import { useConfirm } from '@/lib/confirm';
-import { countCriticalGaps, insufficientInfoDialog, shouldWarnBeforeSpending } from '@/lib/ai-spend-confirm';
+import { countCriticalGaps, insufficientInfoDialog, shouldWarnBeforeSpending, simpleSpendDialog } from '@/lib/ai-spend-confirm';
 import { fetchWalletStatus } from '@/lib/ai-spend-confirm-client';
 import { can, type OrgRole } from '@/lib/permissions';
 import { SwotVisualCard } from './SwotVisualCard';
@@ -41,6 +44,25 @@ import { InvestorFeedbackCard } from './InvestorFeedbackCard';
 
 interface ReviewRun { id: string; score: number | null; summary: string | null; report: InvestabilityReport; created_at: string }
 interface InvestabilityReport extends SwotData { score: number; summary: string; risks: string[]; recommendations: string[] }
+
+// Prompt 732 §F — "Benchmark my market" asks the model for a 4-point report
+// (/api/ai-review's market_data prompt) and Claude naturally answers in
+// markdown, which used to render as literal `#`/`**`/`-` inside a <pre>.
+// The project has no @tailwindcss/typography (confirmed: tailwind.config.ts
+// has `plugins: []`), so `prose` would style nothing — manual styles here
+// instead of adding a second package just for this. Kept deliberately
+// narrow: headings/paragraphs/bold/lists only, matching the plain-text
+// shape this specific prompt asks for (no tables, no code blocks).
+const MARKET_RESULT_MARKDOWN_COMPONENTS: Components = {
+  h1: ({ children }) => <h3 className="mt-3 text-sm font-semibold text-gray-900 first:mt-0">{children}</h3>,
+  h2: ({ children }) => <h3 className="mt-3 text-sm font-semibold text-gray-900 first:mt-0">{children}</h3>,
+  h3: ({ children }) => <h4 className="mt-2 text-xs font-semibold text-gray-900 first:mt-0">{children}</h4>,
+  p: ({ children }) => <p className="mt-2 text-xs text-gray-700 first:mt-0">{children}</p>,
+  strong: ({ children }) => <strong className="font-semibold text-gray-900">{children}</strong>,
+  ul: ({ children }) => <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-gray-700">{children}</ul>,
+  ol: ({ children }) => <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs text-gray-700">{children}</ol>,
+  li: ({ children }) => <li>{children}</li>,
+};
 
 const DOC_KINDS = [
   { value: 'deck_review', label: 'Pitch deck' },
@@ -339,6 +361,13 @@ export function ReviewPanel() {
   }
 
   async function researchMarket() {
+    // Prompt 732 §C — market_data_review has no needs_confirmation flag (no
+    // critical-gap reason to warn about), so this was one of the 15 actions
+    // that never showed cost or balance before spending. Same
+    // fetchWalletStatus + useConfirm() pair the 4 needs_confirmation actions
+    // already use, just the lighter dialog (no gap paragraph).
+    const wallet = await fetchWalletStatus('market_data_review');
+    if (!(await confirm(simpleSpendDialog({ actionLabel: 'Benchmark my market', wallet })))) return;
     setMarketLoading(true); setMarketResult('');
     try {
       const res = await fetch('/api/ai-review', {
@@ -569,7 +598,7 @@ export function ReviewPanel() {
           opportunities, threats, risks and recommendations. Each run is stored so you can watch it improve as you add
           facts and close conversations.
         </p>
-        {!caps ? <p className="text-sm text-gray-400">Loading…</p>
+        {!caps ? <LoadingState text="Loading…" compact />
           : !caps.reviewRuns || !caps.ai ? <ComingSoon />
           : (
             <>
@@ -769,7 +798,11 @@ export function ReviewPanel() {
               className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
               {marketLoading ? 'Researching…' : 'Benchmark my market'}
             </button>
-            {marketResult && <pre className="mt-3 whitespace-pre-wrap rounded border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">{marketResult}</pre>}
+            {marketResult && (
+              <div className="mt-3 rounded border border-gray-200 bg-gray-50 p-3">
+                <ReactMarkdown components={MARKET_RESULT_MARKDOWN_COMPONENTS}>{marketResult}</ReactMarkdown>
+              </div>
+            )}
           </>
         )}
       </Card>
