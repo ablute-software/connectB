@@ -165,7 +165,10 @@ export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashI
             The redesigned Identity/Team/Round profile activates once migration 0037 is applied. Here&apos;s what&apos;s editable today.
           </p>
           <OrganisationCard />
-          <Card title="Company facts & Clarifications"><CompanyFactsPanel /></Card>
+          {/* Prompt 733 §B Fase 1 — stable id so a clarification bullet
+              elsewhere (ReviewPanel) can link directly here, in both the
+              fallback (this one) and the tabbed (below) layouts. */}
+          <Card id="company-facts-clarifications" title="Company facts & Clarifications"><CompanyFactsPanel /></Card>
           <StartupAxisClassifications />
           <DemoResetCard />
         </div>
@@ -245,7 +248,15 @@ export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashI
 
         {active === 'facts' && (
           <div id="settings-facts" className="space-y-4" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
-            <Card title="Facts & Clarifications"><CompanyFactsPanel /></Card>
+            {/* Prompt 733 §B Fase 1 — same stable id as the fallback layout
+                above, for a direct link from a clarification bullet
+                elsewhere. The section wrapper's own id (settings-facts) is
+                what the hash-navigation link below actually targets (it
+                switches tabs; this element has nothing above it in that
+                tab, so landing there IS landing here) — this id is a
+                belt-and-suspenders anchor for Phase 2's more precise,
+                per-fact linking. */}
+            <Card id="company-facts-clarifications" title="Facts & Clarifications"><CompanyFactsPanel /></Card>
             <InvestorQACard />
             <StartupAxisClassifications />
             <DemoResetCard />
