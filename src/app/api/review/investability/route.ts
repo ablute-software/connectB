@@ -74,9 +74,37 @@ const RECOMMENDATION_CONSISTENCY_RULE = 'Before suggesting a change, check it ag
   + 'approach or positioning — if a recommendation would conflict with a stated fact, either drop it or state the '
   + 'tension explicitly (e.g. "this would cut against your stated approach of X — worth weighing").';
 
+// Prompt 734 §A — a real production case: two confirmed co-founders in
+// TEAM, but a stray sentence inside CONFIRMED FACTS (an answer to an
+// unrelated gap question, "A founder (name below) — Nuno Marujo") led the
+// model to write "single named founder" as a Weakness. TEAM comes straight
+// from company_people (the founder's own roster, no free text to
+// misparse) — it is meant to settle exactly this question, never be
+// second-guessed by a loose phrase elsewhere in the canon.
+const TEAM_SOURCE_OF_TRUTH_RULE = 'TEAM (above) is the ONLY source of truth for who founded or works at this '
+  + 'company. Never state a founder count, or describe a founder as "unnamed" or the company as "single-founder", '
+  + 'based on a phrase inside CONFIRMED FACTS (a fact confirming an answer to some OTHER question is not a roster) '
+  + '— if it disagrees with TEAM, TEAM wins.';
+
+// Prompt 734 §B — a real production case: "Eleven of twelve investors
+// remain not contacted." and "One investor has already passed on the
+// round." appeared as Weaknesses. Those describe the state of the
+// FUNDRAISING PROCESS, not a defect in the business — no real analyst
+// would write "you haven't contacted enough investors yet" as a company
+// weakness. PIPELINE STATS may still shape the score and the summary
+// (a stalled pipeline IS relevant to readiness) — it just can never
+// surface as its own bullet in the six categories below, which assess the
+// COMPANY (product, team, traction, market, finances), not the campaign.
+const PIPELINE_STATS_SCOPE_RULE = 'PIPELINE STATS (contacts, passes, response rate, outreach velocity) describe '
+  + 'the fundraising PROCESS, not the business. They may influence the score and the summary text, but must NEVER '
+  + 'appear as their own bullet in strengths/weaknesses/opportunities/threats/risks/recommendations — those six '
+  + 'assess the company itself, not how the outreach campaign is going.';
+
+interface TeamMember { full_name: string; title?: string | null; is_founder: boolean; commitment?: string | null }
+
 export async function POST(req: Request) {
-  const { facts, pipeline, company } = await req.json() as {
-    facts?: string[]; pipeline?: Record<string, unknown>; company?: Record<string, unknown>;
+  const { facts, pipeline, company, team } = await req.json() as {
+    facts?: string[]; pipeline?: Record<string, unknown>; company?: Record<string, unknown>; team?: TeamMember[];
   };
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -155,12 +183,27 @@ export async function POST(req: Request) {
       + wrapDocumentContent(clarificationRows.map((c) => `- [${c.category}] "${c.item_text}" — founder says: "${c.clarification_text}"`).join('\n'))
     : '';
 
+  // Prompt 734 §A — company_people, the founder's own roster, never read by
+  // this route before now. Formatted plainly (name/title/founder/
+  // commitment) rather than passed as raw JSON like company/pipeline below,
+  // since this block's whole job is to be an unambiguous, easy-to-quote
+  // roster the model can't misread the way it can a prose fact.
+  const teamBlock = (team ?? []).length > 0
+    ? (team as TeamMember[]).map((p) => {
+      const bits = [p.is_founder ? 'founder' : 'team member', p.title, p.commitment].filter(Boolean);
+      return `- ${p.full_name} (${bits.join(', ')})`;
+    }).join('\n')
+    : '(no team roster confirmed yet)';
+
   const prompt =
     'Assess this startup\'s investability (readiness to raise vs the value of the round it wants) using ONLY the '
     + 'confirmed company facts and pipeline stats below — never invent facts not present.\n\n'
     + `COMPANY:\n${wrapDocumentContent(JSON.stringify(company ?? {}, null, 2))}\n\n`
+    + `TEAM:\n${wrapDocumentContent(teamBlock)}\n\n`
+    + `${TEAM_SOURCE_OF_TRUTH_RULE}\n\n`
     + `CONFIRMED FACTS:\n${wrapDocumentContent((facts ?? []).map((f) => `- ${f}`).join('\n') || '(none confirmed yet)')}\n\n`
     + `PIPELINE STATS:\n${wrapDocumentContent(JSON.stringify(pipeline ?? {}, null, 2))}\n\n`
+    + `${PIPELINE_STATS_SCOPE_RULE}\n\n`
     + 'Score 0-100 (readiness vs round value). Be concrete and specific to what the facts actually say; if the canon '
     + 'is thin, say so and score conservatively. Also identify Opportunities (external, strategic openings this startup '
     + 'could pursue — market timing, a gap a competitor left open, a partnership angle) and Threats (external, '
@@ -183,7 +226,8 @@ export async function POST(req: Request) {
           + 'readiness assessment grounded strictly in the facts given — no invented traction, revenue, or clinical claims. '
           + 'Opportunities and Threats are external/strategic (the market, competitors, timing) — never restate an '
           + 'internal Weakness as a Threat or an internal fix as an Opportunity. Every bullet you write is short: '
-          + `${BULLET_LENGTH_RULE} ${RECOMMENDATION_CONSISTENCY_RULE} You never send or mutate anything; you return a report. ${DOCUMENT_CONTENT_INSTRUCTION}`,
+          + `${BULLET_LENGTH_RULE} ${RECOMMENDATION_CONSISTENCY_RULE} ${TEAM_SOURCE_OF_TRUTH_RULE} ${PIPELINE_STATS_SCOPE_RULE} `
+          + `You never send or mutate anything; you return a report. ${DOCUMENT_CONTENT_INSTRUCTION}`,
         messages: [{ role: 'user', content: prompt }],
         tools: [{
           name: 'report_investability',
@@ -195,27 +239,27 @@ export async function POST(req: Request) {
               summary: { type: 'string', description: 'One or two sentences: the headline verdict.' },
               strengths: {
                 type: 'array', items: { type: 'string' },
-                description: `Concrete strengths grounded in the confirmed facts. ${BULLET_LENGTH_RULE}`,
+                description: `Concrete strengths grounded in the confirmed facts. ${BULLET_LENGTH_RULE} ${TEAM_SOURCE_OF_TRUTH_RULE} ${PIPELINE_STATS_SCOPE_RULE}`,
               },
               weaknesses: {
                 type: 'array', items: { type: 'string' },
-                description: `Concrete weaknesses grounded in the confirmed facts. ${BULLET_LENGTH_RULE}`,
+                description: `Concrete weaknesses grounded in the confirmed facts. ${BULLET_LENGTH_RULE} ${TEAM_SOURCE_OF_TRUTH_RULE} ${PIPELINE_STATS_SCOPE_RULE}`,
               },
               opportunities: {
                 type: 'array', items: { type: 'string' },
-                description: `External, strategic openings this startup could pursue (market gap, timing, partnership) — never invented, only what the facts support. ${BULLET_LENGTH_RULE}`,
+                description: `External, strategic openings this startup could pursue (market gap, timing, partnership) — never invented, only what the facts support. ${BULLET_LENGTH_RULE} ${PIPELINE_STATS_SCOPE_RULE}`,
               },
               threats: {
                 type: 'array', items: { type: 'string' },
-                description: `External, strategic threats (a competitor's move, a market or regulatory shift) — distinct from \`risks\`, which are this startup's own internal/operational risks. ${BULLET_LENGTH_RULE}`,
+                description: `External, strategic threats (a competitor's move, a market or regulatory shift) — distinct from \`risks\`, which are this startup's own internal/operational risks. ${BULLET_LENGTH_RULE} ${PIPELINE_STATS_SCOPE_RULE}`,
               },
               risks: {
                 type: 'array', items: { type: 'string' },
-                description: `This startup's own internal/operational risks. ${BULLET_LENGTH_RULE}`,
+                description: `This startup's own internal/operational risks. ${BULLET_LENGTH_RULE} ${PIPELINE_STATS_SCOPE_RULE}`,
               },
               recommendations: {
                 type: 'array', items: { type: 'string' },
-                description: `Concrete things to improve, most impactful first. ${BULLET_LENGTH_RULE} ${RECOMMENDATION_CONSISTENCY_RULE}`,
+                description: `Concrete things to improve, most impactful first. ${BULLET_LENGTH_RULE} ${RECOMMENDATION_CONSISTENCY_RULE} ${PIPELINE_STATS_SCOPE_RULE}`,
               },
             },
             required: ['score', 'summary', 'strengths', 'weaknesses', 'opportunities', 'threats', 'risks', 'recommendations'],
@@ -247,7 +291,7 @@ export async function POST(req: Request) {
     // filtrado no fim, e gerado de outra coisa. Se falhar, investor_safe
     // fica ausente e o portal nao mostra SWOT nenhum (fail-closed) -- a
     // ausencia e melhor do que a fuga.
-    const investorSafe = await generateInvestorSafeSwot(apiKey, company, facts, orgId);
+    const investorSafe = await generateInvestorSafeSwot(apiKey, company, facts, orgId, team);
 
     const admin = createClient(url, service, { auth: { persistSession: false } });
     const { data: row, error } = await admin.from('review_runs').insert({
@@ -272,9 +316,24 @@ export async function POST(req: Request) {
 // report completo. Um SWOT em falta e um inconveniente; o outro e a fuga.
 async function generateInvestorSafeSwot(
   apiKey: string, company: Record<string, unknown> | undefined, facts: string[] | undefined, orgId: string,
+  team?: TeamMember[],
 ): Promise<{ strengths: string[]; weaknesses: string[]; opportunities: string[]; threats: string[] } | undefined> {
+  // Prompt 734 §A — team composition (who founded the company) is ordinary
+  // investor-facing pitch content, not founder-private performance data —
+  // the CLAUDE.md privacy rule this function's own header already respects
+  // (no pipeline, no outreach) doesn't cover it. Without this, the exact
+  // same "single named founder" mischaracterization the founder-facing
+  // report had could equally reach an investor.
+  const teamBlock = (team ?? []).length > 0
+    ? team!.map((p) => {
+      const bits = [p.is_founder ? 'founder' : 'team member', p.title, p.commitment].filter(Boolean);
+      return `- ${p.full_name} (${bits.join(', ')})`;
+    }).join('\n')
+    : '(no team roster confirmed yet)';
   const prompt = 'You are writing a SWOT about a startup, for investors evaluating it.\n\n'
     + `COMPANY:\n${wrapDocumentContent(JSON.stringify(company ?? {}, null, 2))}\n\n`
+    + `TEAM:\n${wrapDocumentContent(teamBlock)}\n\n`
+    + `${TEAM_SOURCE_OF_TRUTH_RULE}\n\n`
     + `CONFIRMED FACTS:\n${wrapDocumentContent((facts ?? []).map((f) => `- ${f}`).join('\n') || '(none confirmed yet)')}\n\n`
     + `${INVESTOR_SAFE_INSTRUCTION}\n\n`
     + `Every bullet: ${BULLET_LENGTH_RULE}\n\n`
@@ -289,7 +348,7 @@ async function generateInvestorSafeSwot(
         max_tokens: 1000,
         system: 'You write investor-facing company assessments. You are never given fundraising or outreach data, '
           + 'and you never speculate about it. Only the company, market and product. '
-          + DOCUMENT_CONTENT_INSTRUCTION,
+          + `${TEAM_SOURCE_OF_TRUTH_RULE} ${DOCUMENT_CONTENT_INSTRUCTION}`,
         messages: [{ role: 'user', content: prompt }],
         tools: [{
           name: 'report_investor_swot',

@@ -305,6 +305,15 @@ export function ReviewPanel() {
     round_target_eur: db.org.round_target_eur, country: db.org.country, one_liner: db.org.one_liner,
     description: db.org.description,
   };
+  // Prompt 734 §A — the founder's own roster (company_people), never sent
+  // to Investability before now: it only ever received `facts`, which is
+  // free text and can't be trusted as a source of "how many founders" (a
+  // real production case had two confirmed co-founders here, but the
+  // report said "single named founder" because it was reading a stray
+  // phrase inside an unrelated confirmed fact instead).
+  const team = db.companyPeople.map((p) => ({
+    full_name: p.full_name, title: p.title ?? null, is_founder: p.is_founder, commitment: p.commitment ?? null,
+  }));
 
   // Prompt 212 §B.2 — o nome importa tanto como o numero. Isto ia para o
   // modelo como `soft_circled_eur`, sem qualificar, e o modelo tratava-o
@@ -412,18 +421,12 @@ export function ReviewPanel() {
   // Prompt 706 Bloco D — the SAME criticalGaps count the card below already
   // shows (line ~420), reused rather than recomputed, so the popup and the
   // card can never disagree about "how many."
-  async function runInvestability() {
-    const criticalGapCount = countCriticalGaps(gaps);
-    if (shouldWarnBeforeSpending(criticalGapCount)) {
-      const wallet = await fetchWalletStatus('investability_report');
-      const proceed = await confirm(insufficientInfoDialog({ actionLabel: 'Investability ranking', criticalGapCount, wallet }));
-      if (!proceed) return;
-    }
+  async function postInvestabilityRun() {
     setRunLoading(true); setRunErr('');
     try {
       const res = await fetch('/api/review/investability', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ facts: confirmedFacts, pipeline: pipelineStats(), company: companyContext }),
+        body: JSON.stringify({ facts: confirmedFacts, pipeline: pipelineStats(), company: companyContext, team }),
       });
       const data = await res.json();
       if (!data.ok) { setRunErr(data.error ?? data.message ?? 'Failed'); return; }
@@ -431,7 +434,42 @@ export function ReviewPanel() {
     } catch (e) { setRunErr((e as Error).message); } finally { setRunLoading(false); }
   }
 
+  async function runInvestability() {
+    const criticalGapCount = countCriticalGaps(gaps);
+    if (shouldWarnBeforeSpending(criticalGapCount)) {
+      const wallet = await fetchWalletStatus('investability_report');
+      const proceed = await confirm(insufficientInfoDialog({ actionLabel: 'Investability ranking', criticalGapCount, wallet }));
+      if (!proceed) return;
+    }
+    await postInvestabilityRun();
+  }
+
+  // Prompt 734 §C — the stale-report "Refresh" button always previews cost/
+  // balance (simpleSpendDialog, Prompt 732 §C), unconditionally — unlike the
+  // main "Run review" button above, which only warns when critical gaps are
+  // open. Calling postInvestabilityRun() directly (not runInvestability())
+  // avoids stacking that gap-based dialog on top of this one when both
+  // conditions happen to be true at once.
+  async function refreshInvestability() {
+    const wallet = await fetchWalletStatus('investability_report');
+    if (!(await confirm(simpleSpendDialog({ actionLabel: 'Investability ranking', wallet })))) return;
+    await postInvestabilityRun();
+  }
+
   const latest = runs[0];
+
+  // Prompt 734 §C — no mechanism anywhere near review_runs/ReviewPanel told
+  // the founder the confirmed canon had moved since the shown run. Compares
+  // against the same three sources the request itself now sends
+  // (facts/team, via confirmedFacts' own inputs + team above) — client-side
+  // only, no migration: every timestamp here is already loaded into this
+  // component for other reasons.
+  const latestDataUpdate = [
+    ...db.companyFacts.map((f) => f.updated_at),
+    ...db.companyPeople.map((p) => p.updated_at),
+    ...claims.map((c) => c.updatedAt).filter((d): d is string => !!d),
+  ].sort().at(-1);
+  const investabilityStale = !!latest && !!latestDataUpdate && latestDataUpdate > latest.created_at;
 
   // Prompt 166 §B/§C — a new review can start only with feature access AND
   // quota left; reviewQuota is null either while /api/me hasn't resolved yet
@@ -623,6 +661,22 @@ export function ReviewPanel() {
                     <span className="text-2xl font-bold text-[#0E7490]">{latest.score}</span>
                     <span className="text-xs text-gray-400">/ 100 · {latest.created_at.slice(0, 10)}</span>
                   </div>
+                  {/* Prompt 734 §C — discreet, not blocking: the founder can
+                      still read the (possibly outdated) report below, but
+                      knows it might not reflect what they just confirmed. */}
+                  {investabilityStale && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+                      {/* Prompt 734 §C quoted this line in Portuguese as an
+                          example (Nuno writes prompts in PT); translated to
+                          English here to match every other string in this
+                          app's UI. */}
+                      <span>New data since this report — it may be outdated.</span>
+                      <button disabled={runLoading} onClick={refreshInvestability}
+                        className="rounded-full bg-amber-700 px-2 py-0.5 text-[11px] font-semibold text-white disabled:opacity-40">
+                        {runLoading ? 'Refreshing…' : 'Refresh'}
+                      </button>
+                    </div>
+                  )}
                   {latest.summary && <p className="mt-1 text-gray-700">{latest.summary}</p>}
                   {/* strengths/weaknesses/opportunities/threats now live in
                       SwotVisualCard above — only the two categories it
