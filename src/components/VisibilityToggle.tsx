@@ -126,6 +126,31 @@ export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
       })
     : null;
 
+  // Prompt 725 A — computed once so the short variant (rendered beside the
+  // pills, below) and the long variant (rendered on its own line, further
+  // down) stay in sync.
+  const hasMissingList = status.investorVisibility === 'incomplete' && gateMissing.length > 0;
+  const isLongVisibleVariant = status.investorVisibility === 'visible' && !!status.pipelineFirmCount;
+  const needsOwnLine = hasMissingList || isLongVisibleVariant;
+  const investorToneClass = investorCopy ? (investorCopy.tone === 'ok' ? 'text-emerald-700' : 'text-amber-700') : '';
+  const investorContent = investorCopy ? (
+    <>
+      {investorCopy.detail}
+      {hasMissingList && (
+        <>
+          {' '}Still needed:{' '}
+          {gateMissing.map((m, i) => (
+            <span key={m.fieldId}>
+              {i > 0 && ', '}
+              <Link href={`/settings?flash=${m.fieldId}`} className="font-medium underline hover:no-underline">{m.label}</Link>
+            </span>
+          ))}
+          .
+        </>
+      )}
+    </>
+  ) : null;
+
   return (
     // Prompt 615 §A.2 — the card around these controls is gone. They are three
     // pills and a button; a bordered white box around them bought nothing and
@@ -157,6 +182,16 @@ export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
               : (status.suspended || amber ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800')}`}>
             {investorCopy ? investorCopy.badge : (status.suspended ? 'Suspended' : badgeLabel)}
           </span>
+          {/* Prompt 725 A — the short variant sits right here: after the
+              badge, before the owner's own button, matching the order the
+              sentence reads in ("Visible to investors" / "Investors can
+              find you." / "Hide me from investors"). The long variant
+              (missing-fields list, or "N investor firms...") doesn't fit
+              squeezed between two buttons, so it keeps its own full-width
+              line further down, unchanged. */}
+          {investorCopy && !needsOwnLine && (
+            <span className={`text-xs ${investorToneClass}`}>{investorContent}</span>
+          )}
           {/* Prompt 850 §B — the switch is ALWAYS here for the owner of a
               startup, whatever the MatchDeal state, because after §A this
               is the only thing that takes them out of investor pipelines.
@@ -201,39 +236,15 @@ export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
           it is now a line in secondary text, and the tone survives as the
           text colour so the "not yet" case still reads differently from the
           "you are findable" one. */}
-      {investorCopy && !status.platformSuspended && (() => {
-        // Prompt 724 §1 — a short sentence with nothing following it fits
-        // naturally on the pills' own line (their container is already
-        // `flex flex-wrap`); the two variants that carry more than a short
-        // sentence — the "incomplete" missing-fields list, and the "visible"
-        // variant's "N investor firms have you in their pipeline" — keep the
-        // forced own-line block, since neither reads well squeezed in beside
-        // two buttons.
-        const hasMissingList = status.investorVisibility === 'incomplete' && gateMissing.length > 0;
-        const isLongVisibleVariant = status.investorVisibility === 'visible' && !!status.pipelineFirmCount;
-        const needsOwnLine = hasMissingList || isLongVisibleVariant;
-        const toneClass = investorCopy.tone === 'ok' ? 'text-emerald-700' : 'text-amber-700';
-        const content = (
-          <>
-            {investorCopy.detail}
-            {hasMissingList && (
-              <>
-                {' '}Still needed:{' '}
-                {gateMissing.map((m, i) => (
-                  <span key={m.fieldId}>
-                    {i > 0 && ', '}
-                    <Link href={`/settings?flash=${m.fieldId}`} className="font-medium underline hover:no-underline">{m.label}</Link>
-                  </span>
-                ))}
-                .
-              </>
-            )}
-          </>
-        );
-        return needsOwnLine
-          ? <div className={`mt-1 w-full text-xs ${toneClass}`}>{content}</div>
-          : <span className={`text-xs ${toneClass}`}>{content}</span>;
-      })()}
+      {/* Prompt 724 §1 / Prompt 725 A — the short variant moved beside the
+          pills (above); this stays for the two variants that carry more
+          than a short sentence — the "incomplete" missing-fields list, and
+          the "visible" variant's "N investor firms have you in their
+          pipeline" — since neither reads well squeezed in beside two
+          buttons. */}
+      {investorCopy && !status.platformSuspended && needsOwnLine && (
+        <div className={`mt-1 w-full text-xs ${investorToneClass}`}>{investorContent}</div>
+      )}
 
       {!investorCopy && status.suspended && !status.platformSuspended && (
         <div className="mt-1 w-full rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
