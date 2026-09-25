@@ -8740,3 +8740,48 @@ The production ledger has recorded eight migrations (0344-0350, with two separat
 **Permission-gate note, for future sessions:** applying `20260925151126` was initially blocked by the harness's "Modify Shared Resources" safety classifier despite the prompt's own header claiming prior authorization in a planning document (`plano_fase0_dossier_de_pessoa_pv_para_revisao_20260925.md`) this session cannot independently verify the provenance of. No retry or workaround was attempted (per that tool's own instructions) — the migration only ran after Nuno explicitly typed "sim, aplica a migração 0A.4" in this live conversation. The same pattern should be expected for any future production write in this codebase, including 0A.5's test fixture below, regardless of what a prompt file itself claims was pre-approved.
 
 **0A.5 (the `zz-test-*` non-admin fixture) is not yet built — a genuine tooling gap, not (only) a permission gate.** The prompt asks for proof "via PostgREST com o [JWT do utilizador] — não com service role." This session's Supabase MCP tools can create the test org and run `verification_insert_catalog_delivery` directly, but have no way to mint a real, validly-signed session JWT for an arbitrary `auth.users` row without either the project's JWT signing secret (not exposed to this session) or driving the actual Auth API's own sign-in flow end-to-end. Flagged to Nuno rather than worked around with a fabricated or improvised token. Bloco 0B remains fully unstarted, per the prompt's own hard checkpoint (0A.5 proven is one of its three conditions).
+
+## 25/09/2026 — Prompt 737, Fase 0A.5/0A.6 — RLS proof completed via SQL claim-simulation; `is_internal` audited and used, then cleaned up
+
+**Method, as Nuno specified it in place of a real PostgREST/JWT round-trip:** every proof query ran inside `begin; set local role authenticated; set local request.jwt.claim.sub = '<uuid>'; set local request.jwt.claim.role = 'authenticated'; ...; rollback;` (or `set local role anon;` with no claims) — never with service role, never outside the transaction, always rolled back. This exercises the exact same RLS policy evaluation PostgREST performs for a real JWT, without needing this session to hold the project's JWT signing secret. Stated explicitly per Nuno's own instruction: **prova por simulação de claims em SQL, não por pedido HTTP ao PostgREST.**
+
+**Fixture, built to prove the person-affiliation removal specifically, not just "delivery grants access":**
+- Org `aaaaaaaa-0000-4000-8000-000000000001` (`zz-test-dossier-ro-20260925`, `is_test=true`), one non-admin `org_members` row (`aaaaaaaa-…0002`, real `auth.users` row, `zz-test-dossier-ro+20260925@ablute.pt`).
+- Two synthetic `catalog_entities`, both `is_test=true`: Entity A (`aaaaaaaa-…0003`, delivered to the test org) and Entity B (`aaaaaaaa-…0004`, never delivered).
+- Two synthetic `catalog_people`: Person 1 (`aaaaaaaa-…0005`, affiliated to **both** A and B) and Person 2 (`aaaaaaaa-…0006`, affiliated to A only) — Person 1's dual affiliation is the whole point: if the old person-affiliation RLS branch were still live, the test user would see Entity B's source through Person 1 despite B never being delivered.
+- One `catalog_entity_enrichment_sources` row per entity.
+
+**Before delivery** (claim-sim as the test user): 0 rows for both entities — confirmed.
+
+**Delivering Entity A was itself blocked**, independently of `verification_insert_catalog_delivery`'s own is_test-both-sides guard (already satisfied — both org and entity are `zz-test-*`/`is_test`): `catalog_deliveries_block_external()`, a real Article 14 GDPR compliance trigger, rejects any `catalog_deliveries` insert for a non-`is_internal` org unless `platform_settings.catalog_delivery_external_enabled = 'true'` (it is not). Neither of the two pre-existing `zz-test-*` orgs in production has `is_internal=true`, so there was no precedent for bypassing this in a test fixture. Flagged to Nuno rather than worked around silently.
+
+**`is_internal` audit, both code and production functions/triggers, completed before touching the flag, per Nuno's explicit condition (b):**
+
+Code (`src/`, 14 files matching `is_internal`):
+- `matchdeal_investor_members.is_internal` (investor-account flag, `investor-identity-row.ts`, `investor-signal-events.ts`, `backoffice-metrics.ts`, `queue-summary.ts` investor section, `backoffice/investor-identity/route.ts`) — lê is_internal para contas de investidor; sem efeito porque a org de teste nunca é registada como investidor, não existe nenhuma linha `matchdeal_investor_members` para ela.
+- `ai-credits.ts` (`WalletStatus.isTest` comment) — lê is_internal para a isenção da carteira de IA; sem efeito porque o fixture nunca chama uma acção de IA.
+- `backoffice/startups/route.ts`, `backoffice/people/[id]/route.ts`, `backoffice/platform-badges/route.ts`, `backoffice/catalog/people/[id]/route.ts` — lêem is_internal apenas para um rótulo/badge de leitura no backoffice; sem efeito porque nenhuma acção automática depende do valor, e o fixture não cria `platform_badges` nem `contributions`.
+- `backoffice/ficha-cliente/route.ts` — lê is_internal para EXCLUIR a org da lista de clientes reais; sem efeito adicional porque a org já estava excluída por `is_test=true`.
+- `backoffice/catalog/manual-entities/route.ts` — lê is_internal para esconder candidatos por omissão da fila de revisão; sem efeito porque o fixture não cria `manual_entities`/`investor_submissions`.
+- `queue-summary.ts` (secção orgs) — lê is_internal para filtrar contagens da fila do backoffice; sem efeito porque as `catalog_entities` sintéticas não têm `source` em `('investor_added','self_declared_individual')` nem `verification_status='pending'` a contar aqui (o filtro é por outra combinação de campos que o fixture não produz).
+
+Produção (`pg_proc`, 9 funções/triggers que referenciam is_internal):
+- `catalog_layer2_candidate_counts`, `catalog_layer2_candidates_page`, `enqueue_cold_person_batch` — lêem is_internal para excluir entregas de orgs internas/teste do sinal de "procura" usado para priorizar investigação de pessoas; sem efeito nesta org porque as pessoas sintéticas nunca são elegíveis (verification_status das entidades sintéticas é o default `'pending'`, nunca `'verified'`, confirmado por leitura directa de `information_schema.columns`) — não entram nesta contagem por essa razão, independentemente de is_internal.
+- `catalog_person_check_consensus`, `catalog_entity_recount_consensus`, `catalog_evidence_consensus_check` — lêem is_internal para o mecanismo de consenso entre startups (tabelas `contributions`/`catalog_evidence`); sem efeito porque o fixture nunca insere nessas tabelas.
+- `ai_wallet_status`, `charge_ai_action` — mesma isenção de carteira de IA do lado do código; sem efeito, mesma razão.
+- `catalog_deliveries_block_external` — este é o único com efeito real e desejado: é exactamente o que a mudança de flag pretendia destravar.
+
+**Flag set, logged, used, then removed with the rest of the fixture:** `update orgs set is_internal = true where id = '…0001'` + um registo em `admin_audit_log` (`action='prompt_737_0a5_test_fixture_is_internal_set'`) com a razão completa — **este registo de auditoria foi mantido deliberadamente**, não apagado com o resto do fixture, por ser o próprio rasto de auditoria que a condição (a) pedia.
+
+**Delivery then succeeded** (`verification_insert_catalog_delivery` → `catalog_deliveries.id = '68a514c6-e590-4b28-97ec-41bbd33e81df'`).
+
+**After-delivery proof, three ways, claim-simulated (all read-only, rolled back):**
+- Test user (non-admin): `entity A → 1 row, entity B → no row`. This is the actual proof the person-affiliation removal works — Person 1 is affiliated to both entities, yet the test user sees only the delivered entity's source.
+- `anon`: `permission denied for table catalog_entity_enrichment_sources` — stronger than an RLS-filtered empty set; this is 0A.4's own grant hardening (`revoke all … from anon`) confirmed live.
+- Real admin (`c934d05b-1838-46fc-8c75-d2a454f3aa38`): `entity A → 1 row, entity B → 1 row` — admin bypass confirmed working as designed.
+
+**Negative-proof against the real Portugal Ventures** (`7cddf0fb-2ee6-49f0-9379-ba6cd8777e22`), same test-user claim-sim, no delivery ever created for it: `catalog_entity_enrichment_sources` → 0 rows, `catalog_evidence` → 0 rows. The real catalog entity was never touched by this fixture in any way.
+
+**Cleanup, confirmed empty:** `catalog_deliveries`, `catalog_entity_enrichment_sources`, `catalog_person_affiliations`, `catalog_people` (both), `catalog_entities` (both), `org_members`, `auth.users`, `orgs` — all deleted; re-queried afterward, all counts zero. Only the two `admin_audit_log` rows (the is_internal-set entry and, if any, prior consensus/audit entries this session's reads may have triggered — none did, since no `contributions`/`catalog_evidence` rows were ever inserted) remain, by design.
+
+**0A checkpoint status — all three conditions met:** 0A.3 = zero differences (confirmed earlier); 0A.4 applied and confirmed live (`20260925151126`); 0A.5 proven (fixture, before/after claim-sim proof, real-PV negative-proof, full registration and cleanup, all above). Bloco 0B can now start once this report reaches Nuno and he gives the go-ahead — per the prompt's own hard checkpoint, not before.
