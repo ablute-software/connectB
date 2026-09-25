@@ -22,6 +22,7 @@ import { ReviewResultBody } from './ReviewResultBody';
 import { ClarificationBullet } from './ClarificationBullet';
 import { clarificationsByKey, clarificationKey, upsertClarification, type ReviewCategory, type ReviewClarification } from '@/lib/review-clarifications';
 import { splitFundraisingExecution } from '@/lib/founder-report-split';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 interface AiReviewRow {
   id: string; kind: string; title: string | null; created_at: string;
@@ -218,10 +219,10 @@ export function HistoryPanel() {
         {canDelete && ' As the account owner or an admin, you can delete an entry — that is permanent.'}
       </p>
       {delErr && <p className="mb-2 text-xs text-[#B00000]">{delErr}</p>}
-      {!caps ? <p className="text-sm text-gray-400">Loading…</p>
+      {!caps ? <LoadingState text="Loading…" compact />
         : !caps.ai ? <p className="rounded-lg bg-gray-50 px-4 py-3 text-center text-xs text-gray-400">Coming soon to your workspace.</p>
         : err ? <p className="text-xs text-[#B00000]">{err}</p>
-        : items === null ? <p className="text-sm text-gray-400">Loading…</p>
+        : items === null ? <LoadingState text="Loading…" compact />
         : items.length === 0 ? <p className="text-xs text-gray-500">No reviews yet — run one from the Review tab and it will show up here.</p>
         : (
           <ul className="space-y-2">

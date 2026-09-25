@@ -38,6 +38,7 @@ import { isPersonCandidate, isUnverifiedStub, relatedContacts, relationshipSumma
 import { vaultAccessAdviceFromDb } from '@/lib/vault-access-advice';
 import { SherlockInsightBanner } from '@/components/SherlockInsightBanner';
 import { PreContactReadinessNudge } from '@/components/PreContactReadinessNudge';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 import { computeAlignment } from '@/lib/company-canon-logic';
 import { browserClient } from '@/lib/supabase';
 import { EntityClassificationEditor } from '@/components/EntityClassificationEditor';
@@ -357,7 +358,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   );
 
   if (!entity) {
-    if (loading || refetching || !attemptedRefetch) return <div className="text-gray-500">Loading…</div>;
+    if (loading || refetching || !attemptedRefetch) return <LoadingState text="Loading…" compact />;
     return (
       <div className="mx-auto mt-16 max-w-sm space-y-3 text-center">
         <p className="text-sm text-gray-600">We couldn&apos;t find this entity — it may still be syncing.</p>

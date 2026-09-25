@@ -15,6 +15,53 @@ import { analyseTeamComposition, type TeamMember } from './team-composition';
 export type GapRule = 'G1' | 'G2' | 'G3' | 'G3b' | 'G3c' | 'G4' | 'G5' | 'G6' | 'G7' | 'G8';
 export type GapSeverity = 'critical' | 'high' | 'medium';
 
+// Prompt 363, moved here from answer/route.ts by Prompt 732 §D so /api/
+// blueprint's GET can share it too (see that route's own comment). G1 and
+// G6 are the two structural rules that can legitimately keep firing after
+// an honest, saved answer (the founder told the truth, but the underlying
+// fact — paid traction, a real use-of-funds — still doesn't exist).
+// G3/G3b/G3c close via 2.4's presumption-of-truth, G4/G5/G7/G8 close via
+// set_disposition/dismiss/refresh_claim, which never re-fire once answered
+// — only these two need this.
+export const STILL_OPEN_CLOSES_WHEN: Partial<Record<GapRule, string>> = {
+  G1: 'you have a paying customer or signed purchase order, not before',
+  G6: 'the ask is backed by a real use-of-funds and a real why-now, not just a number',
+};
+
+// Prompt 298 §2, moved here from gap-assist/route.ts by Prompt 732 §B so the
+// CLIENT can know a gap's role before the founder clicks anything (the
+// route already knew it, but only after the call) — one map, not two kept
+// in sync by hand. 'draft' rules are where the platform might already have
+// the answer somewhere in what the founder already confirmed (accepted
+// claims — company_facts, roadmap, funding rounds, vault docs, per
+// company-knowledge-db.ts's own closed list); 'polish' rules are where only
+// the founder can actually know the answer (who leads X, whether a specific
+// claim is still true) — AI may only improve the founder's OWN wording
+// there, never invent the fact itself.
+//
+// Prompt 308 — G3c ("who leads the {function} side?") is reliably draftable
+// from company_people.title alone (a structured field — "CTO"/"Head of
+// Engineering" IS the answer), so it moves from 'polish' to 'draft'; the
+// existing sufficient:false honesty gate already covers the case where no
+// title matches. G3b stays 'polish': its second half ("what makes them
+// irreplaceable") needs real differentiating narrative, and the bio field's
+// own placeholder in Settings→Team ("Mini-bio (optional, 1-2 lines)")
+// documents that bios here are typically too short/generic to draft a
+// convincing answer to that specific half of the question — forcing a
+// change here would trade a clear "write it yourself" prompt for a
+// probably-thin AI draft, which is a worse experience, not a better one.
+export const AI_ROLE: Record<GapRule, 'draft' | 'polish'> = {
+  G1: 'polish', G2: 'polish', G3: 'draft', G3b: 'polish', G3c: 'draft', G4: 'draft', G5: 'polish', G6: 'draft',
+  // G7 fires exactly when nothing else in the corpus corroborates this
+  // claim — there's nothing to draft FROM by definition, only the
+  // founder's own elaboration to help phrase.
+  G7: 'polish',
+  // G8 (Prompt 310 §B) — a round-value incongruence: two claims already ON
+  // FILE disagree. There's nothing to "draft" — the platform can't guess
+  // which number is right, only the founder can resolve it.
+  G8: 'polish',
+};
+
 export interface Gap {
   rule: GapRule;
   severity: GapSeverity;

@@ -12,6 +12,9 @@
 // answer). The role comes from the server (/api/blueprint/gap-assist),
 // never guessed client-side.
 import { useEffect, useRef, useState } from 'react';
+import { useConfirm } from '@/lib/confirm';
+import { simpleSpendDialog } from '@/lib/ai-spend-confirm';
+import { fetchWalletStatus } from '@/lib/ai-spend-confirm-client';
 
 const SEVERITY_STYLE: Record<string, string> = { critical: 'bg-red-100 text-red-800', high: 'bg-amber-100 text-amber-800', medium: 'bg-gray-100 text-gray-600' };
 
@@ -43,6 +46,21 @@ export interface GapView {
   // engine already found for this (G4-only) gap, if any. null for every
   // other rule and whenever nothing plausible was found.
   reconciliationSuggestion: { matchedDocumentId: string; matchedDocumentName: string; evidenceQuote: string | null; reasoning: string | null } | null;
+  // Prompt 732 §B — which of the two AI roles (see this file's own header)
+  // applies to THIS gap, known before any click. /api/blueprint's GET now
+  // sends this (AI_ROLE[gap.rule], company-gaps.ts — the same map
+  // gap-assist/route.ts enforces server-side) so the button can say the
+  // true thing instead of guessing from whether the text box has content.
+  assistRole: 'draft' | 'polish';
+  // Prompt 732 §D — true when gap_questions already has a row for this
+  // gap_key (the founder answered it before via dismiss/refresh_claim/
+  // set_disposition/set_founder_prompt_state — none of which create the
+  // founder_answer claim `answeredRules` checks for) AND the rule isn't one
+  // of the few that legitimately reopens on its own (G1/G5/G6). Lets the
+  // client show "you already told us" immediately, instead of re-asking a
+  // blank question the founder already answered.
+  previouslyAnswered?: boolean;
+  previouslyAnsweredReason?: string;
 }
 
 interface VaultDocOption { id: string; name: string }
@@ -81,13 +99,20 @@ export function GapInterrogation({
   const [reconciling, setReconciling] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
+  const confirm = useConfirm();
   // Prompt 363 — set when the saved answer's rule (G1/G6) still fires
   // afterward: the founder answered honestly but the underlying fact
   // (paid traction, real use-of-funds) genuinely doesn't exist yet. Persists
   // for the life of THIS mounted instance (the gap's key doesn't change
   // just because a new claim was appended — see the file header on
   // gapKey's discriminator) rather than being tied to key changing.
-  const [stillOpenInfo, setStillOpenInfo] = useState<{ reason: string; answerText: string } | null>(null);
+  // Prompt 732 §D — seeded from gap.previouslyAnswered on mount (this
+  // component remounts on every gap.key change — see ReviewPanel.tsx's own
+  // `key={currentGap.key}` — so a plain useState initializer is enough,
+  // same lifecycle stillOpenInfo already relies on after a real Save).
+  const [stillOpenInfo, setStillOpenInfo] = useState<{ reason: string; answerText: string } | null>(
+    gap.previouslyAnswered ? { reason: gap.previouslyAnsweredReason ?? '', answerText: '' } : null,
+  );
   const savedFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => () => { if (savedFlashTimer.current) clearTimeout(savedFlashTimer.current); }, []);
@@ -154,6 +179,19 @@ export function GapInterrogation({
   }
 
   async function assist() {
+    // Prompt 732 §B — 'draft' always replaces the box wholesale (it's not
+    // "improve what's there", it's "generate a fresh candidate"); if the
+    // founder already wrote something, replacing it silently would destroy
+    // real work without warning. 'polish' never reaches this: the button
+    // stays disabled until there's text, per the disabled logic below.
+    if (gap.assistRole === 'draft' && answer.trim()
+      && !(await confirm({ message: 'This will replace what you\'ve written. Continue?' }))) return;
+    // Prompt 732 §C — blueprint_gap_draft/blueprint_gap_polish had no cost/
+    // balance preview before spending (neither is in needs_confirmation —
+    // there's no critical-gap reason to warn about here, just plain cost).
+    const actionKey = gap.assistRole === 'draft' ? 'blueprint_gap_draft' : 'blueprint_gap_polish';
+    const wallet = await fetchWalletStatus(actionKey);
+    if (!(await confirm(simpleSpendDialog({ actionLabel: 'Watson', wallet })))) return;
     setAssisting(true); setAssistErr('');
     try {
       const res = await fetch('/api/blueprint/gap-assist', {
@@ -281,16 +319,31 @@ export function GapInterrogation({
               className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">
               Skip this one
             </button>
-            <button onClick={assist} disabled={assisting || busy || submitting}
+            {/* Prompt 732 §B — the role is fixed by RULE on the server
+                (AI_ROLE, company-gaps.ts), never by what's in the text box.
+                'polish' only ever improves the founder's own wording, so it
+                stays disabled (never hidden — the founder should see AI is
+                available here, just not yet) until there's something to
+                improve. 'draft' can always run — see assist()'s own confirm
+                guard for what happens if the box already has text. */}
+            <button onClick={assist}
+              disabled={assisting || busy || submitting || (gap.assistRole === 'polish' && !answer.trim())}
+              title={gap.assistRole === 'polish' && !answer.trim() ? 'Write your own answer first — Watson can only improve your wording here' : undefined}
               className="rounded-lg border border-[#0E7490] px-3 py-1.5 text-xs font-medium text-[#0E7490] hover:bg-[#E8F4F8] disabled:opacity-40">
-              {assisting ? 'Thinking…' : answer.trim() ? 'AI: polish my wording' : 'AI: draft from what we already know'}
+              {assisting ? 'Thinking…' : gap.assistRole === 'draft' ? '🔍 Watson: draft an answer' : '✨ Watson: improve my wording'}
             </button>
             {savedFlash && <span className="text-xs font-medium text-green-700">Saved ✓</span>}
           </div>
           <p className="mt-1.5 text-[11px] text-gray-400">
+            {/* Prompt 732 §B.3 — the post-click confirmation (assistRole
+                state, set by assist() above) takes priority once it exists;
+                before any click, gap.assistRole already says what WOULD
+                happen, so the legend is never a generic placeholder that
+                contradicts the button right above it. */}
             {assistRole === 'polish' && 'AI improved your own wording — no new facts were added.'}
             {assistRole === 'draft' && 'AI drafted this from what\'s already on file (facts, team profiles, Vault documents) — check it before saving.'}
-            {!assistRole && 'Your answer becomes a claim in your own words. Its strength is measured from what you write — never chosen.'}
+            {!assistRole && gap.assistRole === 'polish' && 'Watson can improve your own wording here — it never invents the fact itself.'}
+            {!assistRole && gap.assistRole === 'draft' && 'Watson can draft this from what\'s already on file (facts, team profiles, Vault documents) — review before saving.'}
           </p>
           {assistErr && <p className="mt-1 text-[11px] text-amber-700">{assistErr}</p>}
         </>

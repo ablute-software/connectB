@@ -33,6 +33,7 @@ import { APP_URL } from '@/lib/brand';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { VisibilityToggle } from '@/components/VisibilityToggle';
 import { useTrackPageView } from '@/lib/use-track-page-view';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 type Invitation = { id: string; email: string; role: string; status: string; created_at: string; expires_at: string };
 type Member = { userId: string; email: string; role: OrgRole; isSelf: boolean };
@@ -129,7 +130,7 @@ function RosterCard({ myRole, orgId }: { myRole: OrgRole | null; orgId: string }
   }
 
   if (err) return <Card title="People"><p className="text-sm text-[#B00000]">{err}</p></Card>;
-  if (!members) return <Card title="People"><p className="text-sm text-gray-400">Loading…</p></Card>;
+  if (!members) return <Card title="People"><LoadingState text="Loading…" compact /></Card>;
 
   return (
     <Card title={`People (${members.length})`}>
@@ -322,7 +323,7 @@ function GmailConnectionCard() {
         after you send them by hand. LinkedIn has no send API by design (ToS) — the composer offers copy-assist there instead.
       </p>
       {flash && <p className="mb-2 text-xs text-cyan-800">{GMAIL_MESSAGE[flash] ?? ''}</p>}
-      {!status ? <p className="text-sm text-gray-400">Loading…</p> : !status.configured ? (
+      {!status ? <LoadingState text="Loading…" compact /> : !status.configured ? (
         <p className="text-xs text-gray-400">Gmail connection is coming soon.</p>
       ) : status.connected ? (
         <div className="flex items-center gap-2 text-sm">

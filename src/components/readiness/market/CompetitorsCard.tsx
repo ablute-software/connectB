@@ -5,6 +5,7 @@
 // row (§0.2 safeguard #3) — this component never decides that itself.
 import { useEffect, useState } from 'react';
 import { isStale } from '@/lib/market-data-gaps';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 // Prompt 378 §C — a pending 'players' proposal, from either provenance:
 // document_id/page (the Vault extraction pass) or source_url (web research).
@@ -394,7 +395,7 @@ export function CompetitorsCard({ onChanged }: { onChanged?: () => void }) {
     }
   }
 
-  if (competitors === null) return <p className="text-sm text-gray-400">Loading…</p>;
+  if (competitors === null) return <LoadingState text="Loading…" compact />;
 
   // Prompt 450 §D — STATUS_QUO items describe the buyer's current behavior,
   // not a competitor candidate at all; they're excluded here entirely

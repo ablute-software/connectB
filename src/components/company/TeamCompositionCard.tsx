@@ -14,6 +14,7 @@
 // something an investor can respect, where silence says nothing.
 import { useCallback, useEffect, useState } from 'react';
 import { Card } from '@/components/ui';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 type State = 'covered' | 'thin' | 'absent' | 'hiring';
 
@@ -66,7 +67,7 @@ export function TeamCompositionCard({ canEdit }: { canEdit: boolean }) {
     load();
   }
 
-  if (!data) return <Card title="What this team needs covered"><p className="text-sm text-gray-400">Loading…</p></Card>;
+  if (!data) return <Card title="What this team needs covered"><LoadingState text="Loading…" compact /></Card>;
   if (!data.available) return null;
 
   return (

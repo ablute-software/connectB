@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { BRAND_NAME } from '@/lib/brand';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { InvestorSignInForm } from '@/components/auth/InvestorSignInForm';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 interface ClaimEvidence {
   entityDomain?: string | null;
@@ -55,14 +56,14 @@ export default function ClaimPendingPage() {
       </div>
 
       {sessionEmail === undefined ? (
-        <p className="text-sm text-gray-400">Loading…</p>
+        <LoadingState text="Loading…" compact />
       ) : !sessionEmail ? (
         <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
           <p className="mb-4 text-sm text-gray-600">Sign in to see your claim&apos;s status.</p>
           <InvestorSignInForm next="/claim/pending" linkFailed={false} />
         </div>
       ) : claims === null ? (
-        <p className="text-sm text-gray-400">Loading…</p>
+        <LoadingState text="Loading…" compact />
       ) : pending.length === 0 ? (
         <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
           <h1 className="mb-1 text-lg font-semibold text-gray-900">No claim pending review</h1>

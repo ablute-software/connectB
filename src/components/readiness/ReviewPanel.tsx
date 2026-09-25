@@ -13,7 +13,10 @@
 // (score/strengths/weaknesses/risks/recommendations) for every one of them,
 // not just investability.
 import { useEffect, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import type { Components } from 'react-markdown';
 import { ReconciliationBusyNotice } from './ReconciliationBusyNotice';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 import { useStore } from '@/lib/store';
 import { Card, Toggle } from '@/components/ui';
 import { softCircledThisRound } from '@/lib/round-capital';
@@ -29,7 +32,7 @@ import { GAP_QUESTION_BUDGET } from '@/lib/company-gaps';
 import { PlanBadge } from '@/components/PlanBadge';
 import { planName, REVIEW_OPTIMIZATION_PREVIEW_COPY } from '@/lib/plans';
 import { useConfirm } from '@/lib/confirm';
-import { countCriticalGaps, insufficientInfoDialog, shouldWarnBeforeSpending } from '@/lib/ai-spend-confirm';
+import { countCriticalGaps, insufficientInfoDialog, shouldWarnBeforeSpending, simpleSpendDialog } from '@/lib/ai-spend-confirm';
 import { fetchWalletStatus } from '@/lib/ai-spend-confirm-client';
 import { can, type OrgRole } from '@/lib/permissions';
 import { SwotVisualCard } from './SwotVisualCard';
@@ -41,6 +44,25 @@ import { InvestorFeedbackCard } from './InvestorFeedbackCard';
 
 interface ReviewRun { id: string; score: number | null; summary: string | null; report: InvestabilityReport; created_at: string }
 interface InvestabilityReport extends SwotData { score: number; summary: string; risks: string[]; recommendations: string[] }
+
+// Prompt 732 §F — "Benchmark my market" asks the model for a 4-point report
+// (/api/ai-review's market_data prompt) and Claude naturally answers in
+// markdown, which used to render as literal `#`/`**`/`-` inside a <pre>.
+// The project has no @tailwindcss/typography (confirmed: tailwind.config.ts
+// has `plugins: []`), so `prose` would style nothing — manual styles here
+// instead of adding a second package just for this. Kept deliberately
+// narrow: headings/paragraphs/bold/lists only, matching the plain-text
+// shape this specific prompt asks for (no tables, no code blocks).
+const MARKET_RESULT_MARKDOWN_COMPONENTS: Components = {
+  h1: ({ children }) => <h3 className="mt-3 text-sm font-semibold text-gray-900 first:mt-0">{children}</h3>,
+  h2: ({ children }) => <h3 className="mt-3 text-sm font-semibold text-gray-900 first:mt-0">{children}</h3>,
+  h3: ({ children }) => <h4 className="mt-2 text-xs font-semibold text-gray-900 first:mt-0">{children}</h4>,
+  p: ({ children }) => <p className="mt-2 text-xs text-gray-700 first:mt-0">{children}</p>,
+  strong: ({ children }) => <strong className="font-semibold text-gray-900">{children}</strong>,
+  ul: ({ children }) => <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-gray-700">{children}</ul>,
+  ol: ({ children }) => <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs text-gray-700">{children}</ol>,
+  li: ({ children }) => <li>{children}</li>,
+};
 
 const DOC_KINDS = [
   { value: 'deck_review', label: 'Pitch deck' },
@@ -276,10 +298,22 @@ export function ReviewPanel() {
     ...db.companyFacts.filter((f) => f.status === 'confirmed').map((f) => f.statement),
     ...acceptedClaimStatements,
   ])];
+  // Prompt 733 §A.2 — description is more positioning context at zero cost,
+  // for every org's own AI reviews below (not just investability's).
   const companyContext = {
     name: db.org.name, sector: db.org.sector, stage: db.org.stage,
     round_target_eur: db.org.round_target_eur, country: db.org.country, one_liner: db.org.one_liner,
+    description: db.org.description,
   };
+  // Prompt 734 §A — the founder's own roster (company_people), never sent
+  // to Investability before now: it only ever received `facts`, which is
+  // free text and can't be trusted as a source of "how many founders" (a
+  // real production case had two confirmed co-founders here, but the
+  // report said "single named founder" because it was reading a stray
+  // phrase inside an unrelated confirmed fact instead).
+  const team = db.companyPeople.map((p) => ({
+    full_name: p.full_name, title: p.title ?? null, is_founder: p.is_founder, commitment: p.commitment ?? null,
+  }));
 
   // Prompt 212 §B.2 — o nome importa tanto como o numero. Isto ia para o
   // modelo como `soft_circled_eur`, sem qualificar, e o modelo tratava-o
@@ -339,6 +373,13 @@ export function ReviewPanel() {
   }
 
   async function researchMarket() {
+    // Prompt 732 §C — market_data_review has no needs_confirmation flag (no
+    // critical-gap reason to warn about), so this was one of the 15 actions
+    // that never showed cost or balance before spending. Same
+    // fetchWalletStatus + useConfirm() pair the 4 needs_confirmation actions
+    // already use, just the lighter dialog (no gap paragraph).
+    const wallet = await fetchWalletStatus('market_data_review');
+    if (!(await confirm(simpleSpendDialog({ actionLabel: 'Benchmark my market', wallet })))) return;
     setMarketLoading(true); setMarketResult('');
     try {
       const res = await fetch('/api/ai-review', {
@@ -380,18 +421,12 @@ export function ReviewPanel() {
   // Prompt 706 Bloco D — the SAME criticalGaps count the card below already
   // shows (line ~420), reused rather than recomputed, so the popup and the
   // card can never disagree about "how many."
-  async function runInvestability() {
-    const criticalGapCount = countCriticalGaps(gaps);
-    if (shouldWarnBeforeSpending(criticalGapCount)) {
-      const wallet = await fetchWalletStatus('investability_report');
-      const proceed = await confirm(insufficientInfoDialog({ actionLabel: 'Investability ranking', criticalGapCount, wallet }));
-      if (!proceed) return;
-    }
+  async function postInvestabilityRun() {
     setRunLoading(true); setRunErr('');
     try {
       const res = await fetch('/api/review/investability', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ facts: confirmedFacts, pipeline: pipelineStats(), company: companyContext }),
+        body: JSON.stringify({ facts: confirmedFacts, pipeline: pipelineStats(), company: companyContext, team }),
       });
       const data = await res.json();
       if (!data.ok) { setRunErr(data.error ?? data.message ?? 'Failed'); return; }
@@ -399,7 +434,42 @@ export function ReviewPanel() {
     } catch (e) { setRunErr((e as Error).message); } finally { setRunLoading(false); }
   }
 
+  async function runInvestability() {
+    const criticalGapCount = countCriticalGaps(gaps);
+    if (shouldWarnBeforeSpending(criticalGapCount)) {
+      const wallet = await fetchWalletStatus('investability_report');
+      const proceed = await confirm(insufficientInfoDialog({ actionLabel: 'Investability ranking', criticalGapCount, wallet }));
+      if (!proceed) return;
+    }
+    await postInvestabilityRun();
+  }
+
+  // Prompt 734 §C — the stale-report "Refresh" button always previews cost/
+  // balance (simpleSpendDialog, Prompt 732 §C), unconditionally — unlike the
+  // main "Run review" button above, which only warns when critical gaps are
+  // open. Calling postInvestabilityRun() directly (not runInvestability())
+  // avoids stacking that gap-based dialog on top of this one when both
+  // conditions happen to be true at once.
+  async function refreshInvestability() {
+    const wallet = await fetchWalletStatus('investability_report');
+    if (!(await confirm(simpleSpendDialog({ actionLabel: 'Investability ranking', wallet })))) return;
+    await postInvestabilityRun();
+  }
+
   const latest = runs[0];
+
+  // Prompt 734 §C — no mechanism anywhere near review_runs/ReviewPanel told
+  // the founder the confirmed canon had moved since the shown run. Compares
+  // against the same three sources the request itself now sends
+  // (facts/team, via confirmedFacts' own inputs + team above) — client-side
+  // only, no migration: every timestamp here is already loaded into this
+  // component for other reasons.
+  const latestDataUpdate = [
+    ...db.companyFacts.map((f) => f.updated_at),
+    ...db.companyPeople.map((p) => p.updated_at),
+    ...claims.map((c) => c.updatedAt).filter((d): d is string => !!d),
+  ].sort().at(-1);
+  const investabilityStale = !!latest && !!latestDataUpdate && latestDataUpdate > latest.created_at;
 
   // Prompt 166 §B/§C — a new review can start only with feature access AND
   // quota left; reviewQuota is null either while /api/me hasn't resolved yet
@@ -569,7 +639,7 @@ export function ReviewPanel() {
           opportunities, threats, risks and recommendations. Each run is stored so you can watch it improve as you add
           facts and close conversations.
         </p>
-        {!caps ? <p className="text-sm text-gray-400">Loading…</p>
+        {!caps ? <LoadingState text="Loading…" compact />
           : !caps.reviewRuns || !caps.ai ? <ComingSoon />
           : (
             <>
@@ -591,6 +661,22 @@ export function ReviewPanel() {
                     <span className="text-2xl font-bold text-[#0E7490]">{latest.score}</span>
                     <span className="text-xs text-gray-400">/ 100 · {latest.created_at.slice(0, 10)}</span>
                   </div>
+                  {/* Prompt 734 §C — discreet, not blocking: the founder can
+                      still read the (possibly outdated) report below, but
+                      knows it might not reflect what they just confirmed. */}
+                  {investabilityStale && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+                      {/* Prompt 734 §C quoted this line in Portuguese as an
+                          example (Nuno writes prompts in PT); translated to
+                          English here to match every other string in this
+                          app's UI. */}
+                      <span>New data since this report — it may be outdated.</span>
+                      <button disabled={runLoading} onClick={refreshInvestability}
+                        className="rounded-full bg-amber-700 px-2 py-0.5 text-[11px] font-semibold text-white disabled:opacity-40">
+                        {runLoading ? 'Refreshing…' : 'Refresh'}
+                      </button>
+                    </div>
+                  )}
                   {latest.summary && <p className="mt-1 text-gray-700">{latest.summary}</p>}
                   {/* strengths/weaknesses/opportunities/threats now live in
                       SwotVisualCard above — only the two categories it
@@ -769,7 +855,11 @@ export function ReviewPanel() {
               className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
               {marketLoading ? 'Researching…' : 'Benchmark my market'}
             </button>
-            {marketResult && <pre className="mt-3 whitespace-pre-wrap rounded border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">{marketResult}</pre>}
+            {marketResult && (
+              <div className="mt-3 rounded border border-gray-200 bg-gray-50 p-3">
+                <ReactMarkdown components={MARKET_RESULT_MARKDOWN_COMPONENTS}>{marketResult}</ReactMarkdown>
+              </div>
+            )}
           </>
         )}
       </Card>

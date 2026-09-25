@@ -20,6 +20,7 @@ import { KnowledgeHealthPanel } from './KnowledgeHealthPanel';
 import { isWastedStrongClaim, claimsNeedingStrengthening } from '@/lib/company-claims';
 import { pickCurrentGap } from '@/lib/gap-rotation';
 import { GAP_QUESTION_BUDGET } from '@/lib/company-gaps';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 interface BlueprintState {
   available: boolean;
@@ -222,7 +223,7 @@ export function BlueprintPanel() {
     } finally { setBulkBusy(false); }
   }
 
-  if (state === null) return <p className="text-sm text-gray-400">Loading…</p>;
+  if (state === null) return <LoadingState text="Loading…" compact />;
   if (!state.available) {
     return (
       <Card title="Pitch Blueprint">
