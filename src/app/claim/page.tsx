@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { BRAND_NAME } from '@/lib/brand';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { InvestorSignInForm } from '@/components/auth/InvestorSignInForm';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 interface EntityResult {
   id: string; name: string; website: string | null; hqCity: string | null; hqCountry: string | null; verificationStatus: string;
@@ -102,7 +103,7 @@ export default function ClaimPage() {
       </p>
 
       {sessionEmail === undefined ? (
-        <p className="text-sm text-gray-400">Loading…</p>
+        <LoadingState text="Loading…" compact />
       ) : !sessionEmail ? (
         <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
           <p className="mb-4 text-sm text-gray-600">Sign in (or create a free account) to claim a profile — this is how we know which email domain to check.</p>

@@ -11,6 +11,7 @@ import { useStore } from '@/lib/store';
 import { buildRecentActivity, formatActivityTime } from '@/lib/recent-activity';
 import { useTableUrlState } from '@/lib/use-table-url-state';
 import { PAGE_SIZES, type PageSize } from '@/lib/queue-table-state';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 // useTableUrlState reads useSearchParams(), which Next.js requires a
 // Suspense boundary around in the app router (same pattern
@@ -19,7 +20,7 @@ import { PAGE_SIZES, type PageSize } from '@/lib/queue-table-state';
 // class CLAUDE.md's own rule 5 warns never to miss by trusting a grep.
 export default function ActivityPage() {
   return (
-    <Suspense fallback={<p className="text-sm text-gray-400">Loading…</p>}>
+    <Suspense fallback={<LoadingState text="Loading…" compact />}>
       <ActivityPageContent />
     </Suspense>
   );

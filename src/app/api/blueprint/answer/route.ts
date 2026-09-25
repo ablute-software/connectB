@@ -29,7 +29,7 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { claimsAvailable, blueprintAnalysesAvailable } from '@/lib/blueprint-capability';
 import { gapDispositionAvailable, gapQuestionsAvailable, founderPromptStateAvailable } from '@/lib/document-extraction-capability';
 import { normalizeAtom, joinChipAndFreeText } from '@/lib/company-claims';
-import { routeAnswer, ruleG1, ruleG6, impactWhy, type GapRule } from '@/lib/company-gaps';
+import { routeAnswer, ruleG1, ruleG6, impactWhy, STILL_OPEN_CLOSES_WHEN, type GapRule } from '@/lib/company-gaps';
 import { routeFreeTextAnswer } from '@/lib/answer-routing';
 import { chargeAiAction } from '@/lib/ai-credits';
 import { readExistingClaims } from '@/lib/company-knowledge-db';
@@ -71,20 +71,8 @@ async function recordAsked(admin: SupabaseClient, orgId: string, analysisId: str
 // upserted, not inserted, so answering the same gap_key again (should never
 // happen given /api/blueprint's own answeredRules filter, but this is the
 // backstop) updates the existing row instead of violating the constraint.
-// Prompt 363 — G1 and G6 are the two structural rules that can legitimately
-// keep firing after an honest, saved answer (the founder told the truth,
-// but the underlying fact — paid traction, a real use-of-funds — still
-// doesn't exist). Re-running the rule against the just-updated claims after
-// the write is the mechanical way to tell "still structurally open" apart
-// from "the app forgot your answer", which is what Prompt 363 reports the
-// UI looked like without this. Only these two rules need it: G3/G3b/G3c
-// close via 2.4's presumption-of-truth, G4/G5/G7/G8 close via
-// set_disposition/dismiss/refresh_claim, which never re-fire once answered.
-const STILL_OPEN_CLOSES_WHEN: Partial<Record<GapRule, string>> = {
-  G1: 'you have a paying customer or signed purchase order, not before',
-  G6: 'the ask is backed by a real use-of-funds and a real why-now, not just a number',
-};
-
+// STILL_OPEN_CLOSES_WHEN moved to company-gaps.ts (Prompt 732 §D) so /api/
+// blueprint's GET can reuse the identical rule set — see its own comment.
 async function checkStillOpen(
   admin: SupabaseClient, orgId: string, rule: string,
 ): Promise<{ stillOpen: boolean; reason?: string } | null> {
@@ -216,7 +204,7 @@ export async function POST(req: Request) {
   if (!statement) return NextResponse.json({ ok: false, error: 'An answer is required.' }, { status: 400 });
 
   if (answerText && targetClaimId && apiKey) {
-    const { data: targetRow } = await admin.from('company_claims').select('id, statement')
+    const { data: targetRow } = await admin.from('company_claims').select('id, statement, category')
       .eq('id', targetClaimId).eq('org_id', orgId).maybeSingle();
     if (targetRow?.statement) {
       try {
@@ -231,8 +219,21 @@ export async function POST(req: Request) {
         const decision = await routeFreeTextAnswer(apiKey, model, orgId, body.rule, targetRow.statement as string, answerText);
         if (decision.destination === 'amend_target_claim') {
           const merged = `${targetRow.statement} ${answerText}`.trim();
+          // Prompt 732 §E.2 — this used to update ONLY `statement`, leaving
+          // evidence_class/specificity at whatever the OLD (often weaker)
+          // text scored. A merge that adds "paying customer, €X/month,
+          // since March" to a weak claim kept the weak claim's evidence
+          // class forever, so G1 (which reads evidence_class) never closed
+          // even though the founder had just answered it correctly.
+          // normalizeAtom is the SAME function a brand-new claim runs
+          // through (below) — recomputing here keeps a merged claim held to
+          // the identical standard as a fresh one.
+          const n = normalizeAtom({
+            category: targetRow.category as ClaimCategory, statement: merged,
+            sourceKind: 'founder_answer', sourceRef: `gap:${body.gapKey}`,
+          });
           const { error } = await admin.from('company_claims')
-            .update({ statement: merged, updated_at: new Date().toISOString() })
+            .update({ statement: n.statement, evidence_class: n.evidenceClass, specificity: n.specificity, updated_at: new Date().toISOString() })
             .eq('id', targetClaimId).eq('org_id', orgId);
           if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
           await recordAsked(admin, orgId, body.analysisId, { key: body.gapKey, rule: body.rule, answered: true, dismissed: false, disposition: 'amend_target_claim' });

@@ -18,6 +18,7 @@ import { useTrackPageView } from '@/lib/use-track-page-view';
 import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import { DossierOverviewSections, type Card as DossierCard, type Dossier } from '@/components/portal/DossierOverviewSections';
 import { projectIntroPitch } from '@/lib/investor-interest-level';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 type Level = 0 | 1 | 2 | 3;
 
@@ -126,7 +127,7 @@ export default function DossierPreviewPage() {
 
       <div className="mt-4">
         {!data ? (
-          <p className="text-sm text-gray-400">Loading…</p>
+          <LoadingState text="Loading…" compact />
         ) : (
           <DossierOverviewSections
             card={card} level={level} dossier={data.dossier} readOnly

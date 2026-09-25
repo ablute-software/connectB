@@ -57,6 +57,7 @@ import { feedDocumentsToRestOfPlatform } from '@/lib/feed-documents-to-platform'
 import { useConfirm } from '@/lib/confirm';
 import { insufficientInfoDialog, shouldWarnBeforeSpending } from '@/lib/ai-spend-confirm';
 import { fetchCriticalGapCount, fetchWalletStatus } from '@/lib/ai-spend-confirm-client';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 interface Gate { eligible: boolean; missing: { key: string; label: string; href: string }[] }
 interface DocItem { documentId: string; documentName: string; label: string }
@@ -431,7 +432,7 @@ export function MarketDataPanel() {
   const pendingDocuments = useMemo(() => (researchItems ?? []).filter((i) => i.source_kind === 'document').length, [researchItems]);
 
   if (notAvailable) return <p className="text-sm text-gray-400">Not available in this workspace yet.</p>;
-  if (!gate || view === null) return <p className="text-sm text-gray-400">Loading…</p>;
+  if (!gate || view === null) return <LoadingState text="Loading…" compact />;
 
   return (
     <div className="max-w-5xl space-y-4">

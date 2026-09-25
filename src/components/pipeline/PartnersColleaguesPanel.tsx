@@ -14,6 +14,7 @@ import { Card } from '@/components/ui';
 import { authEnabled } from '@/lib/supabase';
 import { NetworkAvatar } from '@/components/NetworkAvatar';
 import { InviteByEmailForm } from '@/components/network/InviteByEmailForm';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 interface ConnectionRow { id: string; otherActorId: string; otherName: string; otherKind: 'founder' | 'investor'; originContext: string | null }
 
@@ -39,7 +40,7 @@ export function PartnersColleaguesPanel() {
       )}
 
       {!connections ? (
-        <p className="text-sm text-gray-400">Loading…</p>
+        <LoadingState text="Loading…" compact />
       ) : connections.length === 0 ? (
         <p className="text-sm text-gray-400">No connections yet — see My Network to invite someone from shared context, or add a colleague by email above.</p>
       ) : (

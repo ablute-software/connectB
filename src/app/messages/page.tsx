@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Tabs } from '@/components/ui';
 import { SupportTicketsPanel, useSupportUnreadCount } from '@/components/SupportTicketsPanel';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 interface ThreadRow { threadId: string; investorName: string; lastMessageAt: string; unread: boolean }
 interface EligibleFirm { investorCatalogEntityId: string; name: string }
@@ -109,7 +110,7 @@ export default function FounderMessagesPage() {
 
       {tab === 'messages' && <div className="mt-4 space-y-2">
         {threads == null ? (
-          <p className="text-sm text-gray-400">Loading…</p>
+          <LoadingState text="Loading…" compact />
         ) : threads.length === 0 ? (
           <div className="mx-auto mt-8 max-w-sm rounded-lg border border-dashed border-gray-200 bg-white p-6 text-center">
             <p className="text-sm text-gray-600">No conversations yet.</p>

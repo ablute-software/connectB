@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Card } from '@/components/ui';
 import { MEDIA_CATEGORIES, MAX_MEDIA_PER_ORG, type MediaCategory } from '@/lib/company-media';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 interface MediaItem {
   id: string; kind: 'image' | 'video_upload' | 'video_link'; category: MediaCategory; caption: string;
@@ -90,7 +91,7 @@ export function PhotosMediaCard({ canEdit }: { canEdit: boolean }) {
       </p>
 
       {items === null ? (
-        <p className="mt-2 text-xs text-gray-400">Loading…</p>
+        <LoadingState text="Loading…" compact />
       ) : items.length === 0 ? (
         <p className="mt-2 text-xs text-gray-400">No photos or videos yet.</p>
       ) : (

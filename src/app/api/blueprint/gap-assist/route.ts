@@ -24,7 +24,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { claimsAvailable } from '@/lib/blueprint-capability';
 import { readExistingClaims, hasAnyVaultDocument } from '@/lib/company-knowledge-db';
-import { detectGaps, gapKey as computeGapKey, templateFor, type GapRule } from '@/lib/company-gaps';
+import { detectGaps, gapKey as computeGapKey, templateFor, AI_ROLE } from '@/lib/company-gaps';
 import {
   isTeamGap, formatTeamProfiles, selectTeamDocumentCandidates, isAllowedLinkedInUrl, looksLikeUsableLinkedInContent,
   relevantPeopleForLinkedIn, type TeamProfile, type CandidateDoc,
@@ -37,28 +37,9 @@ import { chargeAiAction } from '@/lib/ai-credits';
 
 export const maxDuration = 30;
 
-// Prompt 308 — G3c ("who leads the {function} side?") is reliably draftable
-// from company_people.title alone (a structured field — "CTO"/"Head of
-// Engineering" IS the answer), so it moves from 'polish' to 'draft'; the
-// existing sufficient:false honesty gate already covers the case where no
-// title matches. G3b stays 'polish': its second half ("what makes them
-// irreplaceable") needs real differentiating narrative, and the bio field's
-// own placeholder in Settings→Team ("Mini-bio (optional, 1-2 lines)")
-// documents that bios here are typically too short/generic to draft a
-// convincing answer to that specific half of the question — forcing a
-// change here would trade a clear "write it yourself" prompt for a
-// probably-thin AI draft, which is a worse experience, not a better one.
-const AI_ROLE: Record<GapRule, 'draft' | 'polish'> = {
-  G1: 'polish', G2: 'polish', G3: 'draft', G3b: 'polish', G3c: 'draft', G4: 'draft', G5: 'polish', G6: 'draft',
-  // G7 fires exactly when nothing else in the corpus corroborates this
-  // claim — there's nothing to draft FROM by definition, only the
-  // founder's own elaboration to help phrase.
-  G7: 'polish',
-  // G8 (Prompt 310 §B) — a round-value incongruence: two claims already ON
-  // FILE disagree. There's nothing to "draft" — the platform can't guess
-  // which number is right, only the founder can resolve it.
-  G8: 'polish',
-};
+// AI_ROLE moved to company-gaps.ts (Prompt 732 §B) — see its own comment
+// there. Imported above, not redefined here, so the client (/api/blueprint's
+// GET) and this route can never drift on which rule gets which role.
 
 // Prompt 308 — bounds on the three new sources, so a team-gap draft stays
 // cheap and fast even for an org with a large Vault/team roster: a real CV

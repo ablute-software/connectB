@@ -466,6 +466,13 @@ export interface StoreApi {
   // through /api/company/revert-pass, same investor_decisions gate as the
   // three actions above.
   revertPass: (interactionId: string) => Promise<{ error?: string }>;
+  // Prompt 731 §2 — the manual escape hatch for a stuck entity revertPass
+  // can't fix (previous_status was never recorded — pre-0341 data, or an
+  // interaction written outside the normal pass-and-close flow, like the
+  // COREangels Porto case this was built for). Deliberately narrower than
+  // the full EntityStatus enum — see the route's own header for why
+  // 'invested'/'dormant' are excluded. Same investor_decisions gate.
+  overrideEntityStatus: (entityId: string, status: EntityStatus, reason?: string) => Promise<{ error?: string }>;
 }
 
 export const StoreCtx = createContext<StoreApi | null>(null);

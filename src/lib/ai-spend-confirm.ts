@@ -26,6 +26,26 @@ export function shouldWarnBeforeSpending(criticalGapCount: number): boolean {
   return criticalGapCount > 0;
 }
 
+// Prompt 732 §C — the same cost/balance line insufficientInfoDialog already
+// shows, for the other 15 client-metered AI actions that have no critical-
+// gap reason to warn about — just "this costs a credit, here's your
+// balance" before spending it. Lighter than insufficientInfoDialog on
+// purpose: no critical-gap paragraph, since there's nothing gap-related to
+// say for these actions.
+export function simpleSpendDialog(args: { actionLabel: string; wallet: WalletStatus | null }): ConfirmOptions {
+  const { actionLabel, wallet } = args;
+  const usageLine = !wallet ? ''
+    : wallet.isTest ? 'Your account has unlimited AI credits (internal/test org).'
+      : `This uses ${wallet.actionCost} credit${wallet.actionCost === 1 ? '' : 's'} — you've used ${wallet.used} of ${wallet.monthlyLimit} this month.`;
+  return {
+    title: `Run ${actionLabel}?`,
+    message: usageLine || 'This will use an AI credit.',
+    confirmLabel: 'Continue',
+    cancelLabel: 'Cancel',
+    destructive: false,
+  };
+}
+
 export function insufficientInfoDialog(args: {
   actionLabel: string;
   criticalGapCount: number;

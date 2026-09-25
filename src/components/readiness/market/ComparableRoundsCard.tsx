@@ -18,6 +18,7 @@
 // (the founder's own entries) and, mandatory on every single row, the
 // warning that matches where that row came from.
 import { useEffect, useState } from 'react';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 import { noticeForSource, isFounderEntered, type CapitalRoundSource } from '@/lib/capital-landscape';
 
 // Prompt 447 §D.4 — reads the server-merged `rounds` (market-rounds-
@@ -125,7 +126,7 @@ export function ComparableRoundsCard() {
   }
   useEffect(load, []);
 
-  if (rows === null) return <p className="text-sm text-gray-400">Loading…</p>;
+  if (rows === null) return <LoadingState text="Loading…" compact />;
 
   return (
     <div className="space-y-2">

@@ -4,6 +4,7 @@
 // Only the fetch/post URLs and which side "I" am differ between callers —
 // the chronological list, composer, and "Seen" logic are identical.
 import { useEffect, useRef, useState } from 'react';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 export interface MessageDoc { id: string; name: string; accessible: boolean }
 export interface DealMessage {
@@ -148,7 +149,7 @@ export function DealThreadView({
     <div className="flex flex-col">
       <div className="max-h-[28rem] min-h-[10rem] space-y-2 overflow-y-auto rounded-lg border border-gray-200 bg-white p-3">
         {messages == null ? (
-          <p className="text-sm text-gray-400">Loading…</p>
+          <LoadingState text="Loading…" compact />
         ) : messages.length === 0 ? (
           <p className="text-sm text-gray-400">No messages yet — say hello.</p>
         ) : (

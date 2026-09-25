@@ -18,6 +18,7 @@
 import { useEffect, useState } from 'react';
 import { retrievalMethodLabel, type FactView, type FactZone } from '@/lib/market-facts-view';
 import { describeAvailableMaterial, synthesiseMarketSize } from '@/lib/market-size-synthesis';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 type FactWithZone = FactView & { zone: FactZone };
 
@@ -34,7 +35,7 @@ export function MarketSizeCard() {
   }, []);
 
   if (!available) return null;
-  if (!facts) return <p className="text-sm text-gray-400">Loading…</p>;
+  if (!facts) return <LoadingState text="Loading…" compact />;
 
   const s = synthesiseMarketSize(facts);
   const headlineFacts = s.headline ? facts.filter((f) => s.headline!.factIds.includes(f.id)) : [];

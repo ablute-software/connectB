@@ -7,6 +7,7 @@
 // company_facts (any org member, full CRUD; see migration 0160's own
 // comment) — no custom API route.
 import { useState } from 'react';
+import Link from 'next/link';
 import { browserClient } from '@/lib/supabase';
 import type { ReviewCategory, ReviewClarification } from '@/lib/review-clarifications';
 
@@ -77,6 +78,20 @@ export function ClarificationBullet({ orgId, reviewRunId, category, itemIndex, i
         <div className={`mt-1 w-full rounded-lg border border-gray-200 bg-white p-2 ${hideOnPrint ? 'print:hidden' : ''}`}>
           <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={2}
             placeholder="Add a clarification…" className="w-full rounded border border-gray-300 p-1.5 text-xs" />
+          {/* Prompt 733 §B Fase 1 — this note never corrects the underlying
+              data (see this file's own header: it's context for the next AI
+              call, nothing else), so without this link a founder had no way
+              to know there even IS a place to fix the fact itself. Uses the
+              existing hash-navigation the Facts & Clarifications tab already
+              answers to (CompanyPanel.tsx), not the `flash` query param —
+              `flash` only switches tabs for a known completeness-field id
+              (CompanyPanel's own COMPLETENESS_FIELDS lookup), which this
+              isn't, so `flash` alone would land on Settings without ever
+              switching to the right tab. */}
+          <Link href="/settings?tab=company#settings-facts" target="_blank"
+            className="mt-1 block text-[11px] text-[#0E7490] hover:underline">
+            See / fix this in Company facts →
+          </Link>
           <div className="mt-1 flex items-center justify-between gap-2">
             <label className="flex items-center gap-1 text-[11px] text-gray-500">
               <input type="checkbox" checked={visible} onChange={(e) => setVisible(e.target.checked)} />

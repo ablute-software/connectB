@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { uploadAndVerifyFile } from '@/lib/vault-upload-client';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 import type { DocVisibility } from '@/lib/types';
 
 interface Item {
@@ -45,7 +46,7 @@ export default function DocumentRequestReviewPage({ params }: { params: { id: st
     } finally { setBusyItemId(null); }
   }
 
-  if (!request) return <p className="text-sm text-gray-400">Loading…</p>;
+  if (!request) return <LoadingState text="Loading…" compact />;
 
   const requestText = `Document request: ${request.items.map((i) => i.label).join(', ')}.${request.message ? ` "${request.message}"` : ''}`;
   // Prompt 400 §B.2 — points at the entity dossier's own Log panel directly

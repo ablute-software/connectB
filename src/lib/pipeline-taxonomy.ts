@@ -12,6 +12,7 @@
 // but each row still shows its TRUE state in the STAGE column (see
 // pipelineStageLabel), so the single invested fund stays identifiable and no
 // information is lost.
+import type { EntityStatus } from './types';
 
 // The six things the top funnel shows. `active` is a ROLL-UP (total − passed),
 // not a bucket an entity lives in — it deliberately overlaps the others.
@@ -26,6 +27,19 @@ export type PipelineGroupKey =
 
 export const PIPELINE_GROUPS: PipelineGroupKey[] =
   ['not_contacted', 'contacted', 'diligence', 'passed', 'frozen'];
+
+// Prompt 731 §2 — the manual "set this entity's status directly" escape
+// hatch (SherlockInsightBanner's stuck-pass control, entity-status-override/
+// route.ts), shared so the client UI and the server route always offer/
+// accept the exact same set. Deliberately excludes 'invested' (its own
+// dedicated flow has side effects — cap table, etc. — a raw status flip
+// would skip) and 'dormant'/Frozen (already has its own park flow with a
+// revisit date this shouldn't shortcut). Includes 'in_conversation', unlike
+// PIPELINE_GROUPS above, because that IS a real, distinct EntityStatus a
+// founder may need to restore to even though it renders inside the
+// "Contacted" card/group for display purposes.
+export const MANUAL_STATUS_OVERRIDE_OPTIONS: EntityStatus[] =
+  ['not_contacted', 'contacted', 'in_conversation', 'diligence', 'passed'];
 
 // status → bucket. The merge (§1.1) happens here and nowhere else. Every value
 // of the entity_status enum maps to exactly one bucket, which is what keeps the

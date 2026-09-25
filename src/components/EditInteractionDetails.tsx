@@ -68,9 +68,15 @@ export function EditInteractionDetails({ interaction, onDone }: { interaction: I
         </select>
       </div>
       <textarea value={content} onChange={(e) => setContent(e.target.value)} rows={2}
+        placeholder="Leave blank to clear this log's content"
         className="w-full rounded border border-gray-300 p-1.5 text-xs text-gray-900" />
       <div className="flex gap-1.5">
-        <button disabled={!date || content.trim().length === 0} onClick={save}
+        {/* Prompt 731 §2 — this used to require non-empty content, which
+            forced a founder trying to clear junk test text ("dd") to type a
+            placeholder ("ok") instead of actually emptying it. `content` is
+            NOT NULL in the schema but an empty string satisfies that — there
+            is no reason to block it here too. */}
+        <button disabled={!date} onClick={save}
           className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
           Save
         </button>
