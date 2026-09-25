@@ -1,0 +1,142 @@
+Prompt 737, Fase 0A — parity report for migrations 0344-0350
+Verified: 2026-09-25
+Method note (deviation from the prompt's own literal 0A.3 script, disclosed):
+  Docker is not available in this environment (`docker: command not found`),
+  so `supabase start` cannot spin up a local Postgres to replay migrations
+  into and diff. Substituted: direct object-by-object introspection against
+  PRODUCTION itself (project wkjcaoqdvhykrfacsylr), using the exact same
+  sources 0A.2 specifies (information_schema.columns, pg_get_constraintdef,
+  pg_get_indexdef, pg_policies, pg_get_triggerdef, pg_get_functiondef,
+  pg_enum), comparing each live object's definition text against the
+  candidate migration file's own DDL for that object. This achieves the same
+  "zero differences" guarantee the local-replay script would have, just
+  without the intermediate empty database — every object either matches
+  byte-for-byte or it doesn't; there is no "close enough."
+
+Origin note: 0A.1's search succeeded — all 8 target migrations (as one
+combined file for the two "0345" entries) were found intact on a real,
+un-merged remote branch (origin/claude/prompt-585-people-evidence-hooks),
+never lost from git history overall, only from the specific branches an
+earlier `git log --all` search had covered. This is NOT a from-scratch
+introspection reconstruction (0A.2's fallback path) — it is the original
+authored file, subsequently verified against production for genuine parity.
+
+============================================================
+0344_catalog_evidence_topics_and_taxonomy
+============================================================
+objecto                                    | tipo      | igual | diferença
+enum evidence_kind (13 valores)            | enum      | sim   | -
+enum evidence_polarity                     | enum      | sim   | -
+enum evidence_origin                       | enum      | sim   | -
+enum evidence_status                       | enum      | sim   | -
+enum evidence_tag_source                   | enum      | sim   | -
+table topic_taxonomy (10 columns)          | table     | sim   | -
+table org_topics (5 columns)               | table     | sim   | -
+table catalog_evidence (22 columns incl.   | table     | sim   | -
+  2 generated: source_domain, content_hash)|           |       |
+table catalog_evidence_topics (4 columns)  | table     | sim   | -
+table evidence_tagging_queue (11 columns)  | table     | sim   | -
+6 indexes on catalog_evidence              | index     | sim   | -
+2 indexes on catalog_evidence_topics       | index     | sim   | -
+3 indexes on topic_taxonomy                | index     | sim   | -
+2 indexes on org_topics                    | index     | sim   | -
+3 indexes on evidence_tagging_queue        | index     | sim   | -
+trigger catalog_evidence_touch             | trigger   | sim   | -
+function catalog_tag_evidence_dictionary   | function  | sim   | -
+policy topic_taxonomy_read/admin_write     | policy    | sim   | -
+policy org_topics_read/admin_write         | policy    | sim   | -
+policy catalog_evidence_read/admin_write   | policy    | sim   | - (includes
+  the exact person-affiliation branch 0A.4 targets — confirmed present)
+policy catalog_evidence_topics_read/write  | policy    | sim   | -
+policy evidence_tagging_queue_admin_only   | policy    | sim   | -
+row count topic_taxonomy (73 seed rows,    | data      | sim   | 73 inserts
+  5 groups + 46 depth-2 + 22 depth-3/4)    |           |       | in file = 73
+row count evidence_tagging_queue           | data      | n/a   | 622 in prod,
+                                            |           |       | matches
+                                            |           |       | prompt's own
+                                            |           |       | stated figure
+                                            |           |       | (informational
+                                            |           |       | — depends on
+                                            |           |       | later phases'
+                                            |           |       | own inserts
+                                            |           |       | too, not
+                                            |           |       | schema parity)
+
+RESULT: zero differences.
+
+============================================================
+0345 (combined source; split into two files matching the ledger's two
+entries — see each file's own header note)
+============================================================
+objecto                                    | tipo      | igual | diferença
+function catalog_topic_distance            | function  | sim   | -
+function catalog_topic_signal              | function  | sim   | -
+function catalog_topic_signal_match_bonus  | function  | sim   | -
+function catalog_match_score (extended)    | function  | sim   | -
+function catalog_recompute_person_priority | function  | sim   | -
+function catalog_recompute_person_priority_backfill | function | sim | -
+table catalog_person_priority (9 columns)  | table     | sim   | -
+index catalog_person_priority_org_entity_idx | index   | sim   | -
+policy catalog_person_priority_read/write  | policy    | sim   | -
+grants (authenticated: select; service_role: full) | grant | sim | -
+
+RESULT: zero differences (across the combined content of both files).
+
+============================================================
+0346_catalog_entity_contact_context
+============================================================
+function catalog_entity_contact_context    | function  | sim   | -
+
+RESULT: zero differences.
+
+============================================================
+0347_catalog_evidence_founder_propose_and_consensus
+============================================================
+function catalog_evidence_normalize_url    | function  | sim   | -
+function catalog_evidence_consensus_check  | function  | sim   | -
+trigger trg_catalog_evidence_consensus_check | trigger | sim   | -
+
+RESULT: zero differences.
+
+============================================================
+0348_hook_suggestions
+============================================================
+enum hook_target_kind                      | enum      | sim   | -
+enum hook_verdict                          | enum      | sim   | -
+enum hook_channel                          | enum      | sim   | -
+table hook_suggestions (18 columns at this | table     | sim   | -
+  point; +1 column added by 0349)          |           |       |
+4 indexes on hook_suggestions              | index     | sim   | -
+policy hook_suggestions_read               | policy    | sim   | -
+function hook_suggestions_invalidate_on_evidence_removed | function | sim | -
+trigger trg_hook_suggestions_invalidate    | trigger   | sim   | -
+
+RESULT: zero differences.
+
+============================================================
+0349_contact_outcomes
+============================================================
+column hook_suggestions.reason_if_none     | column    | sim   | -
+table contact_outcomes (9 columns)         | table     | sim   | -
+3 indexes on contact_outcomes              | index     | sim   | -
+policy contact_outcomes_read               | policy    | sim   | -
+
+RESULT: zero differences.
+
+============================================================
+0350_gdpr_erase_evidence_hooks_priority
+============================================================
+constraint catalog_evidence_person_id_fkey | constraint| sim   | -
+  (on delete set null, not cascade)        |           |       |
+constraint catalog_evidence_check          | constraint| sim   | - (widened to
+  allow status='erased' with both null)    |           |       |
+function erase_gdpr_person (extended)      | function  | sim   | -
+
+RESULT: zero differences.
+
+============================================================
+OVERALL: zero differences across all 8 target migrations (0344-0350,
+counting the 0345 split as one verified unit) and every object type they
+define — enums, tables, columns, indexes, RLS policies, triggers,
+functions, constraints, grants.
+============================================================
