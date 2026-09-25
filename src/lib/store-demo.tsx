@@ -16,6 +16,7 @@ import { buildReawakenApproval, priorPassInfo } from './reawakening';
 import { findReactivations, reactivationTaskTitle } from './rejection-code-match';
 import { STAGE_LABEL, getStage } from './relationship';
 import { matchEntityToCatalog } from './entity-catalog-prefill';
+import { pipelineStageLabel } from './pipeline-taxonomy';
 import { StoreCtx, type StoreApi } from './store-context';
 
 const STORAGE_KEY = 'ablute-crm-demo-v3';
@@ -535,6 +536,26 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
               ? { ...r, stage: it.previous_stage as RelationshipStage, updated_at: now } : r)
             : [...cur.relationshipState, { entity_id: it.entity_id, stage: it.previous_stage as RelationshipStage, updated_at: now }])
           : cur.relationshipState,
+      }));
+      return {};
+    },
+    // Prompt 731 §2 — demo-mode mirror of the real route's own allow-list
+    // and note text (entity-status-override/route.ts) — no server/gate to
+    // call here, demo mode trusts the local session same as every other
+    // demo store action.
+    async overrideEntityStatus(entityId, status, reason) {
+      const entity = db.entities.find((e) => e.id === entityId);
+      if (!entity) return { error: 'Investor not found in your pipeline.' };
+      if (entity.status === status) return {};
+      const now = new Date().toISOString();
+      const note: Interaction = {
+        id: uid('note'), entity_id: entityId, occurred_at: now, direction: 'out', channel: 'stage_change',
+        content: `${pipelineStageLabel(entity.status)} → ${pipelineStageLabel(status)} — set manually (the automatic revert had nothing recorded to restore)${reason?.trim() ? `: ${reason.trim()}` : '.'}`,
+      };
+      setDb((cur) => ({
+        ...cur,
+        interactions: [...cur.interactions, note],
+        entities: cur.entities.map((e) => e.id === entityId ? { ...e, status } : e),
       }));
       return {};
     },
