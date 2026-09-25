@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { RING_ORDER, RING_LABEL, parseVaultCitation, type RingKey } from '@/lib/market-rings';
 import { isStale } from '@/lib/market-data-gaps';
 import { MarketRingsDiagram } from './MarketRingsDiagram';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 interface Ring {
   ring: RingKey; label: string; definition: string | null; buyer: string | null; geography: string | null;
@@ -152,7 +153,7 @@ export function MarketRingsCard({ onChanged }: { onChanged?: () => void }) {
     } finally { setProposing(false); }
   }
 
-  if (rings === null) return <p className="text-sm text-gray-400">Loading…</p>;
+  if (rings === null) return <LoadingState text="Loading…" compact />;
   const byRing = new Map(rings.map((r) => [r.ring, r]));
 
   return (

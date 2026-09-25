@@ -10,6 +10,7 @@ import { Card, Tooltip } from '@/components/ui';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import type { CompanyFact, CompanyFactCategory } from '@/lib/types';
 import { upsertClarification, type ReviewClarification } from '@/lib/review-clarifications';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 const CATEGORIES: CompanyFactCategory[] = [
   'product', 'traction', 'team', 'positioning', 'financing', 'regulatory', 'market', 'metrics', 'other',
@@ -38,7 +39,7 @@ export function CompanyFactsPanel() {
   }, []);
 
   if (available === false) return <Card title="Company facts"><p className="text-sm text-gray-400">Not available in this workspace yet.</p></Card>;
-  if (available === null) return <Card title="Company facts"><p className="text-sm text-gray-400">Loading…</p></Card>;
+  if (available === null) return <Card title="Company facts"><LoadingState text="Loading…" compact /></Card>;
 
   const active = db.companyFacts.filter((f) => f.status !== 'deprecated');
   const unconfirmed = active.filter((f) => f.status === 'unconfirmed');

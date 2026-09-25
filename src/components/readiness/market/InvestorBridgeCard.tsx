@@ -6,6 +6,7 @@
 // add-target/route.ts's own header for why that's safe re: outreach
 // discipline).
 import { useEffect, useState } from 'react';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 interface BridgeInvestor {
   investorEntityId: string; investorName: string;
@@ -37,7 +38,7 @@ export function InvestorBridgeCard() {
     } finally { setAddingId(null); }
   }
 
-  if (!data) return <p className="text-sm text-gray-400">Loading…</p>;
+  if (!data) return <LoadingState text="Loading…" compact />;
   const total = data.inPipeline.length + data.missing.length;
   if (total === 0) {
     return <p className="text-sm text-gray-400">No known investors of your declared competitors yet — add competitors above with their funding rounds.</p>;

@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { authEnabled, browserClient } from '@/lib/supabase';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 interface ReviewRunRow { id: string; score: number | null; created_at: string }
 
@@ -53,7 +54,7 @@ export function ProgressPanel() {
       });
   }, [db.org.id]);
 
-  if (loading) return <p className="text-sm text-gray-400">Loading…</p>;
+  if (loading) return <LoadingState text="Loading…" compact />;
 
   return (
     <Card title="Investability over time">

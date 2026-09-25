@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 export default function InviteLinkPage() {
   const { token } = useParams<{ token: string }>();
@@ -21,7 +22,7 @@ export default function InviteLinkPage() {
     <div className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center p-6 text-center">
       <h1 className="text-lg font-bold text-gray-900">Sherlock Deal</h1>
       {!data ? (
-        <p className="mt-4 text-sm text-gray-400">Loading…</p>
+        <LoadingState text="Loading…" compact />
       ) : !data.ok ? (
         <p className="mt-4 text-sm text-gray-500">{data.error}</p>
       ) : (

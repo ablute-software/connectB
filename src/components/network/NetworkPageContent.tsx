@@ -28,6 +28,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/lib/store';
 import { Card, Toggle } from '@/components/ui';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 import { FollowOnBadge } from '@/components/FollowOnBadge';
 import { NetworkAvatar } from '@/components/NetworkAvatar';
 import { NetworkModerationNotice } from '@/components/network/NetworkModerationNotice';
@@ -556,7 +557,7 @@ ${b.text}` : b.text };
     }).finally(() => setBusy(false));
   }
 
-  if (!state || !groups) return <p className="text-sm text-gray-400">Loading…</p>;
+  if (!state || !groups) return <LoadingState text="Loading…" compact />;
 
   if (!state.available) {
     return (

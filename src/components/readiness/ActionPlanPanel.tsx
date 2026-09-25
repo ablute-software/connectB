@@ -23,6 +23,7 @@ import { useEffect, useState } from 'react';
 import { ReconciliationBusyNotice } from './ReconciliationBusyNotice';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import {
   DOC_KIND_LABEL, SEVERITY_WEIGHT, dataroomChecklist, clusterActions, clusterPriority, extractActions, latestPerKind, joinNatural,
@@ -199,7 +200,7 @@ export function ActionPlanPanel() {
   const strength = vaultStrength(db.folders, db.documents, new Date());
   const suggestion = topVaultSuggestion(db.folders, db.documents, new Date());
 
-  if (loading) return <Card title="Action plan"><p className="text-sm text-gray-400">Loading…</p></Card>;
+  if (loading) return <Card title="Action plan"><LoadingState text="Loading…" compact /></Card>;
 
   return (
     <>

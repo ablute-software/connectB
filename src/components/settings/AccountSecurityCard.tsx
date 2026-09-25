@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui';
 import { PasswordRequirementsIndicator } from '@/components/auth/PasswordRequirementsIndicator';
 import { checkPassword } from '@/lib/password-policy';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 interface SecurityInfo {
   available: boolean; myRole?: string; allowAdminPasswordReset?: boolean;
@@ -66,7 +67,7 @@ export function AccountSecurityCard() {
     } finally { setResetBusy(null); }
   }
 
-  if (!info) return <Card title="Password &amp; security"><p className="text-sm text-gray-400">Loading…</p></Card>;
+  if (!info) return <Card title="Password &amp; security"><LoadingState text="Loading…" compact /></Card>;
   if (!info.available) return <Card title="Password &amp; security"><p className="text-sm text-gray-400">Not available in this workspace yet.</p></Card>;
 
   return (

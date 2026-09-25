@@ -6,6 +6,7 @@
 // returns "everything not yet visible to me" regardless of current level —
 // no separate code path needed here either.
 import { useEffect, useState } from 'react';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 interface PickerDoc { id: string; name: string; visibility: string }
 
@@ -86,7 +87,7 @@ export function DocumentRequestPicker({ orgId }: { orgId: string }) {
       </div>
 
       {docs === null ? (
-        <p className="mt-2 text-xs text-gray-400">Loading…</p>
+        <LoadingState text="Loading…" compact />
       ) : docs.length === 0 ? (
         <p className="mt-2 text-xs text-gray-400">Nothing else is listed to ask for right now — use the field below to describe what you need.</p>
       ) : (

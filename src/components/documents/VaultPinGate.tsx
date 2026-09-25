@@ -14,6 +14,7 @@
 // a genuinely new tab/window always re-checks.
 import { useCallback, useEffect, useState } from 'react';
 import { authEnabled, browserClient } from '@/lib/supabase';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 const UNLOCK_KEY = 'vault_unlocked_org';
 const HIDDEN_AT_KEY = 'vault_hidden_at';
@@ -133,7 +134,7 @@ export function VaultPinGate({ orgId, children }: { orgId: string; children: Rea
 
   if (status === 'unlocked') return <>{children}</>;
   if (status === 'loading') {
-    return <div className="flex min-h-[40vh] items-center justify-center text-sm text-gray-400">Loading…</div>;
+    return <LoadingState text="Loading…" compact />;
   }
 
   return (
