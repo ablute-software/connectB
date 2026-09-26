@@ -15,6 +15,7 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { accessRequestItemsAvailable, documentRequestFieldsAvailable, documentRequestItemTypeAvailable } from '@/lib/document-request-capability';
 import { nextReminderAt, documentRequestPriorityKind } from '@/lib/document-request-logic';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
+import { recordInvestorSignalForEntity } from '@/lib/investor-signal-events-server';
 
 const MAX_ITEMS_PER_REQUEST = 50;
 
@@ -182,6 +183,20 @@ export async function POST(req: Request) {
   );
   if (itemsError) return NextResponse.json({ ok: false, error: itemsError.message }, { status: 500 });
 
+  // Prompt 741 §B.2 — one resolve, reused below by both this best-effort
+  // signal write (every document request) and the existing Level-1
+  // cap-table-interest upsert further down (cap-table-only requests), which
+  // used to call resolveActiveInvestorMember a second time for the same
+  // session. No dedup key: each request is its own event.
+  const investorMember = await resolveActiveInvestorMember(admin, user.id);
+  if (investorMember) {
+    await recordInvestorSignalForEntity(admin, {
+      investorCatalogEntityId: investorMember.catalog_entity_id, orgId: body.orgId, actorUserId: user.id,
+      level: 'progressao', kind: 'documents_requested',
+      snapshot: { request_id: requestId, item_count: newItems.length },
+    });
+  }
+
   // Block C — same interest->task shape as migration 0129, done in app code
   // since this insert isn't itself a DB function/trigger. Priority: a
   // document request from an investor already IN DILIGENCE with this org
@@ -225,19 +240,16 @@ export async function POST(req: Request) {
   // effects (access-grant revocation, team-email resolution, a
   // notification email) are built for that explicit action, not an
   // implicit-interest signal riding along on an unrelated document ask.
-  if (isCapTableOnly) {
-    const member = await resolveActiveInvestorMember(admin, user.id);
-    if (member) {
-      // ignoreDuplicates — same "insert, ignore on conflict" shape
-      // investor-pipeline.ts's own investor_pipeline_admissions upsert
-      // already uses against a different unique constraint. A decision
-      // already on record (from either side, at any time) is left alone;
-      // this never overwrites an existing 'passed'.
-      await admin.from('investor_relationship_decisions').upsert({
-        org_id: body.orgId, investor_catalog_entity_id: member.catalog_entity_id,
-        decision: 'interested', decided_by: user.id,
-      }, { onConflict: 'org_id,investor_catalog_entity_id', ignoreDuplicates: true });
-    }
+  if (isCapTableOnly && investorMember) {
+    // ignoreDuplicates — same "insert, ignore on conflict" shape
+    // investor-pipeline.ts's own investor_pipeline_admissions upsert
+    // already uses against a different unique constraint. A decision
+    // already on record (from either side, at any time) is left alone;
+    // this never overwrites an existing 'passed'.
+    await admin.from('investor_relationship_decisions').upsert({
+      org_id: body.orgId, investor_catalog_entity_id: investorMember.catalog_entity_id,
+      decision: 'interested', decided_by: user.id,
+    }, { onConflict: 'org_id,investor_catalog_entity_id', ignoreDuplicates: true });
   }
 
   return NextResponse.json({ ok: true, created: true, requestId, alreadyPendingCount });

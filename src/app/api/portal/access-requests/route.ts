@@ -12,6 +12,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { grantStatus } from '@/lib/access-grants';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { recordInvestorSignal } from '@/lib/investor-signal-events-server';
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -53,6 +54,14 @@ export async function POST(req: Request) {
     folder_ids: folderIds, document_ids: documentIds, status: 'pending',
   });
   if (insertError) return NextResponse.json({ ok: false, error: insertError.message }, { status: 500 });
+
+  // Prompt 741 §B.2 — best-effort, never blocks the response. No dedup key:
+  // each renewal request is its own event. The insert above has no
+  // `.select()` — not added just for this, per this prompt's own §B.2.
+  await recordInvestorSignal(admin, {
+    userId: user.id, orgId: body.orgId, level: 'progressao', kind: 'data_room_access_renewal_requested',
+    snapshot: { folder_count: folderIds.length, document_count: documentIds.length },
+  });
 
   if (resendConfigured) {
     const { data: org } = await admin.from('orgs').select('name, sender_email').eq('id', body.orgId).single();

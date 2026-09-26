@@ -14,6 +14,7 @@ import { interestLevelAvailable } from '@/lib/investor-interest-level-capability
 import { currentInterestLevel } from '@/lib/investor-interest-level';
 import { getInterestLevelRows, requestInterestLevel, toInvestorFacingLevelRows } from '@/lib/investor-interest-level-db';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { recordInvestorSignalForEntity } from '@/lib/investor-signal-events-server';
 
 export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -96,5 +97,16 @@ export async function POST(req: Request) {
 
   const { error } = await requestInterestLevel(admin, { orgId: body.orgId, investorCatalogEntityId, level: body.level, userId: user.id });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+  // Prompt 741 §B.2 — best-effort, never blocks/fails the request above.
+  // investorCatalogEntityId is already resolved (line above, for the
+  // business logic), so this goes straight to the entity-scoped helper
+  // rather than resolving it a second time.
+  await recordInvestorSignalForEntity(admin, {
+    investorCatalogEntityId, orgId: body.orgId, actorUserId: user.id, level: 'progressao', kind: 'interest_level_requested',
+    snapshot: { level: body.level, status: body.level === 2 ? 'granted' : 'pending' },
+    dedupKey: `${investorCatalogEntityId}:${body.orgId}:interest_level:${body.level}`,
+  });
+
   return NextResponse.json({ ok: true });
 }

@@ -9,6 +9,7 @@ import { interestLevelAvailable } from '@/lib/investor-interest-level-capability
 import { decideInterestLevel3 } from '@/lib/investor-interest-level-db';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { staleInterestTasks } from '@/lib/stale-interest-tasks';
+import { recordInvestorSignalForEntity } from '@/lib/investor-signal-events-server';
 
 export async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -97,9 +98,25 @@ export async function POST(req: Request) {
   if (body.decision !== 'granted' && body.decision !== 'denied') return NextResponse.json({ ok: false, error: 'decision must be granted or denied.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const { error } = await decideInterestLevel3(admin, {
+  const { error, investorCatalogEntityId } = await decideInterestLevel3(admin, {
     id: body.id, orgId, decidedBy: user.id, decision: body.decision, note: body.note ?? null, shareDirectEmail: !!body.shareDirectEmail,
   });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+  // Prompt 741 §B.2 — the actor here is the FOUNDER, deciding on the
+  // INVESTOR's own episode; investorCatalogEntityId comes straight from
+  // decideInterestLevel3 (which already read it), never from
+  // resolveInvestorCatalogEntityId (which would resolve the founder's own
+  // session instead of the firm being decided on). The founder's note is
+  // deliberately excluded from the snapshot — see CLAUDE.md's
+  // startup-performance-privacy rule and this file's own §B.3.
+  if (investorCatalogEntityId) {
+    await recordInvestorSignalForEntity(admin, {
+      investorCatalogEntityId, orgId, actorUserId: user.id, level: 'progressao', kind: 'interest_level_decided',
+      snapshot: { level: 3, decision: body.decision, side: 'founder' },
+      dedupKey: `${investorCatalogEntityId}:${orgId}:interest_level_decided:3`,
+    });
+  }
+
   return NextResponse.json({ ok: true });
 }

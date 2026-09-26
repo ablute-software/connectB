@@ -36,6 +36,8 @@ import { descendantFolderIds, resolveDocumentAccess } from '@/lib/data-room';
 import { grantStatus } from '@/lib/access-grants';
 import { vaultFrozenForOrg } from '@/lib/data-room-server';
 import { closedOrgGuard } from '@/lib/org-closed';
+import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
+import { recordInvestorSignalForEntity } from '@/lib/investor-signal-events-server';
 
 const SIGNED_URL_TTL_SECONDS = 300;
 const NOINDEX_HEADERS = { 'X-Robots-Tag': 'noindex, nofollow, noarchive' };
@@ -139,6 +141,21 @@ export async function GET(req: Request, { params }: { params: { documentId: stri
       org_id: orgId, document_id: doc.id, grant_id: grantId, viewer_email: email,
     });
   } catch { /* provenance is best-effort; the open is not */ }
+
+  // Prompt 741 §B.2 — the signal-ledger twin of the document_views insert
+  // above: same best-effort posture, never blocks the redirect. Dedup
+  // collapses repeat opens of the same document by the same firm on the
+  // same UTC day into one event; a different day is a deliberately new one.
+  const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, user.id);
+  if (investorCatalogEntityId) {
+    const ndaRequired = grants.find((g) => g.id === grantId)?.nda_required ?? false;
+    const dedupDay = now.toISOString().slice(0, 10);
+    await recordInvestorSignalForEntity(admin, {
+      investorCatalogEntityId, orgId, actorUserId: user.id, level: 'avaliacao_substantiva', kind: 'document_opened',
+      snapshot: { document_id: doc.id, visibility: doc.visibility, nda_required: ndaRequired, via: 'open_route' },
+      dedupKey: `${investorCatalogEntityId}:${orgId}:document_opened:${doc.id}:${user.id}:${dedupDay}`,
+    });
+  }
 
   return NextResponse.redirect(target, { status: 302, headers: NOINDEX_HEADERS });
 }

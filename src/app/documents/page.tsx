@@ -12,9 +12,12 @@ import { Card, PersonLink } from '@/components/ui';
 import { useConfirm } from '@/lib/confirm';
 import type { DocVisibility, Folder, FolderKind } from '@/lib/types';
 import {
-  collectFolderSelectionKeys, cycleGrantState,
+  collectFolderSelectionKeys, cycleGrantState, descendantFolderIds,
   dueDiligenceUnderFolders, normalizeDocumentUrl, reorderByDrag, sanitizeStorageKey, type GrantState,
 } from '@/lib/data-room';
+import {
+  countByVisibility, filterByVisibility, levelCountsByFolder, nonZeroLevels, toggleVisibilityFilter, type VisibilityCounts,
+} from '@/lib/vault-level-summary';
 import { dataRoomFirstContactTipApplies } from '@/lib/relationship';
 import { grantStatus } from '@/lib/access-grants';
 import { buildAccessRelationships, type RelationshipGrant } from '@/lib/data-room-access-relationships';
@@ -59,6 +62,16 @@ const VISIBILITY_META: Record<DocVisibility, { icon: string; label: string; titl
   open: { icon: '🟢🔓✕', label: 'Open', title: 'Openly shareable — still only reaches whoever you grant access to' },
 };
 const VISIBILITY_OPTIONS: DocVisibility[] = ['open', 'on_grant', 'due_diligence'];
+// Prompt 741 — the same three colors, everywhere a level shows as a pill:
+// the top-of-tab pastilles (§A.1), the per-folder tree dots (§A.2, plain
+// text there — no background needed for a small inline dot), and the
+// document row's own leading pill (§A.3, replacing the plain <select>
+// styling it had at the end of the row).
+const VISIBILITY_PILL_CLASS: Record<DocVisibility, string> = {
+  open: 'bg-green-100 text-green-800',
+  on_grant: 'bg-amber-100 text-amber-800',
+  due_diligence: 'bg-red-100 text-[#B00000]',
+};
 
 interface PendingAccessRequest {
   id: string; requesterName: string | null; requesterEmail: string | null;
@@ -98,6 +111,7 @@ export default function DocumentsPage() {
 function DocumentsPageInner() {
   const {
     db, addDocument, deleteDocument, renameDocument, updateDocumentDetails, updateDocumentVisibility,
+    updateDocumentsVisibility,
     moveDocumentToFolder, reorderDocuments, replaceDocumentFile, addDocumentVersion,
     createFolder, renameFolder, deleteFolder, addGrant, revokeGrant, recordNdaUpload,
     invitePersonForGrant, refreshFromServer,
@@ -109,6 +123,12 @@ function DocumentsPageInner() {
   // vs. person-first).
   const [tab, setTab] = useState<'documents' | 'people'>('documents');
   const [selFolder, setSelFolder] = useState<string>('');
+  // Prompt 741 §A.1 — org-wide level filter for the documents list; null = no filter.
+  const [visibilityFilter, setVisibilityFilter] = useState<DocVisibility | null>(null);
+  // Prompt 741 §A.4 — "set level for all documents in this folder…".
+  const [batchLevelOpen, setBatchLevelOpen] = useState(false);
+  const [batchLevel, setBatchLevel] = useState<DocVisibility>('open');
+  const [batchIncludeSubfolders, setBatchIncludeSubfolders] = useState(false);
   const [storageSizes, setStorageSizes] = useState<Record<string, number>>({});
   const [documentDetailsAvailable, setDocumentDetailsAvailable] = useState(false);
   const [ndaSystemAvailable, setNdaSystemAvailable] = useState(false);
@@ -534,6 +554,13 @@ function DocumentsPageInner() {
   const docsIn = (id: string) => db.documents
     .filter((d) => d.folder_id === id)
     .sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || (a.created_at ?? '').localeCompare(b.created_at ?? ''));
+  // Prompt 741 §A.1/§A.2 — org-wide pastille counts and per-folder (incl.
+  // subfolders) dot counts, both from the same pure module so the two
+  // surfaces can't disagree. Folder/DocumentItem already structurally match
+  // TreeFolder/TreeDocument (id + parent_id?/folder_id?), so no remapping.
+  const orgVisibilityLevels = useMemo(() => nonZeroLevels(countByVisibility(db.documents)), [db.documents]);
+  const levelCountsByFolderId = useMemo(() => levelCountsByFolder(db.folders, db.documents), [db.folders, db.documents]);
+  const levelCountsIn = (id: string) => levelCountsByFolderId.get(id) ?? countByVisibility([]);
   // Prompt 33/47 — "active grants" used to mean exactly one thing (not
   // revoked, not expired). Now a grant can also be pending_confirmation
   // (invited_email set, confirmed_at still null) — visible in the app's own
@@ -1058,6 +1085,28 @@ function DocumentsPageInner() {
     setNewFolderName(''); setNewFolderParent('');
   }
 
+  // Prompt 741 §A.4 — batch-set every document's level in the selected
+  // folder (optionally its subfolders too). Only documents that would
+  // actually CHANGE are counted/written — re-stating a document's current
+  // level is a no-op, not a change to confirm or to persist.
+  async function applyBatchLevel() {
+    const scopeIds = batchIncludeSubfolders ? descendantFolderIds(db.folders, [selFolder]) : [selFolder];
+    const scope = new Set(scopeIds);
+    const inScope = db.documents.filter((d) => d.folder_id && scope.has(d.folder_id));
+    const changing = inScope.filter((d) => d.visibility !== batchLevel);
+    if (changing.length === 0) { setBatchLevelOpen(false); return; }
+    const fromBreakdown = nonZeroLevels(countByVisibility(changing))
+      .map(({ visibility, count }) => `${count} currently ${VISIBILITY_META[visibility].label}`)
+      .join(', ');
+    const ok = await confirm({
+      message: `Set ${changing.length} document${changing.length === 1 ? '' : 's'} in “${selected?.name ?? ''}”${
+        batchIncludeSubfolders ? ' (including subfolders)' : ''} to ${VISIBILITY_META[batchLevel].label}: ${fromBreakdown}.`,
+    });
+    if (!ok) return;
+    updateDocumentsVisibility(changing.map((d) => d.id), batchLevel);
+    setBatchLevelOpen(false);
+  }
+
   async function confirmDeleteFolder(f: Folder) {
     setFolderErr('');
     if (!(await confirm({ message: `Delete folder "${f.name}"?`, destructive: true }))) return;
@@ -1079,7 +1128,7 @@ function DocumentsPageInner() {
     selection, toggleFolderSelection, toggleDocSelection, childrenOf: children, docsIn,
   };
   const folderTreeCtx: FolderTreeCtx = {
-    childrenOf: children, docsIn, collapsed, toggleCollapse,
+    childrenOf: children, docsIn, levelCountsIn, collapsed, toggleCollapse,
     renamingFolderId, folderRenameText, setFolderRenameText, saveRenameFolder,
     startRenameFolder, confirmDeleteFolder,
     selFolder, setSelFolder,
@@ -1087,6 +1136,11 @@ function DocumentsPageInner() {
   };
 
   const selected = db.folders.find((f) => f.id === selFolder);
+  // Prompt 741 §A.1 — the pastilles filter whichever folder's list is
+  // currently on screen, not a separate org-wide flat view (there isn't one
+  // today, and the folder tree is still how the founder navigates).
+  const folderDocs = docsIn(selFolder);
+  const shownFolderDocs = filterByVisibility(folderDocs, visibilityFilter);
 
   return (
     <div className="space-y-4">
@@ -1111,6 +1165,22 @@ function DocumentsPageInner() {
           People & Access
         </button>
       </div>
+      {/* Prompt 741 §A.1 — org-wide counts by access level; each pastille is
+          a filter on the currently-viewed folder's list (click again to
+          clear). A level with zero documents anywhere just isn't shown. */}
+      {tab === 'documents' && orgVisibilityLevels.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {orgVisibilityLevels.map(({ visibility, count }) => (
+            <button key={visibility} type="button"
+              onClick={() => setVisibilityFilter(toggleVisibilityFilter(visibilityFilter, visibility))}
+              title={visibilityFilter === visibility ? 'Clear filter' : `Filter to ${VISIBILITY_META[visibility].label}`}
+              className={`rounded-full px-2.5 py-1 text-xs font-medium ${VISIBILITY_PILL_CLASS[visibility]} ${
+                visibilityFilter === visibility ? 'ring-2 ring-offset-1 ring-[#0E7490]' : ''}`}>
+              {VISIBILITY_META[visibility].icon} {VISIBILITY_META[visibility].label} {count}
+            </button>
+          ))}
+        </div>
+      )}
       {/* Prompt 882 Part D — live, recomputed, no persistence: gone the
           instant a document exists, same discipline as
           PreContactReadinessNudge and Pipeline's readiness-strip.ts. */}
@@ -1160,13 +1230,53 @@ function DocumentsPageInner() {
         </div>
 
         <div id="documents-panel" data-tour-id="documents-panel" className="space-y-4 md:col-span-2">
-          <Card title={`Documents in “${selected?.name ?? ''}”`}>
-            {documentOrderingAvailable && docsIn(selFolder).length > 1 && (
+          <Card title={`Documents in “${selected?.name ?? ''}”`}
+            right={selFolder && folderDocs.length > 0 ? (
+              <button type="button" onClick={() => setBatchLevelOpen((v) => !v)}
+                className="text-[11px] font-medium text-[#0E7490] hover:underline">
+                Set level for all documents in this folder…
+              </button>
+            ) : undefined}>
+            {batchLevelOpen && (
+              // Prompt 741 §A.4 — pick a target level + optional subfolders,
+              // then confirm (useConfirm, never window.confirm) before any write.
+              <div className="mb-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
+                <div className="flex flex-wrap gap-1.5">
+                  {VISIBILITY_OPTIONS.map((v) => (
+                    <button key={v} type="button" onClick={() => setBatchLevel(v)}
+                      className={`rounded-full px-2.5 py-1 text-xs font-medium ${batchLevel === v ? 'bg-[#0E7490] text-white' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                      {VISIBILITY_META[v].icon} {VISIBILITY_META[v].label}
+                    </button>
+                  ))}
+                </div>
+                <label className="mt-2 flex items-center gap-1.5 text-xs text-gray-600">
+                  <input type="checkbox" checked={batchIncludeSubfolders} onChange={(e) => setBatchIncludeSubfolders(e.target.checked)} />
+                  Include subfolders
+                </label>
+                <div className="mt-2 flex gap-2">
+                  <button onClick={applyBatchLevel} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#0c637b]">
+                    Apply
+                  </button>
+                  <button onClick={() => setBatchLevelOpen(false)} className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            {visibilityFilter && (
+              <p className="mb-2 text-[11px] text-gray-500">
+                Filtered: {VISIBILITY_META[visibilityFilter].label}{' '}
+                <button type="button" onClick={() => setVisibilityFilter(null)} className="font-medium text-[#0E7490] hover:underline">· clear</button>
+              </p>
+            )}
+            {documentOrderingAvailable && shownFolderDocs.length > 1 && (
               <p className="mb-2 text-[11px] text-gray-400">Drag ⠿ to reorder, or drop a document onto a folder on the left to move it.</p>
             )}
-            {docsIn(selFolder).length === 0 ? <p className="text-sm text-gray-400">Empty.</p> : (
+            {shownFolderDocs.length === 0 ? (
+              <p className="text-sm text-gray-400">{folderDocs.length === 0 ? 'Empty.' : 'No documents at this level in this folder.'}</p>
+            ) : (
               <ul className="divide-y divide-gray-100">
-                {docsIn(selFolder).map((d) => {
+                {shownFolderDocs.map((d) => {
                   const grants = visibleGrants.filter((g) => g.document_id === d.id || g.folder_id === d.folder_id);
                   const views = db.views.filter((v) => v.document_id === d.id);
                   const size = d.storage_path ? fmtBytes(storageSizes[d.storage_path]) : undefined;
@@ -1186,6 +1296,15 @@ function DocumentsPageInner() {
                       className={`py-2 text-sm ${dragDocId === d.id ? 'opacity-40' : ''} ${
                         dragOverDocId === d.id && dragDocId !== d.id ? 'border-t-2 border-cyan-400' : ''}`}>
                       <div className="flex flex-wrap items-center gap-2">
+                        {/* Prompt 741 §A.3 — the level is the first thing in
+                            the row now, not a plain <select> at the end.
+                            Same updateDocumentVisibility call, same options,
+                            just a colored pill instead of gray-on-gray. */}
+                        <select value={d.visibility} onChange={(e) => updateDocumentVisibility(d.id, e.target.value as DocVisibility)}
+                          title={VISIBILITY_META[d.visibility].title}
+                          className={`rounded-full border-0 px-1.5 py-0.5 text-[10px] font-medium ${VISIBILITY_PILL_CLASS[d.visibility]}`}>
+                          {VISIBILITY_OPTIONS.map((v) => <option key={v} value={v}>{VISIBILITY_META[v].icon} {VISIBILITY_META[v].label}</option>)}
+                        </select>
                         {documentOrderingAvailable && (
                           <span className={`select-none text-gray-300 ${canDrag ? 'cursor-grab' : ''}`} title="Drag to reorder, or drop onto a folder to move">⠿</span>
                         )}
@@ -1240,11 +1359,6 @@ function DocumentsPageInner() {
                         {d.is_view_only
                           ? <span className="rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-bold text-green-800">view-only ✓</span>
                           : <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-800">not view-only — blocked from sharing</span>}
-                        <select value={d.visibility} onChange={(e) => updateDocumentVisibility(d.id, e.target.value as DocVisibility)}
-                          title={VISIBILITY_META[d.visibility].title}
-                          className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600">
-                          {VISIBILITY_OPTIONS.map((v) => <option key={v} value={v}>{VISIBILITY_META[v].icon} {VISIBILITY_META[v].label}</option>)}
-                        </select>
                         <span className="text-xs text-gray-400">
                           {d.storage_path ? 'file' : 'link'}{size && ` · ${size}`}
                           {d.created_at && ` · uploaded ${d.created_at.slice(0, 10)}`}

@@ -9,6 +9,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
+import { recordInvestorSignalForEntity } from '@/lib/investor-signal-events-server';
 
 export async function POST(req: NextRequest) {
   const { documentId } = await req.json();
@@ -21,13 +23,13 @@ export async function POST(req: NextRequest) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   const email = user?.email?.trim().toLowerCase();
-  if (!email) return NextResponse.json({ ok: false, error: 'not signed in' }, { status: 401 });
+  if (!user || !email) return NextResponse.json({ ok: false, error: 'not signed in' }, { status: 401 });
 
   const viewerBlock = await assertNotViewer(sb, req);
   if (viewerBlock) return viewerBlock;
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const { data: doc, error: docErr } = await admin.from('documents').select('org_id, folder_id').eq('id', documentId).single();
+  const { data: doc, error: docErr } = await admin.from('documents').select('org_id, folder_id, visibility').eq('id', documentId).single();
   if (docErr || !doc) return NextResponse.json({ ok: false, error: docErr?.message ?? 'document not found' }, { status: 404 });
 
   // Prompt 124 C3 — grant_id was never populated here (confirmed: rows
@@ -40,7 +42,7 @@ export async function POST(req: NextRequest) {
   // by this document directly or by its folder, document-level grant wins.
   const orParts = [`document_id.eq.${documentId}`];
   if (doc.folder_id) orParts.push(`folder_id.eq.${doc.folder_id}`);
-  const { data: candidateGrants } = await admin.from('access_grants').select('id, document_id, folder_id, grantee_email, invited_email')
+  const { data: candidateGrants } = await admin.from('access_grants').select('id, document_id, folder_id, grantee_email, invited_email, nda_required')
     .is('revoked_at', null).or(orParts.join(','));
   const matching = (candidateGrants ?? []).filter((g) =>
     (g.grantee_email as string | null)?.trim().toLowerCase() === email || (g.invited_email as string | null)?.trim().toLowerCase() === email);
@@ -50,5 +52,20 @@ export async function POST(req: NextRequest) {
     org_id: doc.org_id, document_id: documentId, grant_id: grantId, viewer_email: email,
   });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+  // Prompt 741 §B.2 — best-effort, own failure mode entirely separate from
+  // the document_views insert above (which already returned on error). Same
+  // per-firm/per-document/per-UTC-day dedup as the open route's twin event.
+  const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, user.id);
+  if (investorCatalogEntityId) {
+    const ndaRequired = matching.find((g) => g.id === grantId)?.nda_required ?? false;
+    const dedupDay = new Date().toISOString().slice(0, 10);
+    await recordInvestorSignalForEntity(admin, {
+      investorCatalogEntityId, orgId: doc.org_id, actorUserId: user.id, level: 'avaliacao_substantiva', kind: 'document_opened',
+      snapshot: { document_id: documentId, visibility: doc.visibility, nda_required: ndaRequired, via: 'documents_tab' },
+      dedupKey: `${investorCatalogEntityId}:${doc.org_id}:document_opened:${documentId}:${user.id}:${dedupDay}`,
+    });
+  }
+
   return NextResponse.json({ ok: true });
 }

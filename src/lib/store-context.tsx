@@ -245,6 +245,12 @@ export interface StoreApi {
   // P103 Bloco 3 — visibility used to be set only at creation, no way to
   // change it after. "adicionar/editar" in the request meant both.
   updateDocumentVisibility: (id: string, visibility: DocVisibility) => void;
+  // Prompt 741 A.4 — "Set level for all documents in this folder…". A real
+  // batch, not a loop over updateDocumentVisibility: each of those reads
+  // dbRef.current as its "previous" state, and nothing here updates that
+  // ref synchronously between calls, so a loop's later calls would each
+  // clobber the earlier ones' own optimistic update instead of stacking.
+  updateDocumentsVisibility: (ids: string[], visibility: DocVisibility) => void;
   // Data Room v3 (E5). moveDocumentToFolder: drag a document onto a folder.
   // reorderDocuments: persist a new order within a folder (migration 0027).
   // replaceDocumentFile: swap the underlying file, keeping the same row/

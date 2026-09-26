@@ -21,8 +21,21 @@
 // explicit `ctx` prop, which also makes what each tree actually depends on
 // visible instead of implied.
 import type { Dispatch, SetStateAction } from 'react';
-import type { DocumentItem, Folder } from '@/lib/types';
+import type { DocumentItem, DocVisibility, Folder } from '@/lib/types';
 import type { GrantState } from '@/lib/data-room';
+import { nonZeroLevels, type VisibilityCounts } from '@/lib/vault-level-summary';
+
+// Prompt 741 §A.2 — same three colors as the page's visibility pills, kept
+// as its own small map rather than importing page.tsx's (which also carries
+// background classes meant for a pill, not a bare dot).
+const LEVEL_DOT_CLASS: Record<DocVisibility, string> = {
+  open: 'text-green-600',
+  on_grant: 'text-amber-600',
+  due_diligence: 'text-[#B00000]',
+};
+const LEVEL_LABEL: Record<DocVisibility, string> = {
+  open: 'open', on_grant: 'on request', due_diligence: 'due diligence',
+};
 
 export function TriStateBox({ state, onClick }: { state: GrantState; onClick: () => void }) {
   const style = state === 'none'
@@ -75,6 +88,10 @@ export function GrantTreeNode({ f, depth, ctx }: { f: Folder; depth: number; ctx
 export interface FolderTreeCtx {
   childrenOf: (id: string) => Folder[];
   docsIn: (id: string) => DocumentItem[];
+  // Prompt 741 §A.2 — this folder's own documents PLUS every descendant's,
+  // by visibility level; computed once per render by the page (levelCountsByFolder)
+  // rather than walked again per node.
+  levelCountsIn: (id: string) => VisibilityCounts;
   collapsed: Set<string>;
   toggleCollapse: (id: string) => void;
   renamingFolderId: string | null;
@@ -121,7 +138,14 @@ export function FolderNode({ f, depth, ctx }: { f: Folder; depth: number; ctx: F
                 ctx.dragOverFolderId === f.id ? 'bg-cyan-100 ring-1 ring-cyan-400'
                   : ctx.selFolder === f.id ? 'bg-[#E8F4F8] font-medium text-[#0E7490]' : 'text-gray-700 hover:bg-gray-50'}`}>
               <span>{f.kind === 'data_room' ? '▣' : '▤'}</span> {f.name}
-              <span className="ml-auto text-[10px] text-gray-400">{ctx.docsIn(f.id).length || ''}</span>
+              <span className="ml-auto flex items-center gap-1">
+                {nonZeroLevels(ctx.levelCountsIn(f.id)).map(({ visibility, count }) => (
+                  <span key={visibility} className={`text-[10px] font-medium ${LEVEL_DOT_CLASS[visibility]}`}
+                    title={`${count} ${LEVEL_LABEL[visibility]} (including subfolders)`}>
+                    ● {count}
+                  </span>
+                ))}
+              </span>
             </button>
             <button onClick={() => ctx.startRenameFolder(f)} title="Rename folder"
               className="hidden text-xs text-gray-400 hover:text-cyan-700 group-hover:inline">✎</button>

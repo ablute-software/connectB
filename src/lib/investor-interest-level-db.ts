@@ -131,7 +131,7 @@ export async function requestInterestLevel(
 
 export async function decideInterestLevel3(
   admin: SupabaseClient, opts: { id: string; orgId: string; decidedBy: string; decision: 'granted' | 'denied'; note?: string | null; shareDirectEmail: boolean },
-): Promise<{ error: { message: string } | null }> {
+): Promise<{ error: { message: string } | null; investorCatalogEntityId?: string | null }> {
   const { data: row, error } = await admin.from('investor_interest_levels').update({
     status: opts.decision, decided_by: opts.decidedBy, decided_at: new Date().toISOString(),
     note: opts.note ?? null, share_direct_email: opts.decision === 'granted' ? opts.shareDirectEmail : false,
@@ -148,5 +148,9 @@ export async function decideInterestLevel3(
         .eq('org_id', opts.orgId).eq('entity_id', delivery.entity_id as string).eq('source', 'interest_level_request').eq('done', false);
     }
   }
-  return { error: null };
+  // Prompt 741 §B.2 — the caller writes an investor_signal_events row for
+  // the FOUNDER's decision, on the INVESTOR's own episode; it needs this id
+  // and must not resolve it via resolveInvestorCatalogEntityId (that would
+  // resolve the founder's session, not the investor firm being decided on).
+  return { error: null, investorCatalogEntityId: row ? (row.investor_catalog_entity_id as string) : null };
 }

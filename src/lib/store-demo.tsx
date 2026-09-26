@@ -809,6 +809,11 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({ ...prev, documents: prev.documents.map((d) => d.id === id ? { ...d, visibility } : d) }));
     },
 
+    updateDocumentsVisibility(ids, visibility) {
+      const idSet = new Set(ids);
+      setDb((prev) => ({ ...prev, documents: prev.documents.map((d) => idSet.has(d.id) ? { ...d, visibility } : d) }));
+    },
+
     moveDocumentToFolder(docId, folderId) {
       setDb((prev) => {
         const siblings = prev.documents.filter((d) => d.folder_id === folderId);
