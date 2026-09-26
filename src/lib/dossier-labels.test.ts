@@ -72,6 +72,9 @@ describe('formatPeriodRange', () => {
   it('neither end known — never silently blank, says so explicitly', () => {
     expect(formatPeriodRange(null, null, null, null, false)).toBe('date not confirmed');
   });
+  it('current role with NO start date says so explicitly, never "until present"', () => {
+    expect(formatPeriodRange(null, null, null, null, true)).toBe('current · start date unknown');
+  });
 });
 
 describe('portfolioRelationshipPhrase', () => {

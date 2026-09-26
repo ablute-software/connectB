@@ -72,8 +72,19 @@ type EvidenceItem = {
   role_type: string | null;
   period_from: string | null; period_from_precision: string | null;
   period_to: string | null; period_to_precision: string | null; period_is_current: boolean | null;
+  provenance: Record<string, unknown> | null;
   topics: EvidenceTopic[];
 };
+
+// The importer marks a career mention it refused to force into
+// role_history (a composite entry mixing several roles/companies in one
+// text block, or an un-decomposed free-text career summary) with one of
+// these two provenance_source values. Real history — must stay visible
+// somewhere, just never asserted as classified employment/board_advisory.
+const UNCLASSIFIED_ROLE_PROVENANCE_SOURCES = new Set(['showcase_structured_ambiguous_role', 'excel_dossier_fallback']);
+function isUnclassifiedCareerMention(e: EvidenceItem): boolean {
+  return e.kind === 'other' && UNCLASSIFIED_ROLE_PROVENANCE_SOURCES.has(String(e.provenance?.provenance_source ?? ''));
+}
 type SourceItem = {
   id: string; source_url: string | null; source_type: string | null; published_at: string | null;
   verified_at: string | null; supports: string | null; quality: string | null; notes: string | null;
@@ -231,7 +242,7 @@ export default function CatalogPersonPage() {
         sb.from('catalog_evidence')
           .select(`
             id, kind, title, url, published_at, excerpt, language, strength, is_personal, status, origin, created_at,
-            role_type, period_from, period_from_precision, period_to, period_to_precision, period_is_current,
+            role_type, period_from, period_from_precision, period_to, period_to_precision, period_is_current, provenance,
             catalog_evidence_topics ( topic_id, confidence, relation_kind, topic_taxonomy ( label_en ) )
           `)
           .eq('person_id', personId).in('status', ['found', 'verified'])
@@ -272,6 +283,7 @@ export default function CatalogPersonPage() {
           period_from: e.period_from ?? null, period_from_precision: e.period_from_precision ?? null,
           period_to: e.period_to ?? null, period_to_precision: e.period_to_precision ?? null,
           period_is_current: e.period_is_current ?? null,
+          provenance: (e.provenance as Record<string, unknown> | null) ?? null,
           topics,
         };
       });
@@ -338,6 +350,7 @@ export default function CatalogPersonPage() {
         const education = s.evidence.filter((e) => e.kind === 'education');
         const portfolio = s.evidence.filter((e) => e.kind === 'portfolio_relationship');
         const ownVoice = s.evidence.filter((e) => OWN_VOICE_KINDS.has(e.kind) && e.excerpt);
+        const unclassifiedRoles = s.evidence.filter(isUnclassifiedCareerMention);
 
         // Timeline: career + board history, plus education rows that carry
         // a real period — never an undated row asserted into a
@@ -445,6 +458,25 @@ export default function CatalogPersonPage() {
                         {formatPeriodRange(e.period_from, e.period_from_precision, e.period_to, e.period_to_precision, e.period_is_current)}
                       </p>
                       {e.excerpt && <p className="mt-1 text-sm text-gray-600">{e.excerpt}</p>}
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            )}
+
+            {/* (4b) Other career mentions the importer found but could not
+                classify with confidence between employment/board_advisory
+                (a composite text block naming several roles/companies at
+                once, or a free-text career summary that was never
+                decomposed) — real history, but never asserted into the
+                Timeline as a specific role type. */}
+            {unclassifiedRoles.length > 0 && (
+              <Card title="Other career mentions (not classified)">
+                <ul className="divide-y divide-gray-100">
+                  {unclassifiedRoles.map((e) => (
+                    <li key={e.id} className="py-2.5">
+                      <p className="text-sm font-medium text-gray-700">{e.title}</p>
+                      <p className="mt-1 text-xs text-gray-500">{e.excerpt}</p>
                     </li>
                   ))}
                 </ul>

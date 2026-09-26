@@ -96,7 +96,15 @@ export function formatPeriodRange(
   lang: 'en' | 'pt' = 'en',
 ): string {
   const from = formatPeriodDate(fromDate, fromPrecision);
-  const to = isCurrent ? (lang === 'pt' ? 'presente' : 'present') : formatPeriodDate(toDate, toPrecision);
+  if (isCurrent) {
+    // A current role with no known start date is "current, start date
+    // unknown" — never "until present", which reads as if it had already
+    // ended.
+    return from
+      ? `${from} – ${lang === 'pt' ? 'presente' : 'present'}`
+      : (lang === 'pt' ? 'actual · data de início não confirmada' : 'current · start date unknown');
+  }
+  const to = formatPeriodDate(toDate, toPrecision);
   if (from && to) return `${from} – ${to}`;
   if (from && !to) return lang === 'pt' ? `desde ${from}` : `since ${from}`;
   if (!from && to) return lang === 'pt' ? `até ${to}` : `until ${to}`;
