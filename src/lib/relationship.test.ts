@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { followUpTaskDisplayTitle, relationshipSummary, suggestNextAction, recommendInterlocutor, recommendChannel, nextContactPerson } from './relationship';
+import { followUpTaskDisplayTitle, relationshipSummary, suggestNextAction, recommendInterlocutor, recommendChannel, nextContactPerson, recommendedActionType } from './relationship';
 import type { Db, Entity, Interaction, Person, TaskItem } from './types';
 
 const OCCURRED = '2026-07-30T10:00:00.000Z';
@@ -276,21 +276,23 @@ describe('recommendInterlocutor — Prompt 728 §3: one shared rule, order matte
     expect(rec.source).toBe('none');
   });
 
-  it('a documented, sourced hook is listed as an alternative, never auto-promoted to the recommended person', () => {
+  // Prompt 737 §0B.3, decision 1 (25/09/2026) — hook-based "documented
+  // affinity" alternatives are gone: `alternatives` is always empty now,
+  // whatever hook data a person carries. Refilling it with a real
+  // relevance signal is Fase 3's own scope, not this prompt's.
+  it('alternatives is always empty, whether or not a person has a hook', () => {
     const senior = makePerson({ id: 'p-senior', entity_id: 'ent-1', full_name: 'Senior', role: 'Analyst', seniority_rank: 1 });
     const hooked = makePerson({ id: 'p-hooked', entity_id: 'ent-1', full_name: 'Hooked', role: 'Analyst', seniority_rank: 2, hook: 'Quoted a shared alma mater.', hook_status: 'researched' });
     const rec = recommendInterlocutor(makeDb([entity], [], [senior, hooked]), 'ent-1');
     expect(rec.person?.id).toBe('p-senior');
-    expect(rec.alternatives).toHaveLength(1);
-    expect(rec.alternatives[0].person.id).toBe('p-hooked');
-    expect(rec.alternatives[0].reason).toBe('documented affinity');
+    expect(rec.alternatives).toEqual([]);
   });
 
-  it('a hook with no researched status is never listed as a documented-affinity alternative', () => {
-    const senior = makePerson({ id: 'p-senior', entity_id: 'ent-1', full_name: 'Senior', seniority_rank: 1 });
-    const unresearched = makePerson({ id: 'p-2', entity_id: 'ent-1', full_name: 'Unresearched', seniority_rank: 2, hook: 'A guess, not sourced.', hook_status: 'to_research' });
-    const rec = recommendInterlocutor(makeDb([entity], [], [senior, unresearched]), 'ent-1');
-    expect(rec.alternatives).toHaveLength(0);
+  it('a person still to_research is neither penalized nor blocked from being the recommended person', () => {
+    const toResearch = makePerson({ id: 'p-1', entity_id: 'ent-1', full_name: 'Someone', seniority_rank: 1, hook_status: 'to_research' });
+    const rec = recommendInterlocutor(makeDb([entity], [], [toResearch]), 'ent-1');
+    expect(rec.person?.id).toBe('p-1');
+    expect(rec.alternatives).toEqual([]);
   });
 
   it('nextContactPerson stays a thin wrapper — same signature, same return, every existing caller keeps compiling unchanged', () => {
@@ -326,5 +328,24 @@ describe('recommendChannel — Prompt 728 §4: LinkedIn keeps its own caveat eve
     const rec = recommendChannel(undefined, entityNoChannel);
     expect(rec.value).toBeNull();
     expect(rec.needsConfirmation).toBe(true);
+  });
+});
+
+// Prompt 737 §0B.3, decision 1 (25/09/2026) — recommendedActionType never
+// assigns 'research_hook' to a new recommendation again; the value stays
+// in ActionType only to read tasks/interactions written before this prompt.
+describe('recommendedActionType — never returns research_hook (Fase 0, 25/09/2026)', () => {
+  const entity = makeEntity({ id: 'ent-1' });
+
+  it('a person with hook_status=to_research still gets a real action type, never research_hook', () => {
+    const person = makePerson({ id: 'p-1', entity_id: 'ent-1', full_name: 'Someone', seniority_rank: 1, hook_status: 'to_research' });
+    const db = makeDb([entity], [], [person]);
+    expect(recommendedActionType(db, 'ent-1', 'p-1')).toBe('first_contact');
+    expect(recommendedActionType(db, 'ent-1', 'p-1')).not.toBe('research_hook');
+  });
+
+  it('with no personId at all, still never returns research_hook', () => {
+    const db = makeDb([entity], [], []);
+    expect(recommendedActionType(db, 'ent-1')).not.toBe('research_hook');
   });
 });

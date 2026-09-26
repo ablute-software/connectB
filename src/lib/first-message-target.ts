@@ -12,7 +12,7 @@
 //   1. Never choose an entity with nothing to act on.
 //   2. Say the step that is actually available, not the one three steps ahead.
 
-export type FirstMessageState = 'has_hook' | 'has_people' | 'channel_only';
+export type FirstMessageState = 'has_people' | 'channel_only';
 
 export interface FirstMessageCandidate {
   id: string;
@@ -23,8 +23,6 @@ export interface FirstMessageCandidate {
   readiness: number;
   /** Contact people the founder already has on this entity. */
   peopleCount: number;
-  /** At least one of those people carries a researched hook. */
-  hasHook: boolean;
   /** A submission form or a general inbox exists. */
   hasChannel: boolean;
   /** The delivered row's channel type — an inbox to write to ('email'), a form
@@ -53,7 +51,6 @@ export function isActionable(c: FirstMessageCandidate): boolean {
 }
 
 function stateOf(c: FirstMessageCandidate): FirstMessageState {
-  if (c.hasHook) return 'has_hook';
   if (c.peopleCount > 0) return 'has_people';
   return 'channel_only';
 }
@@ -81,19 +78,14 @@ export function chooseFirstMessageTarget(
   if (!entity) return null;
 
   const state = stateOf(entity);
-  if (state === 'has_hook') {
-    return {
-      entity, state,
-      label: `Next: send your first message to ${entity.name}`,
-      target: `/entities/${entity.id}?rail=log`,
-    };
-  }
   if (state === 'has_people') {
-    // The real next step: choose who, and write the hook preflight will ask
-    // for. Lands on the People tab, which already lists them with LinkedIn.
+    // Fase 0, 25/09/2026 — hook is no longer a precondition anywhere in
+    // this pipeline (decision 1), so the next step is naming who to
+    // approach, not asking for a hook first. Lands on the People tab,
+    // which already lists them with LinkedIn.
     return {
       entity, state,
-      label: `Next: pick the right partner at ${entity.name} and write your hook`,
+      label: `Next: pick the right partner at ${entity.name} and reach out`,
       target: `/entities/${entity.id}?tab=people`,
     };
   }
@@ -136,11 +128,11 @@ export function firstStepTaskTitle(
   hasPeople: boolean,
   channelType?: 'form' | 'email' | 'unknown' | null,
 ): string {
-  if (hasPeople) return `Pick the right partner at ${name} and write your hook`;
+  if (hasPeople) return `Pick the right partner at ${name} and reach out`;
   if (channelType === 'email') return `Email ${name}`;
   if (channelType === 'form') return `Submit to ${name} through their form`;
   // No people and no known channel: the honest next step is finding someone,
   // and it is the same sentence the clue's `has_people`/`channel_only` states
   // fall back to rather than inventing a fourth vocabulary.
-  return `Pick the right partner at ${name} and write your hook`;
+  return `Pick the right partner at ${name} and reach out`;
 }

@@ -926,6 +926,32 @@ describe('sherlockNext — next_approach (Prompt 564 §C)', () => {
     });
     expect(sherlockNext(db, NOW).kind).toBe('all_clear');
   });
+
+  // Prompt 737 §0B.3, decision 1 — hook is no longer a readiness signal.
+  // Two otherwise-identical wave-1 firms, one with a hooked person and one
+  // without, must rank as an exact tie (broken by name) — not by hook
+  // presence, which would have picked Zulu every time before this prompt.
+  it('scores a firm with a hooked person the same as one without', () => {
+    const db = krohnstyDb({
+      entities: [
+        makeEntity({ id: 'ent-alpha', name: 'Alpha Capital', wave: 1 }),
+        makeEntity({ id: 'ent-zulu', name: 'Zulu Ventures', wave: 1 }),
+      ],
+      // do_not_contact keeps both people out of rung 10 (ready_to_contact),
+      // so the comparison actually reaches rung 10b (next_approach) — they
+      // still count toward firstMessageCandidate's peopleCount either way.
+      people: [
+        makePerson({ id: 'p-alpha', entity_id: 'ent-alpha', seniority_rank: 1, hook_status: 'to_research', do_not_contact: true }),
+        makePerson({
+          id: 'p-zulu', entity_id: 'ent-zulu', seniority_rank: 1, do_not_contact: true,
+          hook: 'Wrote about deep tech exits.', hook_status: 'researched',
+        }),
+      ],
+    });
+    const step = sherlockNext(db, NOW);
+    expect(step.kind).toBe('next_approach');
+    expect(step.entityId).toBe('ent-alpha');
+  });
 });
 
 // Prompt 564 §D — an overdue task is still the next thing to do.

@@ -96,13 +96,14 @@ function firstMessageCandidate(db: Db, e: Db['entities'][number]): FirstMessageC
   return {
     id: e.id, name: e.name, wave: e.wave,
     fitRank: FIT_ORDER[e.fit_score ?? 'low'],
+    // Fase 0, 25/09/2026 — the +40 hook term is gone (decision 1: hook is
+    // no longer a precondition or a readiness signal anywhere in this
+    // pipeline); readiness is now just "is there someone/some channel".
     readiness: (people.length ? 25 : 0)
-      + (people.some((p) => !!p.hook) ? 40 : 0)
       + (e.submission_channel ? 15 : 0)
       + (e.email ? 10 : 0)
       + (e.key_people ? 5 : 0),
     peopleCount: people.length,
-    hasHook: people.some((p) => !!p.hook),
     hasChannel: !!e.submission_channel || !!e.email,
     // Prompt 853 §B — the delivered row's stored type, falling back to the
     // in-memory derivation for older/test stores that predate the column.

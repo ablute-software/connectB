@@ -10,7 +10,7 @@ import {
 function c(over: Partial<FirstMessageCandidate> = {}): FirstMessageCandidate {
   return {
     id: 'e1', name: 'Firm', wave: 1, fitRank: 0, readiness: 50,
-    peopleCount: 2, hasHook: false, hasChannel: true, channelType: 'form', ...over,
+    peopleCount: 2, hasChannel: true, channelType: 'form', ...over,
   };
 }
 
@@ -44,25 +44,18 @@ describe('chooseFirstMessageTarget', () => {
     ])).toBeNull();
   });
 
-  it('says "send your first message" only when a hook exists', () => {
-    const t = chooseFirstMessageTarget([c({ name: 'Frst', hasHook: true })]);
-    expect(t?.state).toBe('has_hook');
-    expect(t?.label).toBe('Next: send your first message to Frst');
-    expect(t?.target).toContain('rail=log');
-  });
-
-  it('sends the founder to pick a partner when there are people but no hook', () => {
-    // preflight() would refuse a draft here, so "send your first message"
-    // would be an instruction the product then blocks.
-    const t = chooseFirstMessageTarget([c({ name: 'SFC Capital', hasHook: false, peopleCount: 18 })]);
+  it('sends the founder to pick a partner when there are people on file', () => {
+    // Fase 0, 25/09/2026 — hook is no longer a precondition (decision 1),
+    // so this no longer waits on one: having a person is enough to act.
+    const t = chooseFirstMessageTarget([c({ name: 'SFC Capital', peopleCount: 18 })]);
     expect(t?.state).toBe('has_people');
-    expect(t?.label).toBe('Next: pick the right partner at SFC Capital and write your hook');
+    expect(t?.label).toBe('Next: pick the right partner at SFC Capital and reach out');
     expect(t?.target).toContain('tab=people');
   });
 
   it('says submit through the form when there is no one to name and the channel is a form', () => {
     const t = chooseFirstMessageTarget([
-      c({ name: 'Kindred Capital', peopleCount: 0, hasChannel: true, hasHook: false, channelType: 'form' }),
+      c({ name: 'Kindred Capital', peopleCount: 0, hasChannel: true, channelType: 'form' }),
     ]);
     expect(t?.state).toBe('channel_only');
     expect(t?.label).toBe('Next: submit to Kindred Capital through their form');
@@ -70,19 +63,19 @@ describe('chooseFirstMessageTarget', () => {
 
   it('Prompt 853 §B — says "email" for an email-only firm, never "through their form"', () => {
     const t = chooseFirstMessageTarget([
-      c({ name: 'Newfund', peopleCount: 0, hasChannel: true, hasHook: false, channelType: 'email' }),
+      c({ name: 'Newfund', peopleCount: 0, hasChannel: true, channelType: 'email' }),
     ]);
     expect(t?.state).toBe('channel_only');
     expect(t?.label).toBe('Next: email Newfund');
     expect(t?.label).not.toContain('form');
   });
 
-  it('never says "send your first message" to an entity without a hook', () => {
+  it('never mentions a hook — it is not a precondition anywhere in this pipeline', () => {
     for (const cand of [
-      c({ peopleCount: 5, hasHook: false }),
-      c({ peopleCount: 0, hasChannel: true, hasHook: false }),
+      c({ peopleCount: 5 }),
+      c({ peopleCount: 0, hasChannel: true }),
     ]) {
-      expect(chooseFirstMessageTarget([cand])?.label).not.toContain('send your first message');
+      expect(chooseFirstMessageTarget([cand])?.label).not.toContain('hook');
     }
   });
 });

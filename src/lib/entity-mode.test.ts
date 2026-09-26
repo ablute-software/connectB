@@ -147,8 +147,10 @@ describe('nextBestAction — not_contacted mostra o resultado do preflight (254)
   });
 
   it('pessoa com falhas: conta as falhas, cita o nome, nao lista aqui (a lista e da UI)', () => {
-    const e = entity({ status: 'not_contacted' });
-    const p = person({ hook_status: 'to_research' });
+    // Prompt 737 §0B.3 (25/09/2026) — hook_status is no longer a preflight
+    // check, so an open hard filter stands in as the real failure here.
+    const e = entity({ status: 'not_contacted', hard_filter_status: 'open', hard_filter: 'Sector mismatch' });
+    const p = person();
     expect(nextBestAction(db(e, [], [], [], [], [p]), 'e1', NOW)).toBe('Not ready yet — pre-flight found 1 issue for Jane Doe:');
   });
 
