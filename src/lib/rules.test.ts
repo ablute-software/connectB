@@ -138,6 +138,27 @@ describe('preflight — seniority order', () => {
   });
 });
 
+// Prompt 737 §0B.3, decision 1 — hook researched is no longer a pre-flight
+// check: a generic-sounding contact with no researched hook is no longer
+// blocked or flagged before sending.
+describe('preflight — hook is not a check (Fase 0, 25/09/2026)', () => {
+  it('has no "hook" key, whatever hook_status is', () => {
+    const entity = makeEntity({ id: 'ent-a' });
+    for (const hookStatus of ['researched', 'to_research', 'none_found'] as const) {
+      const person = makePerson({ id: 'p1', entity_id: 'ent-a', seniority_rank: 1, hook_status: hookStatus });
+      const db = makeDb([entity], [person], []);
+      expect(preflight(db, person, null).find((c) => c.key === 'hook')).toBeUndefined();
+    }
+  });
+
+  it('has 6 checks with no channel selected (down from 7 before this prompt)', () => {
+    const entity = makeEntity({ id: 'ent-a' });
+    const person = makePerson({ id: 'p1', entity_id: 'ent-a', seniority_rank: 1 });
+    const db = makeDb([entity], [person], []);
+    expect(preflight(db, person, null)).toHaveLength(6);
+  });
+});
+
 // Founder-feedback batch 2, item 2 — LinkedIn connection-request notes are
 // hard-capped by the platform itself at 300 characters, distinct from the
 // (much looser, soft) DM cap.

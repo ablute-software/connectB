@@ -490,7 +490,9 @@ export interface Person {
   personal_notes?: string;
   linked_companies: string[];
   linked_funds: string[];
+  /** @deprecated Fase 0, 25/09/2026 — private per-org note, kept (composer.ts, /people/[id]); no longer a precondition or scoring signal anywhere in the outreach pipeline. Removal, if any, is Fase 4's decision. */
   hook?: string;
+  /** @deprecated Fase 0, 25/09/2026 — same as `hook` above. */
   hook_status: HookStatus;
   kill_words: string[];
   watch_outs?: string;

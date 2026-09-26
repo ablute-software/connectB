@@ -42,21 +42,14 @@ export function preflight(db: Db, person: Person, channel: Channel | null, now =
     reason: person.do_not_contact ? 'Hard stop, permanent. No override.' : undefined, overridable: false,
   });
 
-  // 2. hook researched
-  checks.push({
-    key: 'hook', label: 'Hook researched', ok: person.hook_status === 'researched',
-    reason: person.hook_status !== 'researched' ? 'A generic message burns the contact permanently. Research first.' : undefined,
-    overridable: true,
-  });
-
-  // 3. hard filter
+  // 2. hard filter
   const hf = entity?.hard_filter_status === 'open';
   checks.push({
     key: 'hard_filter', label: 'No open hard filter on the entity', ok: !hf,
     reason: hf ? `Open filter: ${entity?.hard_filter}` : undefined, overridable: true,
   });
 
-  // 4. contact lock (one approach per entity)
+  // 3. contact lock (one approach per entity)
   const locked = entity?.contact_lock_until && new Date(entity.contact_lock_until) > now;
   checks.push({
     key: 'contact_lock', label: 'No one at this entity contacted in the last 14 days', ok: !locked,
@@ -64,7 +57,7 @@ export function preflight(db: Db, person: Person, channel: Channel | null, now =
     overridable: true,
   });
 
-  // 5. seniority order — never approach a junior contact while a more
+  // 4. seniority order — never approach a junior contact while a more
   // senior one at the same fund is still unresolved. "Unresolved" covers
   // both not-yet-contacted (approach them first) and contacted-with-no-
   // reply (don't spray in parallel); only an actual reply (any
@@ -84,7 +77,7 @@ export function preflight(db: Db, person: Person, channel: Channel | null, now =
   }
   checks.push({ key: 'seniority', label: 'Seniority order respected', ok: seniorityOk, reason: seniorityReason, overridable: true });
 
-  // 6. email channel needs a verified, non-bounced address
+  // 5. email channel needs a verified, non-bounced address
   if (channel === 'email') {
     const emailOk = !!person.email_verified && person.bounce_count === 0;
     checks.push({
@@ -96,7 +89,7 @@ export function preflight(db: Db, person: Person, channel: Channel | null, now =
     });
   }
 
-  // 7. caps
+  // 6. caps
   const caps = outboundCounts(db, now);
   const capsOk = caps.today < caps.dailyCap && caps.week < caps.weeklyCap;
   checks.push({
@@ -106,7 +99,7 @@ export function preflight(db: Db, person: Person, channel: Channel | null, now =
     overridable: true,
   });
 
-  // 8. follow-up limit: never a third unanswered message to the same person
+  // 7. follow-up limit: never a third unanswered message to the same person
   const outsToPerson = db.interactions.filter((i) => i.person_id === person.id && i.direction === 'out').length;
   const insFromPerson = db.interactions.filter((i) => i.person_id === person.id && i.direction === 'in').length;
   const thirdMsg = outsToPerson >= 2 && insFromPerson === 0;
@@ -116,7 +109,7 @@ export function preflight(db: Db, person: Person, channel: Channel | null, now =
     overridable: false,
   });
 
-  // 9. official channel first
+  // 8. official channel first
   if (entity?.submission_channel && entity.submission_channel_type !== 'none') {
     const usedOfficial = db.interactions.some((i) =>
       i.entity_id === entity.id && i.direction === 'out' && (i.channel === 'web_form' || i.channel === 'email'));

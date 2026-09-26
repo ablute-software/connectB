@@ -6,14 +6,18 @@
 //
 // entities.id (private, per-org) -> catalog_deliveries.entity_id -> catalog_id
 //   -> catalog_person_affiliations.entity_id = catalog_id -> catalog_people
-//   (+ catalog_people_research for the hook)
 //
 // RLS (0146) already covers this read for any org that has the entity in
-// catalog_deliveries — no policy change needed. The hook is still only
-// rendered when hook_status = 'researched' AND catalog_entity_enrichment_sources
-// has at least one row for the person — the same no-hook-without-provenance
-// rule the worker itself enforces, checked again here rather than trusted
-// blindly from hook_status alone.
+// catalog_deliveries — no policy change needed.
+//
+// Prompt 737 §0B.2 (25/09/2026) — the hook phrase and its
+// hook_status/enrichment-sources gate are gone: hook is no longer a
+// precondition or a signal anywhere in this pipeline (decision 1). What
+// each row shows instead is a plain evidence count, from ONE separate
+// query against catalog_evidence (not embedded in the affiliations select
+// above, so removing the old embed doesn't silently reintroduce it).
+// catalog_person_priority-based ordering (the branch this was drafted
+// against also added) is explicitly Fase 3 scope — not built here.
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { authEnabled, browserClient } from '@/lib/supabase';
@@ -34,9 +38,6 @@ type PersonRow = {
     full_name: string;
     linkedin_url: string | null;
     linkedin_verified: boolean;
-    hook_status: string;
-    catalog_people_research: { hook: string | null } | { hook: string | null }[] | null;
-    catalog_entity_enrichment_sources: { id: string }[] | null;
   } | null;
 };
 
@@ -44,7 +45,7 @@ type PanelState =
   | { kind: 'loading' }
   | { kind: 'no_catalog_link' }
   | { kind: 'pending' }
-  | { kind: 'ready'; people: PersonRow[] }
+  | { kind: 'ready'; people: PersonRow[]; evidenceCountByPersonId: Map<string, number> }
   | { kind: 'error' };
 
 export function EntityPeoplePanel({ entityId, onShowsKeyPeopleFallback, onPersonAdded }: {
@@ -127,17 +128,29 @@ export function EntityPeoplePanel({ entityId, onShowsKeyPeopleFallback, onPerson
         .from('catalog_person_affiliations')
         .select(`
           title, kind, is_primary,
-          catalog_people (
-            id, full_name, linkedin_url, linkedin_verified, hook_status,
-            catalog_people_research ( hook ),
-            catalog_entity_enrichment_sources ( id )
-          )
+          catalog_people ( id, full_name, linkedin_url, linkedin_verified )
         `)
         .eq('entity_id', catalogId)
         .eq('current', true);
       if (cancelled) return;
       if (rowsErr) { setState({ kind: 'error' }); return; }
-      setState({ kind: 'ready', people: (rows ?? []) as unknown as PersonRow[] });
+
+      const people = (rows ?? []) as unknown as PersonRow[];
+      // §0B.2 — one query per panel: a plain count of found/verified
+      // evidence per person, counted client-side rather than N per-person
+      // requests.
+      const personIds = people.map((r) => r.catalog_people?.id).filter((id): id is string => !!id);
+      const evidenceCountByPersonId = new Map<string, number>();
+      if (personIds.length > 0) {
+        const { data: evidenceRows } = await sb.from('catalog_evidence')
+          .select('person_id').in('person_id', personIds).in('status', ['found', 'verified']);
+        if (cancelled) return;
+        for (const e of evidenceRows ?? []) {
+          const pid = e.person_id as string;
+          evidenceCountByPersonId.set(pid, (evidenceCountByPersonId.get(pid) ?? 0) + 1);
+        }
+      }
+      setState({ kind: 'ready', people, evidenceCountByPersonId });
     })();
     return () => { cancelled = true; };
   }, [entityId]);
@@ -227,9 +240,7 @@ export function EntityPeoplePanel({ entityId, onShowsKeyPeopleFallback, onPerson
           {state.people.map((row) => {
             const p = row.catalog_people;
             if (!p) return null;
-            const research = Array.isArray(p.catalog_people_research) ? p.catalog_people_research[0] : p.catalog_people_research;
-            const sourceCount = p.catalog_entity_enrichment_sources?.length ?? 0;
-            const hook = p.hook_status === 'researched' && sourceCount > 0 ? research?.hook ?? null : null;
+            const evidenceCount = state.evidenceCountByPersonId.get(p.id) ?? 0;
             // Prompt 724 §2 — the exact bug the founder hit: a real catalog
             // person (this list) had no way to ever reach db.people, so
             // RailLogForm's "Select person" dropdown and EntityDossierPanel's
@@ -287,7 +298,9 @@ export function EntityPeoplePanel({ entityId, onShowsKeyPeopleFallback, onPerson
                     </button>
                   )}
                 </div>
-                {hook && <p className="mt-1 text-sm italic text-gray-600">“{hook}”</p>}
+                <p className="mt-0.5 text-xs text-gray-400">
+                  {evidenceCount > 0 ? `${evidenceCount} evidence item${evidenceCount === 1 ? '' : 's'}` : 'No evidence on file'}
+                </p>
               </li>
             );
           })}

@@ -241,15 +241,12 @@ export function needsReopenTrigger(entity: Pick<Entity, 'status' | 'reopen_trigg
 // all currently expect "some contactable person" whenever one exists.
 // Flagged here rather than silently deviating from the prompt's own table.
 //
-// Personal affinity (Fase 1's own explicit scope): a documented hook is
-// listed in `alternatives`, never promoted to `person` automatically —
-// there's no honest way yet to say a hook is RELEVANT to this specific
-// startup, only that one exists. hook_status==='researched' is read as
-// "has a hook with a real source" by construction: ensureOrgPersonFromCatalog
-// (catalog-materialize.ts) only ever sets that status when
-// catalog_people.hook_source was actually present at materialization time —
-// never optimistically — so no separate hook_source column is needed on
-// `people` itself to make this check honest.
+// Personal affinity via a documented hook (formerly listed here as
+// `alternatives`, never promoted to `person` automatically) is out as of
+// Fase 0 (25/09/2026): hook is no longer read as a precondition or signal
+// anywhere in this file. `alternatives` stays on the type (Fase 3's own
+// scope to refill, with a real relevance signal) but every caller below
+// returns it empty for now.
 export type InterlocutorSource = 'active_relationship' | 'explicit_instruction' | 'documented_responsibility' | 'seniority' | 'none';
 export interface InterlocutorAlternative { person: Person; reason: string; hook?: string }
 export interface InterlocutorRecommendation {
@@ -261,12 +258,6 @@ export interface InterlocutorRecommendation {
 }
 
 const DECISION_MAKER_TITLE = /\b(partner|general partner|\bgp\b|investment manager|principal)\b/i;
-
-function documentedAffinityAlternatives(contactable: Person[], excludeId?: string): InterlocutorAlternative[] {
-  return contactable
-    .filter((p) => p.id !== excludeId && p.hook_status === 'researched' && !!p.hook)
-    .map((p) => ({ person: p, reason: 'documented affinity', hook: p.hook }));
-}
 
 export function recommendInterlocutor(db: Db, entityId: string): InterlocutorRecommendation {
   const entity = db.entities.find((e) => e.id === entityId);
@@ -292,7 +283,7 @@ export function recommendInterlocutor(db: Db, entityId: string): InterlocutorRec
   if (activePerson) {
     return {
       person: activePerson, source: 'active_relationship', reason: 'Already in an active relationship with this person.',
-      alternatives: documentedAffinityAlternatives(contactable, activePerson.id),
+      alternatives: [],
     };
   }
 
@@ -303,7 +294,7 @@ export function recommendInterlocutor(db: Db, entityId: string): InterlocutorRec
     return {
       person: decisionMaker, source: 'documented_responsibility',
       reason: `${decisionMaker.role} — documented decision-making responsibility.`,
-      alternatives: documentedAffinityAlternatives(contactable, decisionMaker.id),
+      alternatives: [],
     };
   }
 
@@ -311,7 +302,7 @@ export function recommendInterlocutor(db: Db, entityId: string): InterlocutorRec
   const senior = [...contactable].sort((a, b) => a.seniority_rank - b.seniority_rank)[0];
   return {
     person: senior, source: 'seniority', reason: 'Most senior contactable person — no documented decision-making title or affinity yet.',
-    alternatives: documentedAffinityAlternatives(contactable, senior.id),
+    alternatives: [],
   };
 }
 
@@ -556,9 +547,6 @@ export function dataRoomFirstContactTipApplies(db: Db): boolean {
 // reopen doctrine (cite the earlier "no" + what changed), rather than
 // inventing a 6th type not in the requested set.
 export function recommendedActionType(db: Db, entityId: string, personId?: string, now = new Date()): ActionType {
-  const person = personId ? db.people.find((p) => p.id === personId) : undefined;
-  if (person && person.hook_status !== 'researched') return 'research_hook';
-
   const touches = entityInteractions(db, entityId).filter((i) => i.channel !== 'stage_change');
   if (touches.length === 0) return 'first_contact';
 
