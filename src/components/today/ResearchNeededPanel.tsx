@@ -54,7 +54,7 @@ export function ResearchNeededPanel() {
             ))}
           </ul>
         )}
-        <p className="mt-2 text-xs text-gray-400">No hook = no message. Generic messages burn contacts permanently.</p>
+        <p className="mt-2 text-xs text-gray-400">A message grounded in something real about the person always beats a generic one.</p>
       </Card>
     </div>
   );

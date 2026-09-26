@@ -655,8 +655,11 @@ const INBOUND_CLASSIFICATION_SUGGESTION: Partial<Record<Classification, { title:
  * point is to say why not.
  *
  * The action types differ on purpose: with a person it is a real
- * follow-up; without one it is research, which is what
- * `chooseFirstMessageTarget` already calls this state.
+ * follow-up (`follow_up_no_reply`); without one it's `other` — Prompt 743
+ * (26/09/2026) retired `research_hook` from every NEW task/suggestion this
+ * function can produce, since hook was dropped as an outreach precondition
+ * (Prompt 737 §0B.3). `research_hook` stays in `ActionType` only to read
+ * tasks/interactions written before that prompt.
  */
 export interface NextActionContext {
   entityName?: string;
@@ -672,7 +675,7 @@ function webFormSuggestion(ctx: NextActionContext | undefined): { verb: string; 
   const where = ctx?.entityName?.trim();
   return {
     verb: `pick a partner at ${where || 'this firm'} to follow up with — a form has no reply thread`,
-    dueInDays: LOCK_DAYS, actionType: 'research_hook',
+    dueInDays: LOCK_DAYS, actionType: 'other',
   };
 }
 

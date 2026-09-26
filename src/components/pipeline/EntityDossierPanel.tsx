@@ -97,7 +97,7 @@ export function EntityDossierPanel({ entityId, onClose }: {
   entityId: string;
   onClose: () => void;
 }) {
-  const { db, setInterest, markEntityVerified, updateEntity, updatePerson, resolveHardFilter, toggleTask } = useStore();
+  const { db, setInterest, markEntityVerified, updateEntity, resolveHardFilter, toggleTask } = useStore();
   const entity = db.entities.find((e) => e.id === entityId);
   const [tab, setTab] = useState<TabKey>('log');
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -260,13 +260,6 @@ export function EntityDossierPanel({ entityId, onClose }: {
     setLogMode('log');
     emitProductEvent('log_prefilled', { entityId });
   }
-
-  // Prompt 889 §2 / 672 — the "missing hook" indication belongs here (and on
-  // the open person profile), never as a task on the founder's own list
-  // (Prompt 889's own decision, and the reason the 971-task batch was
-  // deleted). Purely informational, plus a voluntary, optional way to help —
-  // never a requirement gating anything else on this tab.
-  const peopleWithoutHook = people.filter((p) => p.hook_status !== 'researched' && !p.do_not_contact);
 
   function focusHistory(interactionId: string) {
     setFocusInteraction((p) => ({ id: interactionId, nonce: p.nonce + 1 }));
@@ -476,23 +469,6 @@ export function EntityDossierPanel({ entityId, onClose }: {
 
         {tab === 'people' && (
           <div className="space-y-3">
-            {peopleWithoutHook.length > 0 && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                <b>{peopleWithoutHook.length} of {people.length} people have no researched hook yet.</b> Sherlock is on it —
-                you can help with a news item, article, or reference link below. Optional, never a task on your list.
-                <div className="mt-2 space-y-2">
-                  {peopleWithoutHook.map((p) => (
-                    <div key={p.id} className="rounded border border-amber-200 bg-white px-2 py-1.5">
-                      <PersonLink id={p.id}><span className="font-medium text-amber-900">{p.full_name}</span></PersonLink>
-                      <div className="mt-1">
-                        <ContributionBox subjectType="person" subjectId={p.id} orgId={db.org.id} subject={p as unknown as Record<string, unknown>}
-                          onApplyValue={(field, value) => updatePerson(p.id, { [field]: value } as Partial<typeof p>)} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
             <EntityPeoplePanel entityId={entity.id} onShowsKeyPeopleFallback={setKeyPeopleShownInTeam} onPersonAdded={setJustAddedPersonId} />
             <Card title="People — one at a time, senior first">
               <p className="mb-2 text-xs text-gray-500">Approach one person per firm at a time, starting with the most senior.</p>

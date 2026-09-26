@@ -31,7 +31,7 @@ export function ReadyToContactPanel() {
       {capReached ? (
         <p className="text-sm text-gray-500">Daily cap reached ({caps.today}/{caps.dailyCap}). Queue resumes tomorrow — see Research needed in the meantime.</p>
       ) : ready.length === 0 ? (
-        <p className="text-sm text-gray-400">No one is fully green right now — resolve pre-flight blockers or research hooks.</p>
+        <p className="text-sm text-gray-400">No one is fully green right now — resolve the pre-flight blockers first.</p>
       ) : (
         <ul className="divide-y divide-gray-100">
           {ready.map((p) => {

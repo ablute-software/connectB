@@ -48,7 +48,7 @@ const DECISION_TOAST_MS = 4000;
 // default) keeps the original inline placement, which is still right for
 // "Locked" (matches at the very start of the string already).
 const NEXT_STEP_GLOSSARY: { pattern: RegExp; explain: string; hintAt?: 'match' | 'end' }[] = [
-  { pattern: /pre-flight/i, explain: 'An automatic check run just before a first message — flags missing hook research, banned phrases, or reaching out too soon.', hintAt: 'end' },
+  { pattern: /pre-flight/i, explain: 'An automatic check run just before a first message — flags an open hard filter, contacting someone out of seniority order, or reaching out again too soon.', hintAt: 'end' },
   { pattern: /^Locked/, explain: `Outreach to this investor is paused for ${LOCK_DAYS} days after your last message, so a reply has time to arrive before you follow up again.` },
 ];
 

@@ -106,7 +106,9 @@ describe('suggestNextAction', () => {
     const s = suggestNextAction('out', 'web_form', undefined, OCCURRED, {
       entityName: 'COREangels Porto', followUpPersonName: null,
     });
-    expect(s!.actionType).toBe('research_hook');
+    // Prompt 743 (26/09/2026) — 'other', not 'research_hook': hook is no
+    // longer a real action type for anything this function can produce.
+    expect(s!.actionType).toBe('other');
     expect(s!.dueAt.slice(0, 10)).toBe('2026-08-13');
     expect(s!.title).toContain('pick a partner at COREangels Porto to follow up with');
     expect(s!.title).toContain('a form has no reply thread');
@@ -114,7 +116,7 @@ describe('suggestNextAction', () => {
 
   it('degrades to a generic phrase rather than "undefined" when no context is passed', () => {
     const s = suggestNextAction('out', 'web_form', undefined, OCCURRED);
-    expect(s!.actionType).toBe('research_hook');
+    expect(s!.actionType).toBe('other');
     expect(s!.title).toContain('pick a partner at this firm');
     expect(s!.title).not.toContain('undefined');
   });
