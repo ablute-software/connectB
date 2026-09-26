@@ -8899,3 +8899,32 @@ Reconstructed by direct introspection of `supabase_migrations.schema_migrations.
 **What this session did NOT touch:** any application code, import logic, or further schema for the Passo 3 / showcase-import work — that remains the other session's, entirely out of this prompt's scope. Only the schema state already live in production was reflected into git, exactly as 0A did for the original 8 "lost" migrations.
 
 **Está em `main`?** A ser fundido nesta entrada — código de esquema puro que reflete o que já está vivo em produção (nenhuma mudança de comportamento resulta desta fusão), tal como a 0A original.
+
+---
+
+## 26/09/2026 — Importação real Portugal Ventures (42 pessoas, `entity_id 7cddf0fb-2ee6-49f0-9379-ba6cd8777e22`) + importador generalizado trazido ao repositório
+
+Esta entrada fecha a sincronização pedida em `handoff_code_dossier_pessoa_pv_20260926_corrigido.md` (sessão de verificação/importação sem acesso a `git push` — mesma sessão e mesma razão já registadas nas entradas de `catalog_evidence_read`/Passo 3 acima). As migrações de schema desse handoff (secções 3/8.1/8.2) já estavam recuperadas em `main` antes deste commit; esta entrada cobre só a parte ainda em falta: os **dados** da importação real e o **importador** como código do repositório.
+
+**Dados já escritos em produção por essa sessão (não reexecutados aqui — só documentados):** 301 linhas em `catalog_evidence` (`entity_id` = Portugal Ventures, `origin='import'`, 301 `content_hash` distintos, zero duplicados) e 241 linhas em `catalog_person_research_log`, para 36 pessoas distintas. `role_history` sempre com `role_type` preenchido: 77 `employment`, 7 `board_advisory`, 0 nulos. Zero pares `(person_id, scope)` com `found`/`not_found` em conflito. Isolamento por RLS confirmado dentro de `BEGIN...ROLLBACK` (nunca persistido): um membro não-admin sem entrega da PV via 0 linhas de evidência PV; com uma entrega inserida só dentro da transação, passa a ver as 301; nenhuma linha `found`/`verified` de outra entidade vaza para essa org só com a entrega da PV.
+
+**Decisão autorizada por Nuno, condicionada a dois bugs do importador original (corrigidos antes da importação real):**
+1. `research_log` nunca fabrica `found`/`not_found` sem evidência real de pesquisa; evidência actual vence sempre uma declaração antiga de ausência.
+2. `role_type` é conservador: executivo/operacional → `employment`; não-executivo/conselho → `board_advisory`; não classificável com confiança → `kind='other'` sem `role_type`, nunca forçando `role_history`.
+
+**Sete erros concretos encontrados e corrigidos durante a execução (nenhum ficou em produção por corrigir), tal como registados no handoff:**
+1. Colisão de `content_hash` por excerpt duplicado/partilhado — corrigido por backfill/desambiguação do excerpt a partir do `title` real da própria linha (nunca inventando conteúdo).
+2. Violação da constraint de par precisão/data — datas parciais adivinhadas removidas; a etiqueta de precisão órfã é largada quando a data está ausente, em vez de violar a constraint.
+3. Títulos gravados como `repr()` do Python — reescritos como texto simples.
+4. Linhas fabricadas com excerpt `"NOT_PUBLIC"` sem fonte real — removidas/reclassificadas para `not_public` só quando há sinal explícito real.
+5. Uma pessoa (scope educação) com excerpt `"NOT_CONSOLIDATED"` — um marcador interno de falha do importador, não um resultado real — teve a candidata de evidência e a linha de `research_log` correspondentes removidas (nenhum dos três resultados seria verdadeiro).
+6. Descoberto a meio da execução: 200 das 301 linhas de evidência já estavam em produção de uma sessão anterior, não reflectido no estado assumido no início. Diagnosticado por colisão real de `content_hash`; resolvido por diff exaustivo de `content_hash` contra produção — nunca por índice/posição de chunk — gerando só as 101 linhas efectivamente em falta.
+7. Um erro de transcrição manual num `INSERT` de 21 linhas (chave JSON mal escrita) fez esse `INSERT` falhar por inteiro — zero linhas gravadas dessa instrução, confirmado atómico. Recuperado colando os dois `INSERT`s seguintes byte a byte a partir do ficheiro original; todos os chunks seguintes passaram a ser colados por leitura integral do ficheiro, não por transcrição manual.
+
+**Importador generalizado, trazido ao repositório nesta entrada** — `scripts/importers/pv_person_dossier_import/` (`lib.py`, `test_lib.py`, `build_candidates.py`, `generate_sql.py`, `README.md`). Reescrito a partir do script ad-hoc desta sessão em funções puras + CLI + 39 testes automatizados, especificamente para não ficar preso a uma conversa como um script único e sem testes. **Verificação de fidelidade**: os 301 `content_hash` que este pipeline gera a partir dos dados reais da PV coincidem, byte a byte, com os 301 `content_hash` hoje em produção — confirmado antes deste commit, não é uma reescrita especulativa. `python3 -m pytest -v test_lib.py` → **39 passed** (confirmado neste commit, exit code 0).
+
+**Decisão de linguagem, sinalizada e não resolvida aqui:** o importador ficou em Python (`pandas`/`openpyxl`), não Node/`.mjs` como o resto de `scripts/` — porque foi assim que foi construído e verificado com dados reais, e nenhum porte foi feito. Fica documentado no próprio `README.md` como decisão em aberto para quem reutilizar isto no próximo fundo: as funções de `lib.py` são pequenas e puras, o porte é mecânico, mas exige nova verificação antes de confiar nele.
+
+**Nada disto reexecuta a importação da Portugal Ventures nem reaplica qualquer migração** — os dados e o schema já estavam em produção antes deste commit; este commit só traz o código do importador (nunca correu contra produção nesta sessão) e esta entrada de registo.
+
+**Está em `main`?** Depende deste PR (`claude/sync-pv-migrations-and-importer`) ser fundido — ver o commit que acompanha esta entrada.

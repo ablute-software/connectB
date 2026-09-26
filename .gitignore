@@ -39,6 +39,11 @@ next-env.d.ts
 # local visual-verification output (scripts/verify-pair-visual.mjs)
 /artifacts/
 
+# Python (scripts/importers/pv_person_dossier_import and any future ones)
+__pycache__/
+*.pyc
+.pytest_cache/
+
 # Prompt 575 — ad-hoc verification scratch, never committed.
 #
 # ~90 of these accumulated untracked over months, and one of them
