@@ -8880,51 +8880,111 @@ Browser (`dev:verify`, demo mode, `Claude_Browser` pane only): live-clicked thro
 **Merged to `main`, 26/09/2026** — Nuno gave explicit OK; fast-forwarded (`0abba6c3..855d7c14`, no merge commit needed, `origin/main` had not moved since this branch was created). Prompt 742, which was waiting specifically on this, can now start.
 
 ---
+## 26/09/2026 — `catalog_evidence_read` perde o ramo por afiliação de pessoa (a "sim" que 0A.4 tinha deixado pendente)
 
-## 26/09/2026 — `catalog_evidence_read` fix applied; a second, independent session's production work recovered into git
+**Fechamento do achado que a 0A.4 (25/09) já tinha sinalizado e deixado propositadamente por corrigir**, à espera de um "sim" separado do Nuno: `catalog_evidence_read` (0344) mantinha exactamente o mesmo ramo por afiliação de pessoa que foi removido de `catalog_entity_enrichment_sources_read` — e, ao contrário dessa tabela, `catalog_evidence.entity_id` É nullable, e a 0B (também 26/09) passou a ler e a renderizar `catalog_evidence` directamente na página do dossier, dando a este ramo uma superfície de exposição real que antes não tinha.
 
-**`catalog_evidence_read` corrected, per Nuno's live "sim" and the review session's design** (`resposta_737_0A_revisao_e_catalog_evidence_read_20260926.md`): `ALTER POLICY` scoping the person-affiliation branch to `entity_id IS NULL` only — evidence tied to a real entity is now gated exclusively by that entity's own delivery, never by the person's other affiliations. Verified before applying: `anon` has no grants on `catalog_evidence`, `authenticated` has exactly `SELECT` (unaffected). Migration: `20260926192508_catalog_evidence_read_entity_scoped.sql`.
+**Achado que tornou isto urgente, não teórico:** a 25/09 havia 3 pessoas com afiliações actuais múltiplas e 0 evidência exposta ao ramo ("armado mas inerte"). A 26/09, uma nova auditoria confirmou 39 pessoas multi-afiliadas e 41 linhas de `catalog_evidence` reais nessa situação, todas com `entity_id` preenchido. Prova concreta com dados reais (não sintéticos), dentro de `BEGIN...ROLLBACK` (nunca persistido): Pedro Bandeira (`43bfda4e-…`), afiliado a "Investors Portugal" (`6e52bb96-…`) e "COREangels Porto" (`d7b237d7-…`), tem 35 linhas de evidência com `entity_id = Investors Portugal`. Duas orgs reais, não-teste, não-admin — **Estojo** (`b618b763-…`) e **Krohnsty** (`70a354f2-…`) — entregues apenas a COREangels Porto, liam essas 35 linhas hoje através do ramo por afiliação. Confirmado antes da correcção (`BEGIN...ROLLBACK`, contagem real): ambas as orgs viam 35/35. Isto era uma fuga viva, a clientes reais, não um cenário hipotético.
 
-**Pre-application count did not come back zero, as the review document expected — reported to Nuno before applying, per its own stop condition.** 113 (org, evidence) pairs currently rely on the leaky branch. Broken down: 4 orgs (Estojo, Krohnsty, Caramel Biscuit, SherlockDeal), 39 evidence rows, 3 people (the same 3 with multi-firm affiliations 0A.4 already found) — and **all 4 affected orgs are `is_internal = true`**, none a real customer. Nuno's decision: apply as designed — the variance is entirely internal accounts seeing less of each other's data, never a real customer gaining or losing anything.
+**Regra aplicada, exactamente como o Nuno pediu:** se `catalog_evidence.entity_id` está preenchido, o acesso depende só da entrega dessa entidade exacta. A afiliação da pessoa a outra firma nunca concede acesso indirecto. Para evidência person-level sem `entity_id`, não foi inventada nenhuma regra implícita de substituição — confirmado que hoje **0 linhas** têm `entity_id IS NULL` com `person_id` preenchido, portanto a política fica segura para o modelo que efectivamente existe, sem quebrar nenhum caso real. Um modelo explícito de partilha para esse caso fica para quando for necessário.
 
-**Proof, same method as 0A.5** (SQL claim-simulation, `BEGIN...ROLLBACK`, `zz-test-evread-20260926` fixture, `is_internal` set only on that org and logged to `admin_audit_log` with the same audit reasoning as 0A.5 — no new code/production reader of `is_internal` since that audit): person P affiliated to entity A (delivered) and B (not); E1 (`entity_id`=B) → 0 rows for the test user (would have been 1 before); E2 (`entity_id`=A) → 1 row; E3 (`entity_id` null, general) → 1 row; admin → all three; `anon` → permission denied. Fixture fully deleted afterward, confirmed empty.
+**Texto exacto da política, antes de aplicar (mostrado ao Nuno em chat, confirmado por ele antes da aplicação):**
+```sql
+alter policy catalog_evidence_read on catalog_evidence
+using (
+  is_platform_admin()
+  or (
+    status in ('found', 'verified')
+    and entity_id is not null
+    and exists (
+      select 1 from catalog_deliveries cd
+      where cd.catalog_id = catalog_evidence.entity_id
+        and is_org_member(cd.org_id)
+    )
+  )
+  or (
+    status = 'quarantined'
+    and created_by_org_id is not null
+    and is_org_member(created_by_org_id)
+  )
+);
+```
 
-**Discovered mid-task: a second, independent session had already fixed the same policy differently, and had no way to record it.** While preparing this migration's file, `list_migrations` showed `20260926161157_catalog_evidence_read_removes_person_affiliation_branch` (applied 16:11 UTC, three hours before this session's fix) and two more unfamiliar entries, `dossier_pessoa_passo3_01_evidence_kind_values` / `..._02_schema_relation_kind_role_type_dates_research_log` (17:20 UTC). None of the three existed on any git branch. Traced to a separate, active session working directly with Nuno on "Passo 3" of the person dossier (the Portugal Ventures showcase import — `schema_final_v2_revisto_passo3_20260926.md`, found in Nuno's Downloads folder), whose own document states plainly: **"esta sessão continua sem permissão de git push"**. That session's `catalog_evidence_read` fix took the more conservative shape (drops the person-affiliation branch entirely rather than scoping it to `entity_id IS NULL`, since 0 such rows existed when it was written) — reasonable given what it knew, but this session's later `ALTER POLICY` (applied per Nuno's explicit instruction in *this* conversation, unaware the other session's fix was live) silently overwrote it. Asked Nuno directly which design to keep — **this session's (the `entity_id IS NULL` branch stays)** — and whether to reconstruct the other session's migrations into git, since only this session currently has push access — **yes**.
+**Teste de regressão, com dados reais, três vezes (antes da aplicação em `BEGIN...ROLLBACK`; depois, repetido contra a política já aplicada de facto):**
 
-Reconstructed by direct introspection of `supabase_migrations.schema_migrations.statements` (the exact applied SQL, not a rewrite):
-- `20260926161157_catalog_evidence_read_removes_person_affiliation_branch.sql` — the other session's now-superseded fix, kept verbatim and unedited as the historical record of what was live 16:11–19:25, with a header explaining the supersession (never edit an applied migration file after the fact).
-- `20260926172005_dossier_pessoa_passo3_01_evidence_kind_values.sql` — three new `evidence_kind` values (`role_history`, `education`, `portfolio_relationship`).
-- `20260926172020_dossier_pessoa_passo3_02_schema_relation_kind_role_type_dates_research_log.sql` — `evidence_topic_relation` enum + `catalog_evidence_topics.relation_kind`; `role_type_kind` enum + `catalog_evidence.role_type` (with a same-migration constraint requiring it exactly when `kind='role_history'`); structured period dates with per-end precision and a tri-state "is current" flag (with matching constraints); the new `catalog_person_research_log` table, its own RLS (admin or entity-delivery only, no `entity_id IS NULL` case — that session's own explicit design note: every research-log row from this import always carries a real `entity_id`, Portugal Ventures') and grants (`revoke ... from anon, authenticated` + `grant select ... to authenticated`). Confirmed the live schema matches this "v2 corrigida" document's DDL exactly (not an earlier draft version referenced in its own diff section) — `catalog_person_research_log` already holds 241 rows.
+| Cenário | Utilizador/role (real, não sintético) | Antes da correcção | Depois da correcção |
+|---|---|---|---|
+| Org só com B entregue (Estojo) lê evidência de Pedro Bandeira em A | `4f9d8cc9-…` (owner, Estojo) | 35 | **0** |
+| Org só com B entregue (Krohnsty) lê evidência de Pedro Bandeira em A | `6ec36117-…` (owner, Krohnsty) | 35 | **0** |
+| A mesma org (Krohnsty), entregue a Portugal Ventures, lê evidência de Marco Neves (entity_id = PV) | idem | 1 | **1** (sem alteração — controlo positivo) |
+| A mesma org, evidência de Filipa Ferreira (zero linhas na origem) | idem | 0 | **0** (sem alteração) |
+| A mesma org, evidência de Ana Terra (entity_id = PV) | idem | 2 | **2** (sem alteração — controlo positivo) |
+| Org com A entregue (Caramel Biscuit, `is_test=true`, delivered a A e B) lê evidência de Pedro Bandeira em A | `d3375dde-…` (owner, Caramel Biscuit) | 35 | **35** (sem alteração — controlo positivo, acesso legítimo preservado) |
+| Admin (`c934d05b-…`) | platform_admin | 35 (bypass) | **35** (bypass preservado) |
+| `anon` | sem claims | permission denied (grant já restrito desde antes) | **permission denied** (sem alteração — confirma que nenhum grant foi tocado) |
 
-**What this session did NOT touch:** any application code, import logic, or further schema for the Passo 3 / showcase-import work — that remains the other session's, entirely out of this prompt's scope. Only the schema state already live in production was reflected into git, exactly as 0A did for the original 8 "lost" migrations.
+**Confirmado que nada mais foi alterado:** as mesmas 10 políticas RLS existiam, com os mesmos nomes, nas mesmas 5 tabelas (`catalog_evidence`, `catalog_entity_enrichment_sources`, `catalog_people`, `catalog_people_research`, `catalog_person_affiliations`) antes e depois — só o `using` de `catalog_evidence_read` mudou. Grants em `catalog_evidence` inalterados (`authenticated: SELECT`; `anon`: nenhum, já estava assim antes desta migração — ao contrário de `catalog_entity_enrichment_sources`, esta tabela nunca teve o problema de grants demasiado abertos que a 0A.4 corrigiu).
 
-**Está em `main`?** A ser fundido nesta entrada — código de esquema puro que reflete o que já está vivo em produção (nenhuma mudança de comportamento resulta desta fusão), tal como a 0A original.
+**Migração aplicada directamente em produção** via `apply_migration`, ledger version `20260926161157`, nome real `catalog_evidence_read_removes_person_affiliation_branch`, confirmada em `list_migrations`. **Ficheiro trazido ao repositório em 26/09/2026** — a sessão que a aplicou não tinha permissão de push para `ablute-software/connectB` ("access denied by the git proxy: not in this session's authorized repository set"); esta sessão (com acesso local ao clone, ainda sem push confirmado — ver nota de estado no fecho deste documento) sincronizou o ficheiro em `supabase/migrations/` byte a byte com o texto aplicado em produção, confirmado por consulta directa a `supabase_migrations.schema_migrations`.
+
+**Achado adicional, relevante para a Fase 1 (não implementado, só documentado):** os 2 ficheiros de rota já escritos no branch `claude/prompt-585-people-evidence-hooks` para o fluxo "founder propõe evidência" (`src/app/api/catalog-people/[id]/evidence/propose/route.ts` e `src/app/api/backoffice/catalog/people/[id]/evidence/[evidenceId]/decide/route.ts`, mais `src/lib/catalog-evidence-propose.ts`) **nunca escrevem `entity_id`** na linha de `catalog_evidence` que criam ou aprovam — só `person_id`. Sob esta política corrigida, uma evidência proposta e aprovada por esse fluxo, tal como está escrito, ficaria com `entity_id IS NULL` e por isso **invisível para toda a gente excepto administradores, incluindo a própria org que a propôs**, depois de aprovada. Isto tem de ser corrigido (fazer o `insert`/`update` preencherem `entity_id` a partir da afiliação corrente da pessoa à entidade da org que propôs) antes de qualquer um destes ficheiros ser reaproveitado — pendência ainda aberta, sem `entityId` explícito nem validação implementada nesta sessão.
+
+## 26/09/2026 — Passo 3 do dossier de pessoa: `role_type`, datas estruturadas por extremo, `relation_kind`, `catalog_person_research_log`
+
+Duas migrações aplicadas como uma unidade lógica (a segunda depende da primeira, por causa da regra do Postgres de não usar um valor de enum novo na mesma transação em que foi criado): `20260926172005` (três valores novos em `evidence_kind`: `role_history`, `education`, `portfolio_relationship`) e `20260926172020` (o resto do schema).
+
+**Motivo:** o dossier de pessoa da Portugal Ventures (42 pessoas, Excel `enriquecimento_portugal_ventures_showcase_v2.xlsx` + showcase JSON) tem factos que o schema anterior de `catalog_evidence` não conseguia representar sem perda: histórico de cargos com `role_type` (emprego vs. conselho), datas por extremo com precisão própria (mês/ano/aproximado, nunca adivinhadas), relação de portfolio com `relation_kind`, e um registo por scope do que já foi pesquisado (`catalog_person_research_log`) — sem o qual não é possível distinguir "nunca pesquisado" de "pesquisado e nada encontrado" (ver a entrada da importação real, abaixo, para o porquê disto ser uma regra absoluta do Nuno).
+
+**Achado da matriz estrutural que motivou o desenho final (antes de aplicar):** a Excel confirma, no campo `notas_qualidade` de uma pessoa real ("CONFLICT: role scope de investimento deve ser confirmado; não extrapolar perfil ICT para tese de investimento"), que existe pelo menos um caso real onde a fonte não permite classificar `role_type` com confiança — não é uma excepção hipotética. Resolvido mantendo a constraint estrita (`role_type` obrigatório sse `kind='role_history'`) e desviando esses casos para `kind='other'` sem `role_type`, nunca forçando a classificação.
+
+**DDL aplicado (texto completo em `supabase/migrations/20260926172005_...sql` e `supabase/migrations/20260926172020_...sql`):** os três valores de `evidence_kind`; `evidence_topic_relation` + `catalog_evidence_topics.relation_kind`; `role_type_kind` + `catalog_evidence.role_type` com `catalog_evidence_role_type_required_for_role_history` (bidireccional: obrigatório sse `role_history`); `date_precision` + `period_from`/`period_from_precision`/`period_to`/`period_to_precision`/`period_is_current` em `catalog_evidence`, com constraints de par (data e precisão ambas nulas ou ambas preenchidas, em cada extremo) e de coerência do estado "actual" (`period_is_current` e `period_to` nunca preenchidos ao mesmo tempo); a tabela `catalog_person_research_log` completa, com RLS por `catalog_deliveries`/`is_org_member`/`is_platform_admin()` (mesmo padrão de `catalog_evidence_read`), `revoke all` explícito de `anon`/`authenticated` antes do `grant select` a `authenticated` (defesa em profundidade), e um índice por `(person_id, entity_id, scope, searched_at desc)`.
+
+**Regra de `entity_id` no `research_log`:** nunca `NULL` para este enriquecimento — toda linha gerada a partir do Excel/showcase da Portugal Ventures leva `entity_id` = `7cddf0fb-2ee6-49f0-9379-ba6cd8777e22`. `entity_id IS NULL` fica reservado para uma futura pesquisa verdadeiramente pessoa-sem-firma, que não é o caso desta importação (100% dos dados têm sempre a Portugal Ventures como firma).
+
+**Matriz de testes (19 cenários, todos em `BEGIN...ROLLBACK`, contra um cenário multi-afiliado real — Pedro Bandeira em "Investors Portugal" e "COREangels Porto"; Estojo/Krohnsty só entregues a COREangels Porto; Caramel Biscuit entregue às duas)**, cobrindo: isolamento por entrega (incluindo o caso multi-afiliado — uma org entregue só à outra afiliação da pessoa não vê o log com `entity_id` da primeira), acesso admin, `anon` bloqueado, `authenticated` sem `INSERT`, `sources_checked` como array obrigatório e não-vazio quando `result != 'found'`, coerência `period_is_current`/`period_to`, `role_type` obrigatório sse `role_history` (incluindo o caso antes permitido e agora rejeitado: `role_history` com `role_type=NULL`), pares de precisão de data em ambos os extremos, e o caso de uso real de um worker (`performed_by_kind='system'`) a pesquisar a pedido de uma org (`requested_by_org_id` preenchido). Corrido e confirmado antes da aplicação.
+
+**Migrações aplicadas directamente em produção** via `apply_migration`, ledger versions `20260926172005` e `20260926172020`, confirmadas em `list_migrations`. **Ficheiros trazidos ao repositório em 26/09/2026**, pela mesma razão de falta de permissão de `git push` descrita na entrada anterior — sincronizados byte a byte com o texto aplicado, confirmado por consulta directa a `supabase_migrations.schema_migrations`.
+
+## 26/09/2026 — Importação real Portugal Ventures (42 pessoas, entity_id 7cddf0fb-2ee6-49f0-9379-ba6cd8777e22)
+
+Decisão autorizada por Nuno, condicionada a 2 bugs do importador (corrigidos e verificados em dry-run antes da importação real):
+1. research_log não fabrica found/not_found sem evidência de pesquisa real; not_public só com sinal explícito numa fonte; evidência actual vence ausência antiga.
+2. role_type conservador: executivo/operacional -> employment; não-executivo/conselho -> board_advisory; não classificável -> kind=other sem role_type, sem forçar role_history.
+
+Erros concretos corrigidos antes/durante a execução (nenhum ficou em produção por corrigir):
+1. Colisão de content_hash (excerpt duplicado) -> backfill/disambiguação de excerpt.
+2. Violação de precision_pair (data+precisão ambas nulas ou ambas preenchidas) -> removidas datas parciais adivinhadas.
+3. Títulos gravados como repr() Python -> reescritos como texto.
+4. Linhas fabricadas com excerpt "NOT_PUBLIC" sem fonte real -> removidas/reclassificadas para not_public só com sinal explícito real.
+5. Cátea Soares, scope educação, excerpt "NOT_CONSOLIDATED" (marcador interno de falha do importador, não um resultado real) -> candidata de evidência e linha de research_log removidas (nenhum dos três resultados seria verdadeiro).
+6. Descoberto a meio da execução: 200/301 linhas de evidência já estavam em produção de sessão anterior (não reflectido no estado assumido). Diagnosticado por colisão real de hash; resolvido por diff exaustivo de content_hash contra produção, não por índice de chunk; geradas apenas as 101 linhas em falta. Zero duplicados.
+7. Erro de transcrição manual num INSERT de 21 linhas (chave JSON mal escrita) -> INSERT falhou por inteiro, zero linhas inseridas (atómico, confirmado). Recuperado com dois INSERTs copiados byte-a-byte do ficheiro original. Chunks seguintes: sempre colados via leitura integral do ficheiro.
+
+Estado final verificado em produção:
+- catalog_evidence: 301 linhas PV, 301 hashes distintos, zero duplicados.
+- catalog_person_research_log: 241 linhas PV.
+- Zero pares (person_id, scope) com found/not_found em conflito.
+- role_history com role_type sempre preenchido: 77 employment, 7 board_advisory, 0 nulos.
+- 36 pessoas distintas com evidência.
+- Marco Neves, Ana Terra, Filipa Ferreira: spot-check coerente com o dry-run corrigido.
+
+Validação de acesso/isolamento (RLS), tudo dentro de BEGIN...ROLLBACK, nada commitado:
+- is_platform_admin() lê a tabela platform_admins; primeiro utilizador de teste era admin real (não bug, má escolha de sujeito).
+- Utilizador não-admin confirmado, org sem entrega PV: 0 linhas de evidência PV visíveis.
+- Mesma transacção, inserida entrega PV para essa org (nunca commitada): utilizador passou a ver as 301 linhas PV (319 com pré-existentes).
+- Mesma consulta: 0 linhas found/verified de outras entidades visíveis a essa org só com entrega PV — sem fuga cross-entity.
+
+O importador usado (Excel + showcase JSON -> candidatos -> SQL) foi generalizado, testado (39 testes pytest, todos verdes) e trazido ao repositório em `scripts/importers/pv_person_dossier_import/` na mesma sessão que trouxe este registo (`lib.py`, `build_candidates.py`, `generate_sql.py`, `test_lib.py`, `README.md`) — os 301 content_hash gerados pelo pipeline generalizado coincidem byte a byte com os 301 reais de produção.
+
+**Estado do repositório nesta acção:** as três migrações desta secção e da anterior, e o importador, foram criados nesta sessão (`claude/sync-pv-migrations-and-importer`) sem permissão de `git push` para `ablute-software/connectB` (403, "access denied by the git proxy: not in this session's authorized repository set"). **Entregues a Nuno como um `.bundle` git** (histórico completo, autoria preservada) e aplicados por uma sessão Code com acesso — ver a nota de reconciliação logo a seguir para o que mudou nesse processo (a migração `20260926161157` foi entretanto superseded, e um dos ficheiros do importador teve um conflito puramente cosmético resolvido a favor da versão já testada em `main`).
 
 ---
 
-## 26/09/2026 — Importação real Portugal Ventures (42 pessoas, `entity_id 7cddf0fb-2ee6-49f0-9379-ba6cd8777e22`) + importador generalizado trazido ao repositório
+**Nota de reconciliação (sessão Code, 26/09/2026) — dois trabalhos paralelos, um resultado.** Esta entrada e as duas anteriores chegaram via `.bundle` de uma sessão sem `git push`; entretanto, uma sessão Code diferente (esta) já tinha, de forma independente, reconstruído as mesmas três migrações e o mesmo importador directamente de produção (mesma fonte: `supabase_migrations.schema_migrations`), e tinha ido mais além, aplicando uma correcção adicional à política `catalog_evidence_read` que a entrada acima ainda não reflecte.
 
-Esta entrada fecha a sincronização pedida em `handoff_code_dossier_pessoa_pv_20260926_corrigido.md` (sessão de verificação/importação sem acesso a `git push` — mesma sessão e mesma razão já registadas nas entradas de `catalog_evidence_read`/Passo 3 acima). As migrações de schema desse handoff (secções 3/8.1/8.2) já estavam recuperadas em `main` antes deste commit; esta entrada cobre só a parte ainda em falta: os **dados** da importação real e o **importador** como código do repositório.
+O que mudou ao aplicar o bundle sobre esse trabalho já fundido:
+- **`catalog_evidence_read` foi corrigida outra vez, depois desta entrada.** A versão acima (`20260926161157`, sem ramo por afiliação nenhum) esteve viva das 16:11 às 19:25 UTC de 26/09. Às 19:25, com o "sim" do Nuno na sessão Code e seguindo o desenho de `resposta_737_0A_revisao_e_catalog_evidence_read_20260926.md`, foi aplicada `20260926192508_catalog_evidence_read_entity_scoped.sql`, que **reinstala o ramo por afiliação, mas só para `entity_id IS NULL`** — evidência pessoa-sem-firma continua a poder ser lida por quem tem qualquer afiliação entregue dessa pessoa; evidência com entidade continua exclusivamente por entrega dessa entidade exacta. Confirmado com Nuno directamente qual versão fica: a `entity_id IS NULL`. Prova pelo mesmo método (fixture `zz-test-*`, `BEGIN...ROLLBACK`): evidência com entidade B (não entregue) → 0 linhas; com entidade A (entregue) → 1; sem entidade nenhuma → 1; admin → as três; `anon` → permission denied. O ficheiro `20260926161157...sql` fica no repositório inalterado, como registo histórico exacto do que esteve vivo entre as 16:11 e as 19:25 — nunca se edita um ficheiro de migração já aplicado.
+- **Ficheiros do importador:** `lib.py` e `README.md` tinham um conflito de merge puramente cosmético (quebra de linha num comentário; blocos de código Markdown indentados vs. com vedação) com o que já estava em `main` — resolvido a favor da versão já em `main`, já coberta pelos 39 testes. `build_candidates.py`, `generate_sql.py` e `test_lib.py` fundiram sem qualquer conflito — eram byte a byte iguais.
+- **Contagem antes/depois da fuga corrigida pela primeira sessão:** 113 pares (org, evidência) dependiam do ramo removido — todas as 4 orgs afectadas são `is_internal=true` (Estojo, Krohnsty, Caramel Biscuit, SherlockDeal), nenhuma cliente real. Confirmado pela sessão Code antes de aplicar a correcção seguinte, reportado a Nuno, autorizado a prosseguir.
 
-**Dados já escritos em produção por essa sessão (não reexecutados aqui — só documentados):** 301 linhas em `catalog_evidence` (`entity_id` = Portugal Ventures, `origin='import'`, 301 `content_hash` distintos, zero duplicados) e 241 linhas em `catalog_person_research_log`, para 36 pessoas distintas. `role_history` sempre com `role_type` preenchido: 77 `employment`, 7 `board_advisory`, 0 nulos. Zero pares `(person_id, scope)` com `found`/`not_found` em conflito. Isolamento por RLS confirmado dentro de `BEGIN...ROLLBACK` (nunca persistido): um membro não-admin sem entrega da PV via 0 linhas de evidência PV; com uma entrega inserida só dentro da transação, passa a ver as 301; nenhuma linha `found`/`verified` de outra entidade vaza para essa org só com a entrega da PV.
-
-**Decisão autorizada por Nuno, condicionada a dois bugs do importador original (corrigidos antes da importação real):**
-1. `research_log` nunca fabrica `found`/`not_found` sem evidência real de pesquisa; evidência actual vence sempre uma declaração antiga de ausência.
-2. `role_type` é conservador: executivo/operacional → `employment`; não-executivo/conselho → `board_advisory`; não classificável com confiança → `kind='other'` sem `role_type`, nunca forçando `role_history`.
-
-**Sete erros concretos encontrados e corrigidos durante a execução (nenhum ficou em produção por corrigir), tal como registados no handoff:**
-1. Colisão de `content_hash` por excerpt duplicado/partilhado — corrigido por backfill/desambiguação do excerpt a partir do `title` real da própria linha (nunca inventando conteúdo).
-2. Violação da constraint de par precisão/data — datas parciais adivinhadas removidas; a etiqueta de precisão órfã é largada quando a data está ausente, em vez de violar a constraint.
-3. Títulos gravados como `repr()` do Python — reescritos como texto simples.
-4. Linhas fabricadas com excerpt `"NOT_PUBLIC"` sem fonte real — removidas/reclassificadas para `not_public` só quando há sinal explícito real.
-5. Uma pessoa (scope educação) com excerpt `"NOT_CONSOLIDATED"` — um marcador interno de falha do importador, não um resultado real — teve a candidata de evidência e a linha de `research_log` correspondentes removidas (nenhum dos três resultados seria verdadeiro).
-6. Descoberto a meio da execução: 200 das 301 linhas de evidência já estavam em produção de uma sessão anterior, não reflectido no estado assumido no início. Diagnosticado por colisão real de `content_hash`; resolvido por diff exaustivo de `content_hash` contra produção — nunca por índice/posição de chunk — gerando só as 101 linhas efectivamente em falta.
-7. Um erro de transcrição manual num `INSERT` de 21 linhas (chave JSON mal escrita) fez esse `INSERT` falhar por inteiro — zero linhas gravadas dessa instrução, confirmado atómico. Recuperado colando os dois `INSERT`s seguintes byte a byte a partir do ficheiro original; todos os chunks seguintes passaram a ser colados por leitura integral do ficheiro, não por transcrição manual.
-
-**Importador generalizado, trazido ao repositório nesta entrada** — `scripts/importers/pv_person_dossier_import/` (`lib.py`, `test_lib.py`, `build_candidates.py`, `generate_sql.py`, `README.md`). Reescrito a partir do script ad-hoc desta sessão em funções puras + CLI + 39 testes automatizados, especificamente para não ficar preso a uma conversa como um script único e sem testes. **Verificação de fidelidade**: os 301 `content_hash` que este pipeline gera a partir dos dados reais da PV coincidem, byte a byte, com os 301 `content_hash` hoje em produção — confirmado antes deste commit, não é uma reescrita especulativa. `python3 -m pytest -v test_lib.py` → **39 passed** (confirmado neste commit, exit code 0).
-
-**Decisão de linguagem, sinalizada e não resolvida aqui:** o importador ficou em Python (`pandas`/`openpyxl`), não Node/`.mjs` como o resto de `scripts/` — porque foi assim que foi construído e verificado com dados reais, e nenhum porte foi feito. Fica documentado no próprio `README.md` como decisão em aberto para quem reutilizar isto no próximo fundo: as funções de `lib.py` são pequenas e puras, o porte é mecânico, mas exige nova verificação antes de confiar nele.
-
-**Nada disto reexecuta a importação da Portugal Ventures nem reaplica qualquer migração** — os dados e o schema já estavam em produção antes deste commit; este commit só traz o código do importador (nunca correu contra produção nesta sessão) e esta entrada de registo.
-
-**Está em `main`?** Depende deste PR (`claude/sync-pv-migrations-and-importer`) ser fundido — ver o commit que acompanha esta entrada.
+Nada disto voltou a executar SQL contra produção para as três migrações desta e da entrada anterior — só a migração nova (`20260926192508`) foi aplicada, com autorização explícita separada.
