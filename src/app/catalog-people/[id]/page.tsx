@@ -7,18 +7,29 @@
 // behind a single-entity view.
 //
 // Prompt 737 §0B.1 — rebuilt from the old 3-field read-only view (hook,
-// background, affiliations) into an evidence-first dossier: research
-// state (§0B.1's own two-value rule — see research-state.ts), official
-// bio, the evidence timeline itself, aggregated topics, full sources, and
-// affiliations. Removed entirely: the "★ Hook" and "Background" cards,
-// every read of hook/background/hook_status, and the old
-// hasProvenance/limit(1) gate that used to decide whether to trust them.
-// Also removed (Nuno's own amendment to the 737 file-reuse review,
-// 26/09/2026): the manual research fields watch_outs/kill_words/intro_path
-// — free text with no URL behind it, same "not a fact" rule as hook/
-// background — those stay backoffice-only. No hook-suggestion entry point
-// either (Fase 4) and no "propose evidence" form (Fase 1) — this page is
-// read-only for now.
+// background, affiliations) into an evidence-first dossier. Removed
+// entirely: the "★ Hook" and "Background" cards, every read of
+// hook/background/hook_status, and the old hasProvenance/limit(1) gate.
+// No hook-suggestion entry point (Fase 4) and no "propose evidence" form
+// (Fase 1) — this page is read-only for now.
+//
+// Prompt 737 §9.A (26/09/2026, "dossier rico") — rebuilt again on top of
+// the Passo 3 schema (role_history/role_type/period_*/catalog_person_
+// research_log), per plano_definitivo_dossier_de_pessoa_pos_auditoria_
+// v2_20260926.md's Bloco C/F. The single flat "Evidence" list is replaced
+// by tabs for the content Passo 3 actually added — Percurso (career/board
+// history), Educação, Na própria voz (direct quotes), Publicações &
+// eventos (everything else) — shown only when they have content. Topics,
+// Sources, and Affiliations stay as their own always-visible sections,
+// unchanged from 0B.1: they already worked, and Bloco F's own wireframe
+// predates 0B.1 shipping them this way. "Na própria voz" reads
+// kind='statement', not is_personal=true as the plan's own C.7 literally
+// says — checked directly against the real Portugal Ventures import: the
+// importer (scripts/importers/pv_person_dossier_import/generate_sql.py)
+// hardcodes is_personal=false on every row it writes, so the is_personal
+// filter would leave this tab permanently empty despite Marco Neves alone
+// having 10 real, attributed quotes on file. Flagged in DECISIONS.md as an
+// importer gap, not fixed here (out of this prompt's scope).
 //
 // Deliberately a separate system from /people/[id] (private, per-org
 // pipeline contacts, db.people/AffiliationsCard) — no FK between the two
@@ -34,7 +45,9 @@ import { Card } from '@/components/ui';
 import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { researchStateLabel } from '@/lib/research-state';
-import { evidenceKindLabel, evidenceStatusLabel } from '@/lib/evidence-labels';
+import { evidenceKindLabel, evidenceStatusLabel, researchScopeLabel, roleTypeLabel } from '@/lib/evidence-labels';
+import { buildFactualSummary } from '@/lib/person-summary';
+import { formatPeriod, type DatePrecision } from '@/lib/period-format';
 
 type Affiliation = {
   id: string;
@@ -51,6 +64,10 @@ type EvidenceItem = {
   excerpt: string | null; language: string | null; strength: number | null;
   is_personal: boolean; status: string; origin: string; created_at: string;
   topics: EvidenceTopic[];
+  roleType: string | null;
+  periodFrom: string | null; periodFromPrecision: DatePrecision;
+  periodTo: string | null; periodToPrecision: DatePrecision;
+  periodIsCurrent: boolean | null;
 };
 type SourceItem = {
   id: string; source_url: string | null; source_type: string | null; published_at: string | null;
@@ -58,32 +75,8 @@ type SourceItem = {
   batch_id: string | null; created_at: string;
 };
 type TopicAgg = { topicId: string; label: string; count: number; avgConfidence: number };
-
-type PageState =
-  | { kind: 'loading' }
-  | { kind: 'not_found' }
-  | { kind: 'unavailable' } // demo mode — this page has nothing to read
-  | { kind: 'error' }
-  | {
-      kind: 'ready';
-      person: { id: string; full_name: string; linkedin_url: string | null; linkedin_verified: boolean };
-      researchState: string;
-      bioRaw: string | null;
-      bioSource: SourceItem | null;
-      bioFallbackEvidence: EvidenceItem | null;
-      evidence: EvidenceItem[];
-      topics: TopicAgg[];
-      sources: SourceItem[];
-      affiliations: Affiliation[];
-      // Prompt 291 §2 — the exact rule: catalog_deliveries.entity_id is
-      // "the org-side copy" (0002_catalog.sql, literal comment). A fund's
-      // catalog_id is not a valid /entities/[id] target — only the
-      // DELIVERED org-side entity_id is. Map from catalog_id (=
-      // affiliation.entity_id) to that org-side id, populated only for
-      // funds THIS org has actually unlocked; every other affiliation
-      // renders as plain text, never a guessed/dead link.
-      orgEntityIdByCatalogId: Map<string, string>;
-    };
+type ResearchLogRow = { scope: string; result: string; searchedAt: string };
+type TabKey = 'career' | 'education' | 'quotes' | 'media';
 
 function aggregateTopics(evidence: EvidenceItem[]): TopicAgg[] {
   const byTopic = new Map<string, { label: string; confidences: number[] }>();
@@ -103,12 +96,50 @@ function aggregateTopics(evidence: EvidenceItem[]): TopicAgg[] {
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
 }
 
+// §9.A, Bloco D.4 — the current state of a research scope is the MOST
+// RECENT log row for it, never an accumulation: a log is append-only, and
+// a fresh "found" always supersedes an older "not_found" for the same
+// scope. Rows the caller never fetches more than once per scope in
+// practice today (one import pass), but this holds even if that changes.
+function latestPerScope(rows: ResearchLogRow[]): ResearchLogRow[] {
+  const byScope = new Map<string, ResearchLogRow>();
+  for (const r of rows) {
+    const existing = byScope.get(r.scope);
+    if (!existing || r.searchedAt > existing.searchedAt) byScope.set(r.scope, r);
+  }
+  return [...byScope.values()];
+}
+
 export default function CatalogPersonPage() {
   const params = useParams<{ id: string }>();
   const personId = params.id;
   const router = useRouter();
   const { db } = useStore();
-  const [state, setState] = useState<PageState>({ kind: 'loading' });
+  const [state, setState] = useState<
+    | { kind: 'loading' }
+    | { kind: 'not_found' }
+    | { kind: 'unavailable' }
+    | { kind: 'error' }
+    | {
+        kind: 'ready';
+        person: { id: string; full_name: string; linkedin_url: string | null; linkedin_verified: boolean };
+        researchState: string;
+        bioRaw: string | null;
+        bioSource: SourceItem | null;
+        bioFallbackEvidence: EvidenceItem | null;
+        factualSummary: string | null;
+        careerEvidence: EvidenceItem[];
+        educationEvidence: EvidenceItem[];
+        quoteEvidence: EvidenceItem[];
+        mediaEvidence: EvidenceItem[];
+        topics: TopicAgg[];
+        sources: SourceItem[];
+        affiliations: Affiliation[];
+        notResearched: ResearchLogRow[];
+        orgEntityIdByCatalogId: Map<string, string>;
+      }
+  >({ kind: 'loading' });
+  const [activeTab, setActiveTab] = useState<TabKey | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -123,7 +154,7 @@ export default function CatalogPersonPage() {
       if (personErr) { setState({ kind: 'error' }); return; }
       if (!person) { setState({ kind: 'not_found' }); return; }
 
-      const [{ data: research }, { data: evidenceRows }, { data: sourceRows }, { data: affRows }] = await Promise.all([
+      const [{ data: research }, { data: evidenceRows }, { data: sourceRows }, { data: affRows }, { data: researchLogRows }] = await Promise.all([
         // bio_raw is the only research field 0B.1 reads; updated_at is
         // added only as the enriched_at fallback timestamp (Nuno's
         // decision, 25/09/2026 — see research-state.ts's own comment).
@@ -131,6 +162,7 @@ export default function CatalogPersonPage() {
         sb.from('catalog_evidence')
           .select(`
             id, kind, title, url, published_at, excerpt, language, strength, is_personal, status, origin, created_at,
+            role_type, period_from, period_from_precision, period_to, period_to_precision, period_is_current,
             catalog_evidence_topics ( topic_id, confidence, topic_taxonomy ( label_en ) )
           `)
           .eq('person_id', personId).in('status', ['found', 'verified'])
@@ -144,6 +176,12 @@ export default function CatalogPersonPage() {
           .select('id, title, kind, is_primary, entity_id, catalog_entities ( id, name, type )')
           .eq('person_id', personId).eq('current', true)
           .order('is_primary', { ascending: false }),
+        // §9.A, Bloco D.4/E.1 — "pesquisado, sem resultado" has to be shown
+        // as such, never silently omitted or invented as an empty evidence
+        // row (that's exactly what this log exists to prevent).
+        sb.from('catalog_person_research_log')
+          .select('scope, result, searched_at')
+          .eq('person_id', personId),
       ]);
       if (cancelled) return;
 
@@ -159,6 +197,8 @@ export default function CatalogPersonPage() {
           id: e.id, kind: e.kind, title: e.title, url: e.url, published_at: e.published_at,
           excerpt: e.excerpt, language: e.language, strength: e.strength, is_personal: e.is_personal,
           status: e.status, origin: e.origin, created_at: e.created_at, topics,
+          roleType: e.role_type, periodFrom: e.period_from, periodFromPrecision: e.period_from_precision,
+          periodTo: e.period_to, periodToPrecision: e.period_to_precision, periodIsCurrent: e.period_is_current,
         };
       });
 
@@ -172,7 +212,31 @@ export default function CatalogPersonPage() {
 
       const researchState = researchStateLabel(person.enrichment_status, person.enriched_at, research?.updated_at as string | null | undefined);
 
+      // §9.A — the four tabs. "quotes" is kind='statement' (see the file's
+      // own header comment for why, not is_personal). "media" is every
+      // remaining kind, so nothing real is ever silently dropped.
+      const careerEvidence = evidence.filter((e) => e.kind === 'role_history')
+        .sort((a, b) => (b.periodFrom ?? '9999').localeCompare(a.periodFrom ?? '9999'));
+      const educationEvidence = evidence.filter((e) => e.kind === 'education');
+      const quoteEvidence = evidence.filter((e) => e.kind === 'statement');
+      const mediaEvidence = evidence.filter((e) => !['role_history', 'education', 'statement'].includes(e.kind));
+
+      const topics = aggregateTopics(evidence);
+
       const affiliations = (affRows ?? []) as unknown as Affiliation[];
+      const primary = affiliations[0]; // already ordered is_primary desc
+      const primaryFirm = primary ? (Array.isArray(primary.catalog_entities) ? primary.catalog_entities[0] : primary.catalog_entities) : null;
+      const factualSummary = buildFactualSummary({
+        primaryTitle: primary?.title ?? null,
+        primaryFirmName: primaryFirm?.name ?? null,
+        strongEvidenceCount: evidence.filter((e) => (e.strength ?? 0) >= 3).length,
+        topTopicLabel: topics[0]?.label ?? null,
+      });
+
+      const notResearched = latestPerScope(
+        (researchLogRows ?? []).map((r) => ({ scope: r.scope as string, result: r.result as string, searchedAt: r.searched_at as string })),
+      ).filter((r) => r.result !== 'found').sort((a, b) => researchScopeLabel(a.scope).localeCompare(researchScopeLabel(b.scope)));
+
       const catalogIds = Array.from(new Set(affiliations.map((a) => a.entity_id)));
       const orgEntityIdByCatalogId = new Map<string, string>();
       if (catalogIds.length) {
@@ -186,9 +250,16 @@ export default function CatalogPersonPage() {
         }
       }
 
+      const firstTab: TabKey | null = careerEvidence.length ? 'career'
+        : educationEvidence.length ? 'education'
+        : quoteEvidence.length ? 'quotes'
+        : mediaEvidence.length ? 'media' : null;
+      setActiveTab(firstTab);
+
       setState({
-        kind: 'ready', person, researchState, bioRaw, bioSource, bioFallbackEvidence,
-        evidence, topics: aggregateTopics(evidence), sources, affiliations, orgEntityIdByCatalogId,
+        kind: 'ready', person, researchState, bioRaw, bioSource, bioFallbackEvidence, factualSummary,
+        careerEvidence, educationEvidence, quoteEvidence, mediaEvidence,
+        topics, sources, affiliations, notResearched, orgEntityIdByCatalogId,
       });
     })();
     return () => { cancelled = true; };
@@ -208,6 +279,18 @@ export default function CatalogPersonPage() {
 
       {state.kind === 'ready' && (() => {
         const s = state;
+        const allTabs: { key: TabKey; label: string; count: number }[] = [
+          { key: 'career', label: 'Career', count: s.careerEvidence.length },
+          { key: 'education', label: 'Education', count: s.educationEvidence.length },
+          { key: 'quotes', label: 'In their own words', count: s.quoteEvidence.length },
+          { key: 'media', label: 'Publications & events', count: s.mediaEvidence.length },
+        ];
+        const tabs = allTabs.filter((t) => t.count > 0);
+        const activeItems = activeTab === 'career' ? s.careerEvidence
+          : activeTab === 'education' ? s.educationEvidence
+          : activeTab === 'quotes' ? s.quoteEvidence
+          : activeTab === 'media' ? s.mediaEvidence : [];
+
         return (
           <>
             {/* (1) Header + two-value research state. */}
@@ -220,6 +303,10 @@ export default function CatalogPersonPage() {
                 </a>
               )}
               <p className="mt-1 text-xs text-gray-400">{s.researchState}</p>
+              {/* (1b) §9.A Bloco C.2 — factual summary, template-built from
+                  real fetched facts only (see person-summary.ts); never
+                  rendered with nothing grounded behind it. */}
+              {s.factualSummary && <p className="mt-2 text-sm text-gray-700">{s.factualSummary}</p>}
             </div>
 
             {/* (2) Official bio. */}
@@ -247,33 +334,54 @@ export default function CatalogPersonPage() {
               </Card>
             )}
 
-            {/* (3) Evidence timeline. */}
-            <Card title={`Evidence${s.evidence.length ? ` (${s.evidence.length})` : ''}`}>
-              {s.evidence.length === 0 ? (
-                <p className="text-sm text-gray-400">No evidence on file.</p>
-              ) : (
-                <ul className="divide-y divide-gray-100">
-                  {s.evidence.map((e) => (
-                    <li key={e.id} className="py-2.5">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-                          {evidenceKindLabel(e.kind)}
-                        </span>
-                        <a href={e.url} target="_blank" rel="noopener noreferrer" className="font-medium text-[#0E7490] hover:underline">{e.title}</a>
-                        <span className="text-xs text-gray-400">{e.published_at ?? 'no publication date'}</span>
-                        {e.language && <span className="text-xs text-gray-400">· {e.language}</span>}
-                      </div>
-                      {e.excerpt && <p className="mt-1 text-sm italic text-gray-600">“{e.excerpt}”</p>}
-                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-gray-400">
-                        <span>{evidenceStatusLabel(e.status)}</span>
-                        {e.strength != null && <span>· strength {e.strength}/4</span>}
-                        {e.is_personal && <span className="font-medium text-amber-700">· personal statement</span>}
-                      </div>
-                    </li>
+            {/* (3) §9.A — tabbed evidence: Career / Education / In their own
+                words / Publications & events. Only tabs with real content
+                ever render, per this page's own "never an empty card" rule
+                extended to navigation (plano..._v2, Bloco F). */}
+            {tabs.length > 0 && (
+              <Card title="Evidence">
+                <div className="flex flex-wrap gap-1.5 border-b border-gray-100 pb-2">
+                  {tabs.map((t) => (
+                    <button key={t.key} onClick={() => setActiveTab(t.key)}
+                      className={`rounded-full px-2.5 py-1 text-xs font-medium ${activeTab === t.key ? 'bg-[#0E7490] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                      {t.label} ({t.count})
+                    </button>
                   ))}
+                </div>
+                <ul className="mt-2 divide-y divide-gray-100">
+                  {activeItems.map((e) => {
+                    const period = activeTab === 'career' ? formatPeriod({
+                      periodFrom: e.periodFrom, periodFromPrecision: e.periodFromPrecision,
+                      periodTo: e.periodTo, periodToPrecision: e.periodToPrecision, periodIsCurrent: e.periodIsCurrent,
+                    }) : null;
+                    const roleTypeText = roleTypeLabel(e.roleType);
+                    return (
+                      <li key={e.id} className="py-2.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                            {evidenceKindLabel(e.kind)}
+                          </span>
+                          {roleTypeText && <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700">{roleTypeText}</span>}
+                          <a href={e.url} target="_blank" rel="noopener noreferrer" className="font-medium text-[#0E7490] hover:underline">{e.title}</a>
+                          {period ? (
+                            <span className="text-xs text-gray-400">{period}</span>
+                          ) : (
+                            <span className="text-xs text-gray-400">{e.published_at ?? 'no publication date'}</span>
+                          )}
+                          {e.language && <span className="text-xs text-gray-400">· {e.language}</span>}
+                        </div>
+                        {e.excerpt && <p className="mt-1 text-sm italic text-gray-600">“{e.excerpt}”</p>}
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-gray-400">
+                          <span>{evidenceStatusLabel(e.status)}</span>
+                          {e.strength != null && <span>· strength {e.strength}/4</span>}
+                          {e.is_personal && <span className="font-medium text-amber-700">· personal statement</span>}
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
-              )}
-            </Card>
+              </Card>
+            )}
 
             {/* (4) Aggregated topics — from the evidence rows above, no
                 separate call: never a section with nothing in it. */}
@@ -343,7 +451,24 @@ export default function CatalogPersonPage() {
               )}
             </Card>
 
-            {/* (7) Legal footer — unchanged. Prompt 616 §B.2 / 626 §C — this
+            {/* (7) §9.A, Bloco D.4/E.1 — scopes genuinely researched with
+                nothing found, stated as such rather than left silent or
+                faked as evidence. Only ever the negative results — a
+                'found' scope already speaks for itself via the sections
+                above. */}
+            {s.notResearched.length > 0 && (
+              <Card title="Researched, nothing found">
+                <ul className="flex flex-wrap gap-1.5">
+                  {s.notResearched.map((r) => (
+                    <li key={r.scope} className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
+                      {researchScopeLabel(r.scope)}{r.result === 'not_public' ? ' — not public' : ''}
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            )}
+
+            {/* (8) Legal footer — unchanged. Prompt 616 §B.2 / 626 §C — this
                 page IS a catalogue person's record, shown to a customer. */}
             <p className="text-[11px] text-gray-400">
               Professional details gathered from public sources.{' '}

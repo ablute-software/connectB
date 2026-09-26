@@ -1,6 +1,8 @@
-// Prompt 737 §0B.1 — display labels for the 13 catalog_evidence.kind
-// values (migration 0344's evidence_kind enum, verified against production
-// 2026-09-25), EN/PT.
+// Prompt 737 §0B.1 — display labels for catalog_evidence.kind values
+// (migration 0344's evidence_kind enum, verified against production
+// 2026-09-25), EN/PT. Extended §9.A (25/09/2026, Passo 3 schema) with the
+// 3 values that migration 20260926172005 added: role_history, education,
+// portfolio_relationship.
 export const EVIDENCE_KIND_LABELS: Record<string, { en: string; pt: string }> = {
   bio: { en: 'Biography', pt: 'Biografia' },
   interview: { en: 'Interview', pt: 'Entrevista' },
@@ -15,7 +17,41 @@ export const EVIDENCE_KIND_LABELS: Record<string, { en: string; pt: string }> = 
   social_post: { en: 'Social post', pt: 'Publicação em rede social' },
   photo: { en: 'Photo', pt: 'Fotografia' },
   other: { en: 'Other', pt: 'Outro' },
+  role_history: { en: 'Career / board role', pt: 'Percurso / cargo' },
+  education: { en: 'Education', pt: 'Formação' },
+  portfolio_relationship: { en: 'Portfolio relationship', pt: 'Relação de portfolio' },
 };
+
+// role_type_kind enum (migration 20260926172020) — required exactly when
+// kind='role_history', never set otherwise.
+export const ROLE_TYPE_LABELS: Record<string, { en: string; pt: string }> = {
+  employment: { en: 'Executive / employment', pt: 'Executivo / emprego' },
+  board_advisory: { en: 'Board / advisory', pt: 'Conselho / consultivo' },
+};
+
+export function roleTypeLabel(roleType: string | null | undefined, lang: 'en' | 'pt' = 'en'): string | null {
+  if (!roleType) return null;
+  return ROLE_TYPE_LABELS[roleType]?.[lang] ?? roleType;
+}
+
+// catalog_person_research_log.scope (migration 20260926172020).
+export const RESEARCH_SCOPE_LABELS: Record<string, { en: string; pt: string }> = {
+  career: { en: 'Career', pt: 'Carreira' },
+  education: { en: 'Education', pt: 'Formação' },
+  board_seats: { en: 'Board seats', pt: 'Lugares em conselhos' },
+  statements: { en: 'Public statements', pt: 'Declarações públicas' },
+  interviews: { en: 'Interviews', pt: 'Entrevistas' },
+  articles: { en: 'Articles', pt: 'Artigos' },
+  podcasts: { en: 'Podcasts', pt: 'Podcasts' },
+  events: { en: 'Talks / events', pt: 'Palestras / eventos' },
+  topics: { en: 'Topics', pt: 'Temas' },
+  portfolio: { en: 'Portfolio', pt: 'Portfolio' },
+  personal_signals: { en: 'Personal signals', pt: 'Sinais pessoais' },
+};
+
+export function researchScopeLabel(scope: string, lang: 'en' | 'pt' = 'en'): string {
+  return RESEARCH_SCOPE_LABELS[scope]?.[lang] ?? scope;
+}
 
 export function evidenceKindLabel(kind: string, lang: 'en' | 'pt' = 'en'): string {
   return EVIDENCE_KIND_LABELS[kind]?.[lang] ?? kind;
