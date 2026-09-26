@@ -9,6 +9,25 @@ export type VisibilityCounts = Record<DocVisibility, number>;
 
 const EMPTY_COUNTS: VisibilityCounts = { open: 0, on_grant: 0, due_diligence: 0 };
 
+// Prompt 742 §B.3 — moved out of documents/page.tsx (where it was the only
+// copy) so the investor-side dossier mirror (StartupDossierContent.tsx)
+// reads the exact same icons/colors instead of a second, driftable copy.
+// Investor-side labels can be variants ("Open to you" instead of "Open" —
+// built locally where they're used), but the icon/color/title vocabulary
+// itself is one source, per the prompt's own instruction.
+export const VISIBILITY_META: Record<DocVisibility, { icon: string; label: string; title: string }> = {
+  due_diligence: { icon: '🔴🔒', label: 'Due diligence only', title: 'Due diligence only — fully closed, requires an access request' },
+  on_grant: { icon: '🟡🔓', label: 'On request', title: 'On request — simple access grant needed' },
+  open: { icon: '🟢🔓✕', label: 'Open', title: 'Openly shareable — still only reaches whoever you grant access to' },
+};
+export const VISIBILITY_OPTIONS: DocVisibility[] = ['open', 'on_grant', 'due_diligence'];
+// Prompt 741 — the same three colors, everywhere a level shows as a pill.
+export const VISIBILITY_PILL_CLASS: Record<DocVisibility, string> = {
+  open: 'bg-green-100 text-green-800',
+  on_grant: 'bg-amber-100 text-amber-800',
+  due_diligence: 'bg-red-100 text-[#B00000]',
+};
+
 export function countByVisibility(docs: { visibility: DocVisibility }[]): VisibilityCounts {
   const counts: VisibilityCounts = { ...EMPTY_COUNTS };
   for (const d of docs) counts[d.visibility] += 1;

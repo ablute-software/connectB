@@ -10,8 +10,16 @@ import { LoadingState } from '@/components/workspace-shell/LoadingState';
 
 interface PickerDoc { id: string; name: string; visibility: string }
 
-export function DocumentRequestPicker({ orgId }: { orgId: string }) {
-  const [open, setOpen] = useState(false);
+// Prompt 742 §B.2 — open/onOpenChange are optional so every existing
+// caller (uncontrolled, purely local state) is unaffected; the new
+// document-level strip passes them so clicking a listed not-open document
+// opens this SAME picker instead of a second request mechanism.
+export function DocumentRequestPicker({ orgId, open: controlledOpen, onOpenChange }: {
+  orgId: string; open?: boolean; onOpenChange?: (open: boolean) => void;
+}) {
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = controlledOpen ?? localOpen;
+  const setOpen = onOpenChange ?? setLocalOpen;
   const [docs, setDocs] = useState<PickerDoc[] | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [customItems, setCustomItems] = useState<string[]>([]);

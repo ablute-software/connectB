@@ -28,6 +28,8 @@ import { DocumentRequestPicker } from '@/components/DocumentRequestPicker';
 import { Tooltip } from '@/components/ui';
 import { computeDilution, type ValuationBasis } from '@/lib/dilution';
 import { LoadingState } from '@/components/workspace-shell/LoadingState';
+import type { DocVisibility } from '@/lib/types';
+import { VISIBILITY_META, VISIBILITY_PILL_CLASS } from '@/lib/vault-level-summary';
 
 // Prompt 389 §2 — the 7 dossier tabs "My evaluation" actually scores; the
 // Overview sub-tabs Pitch/Traction aren't among them (388 §C.2's own
@@ -941,6 +943,75 @@ function ScoreBadge({ documentId, documentName, trackEvaluate, docScores, focuse
   );
 }
 
+interface PickerDoc { id: string; name: string; visibility: string }
+
+// Prompt 742 §B.2 — the investor-side mirror of the founder's own 741
+// level pastilles: what's reachable right now, in the SAME icons/colors
+// (§B.3 — VISIBILITY_META/PILL_CLASS are the one shared source now).
+// Renders in BOTH the "has access" and "no access yet" states (openToYou/
+// needsNda are simply 0 in the latter) — a level 0 investor still sees the
+// On request/Due diligence counts, matching what document-picker already
+// shows them today via "Ask for a document".
+//
+// Only name + level for a not-open document, never content, size, dates or
+// view counts — the exact projection document-picker itself returns
+// (Prompt 372's own rule). Clicking one opens the SAME DocumentRequestPicker
+// already on this page (lifted `open` state) rather than a new flow.
+function DocumentLevelStrip({ orgId, openToYouCount, needsNdaCount, onAskForDocuments }: {
+  orgId: string; openToYouCount: number; needsNdaCount: number; onAskForDocuments: () => void;
+}) {
+  const [notOpen, setNotOpen] = useState<PickerDoc[] | null>(null);
+  useEffect(() => {
+    fetch(`/api/portal/document-picker?orgId=${encodeURIComponent(orgId)}`)
+      .then((r) => r.json()).then((d) => setNotOpen(d.documents ?? [])).catch(() => setNotOpen([]));
+  }, [orgId]);
+
+  if (notOpen === null) return null;
+  const onRequest = notOpen.filter((d) => d.visibility === 'on_grant');
+  const dueDiligence = notOpen.filter((d) => d.visibility === 'due_diligence');
+  if (openToYouCount === 0 && needsNdaCount === 0 && onRequest.length === 0 && dueDiligence.length === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {openToYouCount > 0 && (
+          <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${VISIBILITY_PILL_CLASS.open}`}>
+            {VISIBILITY_META.open.icon} Open to you {openToYouCount}
+          </span>
+        )}
+        {needsNdaCount > 0 && (
+          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800">
+            🔏 Needs NDA {needsNdaCount}
+          </span>
+        )}
+        {onRequest.length > 0 && (
+          <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${VISIBILITY_PILL_CLASS.on_grant}`}>
+            {VISIBILITY_META.on_grant.icon} On request {onRequest.length}
+          </span>
+        )}
+        {dueDiligence.length > 0 && (
+          <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${VISIBILITY_PILL_CLASS.due_diligence}`}>
+            {VISIBILITY_META.due_diligence.icon} Due diligence {dueDiligence.length}
+          </span>
+        )}
+      </div>
+      <p className="text-[11px] text-gray-400">
+        Each step — interest, full profile, documents — is shared with the founder and moves the conversation forward.
+      </p>
+      {notOpen.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {notOpen.map((d) => (
+            <button key={d.id} type="button" onClick={onAskForDocuments} title={`Ask for “${d.name}”`}
+              className="rounded-full border border-gray-200 px-2 py-0.5 text-[11px] text-gray-600 hover:border-[#0E7490] hover:text-[#0E7490]">
+              {VISIBILITY_META[d.visibility as DocVisibility]?.icon ?? ''} {d.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate, docScores, focusedDocId, onFocusDoc, focusDocId, focusSection }: {
   orgId: string;
   hasAccess: boolean; docs: { sections: DocSection[]; pendingNdaCount: number } | null; sharedInMessages: DealMessage[];
@@ -973,13 +1044,19 @@ function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate,
     return () => cancelAnimationFrame(id);
   }, [docs, focusDocId, focusSection]);
 
+  // Prompt 742 §B.2 — shared by both the "no access yet" and "has access"
+  // branches below, so a click on a not-open document in the strip opens
+  // the SAME picker instance regardless of which branch is showing.
+  const [pickerOpen, setPickerOpen] = useState(false);
+
   if (!hasAccess) {
     return (
       <div className="mx-auto mt-8 max-w-sm space-y-3 text-center">
         <div className="rounded-lg border border-dashed border-gray-200 bg-white p-6 text-sm text-gray-500">
           🔒 Access to documents is granted by the founder — express interest to start the conversation.
         </div>
-        <DocumentRequestPicker orgId={orgId} />
+        <DocumentLevelStrip orgId={orgId} openToYouCount={0} needsNdaCount={0} onAskForDocuments={() => setPickerOpen(true)} />
+        <DocumentRequestPicker orgId={orgId} open={pickerOpen} onOpenChange={setPickerOpen} />
       </div>
     );
   }
@@ -1016,6 +1093,8 @@ function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate,
 
   return (
     <div className="space-y-4">
+      <DocumentLevelStrip orgId={orgId} openToYouCount={allDocs.length} needsNdaCount={docs.pendingNdaCount}
+        onAskForDocuments={() => setPickerOpen(true)} />
       {docs.pendingNdaCount > 0 && (
         <div ref={focusSection === 'nda' ? highlightedRef : undefined}
           className={`rounded-lg border p-3 text-sm text-amber-800 ${
@@ -1097,7 +1176,7 @@ function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate,
         </div>
       )}
 
-      <DocumentRequestPicker orgId={orgId} />
+      <DocumentRequestPicker orgId={orgId} open={pickerOpen} onOpenChange={setPickerOpen} />
     </div>
   );
 }
