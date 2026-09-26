@@ -15,6 +15,14 @@ export const EVIDENCE_KIND_LABELS: Record<string, { en: string; pt: string }> = 
   social_post: { en: 'Social post', pt: 'Publicação em rede social' },
   photo: { en: 'Photo', pt: 'Fotografia' },
   other: { en: 'Other', pt: 'Outro' },
+  // Dossier de pessoa, passo 3 (migration 20260926172005) — three values
+  // added to evidence_kind for the rich dossier. Added here so this label
+  // map covers the full enum again; see also src/lib/dossier-labels.ts for
+  // the role_type/relation_kind/research_log vocabulary that goes with
+  // role_history and portfolio_relationship.
+  role_history: { en: 'Role / career history', pt: 'Histórico de cargos' },
+  education: { en: 'Education', pt: 'Educação' },
+  portfolio_relationship: { en: 'Portfolio relationship', pt: 'Relação de portfolio' },
 };
 
 export function evidenceKindLabel(kind: string, lang: 'en' | 'pt' = 'en'): string {
