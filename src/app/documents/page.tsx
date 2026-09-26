@@ -1660,6 +1660,10 @@ function DocumentsPageInner() {
                 {authEnabled && (
                   <div className="mt-3 border-t border-gray-100 pt-3">
                     <div className="text-xs font-medium text-gray-500">Or upload a file</div>
+                    {/* Prompt 742 §D.1 — a PDF is what unlocks the in-app
+                        viewer (view-only, watermark, reading stats); a
+                        docx/xlsx/pptx just downloads/opens as it does today. */}
+                    <p className="mt-0.5 text-[11px] text-gray-400">Upload as PDF to get view-only, watermark and reading stats.</p>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       {/* Prompt 881 — choosing files STAGES them; the access
                           selector above appears, and the Upload button below

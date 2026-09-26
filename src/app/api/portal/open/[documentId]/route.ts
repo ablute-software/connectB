@@ -39,6 +39,7 @@ import { closedOrgGuard } from '@/lib/org-closed';
 import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
 import { recordInvestorSignalForEntity } from '@/lib/investor-signal-events-server';
 import { documentNdaByDefaultAvailable } from '@/lib/documents-nda-default-capability';
+import { resolveViewerKind } from '@/lib/document-viewer';
 
 const SIGNED_URL_TTL_SECONDS = 300;
 const NOINDEX_HEADERS = { 'X-Robots-Tag': 'noindex, nofollow, noarchive' };
@@ -127,6 +128,18 @@ export async function GET(req: Request, { params }: { params: { documentId: stri
   // Prompt 301 §3 — a flagged upload is never served to anyone but the
   // uploading org. Same refusal /api/portal/access-granted applies.
   if (doc.malware_scan_status === 'flagged') return refuse('unavailable', 403);
+
+  // Prompt 742 §D.2 — pdf/image/embed now open in the in-app viewer, which
+  // does its OWN access check (POST /api/portal/view/[documentId]) and is
+  // what inserts document_views + the signal event for these three kinds —
+  // this route deliberately does NOT insert below when it redirects here,
+  // so a document never gets logged twice for one open. 'external' (docx/
+  // xlsx/pptx, Notion, any other link) is UNCHANGED: still redirects
+  // straight to the file/link and still logs itself, exactly as before —
+  // links already out in emails/other screens keep working unchanged.
+  if (resolveViewerKind(doc) !== 'external') {
+    return NextResponse.redirect(new URL(`/portal/view/${encodeURIComponent(doc.id)}`, req.url), { status: 302, headers: NOINDEX_HEADERS });
+  }
 
   let target: string | null = (doc.external_url as string | null) ?? null;
   if (!target && doc.storage_path) {

@@ -128,17 +128,23 @@ async function investorProfileDefaults(admin: SupabaseClient, userId: string) {
   return data ?? null;
 }
 
-async function toPortalDoc(admin: SupabaseClient, d: Record<string, unknown>) {
-  let signedUrl: string | null = (d.external_url as string | null) ?? null;
-  // Prompt 301 §3 — same gate as /api/portal/access-granted: a flagged
-  // document is refused to any viewer other than the uploading org itself.
-  if (!signedUrl && d.storage_path && d.malware_scan_status !== 'flagged') {
-    const { data: signed } = await admin.storage.from('data-room').createSignedUrl(d.storage_path as string, 300);
-    signedUrl = signed?.signedUrl ?? null;
-  }
+// Prompt 742 §D.2 — used to mint a live signed URL for EVERY document in
+// the list up front, whether or not the investor ever opened it (a signed
+// URL for the whole data room sitting in the DOM from page load, outliving
+// a founder's revoke for the rest of its TTL — the exact same class of leak
+// Prompt 560 §B already fixed for the open route). Storage documents now
+// carry storage_path/external_url instead, so the client can decide the
+// viewer kind (document-viewer.ts's resolveViewerKind) and mint the real
+// signed URL only at click time, through the viewer's own access-checked
+// route. `url` stays populated for an external link (Google Docs, Notion,
+// anything the founder shared as a plain link) — that was never a minted
+// secret to begin with.
+function toPortalDoc(d: Record<string, unknown>) {
+  const externalUrl = (d.external_url as string | null) ?? null;
   return {
     id: d.id, name: d.name, version: d.version, watermark: d.watermark,
-    downloadable: d.downloadable, folder_id: d.folder_id, url: signedUrl,
+    downloadable: d.downloadable, folder_id: d.folder_id, url: externalUrl,
+    storage_path: (d.storage_path as string | null) ?? null, external_url: externalUrl,
   };
 }
 
@@ -294,7 +300,7 @@ export async function GET(req: Request) {
     : { data: [] };
 
   const visibleDocs = candidateDocs.filter((d) => visibleIds.includes(d.id as string));
-  const documents = await Promise.all(visibleDocs.map((d) => toPortalDoc(admin, d)));
+  const documents = visibleDocs.map((d) => toPortalDoc(d));
 
   // Prompt 557 — the same "name it, don't just count it" fix the guest page
   // gets, for the confirmed investor. NOT toPortalDoc: that resolves a

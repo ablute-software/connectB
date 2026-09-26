@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "postinstall": "node scripts/copy-pdf-worker.mjs",
     "dev": "next dev",
     "dev:verify": "node scripts/dev-verify.mjs",
     "build": "next build",
@@ -22,6 +23,7 @@
     "html2canvas-pro": "2.4.1",
     "next": "14.2.35",
     "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.3.289",
     "psl": "^1.15.0",
     "qrcode": "^1.5.4",
     "react": "^18",

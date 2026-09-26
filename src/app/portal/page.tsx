@@ -44,6 +44,10 @@ import { LoadingState } from '@/components/workspace-shell/LoadingState';
 interface PortalDoc {
   id: string; name: string; version?: string; watermark: boolean;
   downloadable: boolean; folder_id?: string; url: string | null;
+  // Prompt 742 §D.2 — toPortalDoc no longer mints a signed URL up front for
+  // a storage document (url stays null for those); openDoc below uses
+  // these two to decide whether to route through the in-app viewer.
+  storage_path?: string | null; external_url?: string | null;
 }
 interface PendingConfirmation { grantId: string; invitedName: string | null; orgName: string | null }
 // Prompt 54 Bloco 1 — Zona 1 snapshot. Every field is nullable on purpose:
@@ -509,16 +513,23 @@ function PortalPageInner() {
   const demoFolders = db.folders.filter((f) => demoUnlockedFolderGrants.some((g) => g.folder_id === f.id));
   const demoPendingNdaCount = (demoFolderGrants.length - demoUnlockedFolderGrants.length) + demoDocAccess.pendingCount;
 
+  // Prompt 742 §D.2 — the authenticated branch now goes through
+  // /api/portal/open/<id> (same GET route StartupDossierContent.tsx's own
+  // openDoc/openDocById already use), which re-checks access, mints the
+  // signed URL at click time and — since that route now redirects
+  // pdf/image/embed straight into the in-app viewer — logs the open
+  // exactly once either way. The old separate POST /api/portal/view
+  // log-then-open-a-pre-minted-URL pattern is dropped: url is no longer
+  // pre-minted for a storage document (toPortalDoc), so opening it
+  // directly would no longer work. Demo mode is unchanged — there is no
+  // real Storage-backed viewer to route it through.
   function openDoc(doc: PortalDoc | { id: string; external_url?: string }) {
     if (authEnabled) {
-      fetch('/api/portal/view', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ documentId: doc.id }),
-      });
-    } else {
-      recordDocumentView(doc.id, email);
+      window.open(`/api/portal/open/${encodeURIComponent(doc.id)}`, '_blank');
+      return;
     }
-    window.open(('url' in doc ? doc.url : doc.external_url) ?? '#', '_blank');
+    recordDocumentView(doc.id, email);
+    window.open(('external_url' in doc ? doc.external_url : undefined) ?? '#', '_blank');
   }
 
   const signedIn = authEnabled ? !!sessionEmail : demoSignedIn;

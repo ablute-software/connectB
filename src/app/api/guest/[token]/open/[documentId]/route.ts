@@ -26,6 +26,7 @@ import { guestGrantTokenAvailable } from '@/lib/access-requests-capability';
 import { grantStatus } from '@/lib/access-grants';
 import { vaultFrozenForOrg } from '@/lib/data-room-server';
 import { clientIp, findGrantByGuestToken, guestLinkRateLimited } from '@/lib/guest-link-security';
+import { resolveViewerKind } from '@/lib/document-viewer';
 
 const NOINDEX_HEADERS = { 'X-Robots-Tag': 'noindex, nofollow, noarchive' };
 
@@ -134,6 +135,17 @@ export async function GET(
   // Same refusal /api/portal/access-granted applies: a flagged upload is not
   // served to anyone but the uploading org.
   if (doc.malware_scan_status === 'flagged') return refuse('invalid', 403);
+
+  // Prompt 742 §D.2 — same split as the investor open route: pdf/image/
+  // embed now open in the guest viewer, which does its own access check
+  // (POST /api/guest/[token]/view/[documentId]) and owns the document_views
+  // insert for these three kinds. 'external' is unchanged.
+  if (resolveViewerKind(doc) !== 'external') {
+    return NextResponse.redirect(
+      new URL(`/guest/${encodeURIComponent(params.token)}/view/${encodeURIComponent(doc.id)}`, req.url),
+      { status: 302, headers: NOINDEX_HEADERS },
+    );
+  }
 
   let target: string | null = (doc.external_url as string | null) ?? null;
   if (!target && doc.storage_path) {
