@@ -998,6 +998,14 @@ function DocumentLevelStrip({ orgId, openToYouCount, needsNdaCount, onAskForDocu
       <p className="text-[11px] text-gray-400">
         Each step — interest, full profile, documents — is shared with the founder and moves the conversation forward.
       </p>
+      {/* Prompt 742 §C.2 — the product-copy half of Clause 4.6: what gets
+          shared (steps) is named plainly here; what never does (notes,
+          evaluations, pass reasons) is Clause 4.6's own, not repeated here
+          to avoid two slightly-different descriptions of the same rule. */}
+      <p className="text-[11px] text-gray-400">
+        Founders see which documents you open and for how long. Your steps — never your notes — help Sherlock sharpen your matches.{' '}
+        <Link href="/terms#clause-4" className="font-medium text-[#0E7490] hover:underline">How we use this</Link>
+      </p>
       {notOpen.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {notOpen.map((d) => (

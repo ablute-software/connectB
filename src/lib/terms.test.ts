@@ -47,4 +47,19 @@ describe('getTermsMarkdown', () => {
   it('falls back to the current version for an unknown version string', () => {
     expect(getTermsMarkdown('99.0')).toBe(getTermsMarkdown(TERMS_VERSION));
   });
+
+  // Prompt 742 §C.1 — the version bump's whole reason: Clause 4.6 covers
+  // the in-app viewer's own new measurement (Part D), and an older,
+  // already-accepted version must NOT carry it — that is what makes the
+  // bump meaningful, not just a version-string change.
+  it('the current version (4.0) carries the new Clause 4.6 on investor activity', () => {
+    const text = getTermsMarkdown();
+    expect(text).toContain('4.6.');
+    expect(text).toContain('How investor activity is used');
+    expect(text).toContain('how long it is actively viewed and how many pages are seen');
+  });
+
+  it('the previous version (3.0) does not carry Clause 4.6', () => {
+    expect(getTermsMarkdown('3.0')).not.toContain('How investor activity is used');
+  });
 });

@@ -7,21 +7,25 @@
 import { TERMS_V1_MARKDOWN } from '../content/terms/v1';
 import { TERMS_V2_MARKDOWN } from '../content/terms/v2';
 import { TERMS_V3_MARKDOWN } from '../content/terms/v3';
+import { TERMS_V4_MARKDOWN } from '../content/terms/v4';
 
-// Prompt 514 — Clause 7.1(d)/(i) broadened (anti-scraping + no use of
-// Content to train any AI model, competing or not, paid plan or free).
-// A material legal change, so it is a version bump, not an edit of v2's
+// Prompt 742 §C.1 — new Clause 4.6, "How investor activity is used": the
+// contractual basis for Part D's own new behaviour (documents now open
+// inside the Platform, so time-on-document and pages-seen are recorded).
+// A material legal change, so it is a version bump, not an edit of v3's
 // text: shouldGateTerms below then requires every signed-in user to
 // re-accept, which is the intended effect, not a regression.
-// (Prompt 403 §C was the previous bump: new Clause 6.3, Vault security
-// scanning.) Every superseded version stays importable/mapped below so
-// acceptance rows recorded against it (old history) remain resolvable.
-export const TERMS_VERSION = '3.0';
+// (Prompt 514 was the previous bump: Clause 7.1(d)/(i) broadened. Prompt
+// 403 §C before that: new Clause 6.3, Vault security scanning.) Every
+// superseded version stays importable/mapped below so acceptance rows
+// recorded against it (old history) remain resolvable.
+export const TERMS_VERSION = '4.0';
 
 const TERMS_MARKDOWN_BY_VERSION: Record<string, string> = {
   '1.0': TERMS_V1_MARKDOWN,
   '2.0': TERMS_V2_MARKDOWN,
   '3.0': TERMS_V3_MARKDOWN,
+  '4.0': TERMS_V4_MARKDOWN,
 };
 
 export function getTermsMarkdown(version: string = TERMS_VERSION): string {

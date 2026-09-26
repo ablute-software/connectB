@@ -8927,3 +8927,29 @@ Production, read-only + a rolled-back transaction: real column names confirmed b
 Browser (`dev:verify`, `Claude_Browser` pane only): both the investor and guest viewer pages load, fetch, and correctly render their refusal state end-to-end with a fake document id / fake guest token (503 "not configured" and 403 "invalid" respectively) — no crash, no error trace inside any of this prompt's own new files. **Not browser-verified: the actual rendering success path** (a real PDF loading and paginating, the watermark overlay, the heartbeat actually firing) — this needs a real Supabase connection with a real document and real auth, which `dev:verify`'s demo mode cannot provide (every capability probe and this feature's whole access-check chain requires real Supabase env vars) — same structural limitation already disclosed for B.2/B.3 and Prompt 740's Plans panel. What COULD be verified live (CORS against the real Storage endpoint, the production build compiling and code-splitting this page correctly, the refusal paths end-to-end, the production schema/update-logic checks) all passed; the success path is verified by construction and code review only, disclosed rather than assumed.
 
 **Not merged, not applied to production** — same standing instruction as the rest of this prompt.
+
+---
+
+## 26/09/2026 — Prompt 742, Part C — Terms v4 and closing the prompt
+
+Same branch. The last of the 5 parts (B.1 → A → B.2/B.3 → D → C, the prompt's own required order — Terms last "because it describes what D now measures").
+
+**C.1.** `src/content/terms/v4.ts` — v3's text verbatim (diffed by eye against `v3.ts` line by line while writing it), two changes only: the version line (`3.0` → `4.0`) and new **Clause 4.6, "How investor activity is used"**, inserted right after 4.5, verbatim as approved by Nuno in chat on 26/09/2026 — not reworded. `terms.ts`: `TERMS_VERSION = '4.0'`, `v4` added to `TERMS_MARKDOWN_BY_VERSION`. Existing `shouldGateTerms` behavior (re-acceptance required whenever the accepted version ≠ current) needed no code change — it already compares by version string, and `terms.test.ts` already asserted against `TERMS_VERSION` dynamically rather than a hardcoded string, so the whole existing suite adapted to the bump for free. Two new tests added anyway, since the prompt asked for the test file to be updated and "adapts for free" isn't the same as "asserts the new clause exists": the CURRENT version contains Clause 4.6's text, and the PREVIOUS version (3.0) does not — the second one is what actually proves the bump is meaningful, not just a version-string change.
+
+**C.2.** A second copy line under the B.2 strip (`StartupDossierContent.tsx`): "Founders see which documents you open and for how long. Your steps — never your notes — help Sherlock sharpen your matches." with a "How we use this" link to `/terms#clause-4`. Deliberately does not repeat Clause 4.6's own list of what's excluded (private notes, evaluations, pass reasons) — one description of the rule, not two slightly-different ones that could drift. Confirmed live (`dev:verify`): `slugify()` in `TermsDocument.tsx` turns a `## 4. ...` heading into `id="clause-4"` (it matches a leading `\d+\.` and uses that number directly), so the link lands exactly on Section 4, which now contains 4.6.
+
+**C.3.** Privacy Policy stays `[link]` (placeholder) — not written, per the prompt's own explicit instruction to only flag it as still outstanding.
+
+**Observation, unrelated to this prompt, flagged rather than silently fixed:** `dev:verify` shows a React hydration-mismatch warning ("Hydration failed because the initial UI does not match what was rendered on the server," recovering to full client-render) on every page checked while verifying this branch — including `/login`, untouched by any of Prompts 740/741/742. Confirmed pre-existing and app-wide, not something this work introduced; the client-side render completes correctly regardless (every page's content read back correctly after the recovery), so it is dev-console noise rather than a functional break, but it is real and worth a look outside this prompt's scope.
+
+### Verification
+
+`npx tsc --noEmit`: EXIT=0. `npx vitest run`: 4124/4125 (2 new `terms.test.ts` cases; same one pre-existing, unrelated locale flake). `npx eslint`: EXIT=0, one pre-existing warning outside the diff. `npm run build`: EXIT=0. Browser (`dev:verify`): confirmed live — `/terms` renders "Version 4.0" in both the page badge and the document's own header line, `#clause-4` resolves to the right `<h2>`, Clause 4.6's exact text is present in the DOM.
+
+**Not merged, not applied to production.**
+
+---
+
+## Prompt 742 — closing summary
+
+All 5 parts (B.1, A, B.2/B.3, D, C) landed on `fix/742-nda-default-investor-mirror-viewer`, each its own commit, each independently green on tsc/vitest/eslint/build. Nothing was merged to `main` and no migration was applied to production — both wait for Nuno's explicit OK, per the prompt's own "Autorizações" section, same as every prompt in this session. Real findings along the way, not assumed from the prompt's own prose: the `document-picker` access-control leak (B.1); two places (`fulfill-upload`, `invite-by-email`) that trusted a client-sent NDA choice with no server-side floor, hardened while already touching that exact logic; a genuine Next.js/pdfjs-dist build failure (Part D) fixed by moving the worker off webpack's asset pipeline entirely; a wrong column name (`viewed_at`, not `created_at`) caught by checking production schema before writing the query, not after. Disclosed rather than hidden: `people-access-matrix.ts`'s admin overview matrix not extended to `nda_by_default` (Part A); the PDF-rendering success path not live-browser-testable without a real Supabase connection (Part D); B.1's commit ended up bundled with Part A rather than split out as the prompt's own text allowed.
