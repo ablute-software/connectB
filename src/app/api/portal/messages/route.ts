@@ -17,6 +17,7 @@ import { findThread, getOrCreateThread, getThreadMessages, postMessage, markThre
 import { resolveInvestorMessageDocs } from '@/lib/deal-messages-resolve';
 import { descendantFolderIds, resolveDocumentAccess, type GrantLike } from '@/lib/data-room';
 import { vaultFrozenForOrg } from '@/lib/data-room-server';
+import { documentNdaByDefaultAvailable } from '@/lib/documents-nda-default-capability';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 
@@ -118,13 +119,21 @@ export async function POST(req: Request) {
     const now = new Date();
     const activeGrants = ((grants ?? []) as unknown as (GrantLike & { expires_at?: string | null; invited_email?: string | null; confirmed_at?: string | null })[])
       .filter((g) => (!g.expires_at || new Date(g.expires_at) > now) && (!g.invited_email || g.confirmed_at));
-    const { data: candidateDocs } = await admin.from('documents').select('id, folder_id, visibility').in('id', requestedDocIds).eq('org_id', body.orgId);
+    // Prompt 742 §A.3 — nda_by_default, capability-gated. Explicit `: string`
+    // — see document-picker/route.ts's own comment.
+    const ndaByDefaultOn = await documentNdaByDefaultAvailable();
+    const docSelect: string = `id, folder_id, visibility${ndaByDefaultOn ? ', nda_by_default' : ''}`;
+    const { data: rawCandidateDocs } = await admin.from('documents')
+      .select(docSelect).in('id', requestedDocIds).eq('org_id', body.orgId);
+    // `as unknown as` — docSelect is a runtime string (not a literal), so
+    // postgrest-js's type-level select parser can't infer a row shape for it.
+    const candidateDocs = rawCandidateDocs as unknown as { id: string; folder_id?: string; visibility?: string; nda_by_default?: boolean }[] | null;
     // Prompt 204 §A — aqui os candidatos vem por id explicito (o cliente pede
     // documentos concretos), portanto nao ha query por pasta a expandir; falta
     // so a arvore para o grant de pasta poder cobrir subpastas.
     const { data: orgFolders } = await admin.from('folders').select('id, parent_id').eq('org_id', body.orgId);
     const folderTree = (orgFolders ?? []).map((f) => ({ id: f.id as string, parent_id: (f.parent_id as string | undefined) ?? undefined }));
-    const { visibleIds } = resolveDocumentAccess(activeGrants, (candidateDocs ?? []).map((d) => ({ id: d.id as string, folder_id: (d.folder_id as string | undefined) ?? undefined, visibility: d.visibility as string | undefined })), folderTree);
+    const { visibleIds } = resolveDocumentAccess(activeGrants, (candidateDocs ?? []).map((d) => ({ id: d.id, folder_id: d.folder_id, visibility: d.visibility, nda_by_default: d.nda_by_default })), folderTree);
     allowedDocIds = requestedDocIds.filter((id) => visibleIds.includes(id));
   }
 

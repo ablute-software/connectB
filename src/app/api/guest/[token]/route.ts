@@ -16,6 +16,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { descendantFolderIds, resolveDocumentAccess } from '@/lib/data-room';
+import { documentNdaByDefaultAvailable } from '@/lib/documents-nda-default-capability';
 import { shelfFromFolderKind, type GuestShelf } from '@/lib/guest-shelf';
 import { guestGrantTokenAvailable } from '@/lib/access-requests-capability';
 import { grantStatus } from '@/lib/access-grants';
@@ -121,12 +122,21 @@ export async function GET(req: Request, { params }: { params: { token: string } 
   const folderTree = (orgFolders ?? []).map((f) => ({ id: f.id as string, parent_id: (f.parent_id as string | undefined) ?? undefined }));
   const folderIds = descendantFolderIds(folderTree, grants.filter((g) => g.folder_id).map((g) => g.folder_id as string));
   const directDocIds = grants.filter((g) => g.document_id).map((g) => g.document_id as string);
+  // Prompt 742 §A.3 — nda_by_default, capability-gated.
+  const ndaByDefaultOn = await documentNdaByDefaultAvailable();
+  // Explicit `: string` — see document-picker/route.ts's own comment.
+  const docSelect: string = `id, name, folder_id, visibility${ndaByDefaultOn ? ', nda_by_default' : ''}`;
   const [{ data: docsInFolders }, { data: directDocs }] = await Promise.all([
-    folderIds.length ? admin.from('documents').select('id, name, folder_id, visibility').in('folder_id', folderIds) : Promise.resolve({ data: [] }),
-    directDocIds.length ? admin.from('documents').select('id, name, folder_id, visibility').in('id', directDocIds) : Promise.resolve({ data: [] }),
+    folderIds.length ? admin.from('documents').select(docSelect).in('folder_id', folderIds) : Promise.resolve({ data: [] }),
+    directDocIds.length ? admin.from('documents').select(docSelect).in('id', directDocIds) : Promise.resolve({ data: [] }),
   ]);
-  const docMap = new Map<string, { id: string; name: string; folder_id?: string; visibility?: string }>();
-  for (const d of [...(docsInFolders ?? []), ...(directDocs ?? [])]) docMap.set(d.id as string, d as { id: string; name: string; folder_id?: string; visibility?: string });
+  const docMap = new Map<string, { id: string; name: string; folder_id?: string; visibility?: string; nda_by_default?: boolean }>();
+  // `as unknown as` — docSelect is a runtime string (not a literal), so
+  // postgrest-js's type-level select parser can't infer a row shape for it.
+  for (const raw of [...(docsInFolders ?? []), ...(directDocs ?? [])]) {
+    const d = raw as unknown as { id: string; name: string; folder_id?: string; visibility?: string; nda_by_default?: boolean };
+    docMap.set(d.id, d);
+  }
   const candidateDocs = [...docMap.values()];
 
   // Same visibility rule /api/portal/access-granted uses (document-level

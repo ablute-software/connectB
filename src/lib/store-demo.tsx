@@ -814,6 +814,12 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({ ...prev, documents: prev.documents.map((d) => idSet.has(d.id) ? { ...d, visibility } : d) }));
     },
 
+    // Prompt 742 §A.4 — same batch shape as updateDocumentsVisibility above.
+    updateDocumentsNdaDefault(ids, value) {
+      const idSet = new Set(ids);
+      setDb((prev) => ({ ...prev, documents: prev.documents.map((d) => idSet.has(d.id) ? { ...d, nda_by_default: value } : d) }));
+    },
+
     moveDocumentToFolder(docId, folderId) {
       setDb((prev) => {
         const siblings = prev.documents.filter((d) => d.folder_id === folderId);

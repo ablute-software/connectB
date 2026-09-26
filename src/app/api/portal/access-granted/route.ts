@@ -165,7 +165,9 @@ export async function GET() {
       // SCOPE, not the NDA lock — isDocLocked (below) is the single place
       // that decides locked vs open, so the two decisions can never disagree.
       activeGrants.map((g) => ({ ...g, nda_required: false, nda_accepted_at: g.nda_accepted_at ?? undefined })),
-      candidateDocs.map((d) => ({ id: d.id as string, folder_id: (d.folder_id as string | undefined) ?? undefined, visibility: d.visibility as string | undefined })),
+      // Prompt 742 §A.3 — nda_by_default comes straight off `d` (this query
+      // is select('*')), so it needs no capability gate of its own here.
+      candidateDocs.map((d) => ({ id: d.id as string, folder_id: (d.folder_id as string | undefined) ?? undefined, visibility: d.visibility as string | undefined, nda_by_default: d.nda_by_default as boolean | undefined })),
       folderTree,
     );
     const inScopeDocs = candidateDocs.filter((d) => inScopeIds.includes(d.id as string));

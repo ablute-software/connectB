@@ -839,6 +839,11 @@ export interface DocumentItem {
   visibility: DocVisibility;
   watermark: boolean;
   downloadable: boolean;
+  // Prompt 742 §A.1 — migration 20260926124802, capability-gated:
+  // documents-nda-default-capability.ts. Optional: absent (undefined) reads
+  // as false via requiresNda()'s own `!!`, so an environment that hasn't
+  // applied the migration yet keeps working unchanged.
+  nda_by_default?: boolean;
   notes?: string;
   created_at?: string; // ISO — real DB column (migration 0001) since day one, only just surfaced in the type
   // Data Room V2 (F1) — what it contains, version, who it was prepared for.

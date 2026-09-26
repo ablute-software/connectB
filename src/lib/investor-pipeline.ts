@@ -210,6 +210,23 @@ export { isTreatedForWaveDosage } from './pipeline-waves';
 type Decision = { org_id: string; decision: string; reason_detail: string | null; decided_at: string; decided_by: string };
 type LevelRow = { org_id: string; level: 2 | 3; status: 'granted' | 'pending' | 'denied' };
 
+// Prompt 742 §B.1 — the access check document-picker was missing entirely
+// (any signed-in user could pass any orgId and read back that org's
+// on_grant/due_diligence document NAMES). Cheap check first: an active
+// data-room grant already covers the common real case for "picking a
+// document to request" without paying for a full pipeline computation.
+// Only falls through to the dossier's own (expensive — see this file's own
+// Prompt 687 comment above) getPipelineWaves when that's not enough, so a
+// caller with a real grant never pays for it.
+export async function canViewStartup(
+  sb: SupabaseClient, admin: SupabaseClient, userId: string, email: string, personId: string | null, orgId: string,
+): Promise<boolean> {
+  const grantedOrgIds = await activeGrantOrgIds(admin, email, personId);
+  if (grantedOrgIds.includes(orgId)) return true;
+  const result = await getPipelineWaves(sb, admin, userId, email);
+  return result.linked ? result.waves.flatMap((w) => w.items).some((c) => c.orgId === orgId) : false;
+}
+
 export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient, userId: string, email: string) {
   const pipelineStart = Date.now();
   const investorProfile = await timeBlock('investorProfile', () => resolveInvestorProfile(admin, userId));

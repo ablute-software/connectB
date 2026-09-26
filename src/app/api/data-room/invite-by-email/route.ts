@@ -38,6 +38,8 @@ import { logEmailRenderFailure } from '@/lib/email-send-log';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
 import { buildGuestAccessEmail } from '@/lib/guest-access-email';
 import { APP_URL } from '@/lib/brand';
+import { requiresNda } from '@/lib/data-room';
+import { documentNdaByDefaultAvailable } from '@/lib/documents-nda-default-capability';
 
 interface NodeSelection { kind: 'doc' | 'folder'; id: string; ndaRequired?: boolean }
 
@@ -80,12 +82,24 @@ export async function POST(req: Request) {
   // database, never from what the browser claims it selected.
   const docIds = [...new Set(nodes.filter((n) => n.kind === 'doc').map((n) => n.id))];
   const folderIds = [...new Set(nodes.filter((n) => n.kind === 'folder').map((n) => n.id))];
-  const [{ data: ownedDocs }, { data: ownedFolders }] = await Promise.all([
-    docIds.length ? admin.from('documents').select('id').eq('org_id', orgId).in('id', docIds) : Promise.resolve({ data: [] as { id: string }[] }),
+  // Prompt 742 §A.2 — visibility/nda_by_default added to this SAME
+  // ownership-check select (no extra query) so nda_required can be floored
+  // to requiresNda() below, never trusting a lower value the client sent
+  // for a document that itself demands an NDA. Capability-gated.
+  const ndaByDefaultOn = await documentNdaByDefaultAvailable();
+  // Explicit `: string` — see document-picker/route.ts's own comment.
+  const docSelect: string = `id, visibility${ndaByDefaultOn ? ', nda_by_default' : ''}`;
+  const [{ data: rawOwnedDocs }, { data: ownedFolders }] = await Promise.all([
+    docIds.length ? admin.from('documents').select(docSelect).eq('org_id', orgId).in('id', docIds)
+      : Promise.resolve({ data: [] as { id: string; visibility?: string; nda_by_default?: boolean }[] }),
     folderIds.length ? admin.from('folders').select('id').eq('org_id', orgId).in('id', folderIds) : Promise.resolve({ data: [] as { id: string }[] }),
   ]);
-  const ownedDocIds = new Set((ownedDocs ?? []).map((d) => d.id as string));
+  // `as unknown as` — docSelect is a runtime string (not a literal), so
+  // postgrest-js's type-level select parser can't infer a row shape for it.
+  const ownedDocs = rawOwnedDocs as unknown as { id: string; visibility?: string; nda_by_default?: boolean }[] | null;
+  const ownedDocIds = new Set((ownedDocs ?? []).map((d) => d.id));
   const ownedFolderIds = new Set((ownedFolders ?? []).map((f) => f.id as string));
+  const docMetaById = new Map((ownedDocs ?? []).map((d) => [d.id, d]));
   const foreign = nodes.filter((n) => (n.kind === 'doc' ? !ownedDocIds.has(n.id) : !ownedFolderIds.has(n.id)));
   if (foreign.length > 0) {
     return NextResponse.json({ ok: false, error: 'Some of the selected items no longer exist in your data room.' }, { status: 400 });
@@ -112,7 +126,10 @@ export async function POST(req: Request) {
     folder_id: n.kind === 'folder' ? n.id : null,
     invited_email: email,
     invited_name: name || null,
-    nda_required: !!n.ndaRequired,
+    // Prompt 742 §A.2 — floored to requiresNda() for a document node; a
+    // folder has no visibility/nda_by_default of its own, so it keeps
+    // trusting the client checkbox exactly as before.
+    nda_required: n.kind === 'doc' ? requiresNda({ ...docMetaById.get(n.id), nda_by_default: !!n.ndaRequired || docMetaById.get(n.id)?.nda_by_default }) : !!n.ndaRequired,
     expires_at,
     granted_at: grantedAt,
   }));

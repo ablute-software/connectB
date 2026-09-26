@@ -8,6 +8,7 @@ import { Card } from '@/components/ui';
 import { uploadAndVerifyFile } from '@/lib/vault-upload-client';
 import { LoadingState } from '@/components/workspace-shell/LoadingState';
 import type { DocVisibility } from '@/lib/types';
+import { requiresNda } from '@/lib/data-room';
 
 interface Item {
   id: string; documentId: string | null; label: string; status: 'pending' | 'granted' | 'promised' | 'declined';
@@ -266,11 +267,22 @@ function UploadNew({ orgId, folders, itemId, busy, onCancel, onDone, onFulfilled
             <input value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} placeholder="or create a new folder"
               className="w-full rounded border border-gray-300 px-2 py-1" />
           )}
-          <select value={visibility} onChange={(e) => setVisibility(e.target.value as DocVisibility)} className="w-full rounded border border-gray-300 px-2 py-1">
+          <select value={visibility}
+            onChange={(e) => {
+              const v = e.target.value as DocVisibility;
+              setVisibility(v);
+              // Prompt 742 §A.2 — the checkbox's initial value follows the
+              // chosen level (requiresNda), the founder can still uncheck
+              // it for anything other than due_diligence (locked below).
+              setNdaRequired(requiresNda({ visibility: v }));
+            }}
+            className="w-full rounded border border-gray-300 px-2 py-1">
             {VISIBILITY_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
           </select>
           <label className="flex items-center gap-1.5">
-            <input type="checkbox" checked={ndaRequired} onChange={(e) => setNdaRequired(e.target.checked)} /> Require an NDA for this document
+            <input type="checkbox" checked={ndaRequired} disabled={visibility === 'due_diligence'}
+              onChange={(e) => setNdaRequired(e.target.checked)} />
+            Require an NDA for this document{visibility === 'due_diligence' && ' (always on for Due diligence)'}
           </label>
         </div>
       )}

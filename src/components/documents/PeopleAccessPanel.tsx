@@ -71,7 +71,7 @@ import { EmailDeliveryStatus, useEmailStatuses } from './EmailDeliveryStatus';
 import { authEnabled } from '@/lib/supabase';
 import { writeToClipboard } from '@/lib/clipboard';
 
-type GrantTarget = { kind: 'folder' | 'doc'; id: string; name: string };
+type GrantTarget = { kind: 'folder' | 'doc'; id: string; name: string; ndaByDefault?: boolean };
 
 const SECTION_LABELS: Record<PortalSection, string> = {
   start_here: 'Start here', product_market: 'Product & market', traction_commercial: 'Traction & commercial',
@@ -313,10 +313,21 @@ export function PeopleAccessPanel({ onShareByEmail }: {
   // pending selection and opens the form; clicking more cells adds more.
   // Clicking one and pressing Grant is the pre-existing single-item flow,
   // unchanged from the founder's point of view.
+  //
+  // Prompt 742 §A.2 — "the rule defines the initial value": adding a
+  // target that itself asks for an NDA turns the shared checkbox on (the
+  // founder can still uncheck it before confirming). One checkbox covers
+  // the whole batch, so this is a one-way suggestion, not per-target
+  // enforcement — the real gate (requiresNda inside resolveDocumentAccess)
+  // is what actually decides access regardless of what this box shows.
   function toggleGrantTarget(target: GrantTarget) {
     setGrantTargets((prev) => {
       const without = prev.filter((t) => !(t.kind === target.kind && t.id === target.id));
-      return without.length === prev.length ? [...prev, target] : without;
+      if (without.length === prev.length) {
+        if (target.ndaByDefault) setGrantNda(true);
+        return [...prev, target];
+      }
+      return without;
     });
   }
 
@@ -477,8 +488,8 @@ export function PeopleAccessPanel({ onShareByEmail }: {
 
   /** One badge + its management actions, shared by folder rows and document
    *  rows so both behave identically. */
-  function nodeCell({ kind, id, name, documentId, folderId, visibility }: {
-    kind: 'folder' | 'doc'; id: string; name: string; documentId?: string; folderId?: string; visibility?: string;
+  function nodeCell({ kind, id, name, documentId, folderId, visibility, ndaByDefault }: {
+    kind: 'folder' | 'doc'; id: string; name: string; documentId?: string; folderId?: string; visibility?: string; ndaByDefault?: boolean;
   }) {
     const effective = findEffectiveGrantAmong(liveGrants, documentId, folderId, folderTree);
     const effect = computeCellEffect(effective, now, visibility);
@@ -502,7 +513,7 @@ export function PeopleAccessPanel({ onShareByEmail }: {
         ) : effect === 'not_shared' ? (
           <button type="button" disabled={!canGrant}
             title={canGrant ? `Add "${name}" to what ${selectedName} can see` : 'No known recipient in this relationship yet'}
-            onClick={() => toggleGrantTarget({ kind, id, name })}
+            onClick={() => toggleGrantTarget({ kind, id, name, ndaByDefault })}
             className={`${badgeCls} ${canGrant ? 'cursor-pointer hover:ring-1 hover:ring-[#0E7490]' : 'cursor-not-allowed'} ${pendingTarget ? 'ring-1 ring-[#0E7490]' : ''}`}>
             {pendingTarget ? '+ Selected' : CELL_EFFECT_LABEL[effect]}
           </button>
@@ -574,7 +585,7 @@ export function PeopleAccessPanel({ onShareByEmail }: {
                       {d.name}
                       {d.details && <span className="block text-[10px] text-gray-400">{d.details}</span>}
                     </span>
-                    {nodeCell({ kind: 'doc', id: d.id, name: d.name, documentId: d.id, folderId: folder.id, visibility: d.visibility })}
+                    {nodeCell({ kind: 'doc', id: d.id, name: d.name, documentId: d.id, folderId: folder.id, visibility: d.visibility, ndaByDefault: d.nda_by_default })}
                   </li>
                 ))}
               </ul>

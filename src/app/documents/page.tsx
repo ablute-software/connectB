@@ -13,7 +13,7 @@ import { useConfirm } from '@/lib/confirm';
 import type { DocVisibility, Folder, FolderKind } from '@/lib/types';
 import {
   collectFolderSelectionKeys, cycleGrantState, descendantFolderIds,
-  dueDiligenceUnderFolders, normalizeDocumentUrl, reorderByDrag, sanitizeStorageKey, type GrantState,
+  dueDiligenceUnderFolders, normalizeDocumentUrl, reorderByDrag, requiresNda, sanitizeStorageKey, type GrantState,
 } from '@/lib/data-room';
 import {
   countByVisibility, filterByVisibility, levelCountsByFolder, nonZeroLevels, toggleVisibilityFilter, type VisibilityCounts,
@@ -112,6 +112,7 @@ function DocumentsPageInner() {
   const {
     db, addDocument, deleteDocument, renameDocument, updateDocumentDetails, updateDocumentVisibility,
     updateDocumentsVisibility,
+    updateDocumentsNdaDefault,
     moveDocumentToFolder, reorderDocuments, replaceDocumentFile, addDocumentVersion,
     createFolder, renameFolder, deleteFolder, addGrant, revokeGrant, recordNdaUpload,
     invitePersonForGrant, refreshFromServer,
@@ -125,15 +126,23 @@ function DocumentsPageInner() {
   const [selFolder, setSelFolder] = useState<string>('');
   // Prompt 741 §A.1 — org-wide level filter for the documents list; null = no filter.
   const [visibilityFilter, setVisibilityFilter] = useState<DocVisibility | null>(null);
+  // Prompt 742 §A.4 — independent of visibilityFilter (a document can match
+  // a level AND be flagged NDA-by-default at once), so this is its own
+  // boolean rather than folded into the tri-state above.
+  const [ndaFilter, setNdaFilter] = useState(false);
   // Prompt 741 §A.4 — "set level for all documents in this folder…".
   const [batchLevelOpen, setBatchLevelOpen] = useState(false);
   const [batchLevel, setBatchLevel] = useState<DocVisibility>('open');
   const [batchIncludeSubfolders, setBatchIncludeSubfolders] = useState(false);
+  // Prompt 742 §A.4 — its sibling: "Require NDA for all documents in this folder…".
+  const [batchNdaOpen, setBatchNdaOpen] = useState(false);
+  const [batchNdaIncludeSubfolders, setBatchNdaIncludeSubfolders] = useState(false);
   const [storageSizes, setStorageSizes] = useState<Record<string, number>>({});
   const [documentDetailsAvailable, setDocumentDetailsAvailable] = useState(false);
   const [ndaSystemAvailable, setNdaSystemAvailable] = useState(false);
   const [documentOrderingAvailable, setDocumentOrderingAvailable] = useState(false);
   const [documentVersionsAvailable, setDocumentVersionsAvailable] = useState(false);
+  const [documentNdaByDefaultAvailable, setDocumentNdaByDefaultAvailable] = useState(false);
   // Item 1 (Lote E) step 5 — pending access_requests for this org, the
   // founder-side half of the request/grant cycle (the investor-side write
   // and the guest-token preview flow already shipped; this was the one
@@ -174,6 +183,7 @@ function DocumentsPageInner() {
       setNdaSystemAvailable(!!me.capabilities?.ndaSystem);
       setDocumentOrderingAvailable(!!me.capabilities?.documentOrdering);
       setDocumentVersionsAvailable(!!me.capabilities?.documentVersions);
+      setDocumentNdaByDefaultAvailable(!!me.capabilities?.documentNdaByDefault);
     }).catch(() => {});
   }, []);
 
@@ -559,6 +569,9 @@ function DocumentsPageInner() {
   // surfaces can't disagree. Folder/DocumentItem already structurally match
   // TreeFolder/TreeDocument (id + parent_id?/folder_id?), so no remapping.
   const orgVisibilityLevels = useMemo(() => nonZeroLevels(countByVisibility(db.documents)), [db.documents]);
+  // Prompt 742 §A.4 — same "only show it if it's non-zero" discipline as the
+  // visibility pastilles above.
+  const orgNdaByDefaultCount = useMemo(() => db.documents.filter(requiresNda).length, [db.documents]);
   const levelCountsByFolderId = useMemo(() => levelCountsByFolder(db.folders, db.documents), [db.folders, db.documents]);
   const levelCountsIn = (id: string) => levelCountsByFolderId.get(id) ?? countByVisibility([]);
   // Prompt 33/47 — "active grants" used to mean exactly one thing (not
@@ -634,20 +647,32 @@ function DocumentsPageInner() {
     setGrantExpiry(''); setSelection({}); setAdHocInviteMode(false);
   }
 
+  // Prompt 742 §A.2 — the folder's own cycle stays context-free (a folder
+  // has no NDA default of its own), but the cascade it applies to its
+  // documents does not: a document that requiresNda enters as shared_nda
+  // even though the folder itself only reached plain `shared`, so sharing
+  // a folder can never silently drop a document's own NDA default.
   function toggleFolderSelection(folderId: string) {
     const current = selection[`folder:${folderId}`] ?? 'none';
     const next = cycleGrantState(current);
     const keys = collectFolderSelectionKeys(folderId, db.folders, db.documents);
     setSelection((prev) => {
       const updated = { ...prev };
-      for (const k of keys) updated[k] = next;
+      for (const k of keys) {
+        if (next === 'shared' && k.startsWith('doc:')) {
+          const doc = db.documents.find((d) => d.id === k.slice(4));
+          if (doc && requiresNda(doc)) { updated[k] = 'shared_nda'; continue; }
+        }
+        updated[k] = next;
+      }
       return updated;
     });
   }
 
   function toggleDocSelection(docId: string) {
     const current = selection[`doc:${docId}`] ?? 'none';
-    setSelection((prev) => ({ ...prev, [`doc:${docId}`]: cycleGrantState(current) }));
+    const doc = db.documents.find((d) => d.id === docId);
+    setSelection((prev) => ({ ...prev, [`doc:${docId}`]: cycleGrantState(current, !!doc && requiresNda(doc)) }));
   }
 
   async function submitGrantTree() {
@@ -1107,6 +1132,26 @@ function DocumentsPageInner() {
     setBatchLevelOpen(false);
   }
 
+  // Prompt 742 §A.4 — one direction only ("Require NDA…", not a toggle),
+  // matching the prompt's own action name. due_diligence documents are
+  // excluded from the count/write: requiresNda(d) is already true for them
+  // regardless of this column, same reason the per-document chip locks
+  // them instead of offering a redundant toggle.
+  async function applyBatchNda() {
+    const scopeIds = batchNdaIncludeSubfolders ? descendantFolderIds(db.folders, [selFolder]) : [selFolder];
+    const scope = new Set(scopeIds);
+    const inScope = db.documents.filter((d) => d.folder_id && scope.has(d.folder_id));
+    const changing = inScope.filter((d) => d.visibility !== 'due_diligence' && !d.nda_by_default);
+    if (changing.length === 0) { setBatchNdaOpen(false); return; }
+    const ok = await confirm({
+      message: `Require an NDA by default for ${changing.length} document${changing.length === 1 ? '' : 's'} in “${selected?.name ?? ''}”${
+        batchNdaIncludeSubfolders ? ' (including subfolders)' : ''}?`,
+    });
+    if (!ok) return;
+    updateDocumentsNdaDefault(changing.map((d) => d.id), true);
+    setBatchNdaOpen(false);
+  }
+
   async function confirmDeleteFolder(f: Folder) {
     setFolderErr('');
     if (!(await confirm({ message: `Delete folder "${f.name}"?`, destructive: true }))) return;
@@ -1140,7 +1185,7 @@ function DocumentsPageInner() {
   // currently on screen, not a separate org-wide flat view (there isn't one
   // today, and the folder tree is still how the founder navigates).
   const folderDocs = docsIn(selFolder);
-  const shownFolderDocs = filterByVisibility(folderDocs, visibilityFilter);
+  const shownFolderDocs = filterByVisibility(folderDocs, visibilityFilter).filter((d) => !ndaFilter || requiresNda(d));
 
   return (
     <div className="space-y-4">
@@ -1168,7 +1213,7 @@ function DocumentsPageInner() {
       {/* Prompt 741 §A.1 — org-wide counts by access level; each pastille is
           a filter on the currently-viewed folder's list (click again to
           clear). A level with zero documents anywhere just isn't shown. */}
-      {tab === 'documents' && orgVisibilityLevels.length > 0 && (
+      {tab === 'documents' && (orgVisibilityLevels.length > 0 || orgNdaByDefaultCount > 0) && (
         <div className="flex flex-wrap items-center gap-1.5">
           {orgVisibilityLevels.map(({ visibility, count }) => (
             <button key={visibility} type="button"
@@ -1179,6 +1224,17 @@ function DocumentsPageInner() {
               {VISIBILITY_META[visibility].icon} {VISIBILITY_META[visibility].label} {count}
             </button>
           ))}
+          {/* Prompt 742 §A.4 — an independent filter dimension, not a fourth
+              visibility level: a document keeps its own open/on_grant/
+              due_diligence pastille AND can separately show up here. */}
+          {orgNdaByDefaultCount > 0 && (
+            <button type="button" onClick={() => setNdaFilter((v) => !v)}
+              title={ndaFilter ? 'Clear filter' : 'Filter to documents that ask for an NDA by default'}
+              className={`rounded-full px-2.5 py-1 text-xs font-medium bg-amber-100 text-amber-800 ${
+                ndaFilter ? 'ring-2 ring-offset-1 ring-[#0E7490]' : ''}`}>
+              🔏 NDA by default {orgNdaByDefaultCount}
+            </button>
+          )}
         </div>
       )}
       {/* Prompt 882 Part D — live, recomputed, no persistence: gone the
@@ -1232,11 +1288,37 @@ function DocumentsPageInner() {
         <div id="documents-panel" data-tour-id="documents-panel" className="space-y-4 md:col-span-2">
           <Card title={`Documents in “${selected?.name ?? ''}”`}
             right={selFolder && folderDocs.length > 0 ? (
-              <button type="button" onClick={() => setBatchLevelOpen((v) => !v)}
-                className="text-[11px] font-medium text-[#0E7490] hover:underline">
-                Set level for all documents in this folder…
-              </button>
+              <div className="flex flex-wrap items-center gap-3">
+                <button type="button" onClick={() => setBatchLevelOpen((v) => !v)}
+                  className="text-[11px] font-medium text-[#0E7490] hover:underline">
+                  Set level for all documents in this folder…
+                </button>
+                {documentNdaByDefaultAvailable && (
+                  <button type="button" onClick={() => setBatchNdaOpen((v) => !v)}
+                    className="text-[11px] font-medium text-[#0E7490] hover:underline">
+                    Require NDA for all documents in this folder…
+                  </button>
+                )}
+              </div>
             ) : undefined}>
+            {batchNdaOpen && (
+              // Prompt 742 §A.4 — same useConfirm + subfolders-checkbox
+              // shape as the level action above, one direction only.
+              <div className="mb-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
+                <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                  <input type="checkbox" checked={batchNdaIncludeSubfolders} onChange={(e) => setBatchNdaIncludeSubfolders(e.target.checked)} />
+                  Include subfolders
+                </label>
+                <div className="mt-2 flex gap-2">
+                  <button onClick={applyBatchNda} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#0c637b]">
+                    Apply
+                  </button>
+                  <button onClick={() => setBatchNdaOpen(false)} className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
             {batchLevelOpen && (
               // Prompt 741 §A.4 — pick a target level + optional subfolders,
               // then confirm (useConfirm, never window.confirm) before any write.
@@ -1263,10 +1345,12 @@ function DocumentsPageInner() {
                 </div>
               </div>
             )}
-            {visibilityFilter && (
+            {(visibilityFilter || ndaFilter) && (
               <p className="mb-2 text-[11px] text-gray-500">
-                Filtered: {VISIBILITY_META[visibilityFilter].label}{' '}
-                <button type="button" onClick={() => setVisibilityFilter(null)} className="font-medium text-[#0E7490] hover:underline">· clear</button>
+                Filtered: {[visibilityFilter ? VISIBILITY_META[visibilityFilter].label : null, ndaFilter ? 'NDA by default' : null]
+                  .filter(Boolean).join(', ')}{' '}
+                <button type="button" onClick={() => { setVisibilityFilter(null); setNdaFilter(false); }}
+                  className="font-medium text-[#0E7490] hover:underline">· clear</button>
               </p>
             )}
             {documentOrderingAvailable && shownFolderDocs.length > 1 && (
@@ -1305,6 +1389,21 @@ function DocumentsPageInner() {
                           className={`rounded-full border-0 px-1.5 py-0.5 text-[10px] font-medium ${VISIBILITY_PILL_CLASS[d.visibility]}`}>
                           {VISIBILITY_OPTIONS.map((v) => <option key={v} value={v}>{VISIBILITY_META[v].icon} {VISIBILITY_META[v].label}</option>)}
                         </select>
+                        {/* Prompt 742 §A.4 — always on (locked) for
+                            due_diligence, since that level already implies
+                            requiresNda on its own; otherwise a plain toggle
+                            on nda_by_default. */}
+                        {documentNdaByDefaultAvailable && (
+                          <button type="button" disabled={d.visibility === 'due_diligence'}
+                            onClick={() => updateDocumentsNdaDefault([d.id], !d.nda_by_default)}
+                            title={d.visibility === 'due_diligence' ? 'Due diligence documents always require an NDA'
+                              : d.nda_by_default ? 'Requires an NDA by default — click to turn off' : 'Click to require an NDA by default'}
+                            className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                              requiresNda(d) ? 'bg-amber-100 text-amber-800' : 'border border-gray-300 text-gray-400'
+                            } ${d.visibility === 'due_diligence' ? 'cursor-not-allowed' : 'hover:opacity-80'}`}>
+                            🔏 NDA
+                          </button>
+                        )}
                         {documentOrderingAvailable && (
                           <span className={`select-none text-gray-300 ${canDrag ? 'cursor-grab' : ''}`} title="Drag to reorder, or drop onto a folder to move">⠿</span>
                         )}
@@ -1902,20 +2001,20 @@ function DocumentsPageInner() {
                       .map(([k]) => k.split(':')[1]);
                     const blocked = dueDiligenceUnderFolders(
                       db.folders.map((f) => ({ id: f.id, parent_id: f.parent_id })),
-                      db.documents.map((d) => ({ id: d.id, name: d.name, folder_id: d.folder_id, visibility: d.visibility })),
+                      db.documents.map((d) => ({ id: d.id, name: d.name, folder_id: d.folder_id, visibility: d.visibility, nda_by_default: d.nda_by_default })),
                       selectedFolderIds,
                     );
                     if (blocked.length === 0) return null;
                     return (
                       <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
                         <span className="font-semibold">
-                          {blocked.length} due-diligence {blocked.length === 1 ? 'document' : 'documents'} in here will NOT be shared by this grant:
+                          {blocked.length} {blocked.length === 1 ? 'document' : 'documents'} in here will NOT be shared by this grant — they ask for an NDA:
                         </span>
                         <ul className="mt-1 list-disc pl-4">
                           {blocked.map((d) => <li key={d.id}>{d.name}</li>)}
                         </ul>
                         <p className="mt-1">
-                          To share one of them, grant it on the document itself — a folder grant never opens a due-diligence document.
+                          These documents need their own share because they ask for an NDA — a folder grant never opens them.
                         </p>
                       </div>
                     );

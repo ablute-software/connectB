@@ -61,7 +61,16 @@ export function unlockedGrants<T extends GrantLike>(grants: T[]): T[] {
 // Opcional para nao partir chamadores que ainda nao a passem, mas ver o
 // comentario do gate: ausente significa "sem restricao", que e o
 // comportamento anterior.
-export interface DocMeta { id: string; folder_id?: string; visibility?: string }
+// Prompt 742 §A.1/§A.2 — `nda_by_default` generalizes what used to be a
+// hardcoded `visibility === 'due_diligence'` check, copy-pasted in three
+// places. Optional for the same "absent = false, compatible" reason as
+// `visibility` above — a caller that hasn't added the column/select yet
+// keeps exactly today's behavior (due_diligence-only).
+export interface DocMeta { id: string; folder_id?: string; visibility?: string; nda_by_default?: boolean }
+
+export function requiresNda(doc: { visibility?: string; nda_by_default?: boolean }): boolean {
+  return doc.visibility === 'due_diligence' || !!doc.nda_by_default;
+}
 // Prompt 557 — `pendingIds` alongside `pendingCount`. The count alone was
 // all the guest page could ever show ("+2 documents available after NDA"),
 // which told an invited guest that something exists, not what it is or what
@@ -171,8 +180,15 @@ export function resolveDocumentAccess<T extends GrantLike>(
     // chegar. O grant por documento continua a chegar, porque e a forma
     // explicita de dizer "este, sim, e para esta pessoa" — e mantem a
     // coerencia com a regra de especificidade do F4.
+    //
+    // Prompt 742 §A.3 — generalized from the 'due_diligence'-only check to
+    // requiresNda(doc), so a document uploaded later into an already-shared
+    // folder still can't slip through a folder grant just because it isn't
+    // due_diligence-labeled. The explicit per-document grant is still how
+    // the founder can consciously say "this one, with NDA off" — that
+    // override lives in the grant's own nda_required, not here.
     const docGrant = byDoc.get(doc.id);
-    const effective = doc.visibility === 'due_diligence'
+    const effective = requiresNda(doc)
       ? docGrant
       : docGrant ?? nearestFolderGrant(doc.folder_id);
     if (!effective) continue;
@@ -202,9 +218,16 @@ export function reorderByDrag(ids: string[], dragId: string, targetId: string): 
 
 // F4 — tri-state grant-by-selection tree. Three clicks cycle through: not
 // shared -> shared -> shared + NDA required -> not shared.
+//
+// Prompt 742 §A.2 — a document that requiresNda cycles in the OPPOSITE
+// order (none -> shared_nda -> shared -> none): the first real click lands
+// on the default the document itself asks for, and reaching plain `shared`
+// is then a conscious second click past that default, not the other way
+// round.
 export type GrantState = 'none' | 'shared' | 'shared_nda';
 
-export function cycleGrantState(s: GrantState): GrantState {
+export function cycleGrantState(s: GrantState, ndaByDefault = false): GrantState {
+  if (ndaByDefault) return s === 'none' ? 'shared_nda' : s === 'shared_nda' ? 'shared' : 'none';
   return s === 'none' ? 'shared' : s === 'shared' ? 'shared_nda' : 'none';
 }
 
@@ -262,12 +285,18 @@ export function diffGrantSelection(
 // nao para o proteger de si proprio -- por isso o aviso e informativo e nao
 // bloqueante. Um aviso que obriga a confirmar quando nao ha risco nenhum
 // treina as pessoas a clicar sem ler.
-export interface VisibilityDoc { id: string; name: string; folder_id?: string; visibility?: string }
+//
+// Prompt 742 §A.3 — generalized to requiresNda(d): any document that asks
+// for an NDA (due_diligence OR nda_by_default) is equally left out of a
+// folder grant, so the founder needs the same heads-up either way. Name
+// kept as-is (every existing caller reads it) even though the reason has
+// widened past "due diligence" specifically.
+export interface VisibilityDoc { id: string; name: string; folder_id?: string; visibility?: string; nda_by_default?: boolean }
 
 export function dueDiligenceUnderFolders(
   folders: TreeFolder[], documents: VisibilityDoc[], selectedFolderIds: string[],
 ): VisibilityDoc[] {
   if (selectedFolderIds.length === 0) return [];
   const subtree = new Set(descendantFolderIds(folders, selectedFolderIds));
-  return documents.filter((d) => d.visibility === 'due_diligence' && d.folder_id && subtree.has(d.folder_id));
+  return documents.filter((d) => requiresNda(d) && d.folder_id && subtree.has(d.folder_id));
 }

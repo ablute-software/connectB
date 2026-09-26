@@ -21,6 +21,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { descendantFolderIds, resolveDocumentAccess } from '@/lib/data-room';
 import { decideGuestOpen, shelfFromFolderKind, GUEST_SIGNED_URL_TTL_SECONDS } from '@/lib/guest-shelf';
+import { documentNdaByDefaultAvailable } from '@/lib/documents-nda-default-capability';
 import { guestGrantTokenAvailable } from '@/lib/access-requests-capability';
 import { grantStatus } from '@/lib/access-grants';
 import { vaultFrozenForOrg } from '@/lib/data-room-server';
@@ -78,10 +79,20 @@ export async function GET(
   }));
   const kindByFolderId = new Map((orgFolders ?? []).map((f) => [f.id as string, f.kind as string | null]));
 
-  const { data: doc } = await admin
+  // Prompt 742 §A.3 — nda_by_default, capability-gated. Explicit `: string`
+  // — see document-picker/route.ts's own comment.
+  const ndaByDefaultOn = await documentNdaByDefaultAvailable();
+  const docSelect: string = `id, name, folder_id, visibility, storage_path, external_url, malware_scan_status, org_id${ndaByDefaultOn ? ', nda_by_default' : ''}`;
+  const { data: rawDoc } = await admin
     .from('documents')
-    .select('id, name, folder_id, visibility, storage_path, external_url, malware_scan_status, org_id')
+    .select(docSelect)
     .eq('id', params.documentId).maybeSingle();
+  // `as unknown as` — docSelect is a runtime string (not a literal), so
+  // postgrest-js's type-level select parser can't infer a row shape for it.
+  const doc = rawDoc as unknown as {
+    id: string; name: string; folder_id?: string; visibility?: string; storage_path?: string;
+    external_url?: string; malware_scan_status?: string; org_id: string; nda_by_default?: boolean;
+  } | null;
   // Cross-org is indistinguishable from "not shared with you", on purpose.
   if (!doc || doc.org_id !== orgId) return refuse('invalid', 403);
 
@@ -115,7 +126,7 @@ export async function GET(
   // longer mask an NDA refusal.
   const { visibleIds } = resolveDocumentAccess(
     grants,
-    [{ id: doc.id as string, folder_id: doc.folder_id as string | undefined, visibility: doc.visibility as string | undefined }],
+    [{ id: doc.id as string, folder_id: doc.folder_id as string | undefined, visibility: doc.visibility as string | undefined, nda_by_default: doc.nda_by_default as boolean | undefined }],
     folderTree,
   );
   if (!visibleIds.includes(doc.id as string)) return refuse('confirmation_required', 403);

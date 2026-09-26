@@ -15,6 +15,8 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
 import { allItemsResolved } from '@/lib/document-request-logic';
 import type { DocVisibility } from '@/lib/types';
+import { requiresNda } from '@/lib/data-room';
+import { documentNdaByDefaultAvailable } from '@/lib/documents-nda-default-capability';
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -65,10 +67,27 @@ export async function POST(req: Request) {
     folderId = newFolder!.id as string;
   }
 
+  // Prompt 742 §A.2 — the checkbox's INITIAL value is a client-side concern
+  // (documents/requests/[id]/page.tsx); what belongs here is that the
+  // server never grants a WEAKER NDA than the document's own visibility
+  // already implies, even if the client sent ndaRequired:false — same
+  // requiresNda() every other grant-creation path in this prompt now uses,
+  // so a due_diligence document can't slip through with no NDA just
+  // because this route trusted body.ndaRequired as-is (it did, before).
+  //
+  // Also persists that same decision onto the new document's own
+  // nda_by_default (beyond the prompt's literal ask), so it carries
+  // forward if this document is later shared through a different path
+  // (the manual sharing tree, a second request) instead of silently
+  // resetting to no default the moment this one grant is created.
+  // Capability-gated insert.
+  const ndaByDefaultOn = await documentNdaByDefaultAvailable();
+  const ndaRequired = requiresNda({ visibility: body.visibility, nda_by_default: !!body.ndaRequired });
   const { data: doc, error: docError } = await admin.from('documents').insert({
     org_id: orgId, folder_id: folderId, name: body.fileName, storage_path: body.storagePath,
     is_view_only: true, visibility: body.visibility, watermark: false, downloadable: false,
     malware_scan_status: body.malwareScanStatus ?? 'not_scanned',
+    ...(ndaByDefaultOn ? { nda_by_default: ndaRequired } : {}),
   }).select('id').single();
   if (docError) return NextResponse.json({ ok: false, error: docError.message }, { status: 500 });
   const documentId = doc!.id as string;
@@ -77,7 +96,7 @@ export async function POST(req: Request) {
   const { error: grantError } = await admin.from('access_grants').insert({
     org_id: orgId, person_id: (reqRow.person_id as string | null) ?? null,
     invited_email: reqRow.person_id ? null : requestedEmail,
-    document_id: documentId, nda_required: !!body.ndaRequired, granted_at: now,
+    document_id: documentId, nda_required: ndaRequired, granted_at: now,
   });
   if (grantError) return NextResponse.json({ ok: false, error: grantError.message }, { status: 500 });
 

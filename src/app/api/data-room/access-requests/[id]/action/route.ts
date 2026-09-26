@@ -14,6 +14,8 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
+import { requiresNda } from '@/lib/data-room';
+import { documentNdaByDefaultAvailable } from '@/lib/documents-nda-default-capability';
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -88,10 +90,19 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     // Folders are unaffected on purpose: resolveDocumentAccess (data-room.ts)
     // already never lets a folder-level grant reach a due_diligence document
     // at all, so nda_required is moot for folder_id rows.
+    // Prompt 742 §A.2 — generalized from visibility === 'due_diligence' to
+    // requiresNda(doc), which also covers nda_by_default. Capability-gated
+    // select, same reason as every other new call of this column.
+    const ndaByDefaultOn = await documentNdaByDefaultAvailable();
+    // Explicit `: string` — see document-picker/route.ts's own comment.
+    const docSelect: string = `id, visibility${ndaByDefaultOn ? ', nda_by_default' : ''}`;
     const ndaRequiredByDocId = new Map<string, boolean>();
     if (documentIds.length > 0) {
-      const { data: docs } = await admin.from('documents').select('id, visibility').in('id', documentIds);
-      for (const doc of docs ?? []) ndaRequiredByDocId.set(doc.id as string, doc.visibility === 'due_diligence');
+      const { data: rawDocs } = await admin.from('documents').select(docSelect).in('id', documentIds);
+      // `as unknown as` — docSelect is a runtime string (not a literal), so
+      // postgrest-js's type-level select parser can't infer a row shape for it.
+      const docs = rawDocs as unknown as { id: string; visibility?: string; nda_by_default?: boolean }[] | null;
+      for (const doc of docs ?? []) ndaRequiredByDocId.set(doc.id, requiresNda(doc));
     }
     const rows = [
       ...folderIds.map((folder_id) => ({ ...base, folder_id })),

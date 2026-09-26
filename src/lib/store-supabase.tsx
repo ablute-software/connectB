@@ -1493,6 +1493,14 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (orgIdRef.current) persist(sb.from('documents').update({ visibility }).in('id', ids), 'updateDocumentsVisibility');
     },
 
+    // Prompt 742 §A.4 — same batch shape as updateDocumentsVisibility above.
+    updateDocumentsNdaDefault(ids, value) {
+      const idSet = new Set(ids);
+      const prev = dbRef.current;
+      commit({ ...prev, documents: prev.documents.map((d) => idSet.has(d.id) ? { ...d, nda_by_default: value } : d) });
+      if (orgIdRef.current) persist(sb.from('documents').update({ nda_by_default: value }).in('id', ids), 'updateDocumentsNdaDefault');
+    },
+
     // Data Room v3 (E5) — drag a document onto a folder. Appends to the end
     // of the destination's documents (position = max sibling + 1) so it lands
     // last rather than colliding with an existing position.

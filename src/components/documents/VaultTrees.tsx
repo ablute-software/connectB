@@ -22,7 +22,7 @@
 // visible instead of implied.
 import type { Dispatch, SetStateAction } from 'react';
 import type { DocumentItem, DocVisibility, Folder } from '@/lib/types';
-import type { GrantState } from '@/lib/data-room';
+import { requiresNda, type GrantState } from '@/lib/data-room';
 import { nonZeroLevels, type VisibilityCounts } from '@/lib/vault-level-summary';
 
 // Prompt 741 §A.2 — same three colors as the page's visibility pills, kept
@@ -75,6 +75,12 @@ export function GrantTreeNode({ f, depth, ctx }: { f: Folder; depth: number; ctx
         <div key={d.id} className="flex items-center gap-1.5 py-0.5" style={{ paddingLeft: `${(depth + 1) * 14}px` }}>
           <TriStateBox state={ctx.selection[`doc:${d.id}`] ?? 'none'} onClick={() => ctx.toggleDocSelection(d.id)} />
           <span className="text-xs text-gray-600">{d.name}</span>
+          {/* Prompt 742 §A.2 — only shows once the founder has clicked PAST
+              this document's own NDA default (state is plain 'shared'),
+              never while it's still at shared_nda or unshared. */}
+          {requiresNda(d) && ctx.selection[`doc:${d.id}`] === 'shared' && (
+            <span className="text-[10px] italic text-amber-700">This document asks for an NDA by default.</span>
+          )}
         </div>
       ))}
       {kids.map((k) => <GrantTreeNode key={k.id} f={k} depth={depth + 1} ctx={ctx} />)}

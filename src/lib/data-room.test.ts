@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   collectFolderSelectionKeys, cycleGrantState, diffGrantSelection, isEditableLink,
-  descendantFolderIds, dueDiligenceUnderFolders, normalizeDocumentUrl, reorderByDrag, resolveDocumentAccess, sanitizeStorageKey, unlockedGrants,
+  descendantFolderIds, dueDiligenceUnderFolders, normalizeDocumentUrl, reorderByDrag, requiresNda, resolveDocumentAccess, sanitizeStorageKey, unlockedGrants,
 } from './data-room';
 
 describe('sanitizeStorageKey', () => {
@@ -296,6 +296,18 @@ describe('cycleGrantState (F4 tri-state)', () => {
     expect(cycleGrantState('shared')).toBe('shared_nda');
     expect(cycleGrantState('shared_nda')).toBe('none');
   });
+
+  // Prompt 742 §A.2 — a document that requiresNda cycles in the opposite
+  // order: the default IS an NDA, so the first click should land there.
+  it('with ndaByDefault, cycles none -> shared_nda -> shared -> none instead', () => {
+    expect(cycleGrantState('none', true)).toBe('shared_nda');
+    expect(cycleGrantState('shared_nda', true)).toBe('shared');
+    expect(cycleGrantState('shared', true)).toBe('none');
+  });
+
+  it('ndaByDefault defaults to false — every existing caller is unaffected', () => {
+    expect(cycleGrantState('none')).toBe(cycleGrantState('none', false));
+  });
 });
 
 describe('collectFolderSelectionKeys (F4 cascade)', () => {
@@ -414,6 +426,65 @@ describe('resolveDocumentAccess (204a: due_diligence so com grant ao proprio doc
   });
 });
 
+describe('requiresNda', () => {
+  it('is true for a due_diligence document, nda_by_default absent', () => {
+    expect(requiresNda({ visibility: 'due_diligence' })).toBe(true);
+  });
+
+  it('is true for an on_grant document with nda_by_default set', () => {
+    expect(requiresNda({ visibility: 'on_grant', nda_by_default: true })).toBe(true);
+  });
+
+  it('is true when both are set', () => {
+    expect(requiresNda({ visibility: 'due_diligence', nda_by_default: true })).toBe(true);
+  });
+
+  it('is false for a normal document', () => {
+    expect(requiresNda({ visibility: 'open' })).toBe(false);
+    expect(requiresNda({ visibility: 'on_grant', nda_by_default: false })).toBe(false);
+    expect(requiresNda({})).toBe(false);
+  });
+});
+
+// Prompt 742 §A.3 — nda_by_default is a SECOND, independent way for a
+// document to demand the same due_diligence-only treatment resolveDocumentAccess
+// already enforces. The matrix below is the exact set the prompt's own
+// Verify section asks for.
+describe('resolveDocumentAccess (742 §A.3: nda_by_default widens the due_diligence gate)', () => {
+  const ARVORE = [{ id: 'raiz' }, { id: 'sub', parent_id: 'raiz' }];
+
+  it('nda_by_default via grant de pasta -> nao alcancavel, mesmo sem ser due_diligence', () => {
+    const grants = [{ folder_id: 'raiz', nda_required: false }];
+    const docs = [{ id: 'd1', folder_id: 'sub', visibility: 'on_grant', nda_by_default: true }];
+    expect(resolveDocumentAccess(grants, docs, ARVORE)).toEqual({ visibleIds: [], pendingIds: [], pendingCount: 0 });
+  });
+
+  it('via grant ao documento com NDA -> pendente ate nda_accepted_at', () => {
+    const grants = [{ document_id: 'd1', nda_required: true }];
+    const docs = [{ id: 'd1', folder_id: 'sub', visibility: 'on_grant', nda_by_default: true }];
+    expect(resolveDocumentAccess(grants, docs, ARVORE)).toEqual({ visibleIds: [], pendingIds: ['d1'], pendingCount: 1 });
+  });
+
+  it('via grant ao documento sem NDA (override explicito do founder) -> visivel', () => {
+    const grants = [{ document_id: 'd1', nda_required: false }];
+    const docs = [{ id: 'd1', folder_id: 'sub', visibility: 'on_grant', nda_by_default: true }];
+    expect(resolveDocumentAccess(grants, docs, ARVORE).visibleIds).toEqual(['d1']);
+  });
+
+  it('due_diligence continua exactamente como antes, nda_by_default ausente', () => {
+    const grants = [{ folder_id: 'raiz', nda_required: false }, { document_id: 'd2', nda_required: false }];
+    const docs = [{ id: 'd1', folder_id: 'sub', visibility: 'due_diligence' }, { id: 'd2', folder_id: 'sub', visibility: 'due_diligence' }];
+    const r = resolveDocumentAccess(grants, docs, ARVORE);
+    expect(r.visibleIds).toEqual(['d2']);
+  });
+
+  it('um documento normal (nem due_diligence nem nda_by_default) continua exactamente como antes', () => {
+    const grants = [{ folder_id: 'raiz', nda_required: false }];
+    const docs = [{ id: 'd1', folder_id: 'sub', visibility: 'on_grant' }];
+    expect(resolveDocumentAccess(grants, docs, ARVORE).visibleIds).toEqual(['d1']);
+  });
+});
+
 describe('dueDiligenceUnderFolders (204b: o aviso na criacao do grant)', () => {
   const ARVORE = [{ id: 'raiz' }, { id: 'grants', parent_id: 'raiz' }, { id: 'fora' }];
   const DOCS = [
@@ -439,5 +510,11 @@ describe('dueDiligenceUnderFolders (204b: o aviso na criacao do grant)', () => {
 
   it('sem pastas seleccionadas nao ha aviso nenhum', () => {
     expect(dueDiligenceUnderFolders(ARVORE, DOCS, [])).toEqual([]);
+  });
+
+  // Prompt 742 §A.3 — generalized past due_diligence-only.
+  it('tambem apanha um documento nda_by_default que nao e due_diligence', () => {
+    const docs = [...DOCS, { id: 'termsheet', name: 'TermSheet.pdf', folder_id: 'grants', visibility: 'on_grant', nda_by_default: true }];
+    expect(dueDiligenceUnderFolders(ARVORE, docs, ['raiz']).map((d) => d.id)).toEqual(['prr', 'norte', 'termsheet']);
   });
 });

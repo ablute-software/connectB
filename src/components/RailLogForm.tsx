@@ -23,6 +23,7 @@ import { AI_COMPOSER_LOCKED_COPY } from '@/lib/plans';
 import { authEnabled } from '@/lib/supabase';
 import { uploadAndVerifyFile } from '@/lib/vault-upload-client';
 import type { Channel, Classification, DocumentItem, Entity, Folder, OverrideRule, PassReasonCategory } from '@/lib/types';
+import { requiresNda } from '@/lib/data-room';
 
 // Mirrors src/app/log/page.tsx's own CHANNELS/CLASSIFICATIONS — display
 // labels only, not business logic, so a small duplicate is the same
@@ -151,19 +152,23 @@ export function RailLogForm({
   }, [attachMenuOpen]);
 
   // §C.2 — reuses the documents page's own addGrant exactly (same shape:
-  // person_id + document_id XOR folder_id, nda_required false here — the
-  // Log panel doesn't offer an NDA step); §C.2.2 dedups against any
+  // person_id + document_id XOR folder_id); §C.2.2 dedups against any
   // still-active grant already covering this exact (person, target).
-  function ensureGrant(target: { documentId?: string; folderId?: string }) {
+  // Prompt 742 §A.2 — the Log panel still offers no NDA STEP (no
+  // checkbox), but a document that itself requiresNda can no longer be
+  // quick-attached with NDA silently off just because this flow skips the
+  // step — ndaRequired defaults to false (unchanged for a folder target,
+  // which has no visibility/nda_by_default of its own).
+  function ensureGrant(target: { documentId?: string; folderId?: string }, ndaRequired = false) {
     if (!personId) return;
     const already = db.grants.some((g) => !g.revoked_at && g.person_id === personId
       && (target.documentId ? g.document_id === target.documentId : g.folder_id === target.folderId));
     if (already) return;
-    addGrant({ person_id: personId, document_id: target.documentId, folder_id: target.folderId, nda_required: false });
+    addGrant({ person_id: personId, document_id: target.documentId, folder_id: target.folderId, nda_required: ndaRequired });
   }
 
   function attachExistingDocument(doc: DocumentItem) {
-    ensureGrant({ documentId: doc.id });
+    ensureGrant({ documentId: doc.id }, requiresNda(doc));
     setAttachments((prev) => [...prev, { documentId: doc.id, label: doc.name, origin: 'Vault · view-only' }]);
     setAttachMenuOpen(false); setAttachSubmenu(null);
   }

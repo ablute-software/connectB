@@ -251,6 +251,8 @@ export interface StoreApi {
   // ref synchronously between calls, so a loop's later calls would each
   // clobber the earlier ones' own optimistic update instead of stacking.
   updateDocumentsVisibility: (ids: string[], visibility: DocVisibility) => void;
+  // Prompt 742 §A.4 — same batch shape and same reason as updateDocumentsVisibility above.
+  updateDocumentsNdaDefault: (ids: string[], value: boolean) => void;
   // Data Room v3 (E5). moveDocumentToFolder: drag a document onto a folder.
   // reorderDocuments: persist a new order within a folder (migration 0027).
   // replaceDocumentFile: swap the underlying file, keeping the same row/

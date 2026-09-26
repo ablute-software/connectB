@@ -9,6 +9,7 @@ import { readViewerSession } from '@/lib/developer-viewer';
 import { companyCanonAvailable } from '@/lib/company-canon';
 import { needsReviewAiAvailable } from '@/lib/needs-review-ai';
 import { documentDetailsAvailable, ndaSystemAvailable } from '@/lib/data-room-capability';
+import { documentNdaByDefaultAvailable } from '@/lib/documents-nda-default-capability';
 import { entityContactFieldsAvailable } from '@/lib/entity-contact-capability';
 import { reviewRunsAvailable } from '@/lib/review-capability';
 import { reviewClarificationsAvailable } from '@/lib/review-clarifications-capability';
@@ -51,6 +52,7 @@ export async function GET(req: NextRequest) {
     permissionMatrix: await permissionMatrixAvailable(),
     documentOrdering: await documentOrderingAvailable(),
     documentVersions: await documentVersionsAvailable(),
+    documentNdaByDefault: await documentNdaByDefaultAvailable(),
     aiReviewDocumentLink: await aiReviewDocumentLinkAvailable(),
     reawakening: await reawakeningAvailable(),
     planAccounts: await planAccountsAvailable(),

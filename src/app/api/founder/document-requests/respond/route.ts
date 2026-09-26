@@ -30,6 +30,8 @@ import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
 import { allItemsResolved } from '@/lib/document-request-logic';
+import { requiresNda } from '@/lib/data-room';
+import { documentNdaByDefaultAvailable } from '@/lib/documents-nda-default-capability';
 
 type Action = 'grant_existing' | 'fulfill_document' | 'fulfill_via_message' | 'promise' | 'decline' | 'fulfill_cap_table';
 
@@ -76,8 +78,12 @@ export async function POST(req: Request) {
     // resolveDocumentAccess (data-room.ts) already treats that exactly like
     // any other pending-NDA grant until nda-upload's document-scoped unlock
     // (see that route) stamps nda_accepted_at for THIS document.
-    const { data: doc } = await admin.from('documents').select('visibility').eq('id', body.documentId).maybeSingle();
-    const ndaRequired = doc?.visibility === 'due_diligence';
+    // Prompt 742 §A.2 — generalized from visibility === 'due_diligence' to
+    // requiresNda(doc). Capability-gated select.
+    const ndaByDefaultOn = await documentNdaByDefaultAvailable();
+    const { data: doc } = await admin.from('documents')
+      .select(`visibility${ndaByDefaultOn ? ', nda_by_default' : ''}`).eq('id', body.documentId).maybeSingle();
+    const ndaRequired = doc ? requiresNda(doc as { visibility?: string; nda_by_default?: boolean }) : false;
     const { error: grantError } = await admin.from('access_grants').insert({
       org_id: reqRow.org_id as string, person_id: (reqRow.person_id as string | null) ?? null,
       invited_email: reqRow.person_id ? null : (reqRow.requested_email as string | null),

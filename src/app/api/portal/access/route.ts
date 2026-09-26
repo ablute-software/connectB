@@ -277,6 +277,8 @@ export async function GET(req: Request) {
     candidateDocs.map((d) => ({
       id: d.id as string, folder_id: (d.folder_id as string | undefined) ?? undefined,
       visibility: d.visibility as string | undefined,
+      // Prompt 742 §A.3 — from `d` directly (this query is select('*')).
+      nda_by_default: d.nda_by_default as boolean | undefined,
     })),
     folderTree,
   );
