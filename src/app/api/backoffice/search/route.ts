@@ -4,7 +4,7 @@
 // first one that queries the server, because it has to reach across three
 // unrelated tables the sidebar has no other reason to have loaded at once.
 //
-// Three sources, one flat result list — "firms, people, orgs" per the
+// Four sources, one flat result list — "firms, people, orgs" per the
 // wireframe's own placeholder copy:
 //   - orgs (startups)              -> /backoffice/startups (no per-org page yet)
 //   - catalog_entities (investors) -> /backoffice/investors
@@ -17,8 +17,21 @@
 //     result so the client can do that AND so the org is visible in the
 //     list — Prompt 592 §D: two orgs could otherwise share an identical
 //     "Name · Firm" line with no way to tell them apart.)
+//   - catalog_people (researched investor contacts) -> /catalog-people/[id]
+//     directly, no viewer session needed: catalog_people_read (0002/0344)
+//     already has an is_platform_admin() bypass, same as catalog_entities.
+//     Found missing (Nuno, 26/09/2026) while checking LINCE Capital's own
+//     researched team was reachable at all — this was the actual gap, not
+//     the entity's pipeline `status`: an org-private `entities.status` of
+//     'dormant' never hid anything from this search (rows below reads
+//     catalog_entities/db.entities directly, with no status filter, in
+//     either this route or the founder Pipeline's own name search), but a
+//     researched person's name had NO search source at all before this —
+//     only the org-private `people` table (a founder's own added contacts)
+//     was ever queried, so none of the 37 people this catalog already has
+//     on LINCE Capital could be found by name here.
 // Capped at 8 per source so one very common substring can't crowd out the
-// other two categories.
+// other categories.
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { isExcludedOrgName } from '@/lib/analytics-events';
@@ -34,11 +47,33 @@ export async function GET(req: Request) {
   if (q.length < 2) return NextResponse.json({ ok: true, results: [] });
   const like = `%${q}%`;
 
-  const [{ data: orgs }, { data: entities }, { data: people }] = await Promise.all([
+  const [{ data: orgs }, { data: entities }, { data: people }, { data: catalogPeople }] = await Promise.all([
     admin.from('orgs').select('id, name').ilike('name', like).limit(PER_SOURCE_LIMIT + 5),
     admin.from('catalog_entities').select('id, name').ilike('name', like).limit(PER_SOURCE_LIMIT),
     admin.from('people').select('id, full_name, entity_id, org_id, entities(name), orgs(name)').ilike('full_name', like).limit(PER_SOURCE_LIMIT),
+    admin.from('catalog_people').select('id, full_name').ilike('full_name', like).limit(PER_SOURCE_LIMIT),
   ]);
+
+  // A separate query rather than a nested select: catalog_person_affiliations
+  // has no current=true filter available inside a Supabase nested-select, and
+  // a person can carry a past, no-longer-current affiliation row that would
+  // otherwise win the sublabel. Same two-query shape /api/backoffice/catalog
+  // already uses for the same join.
+  const catalogPeopleIds = (catalogPeople ?? []).map((p) => p.id as string);
+  const firmByPersonId = new Map<string, string>();
+  if (catalogPeopleIds.length > 0) {
+    const { data: affiliations } = await admin.from('catalog_person_affiliations')
+      .select('person_id, is_primary, catalog_entities(name)')
+      .in('person_id', catalogPeopleIds).eq('current', true);
+    for (const a of affiliations ?? []) {
+      const firmName = (a.catalog_entities as unknown as { name: string } | null)?.name;
+      if (!firmName) continue;
+      const personId = a.person_id as string;
+      // Prefer the primary affiliation's firm; the first current row wins
+      // otherwise, matching EntityPeoplePanel's own is_primary-first ordering.
+      if (a.is_primary || !firmByPersonId.has(personId)) firmByPersonId.set(personId, firmName);
+    }
+  }
 
   const results = [
     // Prompt 576 §3 — /backoffice/startups and /backoffice/catalog both
@@ -64,6 +99,11 @@ export async function GET(req: Request) {
         orgId: p.org_id as string | null,
       };
     }),
+    ...(catalogPeople ?? []).map((p) => ({
+      kind: 'catalog_person' as const, id: p.id as string, label: p.full_name as string,
+      sublabel: firmByPersonId.get(p.id as string),
+      href: `/catalog-people/${p.id}`,
+    })),
   ].filter((r) => !!r.href);
 
   return NextResponse.json({ ok: true, results });

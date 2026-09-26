@@ -10,7 +10,7 @@ import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 
 interface SearchResult {
-  kind: 'org' | 'catalog_entity' | 'person'; id: string; label: string; sublabel?: string; href: string;
+  kind: 'org' | 'catalog_entity' | 'person' | 'catalog_person'; id: string; label: string; sublabel?: string; href: string;
   // Prompt 592 — set only for 'person': the org whose private pipeline this
   // contact belongs to. go() below must enter Developer Viewer for it
   // before navigating, or href (a founder-side /entities/[id] route) 404s
@@ -18,7 +18,12 @@ interface SearchResult {
   orgId?: string | null;
 }
 
-const KIND_LABEL: Record<SearchResult['kind'], string> = { org: 'Startup', catalog_entity: 'Investor', person: 'Person' };
+// 'catalog_person' needs no Developer Viewer hop, unlike 'person': it links
+// straight into the shared /catalog-people/[id] dossier, whose own RLS
+// already carries an is_platform_admin() bypass (same as catalog_entities).
+const KIND_LABEL: Record<SearchResult['kind'], string> = {
+  org: 'Startup', catalog_entity: 'Investor', person: 'Person', catalog_person: 'Investor contact',
+};
 
 export function BackofficeSearch() {
   const [open, setOpen] = useState(false);
