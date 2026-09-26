@@ -8812,4 +8812,4 @@ Browser (`dev:verify`, demo mode, `Claude_Browser` pane only): live-clicked thro
 
 **Not fixed, out of scope, noted per the prompt's own instruction:** guest-link opens and NDA-acceptance/founder-grant-access routes write no signal event this phase.
 
-**Not merged.** Committed on `fix/741-vault-levels-and-signal-events` only — per Prompt 741's own instruction, merge to `main` waits for Nuno's explicit OK, and Prompt 742 (which depends on this being in `main`) has not started.
+**Merged to `main`, 26/09/2026** — Nuno gave explicit OK; fast-forwarded (`0abba6c3..855d7c14`, no merge commit needed, `origin/main` had not moved since this branch was created). Prompt 742, which was waiting specifically on this, can now start.
