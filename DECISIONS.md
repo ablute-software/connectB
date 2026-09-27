@@ -8988,3 +8988,21 @@ O que mudou ao aplicar o bundle sobre esse trabalho já fundido:
 - **Contagem antes/depois da fuga corrigida pela primeira sessão:** 113 pares (org, evidência) dependiam do ramo removido — todas as 4 orgs afectadas são `is_internal=true` (Estojo, Krohnsty, Caramel Biscuit, SherlockDeal), nenhuma cliente real. Confirmado pela sessão Code antes de aplicar a correcção seguinte, reportado a Nuno, autorizado a prosseguir.
 
 Nada disto voltou a executar SQL contra produção para as três migrações desta e da entrada anterior — só a migração nova (`20260926192508`) foi aplicada, com autorização explícita separada.
+
+---
+
+**Import LINCE Capital — 5 de 6 pessoas, 27/09/2026.** Nuno entregou `dry_run_report.json`/`.md` + `lince_6_people_manifest.json` (produzidos por outra sessão, `session_01Hgisvebe3KJgy7KnK2EWGR`) sem instrução escrita — decisão tomada por `AskUserQuestion`: aplicar agora, mas investigar mais antes de decidir a ambiguidade de identidade ("trata disso e depois commit push etc" → corrigido a meio para "constrói o importador reutilizável primeiro").
+
+Novo pacote `scripts/importers/catalog_dossier_import/` (`lib.py`, `test_lib.py`, `generate_sql.py`, `README.md`, 20 testes pytest). Diferente do `pv_person_dossier_import`: o manifesto de entrada já vem classificado (evidence_kind/role_type/precisão/strength/provenance por linha, com `qa_note`) por um processo de investigação anterior já revisto no próprio dry-run — este importador só valida contra o esquema real de produção, permite excluir pessoas, e gera SQL.
+
+Duas constraints reais descobertas só ao aplicar (não estavam documentadas em código nenhum lido antes):
+1. `catalog_evidence.content_hash` é uma **coluna gerada** — um INSERT com valor explícito falha (`428C9`), mesmo que o valor esteja correcto. `lib.content_hash()` mantido só para pré-verificação de duplicados, nunca para popular a coluna.
+2. `catalog_evidence_period_end_implies_not_current` — uma linha com `period_to` preenchido não pode ter `period_is_current=true`; `null` é normalizado para `false` em `generate_sql.py` (entalhe lógico: fim conhecido ⇒ não está em curso — não é uma suposição).
+
+**Frederico Santos (8f4f14bf-3acb-49c1-99f5-7bbacb337d0d) foi excluído desta ronda, por decisão explícita de Nuno.** O dry-run já sinalizava uma ambiguidade não resolvida: pode ser a mesma pessoa que "Frederico Castro Santos" (hoje na MESO Capital) — Nuno escolheu investigar mais antes de decidir, em vez de aceitar a regra por omissão do dry-run (manter o nome tal como a Lince publica, nunca resolver por semelhança de nome). As 4 linhas de evidência e 8 de research_log dele ficam de fora do `--exclude-person-id` até essa investigação fechar; nenhuma delas chegou a produção.
+
+Achado real durante a revisão do manifesto: o excerto de Marta Botelho Afonso menciona uma correcção de título "auditável em admin_audit_log" — verificado directamente contra produção antes de confiar (não assumido): existe mesmo, `action=manual_correction`, mesma `session_01Hgisvebe3KJgy7KnK2EWGR`, pedida por Nuno, corrigindo "Venture Capital Senior Analyst" (erro vindo de página staging/dev) para "Venture Capital Junior Analyst" — o mesmo bug de "Senior" que o dry-run já assinalava separadamente para Francisco Guedes.
+
+Erro concreto corrigido durante a execução: um INSERT de 41 linhas colado manualmente ficou com 2 linhas em falta (transcrição manual, não um bug do gerador) — detectado por contagem por pessoa E por `kind` contra os totais exactos do dry-run (não só a contagem total), corrigido com um segundo INSERT das 2 linhas exactas em falta, confirmado sem duplicados.
+
+Estado final verificado em produção: 46 linhas de `catalog_evidence` + 36 de `catalog_person_research_log` para Francisco Guedes, Vasco Pereira Coutinho, Frederico Roquette, Marta Botelho Afonso e António Morais Leitão — contagem por `kind` e por `scope` coincide exactamente com o dry-run, pessoa a pessoa. `catalog_evidence_topics` não foi tocada (24 topics propostos ficam em `topics_pending_review.json`, fora do repositório, para uma decisão de taxonomia separada). Frederico Santos: 0 linhas, como esperado.
