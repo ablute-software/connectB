@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { registrableDomain, domainsMatch, evaluateClaimDomain, isFreemailDomain, isRoleMailboxEmail } from './investor-entity-claims';
+import { registrableDomain, domainsMatch, evaluateClaimDomain, isFreemailDomain, isRoleMailboxEmail, seatRoleFromRequested } from './investor-entity-claims';
 
 describe('registrableDomain', () => {
   it('resolves a bare domain to itself', () => {
@@ -108,5 +108,33 @@ describe('isFreemailDomain / isRoleMailboxEmail', () => {
   it('recognizes role-mailbox local parts case-insensitively', () => {
     expect(isRoleMailboxEmail('Info@Northbridge.com')).toBe(true);
     expect(isRoleMailboxEmail('jane.doe@northbridge.com')).toBe(false);
+  });
+});
+
+// 2026-09-27 — the seat role must always satisfy matchdeal_investor_members'
+// CHECK (owner|admin|manager|member); free text such as "Partner" used to
+// make applyClaimApproval's upsert fail and leave a matched claim pending.
+describe('seatRoleFromRequested', () => {
+  it('maps free text (the placeholder example "Partner") to member', () => {
+    expect(seatRoleFromRequested('Partner')).toBe('member');
+    expect(seatRoleFromRequested('Managing Partner')).toBe('member');
+    expect(seatRoleFromRequested(null)).toBe('member');
+    expect(seatRoleFromRequested('')).toBe('member');
+  });
+  it('keeps an already-valid seat role, case-insensitively', () => {
+    expect(seatRoleFromRequested('owner')).toBe('owner');
+    expect(seatRoleFromRequested(' Admin ')).toBe('admin');
+    expect(seatRoleFromRequested('manager')).toBe('manager');
+  });
+});
+
+// The LINCE Capital case exactly as stored in production (website carries a
+// path; the claimant uses the bare registrable domain).
+describe('LINCE Capital demo case', () => {
+  it('fguedes@lince-capital.com matches http://www.lince-capital.com/pt/contact', () => {
+    const verdict = evaluateClaimDomain({ claimantEmail: 'fguedes@lince-capital.com', entityWebsite: 'http://www.lince-capital.com/pt/contact', entityEmail: 'info@lince-capital.com' });
+    expect(verdict.domainMatch).toBe(true);
+    expect(verdict.entityDomainIsFreemail).toBe(false);
+    expect(verdict.roleMailbox).toBe(false);
   });
 });

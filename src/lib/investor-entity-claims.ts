@@ -92,6 +92,16 @@ export function evaluateClaimDomain(opts: {
   };
 }
 
+// matchdeal_investor_members.role CHECK (migration 0145 family): only these
+// four values are storable. Free text from the claim form maps to itself
+// when it already IS one of them (case-insensitive), else to 'member'.
+export const SEAT_ROLES = ['owner', 'admin', 'manager', 'member'] as const;
+export type SeatRole = typeof SEAT_ROLES[number];
+export function seatRoleFromRequested(requested: string | null | undefined): SeatRole {
+  const v = requested?.trim().toLowerCase();
+  return (SEAT_ROLES as readonly string[]).includes(v ?? '') ? (v as SeatRole) : 'member';
+}
+
 // Prompt 587 — the actual state change an approval makes, factored out so
 // the human path (backoffice/investor-entity-claims/[id]/approve) and the
 // new auto-approval path (POST /api/portal/claims, when the domain matches)
@@ -121,9 +131,19 @@ export async function applyClaimApproval(admin: SupabaseClient, opts: {
   // predates this function — it was already in the human approve route's
   // inline upsert, just never exercised by a claim with a blank role field
   // before now. Fixing it here fixes both callers at once.
+  //
+  // Second, related bug (2026-09-27, found preparing the LINCE Capital demo):
+  // requested_role is FREE TEXT from /claim ("Your role (optional — e.g.
+  // Partner)"), but matchdeal_investor_members.role has a CHECK constraint
+  // (owner|admin|manager|member). Anyone who typed "Partner" — the very
+  // example the placeholder suggests — made this upsert fail with a
+  // check_violation, so a domain-matched claim silently stayed pending and
+  // the human approve route 500'd on the same row. The free text is still
+  // kept verbatim on investor_entity_claims.requested_role (the admin sees
+  // it); the SEAT role is the constrained value, defaulting to 'member'.
   const { error: memberErr } = await admin.from('matchdeal_investor_members').upsert({
     user_id: opts.claimantUserId, catalog_entity_id: opts.catalogEntityId,
-    status: 'active', domain_verified: true, role: opts.requestedRole ?? 'member', verification_method: opts.verificationMethod,
+    status: 'active', domain_verified: true, role: seatRoleFromRequested(opts.requestedRole), verification_method: opts.verificationMethod,
   }, { onConflict: 'user_id,catalog_entity_id' });
   if (memberErr) return { ok: false, error: memberErr.message };
 
