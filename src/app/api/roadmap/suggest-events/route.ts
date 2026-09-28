@@ -21,6 +21,8 @@ import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { isDuplicateRoadmapEvent } from '@/lib/roadmap-duplicate';
 import { isFoundingCandidate } from '@/lib/roadmap-derived';
 import { chargeAiAction } from '@/lib/ai-credits';
+import { assertNotViewer } from '@/lib/developer-viewer';
+import { shouldGenerateNewSuggestions } from '@/lib/roadmap-suggest-gate';
 
 // Prompt 894 — never checked the viewer cookie, so a Developer Viewer
 // session got the developer's own org's suggested roadmap events.
@@ -131,6 +133,12 @@ export async function GET(req: Request) {
   const orgId = await resolveOrg(sb, user.id, req);
   if (!orgId) return NextResponse.json(empty);
 
+  // Prompt 892 — checked before any write or credit charge below, per
+  // resolveOrg's own note above: a viewer session already resolves to the
+  // VIEWED org, so this is the one thing standing between "just reading a
+  // startup's roadmap while investigating" and silently writing into it.
+  const isViewerSession = !!(await assertNotViewer(sb, req));
+
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const { items, existingRoadmap, signature, foundedYear } = await buildKnowledge(admin, orgId);
 
@@ -143,7 +151,7 @@ export async function GET(req: Request) {
     .select('signature').eq('org_id', orgId);
   const alreadyRanForThisSignature = (existingRows ?? []).some((r) => (r.signature as string).endsWith(`::${signature}`));
 
-  if (!alreadyRanForThisSignature && apiKey && items.length > 0) {
+  if (shouldGenerateNewSuggestions({ isViewerSession, alreadyRanForThisSignature, hasApiKey: !!apiKey, itemCount: items.length })) {
     // Prompt 706 — same graceful-skip spirit as the catch below: an
     // exhausted wallet just means this pass is skipped for now (the route
     // still returns whatever's already pending), never a hard error on a
@@ -153,7 +161,10 @@ export async function GET(req: Request) {
       console.error('[roadmap/suggest-events] AI credits unavailable, skipping this pass', charge.reason);
     } else {
       try {
-        await runSuggestionPass(admin, apiKey, orgId, items, existingRoadmap, signature, foundedYear);
+        // shouldGenerateNewSuggestions already required hasApiKey to reach
+        // here; the assertion just restores the narrowing TypeScript lost
+        // once that check moved behind the function call.
+        await runSuggestionPass(admin, apiKey!, orgId, items, existingRoadmap, signature, foundedYear);
       } catch (e) {
         console.error('[roadmap/suggest-events] AI pass failed', (e as Error).message);
       }
