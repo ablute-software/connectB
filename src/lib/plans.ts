@@ -388,11 +388,22 @@ export const INVESTOR_PLAN_FOOTNOTES = {
   dueDiligence: '**Requires a meeting with the startup and permission from the startup.',
 };
 
+// Prompt 888 — Nuno, 28/09/2026: the monthly wave quota for each investor
+// tier, 10/22/46 -> 4/8/16. Declared once per tier and read by BOTH
+// monthlyCap (the real server-side admission gate, investor-pipeline.ts)
+// and the bullet text below, so the number a founder reads on the card can
+// never drift from the number actually enforced — the old bullet spelled
+// the figure out as a literal string next to a sibling monthlyCap field
+// that could change without it.
+const PRO_SCOUT_MONTHLY_CAP = 4;
+const ACE_SPOTTER_MONTHLY_CAP = 8;
+const LEGENDARY_SLEUTH_MONTHLY_CAP = 16;
+
 export const INVESTOR_PLANS: InvestorPlanRow[] = [
   {
     tier: 'pro_scout', name: 'Pro Scout', tagline: 'For angels and first funds',
     monthlyEur: 130, annualEur: 1200, annualPerMonthEur: 100,
-    seats: 1, monthlyCap: 10,
+    seats: 1, monthlyCap: PRO_SCOUT_MONTHLY_CAP,
     // Prompt 588 — capacity, never a volume promise: every limit reads
     // "up to" + a capacity noun ("waves", "Vault access for"), never "new",
     // "delivered" or "receive". The old "Up to 10 qualified opportunities/
@@ -401,7 +412,7 @@ export const INVESTOR_PLANS: InvestorPlanRow[] = [
     bullets: [
       '1 seat',
       'Startup Pipeline & Smart Calendar',
-      'Waves of up to 10 matched opportunities / month',
+      `Waves of up to ${PRO_SCOUT_MONTHLY_CAP} matched opportunities / month`,
       'Vault Data Room access for up to 5 startups / month*',
       'Due Diligence files for up to 2 startups / month**',
       'Add & invite your own startups',
@@ -413,11 +424,11 @@ export const INVESTOR_PLANS: InvestorPlanRow[] = [
     // ao vivo; a bandeira `annualPending` foi removida (dizia "por
     // confirmar" sobre o valor que a app já mostrava e cobra).
     monthlyEur: 240, annualEur: 2220, annualPerMonthEur: 185,
-    seats: 2, monthlyCap: 22,
+    seats: 2, monthlyCap: ACE_SPOTTER_MONTHLY_CAP,
     bullets: [
       '2 seats',
       'Startup Pipeline & Smart Calendar',
-      'Waves of up to 22 matched opportunities / month',
+      `Waves of up to ${ACE_SPOTTER_MONTHLY_CAP} matched opportunities / month`,
       'Vault Data Room access for up to 11 startups / month*',
       'Due Diligence files for up to 5 startups / month**',
       'MatchDeal mobile app — deck of up to 10 startups / week',
@@ -428,11 +439,11 @@ export const INVESTOR_PLANS: InvestorPlanRow[] = [
   {
     tier: 'legendary_sleuth', name: 'The Legendary Sleuth', tagline: 'For high-volume funds',
     monthlyEur: 450, annualEur: 4140, annualPerMonthEur: 345,
-    seats: 5, monthlyCap: 46,
+    seats: 5, monthlyCap: LEGENDARY_SLEUTH_MONTHLY_CAP,
     bullets: [
       '5 seats',
       'Startup Pipeline & Smart Calendar',
-      'Waves of up to 46 matched opportunities / month',
+      `Waves of up to ${LEGENDARY_SLEUTH_MONTHLY_CAP} matched opportunities / month`,
       'Vault Data Room access for up to 23 startups / month*',
       'Due Diligence files for up to 11 startups / month**',
       'MatchDeal deck of up to 20 startups / week',
