@@ -50,13 +50,18 @@ export function ModerationControls({ targetType, targetId, name, status, quarant
 
   const panel = panelAction && (
     <AccountActionPanel title={ACTION_VERB[panelAction]} name={name}
-      cascadeLines={moderationCascadeLines(targetType)}
+      cascadeLines={panelAction === 'delete_now'
+        ? ['Skips the remaining quarantine — the account is marked deleted immediately.', ...moderationCascadeLines(targetType)]
+        : moderationCascadeLines(targetType)}
       confirmLabel={`Confirm ${ACTION_VERB[panelAction].toLowerCase()}`}
       reasonPlaceholder="Why is this account being suspended/deleted?"
       onConfirm={async (reason) => {
-        const res = await fetch(`/api/backoffice/moderation/${panelAction}`, {
+        // Prompt 891 — 'delete_now' is the delete route with force:true (skips
+        // the remaining quarantine; audited as bypassed_quarantine).
+        const route = panelAction === 'delete_now' ? 'delete' : panelAction;
+        const res = await fetch(`/api/backoffice/moderation/${route}`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ targetType, targetId, justification: reason }),
+          body: JSON.stringify({ targetType, targetId, justification: reason, force: panelAction === 'delete_now' }),
         });
         const body = await res.json().catch(() => ({}));
         return { ok: !!body.ok, error: body.error };
@@ -167,7 +172,9 @@ export function ModerationControls({ targetType, targetId, name, status, quarant
           a hover. */}
       {quarantineActive && (
         <span className="text-[10px] leading-tight text-gray-400">
-          Delete unlocks when the quarantine elapses.
+          Delete unlocks when the quarantine elapses, or{' '}
+          <button onClick={() => setPanelAction('delete_now')} className="text-[#B00000] hover:underline">delete now</button>
+          {' '}(skips the wait; recorded in the audit log).
         </span>
       )}
     </div>
