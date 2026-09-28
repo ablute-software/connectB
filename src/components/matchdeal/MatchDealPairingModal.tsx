@@ -95,7 +95,7 @@ export function MatchDealPairingModal({ kind, onClose }: { kind: PairingKind; on
   useEffect(() => {
     (async () => {
       // Prompt 92 — launch gate, checked before anything else this modal
-      // does. Same reasoning as /pair: pre-September, only @ablute.pt gets
+      // does. Same reasoning as /pair: pre-launch (October 2026), only @ablute.pt gets
       // a working MatchDeal, so this never even generates a QR code (or
       // shows an existing pairing) for anyone else.
       try {
@@ -156,7 +156,7 @@ export function MatchDealPairingModal({ kind, onClose }: { kind: PairingKind; on
         {state === 'launch_gate' && (
           <div className="mt-3 text-center">
             <div className="text-3xl">🚀</div>
-            <p className="mt-2 text-sm font-semibold text-gray-800">MatchDeal launches in September 2026</p>
+            <p className="mt-2 text-sm font-semibold text-gray-800">MatchDeal launches in October 2026</p>
             <p className="mt-1 text-xs text-gray-500">Check back soon — we&apos;re not quite ready for you yet.</p>
           </div>
         )}

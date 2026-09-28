@@ -401,7 +401,7 @@ export default function PairPage() {
             {stage === 'launch_gate' && (
               <>
                 <div className="text-3xl">🚀</div>
-                <h1 className="mt-2 text-[19px] font-bold text-white">MatchDeal launches in September 2026</h1>
+                <h1 className="mt-2 text-[19px] font-bold text-white">MatchDeal launches in October 2026</h1>
                 <p className="mt-2 text-[13.5px] leading-relaxed text-white/65">
                   Check back soon — we&apos;re not quite ready for you yet.
                 </p>

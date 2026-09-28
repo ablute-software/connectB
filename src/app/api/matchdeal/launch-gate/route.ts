@@ -1,4 +1,4 @@
-// Prompt 92 — MatchDeal launch gate. Pre-launch (September 2026), the only
+// Prompt 92 — MatchDeal launch gate. Pre-launch (October 2026), the only
 // accounts with a working MatchDeal are @ablute.pt (dev/test) — everyone
 // else gets the "launches soon" message at every entry point, never the
 // deck itself (which today only has fictional demo profiles to show).
