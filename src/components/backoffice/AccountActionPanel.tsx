@@ -29,9 +29,9 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 
-export type PanelAction = 'suspend' | 'delete';
+export type PanelAction = 'suspend' | 'delete' | 'delete_now';
 
-export const ACTION_VERB: Record<PanelAction, string> = { suspend: 'Suspend', delete: 'Delete' };
+export const ACTION_VERB: Record<PanelAction, string> = { suspend: 'Suspend', delete: 'Delete', delete_now: 'Delete now' };
 
 export function AccountActionPanel({ title, name, cascadeLines, confirmLabel, reasonPlaceholder, onConfirm, onClose, onDone }: {
   /** Shown as the small uppercase kicker above the name — "Suspend" / "Delete" / "Merge". */

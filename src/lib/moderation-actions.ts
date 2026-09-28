@@ -45,9 +45,14 @@ export async function applyModerationAction(
     // silent — and it never changes canDelete itself, which every other
     // caller (the Startups/Investors tabs) still goes through unmodified.
     bypassQuarantine?: boolean;
+    // Prompt 891 — the Startups/Investors tabs' "Delete now": bypass the
+    // quarantine clock but ONLY from 'suspended' (the queue's delete-and-
+    // block may go straight from 'active'; this one may not — suspend stays
+    // the first step, only the 30-day wait is skipped).
+    requireSuspendedForBypass?: boolean;
   },
 ): Promise<ModerationResult> {
-  const { targetType, targetId, action, justification, actorId, suspendedUntilHours, bypassQuarantine } = params;
+  const { targetType, targetId, action, justification, actorId, suspendedUntilHours, bypassQuarantine, requireSuspendedForBypass } = params;
   if (!justification.trim()) return { ok: false, error: 'A justification is required.' };
 
   const current = await currentStatus(admin, targetType, targetId);
@@ -74,6 +79,9 @@ export async function applyModerationAction(
     }
     if (bypassQuarantine && current.status === 'deleted') {
       return { ok: false, error: 'Already deleted.' };
+    }
+    if (bypassQuarantine && requireSuspendedForBypass && current.status !== 'suspended') {
+      return { ok: false, error: 'Delete now is only available on a suspended account — suspend first.' };
     }
     newStatus = 'deleted';
     suspendedUntil = null;
