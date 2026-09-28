@@ -14,6 +14,7 @@
 // message; a second failure (the reload didn't help) → a real "Reload"
 // button instead of silence.
 import { Component, useEffect, type ReactNode } from 'react';
+import { usePathname } from 'next/navigation';
 import { isChunkLoadError, shouldAutoReloadForChunkError } from '@/lib/chunk-error-recovery';
 
 function handlePossibleChunkError(message: string | null | undefined): boolean {
@@ -55,8 +56,20 @@ function GlobalChunkErrorListener() {
 // instead of silence.
 type BoundaryPhase = 'ok' | 'reloading' | 'error';
 
-class ChunkErrorBoundaryClass extends Component<{ children: ReactNode }, { phase: BoundaryPhase }> {
+class ChunkErrorBoundaryClass extends Component<{ children: ReactNode; pathname: string | null }, { phase: BoundaryPhase }> {
   state: { phase: BoundaryPhase } = { phase: 'ok' };
+
+  // Prompt 889 — once in 'error' the boundary stayed there for the life of
+  // the tab: the browser's Back button (a client-side navigation) changed
+  // the route underneath but this component kept rendering the fallback,
+  // so the user was trapped on "Something went wrong" until a full reload
+  // of a *different* URL. A route change is a new page; give it a fresh
+  // chance to render.
+  componentDidUpdate(prevProps: { pathname: string | null }) {
+    if (prevProps.pathname !== this.props.pathname && this.state.phase === 'error') {
+      this.setState({ phase: 'ok' });
+    }
+  }
 
   static getDerivedStateFromError(): { phase: BoundaryPhase } {
     // Stop rendering the broken subtree immediately; componentDidCatch
@@ -88,6 +101,10 @@ class ChunkErrorBoundaryClass extends Component<{ children: ReactNode }, { phase
               className="rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white hover:bg-[#0c637b]">
               Reload
             </button>
+            <button onClick={() => window.history.back()}
+              className="ml-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100">
+              Go back
+            </button>
           </div>
         </div>
       );
@@ -97,8 +114,9 @@ class ChunkErrorBoundaryClass extends Component<{ children: ReactNode }, { phase
 }
 
 export function ChunkErrorRecovery({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   return (
-    <ChunkErrorBoundaryClass>
+    <ChunkErrorBoundaryClass pathname={pathname}>
       <GlobalChunkErrorListener />
       {children}
     </ChunkErrorBoundaryClass>

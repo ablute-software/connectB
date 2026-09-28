@@ -3,7 +3,7 @@
 // header for the two flagged scope decisions (876's attachments/email-lock
 // fields not yet available on this branch; VC-portfolio cross-reference not
 // buildable at all).
-import { use, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Card } from '@/components/ui';
 
@@ -32,8 +32,12 @@ function money(cents: number, currency: string): string {
   return new Intl.NumberFormat('pt-PT', { style: 'currency', currency: currency.toUpperCase() }).format(cents / 100);
 }
 
-export default function FichaClienteDetailPage({ params }: { params: Promise<{ kind: string; id: string }> }) {
-  const { kind, id } = use(params);
+// Next 14 / React 18: `params` is a plain object on a client page. The
+// original `use(params)` (a React 19 API, absent from react@18) threw
+// "use is not a function" on first render and the root chunk-error
+// boundary swallowed it as "Something went wrong loading this page".
+export default function FichaClienteDetailPage({ params }: { params: { kind: string; id: string } }) {
+  const { kind, id } = params;
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [err, setErr] = useState('');
 
