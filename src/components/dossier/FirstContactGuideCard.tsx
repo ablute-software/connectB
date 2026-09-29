@@ -55,11 +55,21 @@ export function FirstContactGuideCard({
             ) : noSpecificPerson ? (
               <span>No specific person — reaching out to the firm generally.</span>
             ) : (
-              <span className="text-gray-400">Select a person above, or choose &quot;No specific person&quot;.</span>
+              // Prompt 896 §B — this used to only ever be reachable from the
+              // "not started yet" step 1, but the card itself only rendered
+              // once a person was already chosen — so nobody read this text
+              // in practice. Now it's the card's actual starting state.
+              <span className="text-gray-400">Choose who to approach: pick from their team below (senior first), or add someone.</span>
             )}
           </div>
         </li>
-        <li className="flex gap-2">
+        {/* Prompt 896 §B — "Os passos 2–5 ficam visíveis mas inactivos até
+            haver pessoa": still rendered (never hidden — a founder who
+            hasn't picked anyone yet can still see what's coming), just
+            visually muted until step 1 is done. Each <li> gets the class
+            directly — <ol> only permits <li> children, so a wrapping <div>
+            here would be invalid HTML. */}
+        <li className={`flex gap-2 ${personDone ? '' : 'opacity-40'}`}>
           <StepDot done={channelDone} />
           <div>
             <span className="font-semibold text-gray-800">Channel — </span>
@@ -67,21 +77,21 @@ export function FirstContactGuideCard({
             <div className="text-gray-500">{channel.reason}</div>
             <div className="mt-0.5 text-gray-500">{outcomesSummary}</div>
             {showFormAssist && (
-              <button type="button" onClick={onPrepareFormAnswers}
-                className="mt-1.5 rounded-lg border border-cyan-200 px-2.5 py-1 text-[11px] font-medium text-cyan-800 hover:bg-cyan-50">
+              <button type="button" onClick={onPrepareFormAnswers} disabled={!personDone}
+                className="mt-1.5 rounded-lg border border-cyan-200 px-2.5 py-1 text-[11px] font-medium text-cyan-800 hover:bg-cyan-50 disabled:cursor-not-allowed">
                 ✨ Prepare form answers
               </button>
             )}
           </div>
         </li>
-        <li className="flex gap-2">
+        <li className={`flex gap-2 ${personDone ? '' : 'opacity-40'}`}>
           <StepDot done={messageDone} />
           <div>
             <span className="font-semibold text-gray-800">Message — </span>
             <span>How we pitch this firm and what we ask for first, below — Watson uses both when drafting.</span>
           </div>
         </li>
-        <li className="flex gap-2">
+        <li className={`flex gap-2 ${personDone ? '' : 'opacity-40'}`}>
           <StepDot done={false} />
           <div>
             <span className="font-semibold text-gray-800">Send — </span>
@@ -89,7 +99,7 @@ export function FirstContactGuideCard({
             {linkedInStep && <span className="ml-1">{linkedInStep}</span>}
           </div>
         </li>
-        <li className="flex gap-2">
+        <li className={`flex gap-2 ${personDone ? '' : 'opacity-40'}`}>
           <StepDot done={false} />
           <div>
             <span className="font-semibold text-gray-800">Log — </span>

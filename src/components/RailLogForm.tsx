@@ -21,11 +21,13 @@ import { buildComposerContext, pickIntent, INTENT_LABEL, type ComposerIntent } f
 import { evaluateProvenanceGate, type ComposerClaim } from '@/lib/company-canon-logic';
 import { channelOutcomes, channelOutcomesSummary } from '@/lib/channel-learning';
 import { AI_COMPOSER_LOCKED_COPY } from '@/lib/plans';
-import { authEnabled } from '@/lib/supabase';
+import { authEnabled, browserClient } from '@/lib/supabase';
 import { uploadAndVerifyFile } from '@/lib/vault-upload-client';
 import { FirstContactGuideCard } from '@/components/dossier/FirstContactGuideCard';
 import { PitchAndAskFields } from '@/components/dossier/PitchAndAskFields';
 import { FormAssistModal } from '@/components/FormAssistModal';
+import { QuickCreatePerson } from '@/components/QuickCreatePerson';
+import { promotableCatalogTeam as computePromotableCatalogTeam, shouldShowFirstContactGuide, type CatalogTeamMember } from '@/lib/first-contact-selector';
 import type { Channel, Classification, DocumentItem, Entity, Folder, OverrideRule, PassReasonCategory } from '@/lib/types';
 
 // Mirrors src/app/log/page.tsx's own CHANNELS/CLASSIFICATIONS — display
@@ -70,12 +72,19 @@ export function RailLogForm({
   channelNonce?: number;
   onSaved: () => void;
 }) {
-  const { db, logInteraction, addDocument, addGrant, addCompanyFact, addTask, updateEntity } = useStore();
+  const { db, logInteraction, addDocument, addGrant, addCompanyFact, addTask, updateEntity, ensureOrgPersonFromCatalog } = useStore();
   const people = db.people.filter((p) => p.entity_id === entity.id).sort((a, b) => a.seniority_rank - b.seniority_rank);
 
   const [personId, setPersonId] = useState('');
   const [prefilledPersonId, setPrefilledPersonId] = useState<string | null>(null);
   const [noSpecificPerson, setNoSpecificPerson] = useState(false);
+  // Prompt 896 §A — the entity's catalog-affiliated team, for the "From
+  // their team — adds as contact" optgroup. A live read (same chain
+  // EntityPeoplePanel.tsx already queries), not copied into `db`: the
+  // catalog can gain people after this form first mounts.
+  const [catalogTeam, setCatalogTeam] = useState<CatalogTeamMember[]>([]);
+  const [promotingCatalogPerson, setPromotingCatalogPerson] = useState<string | null>(null);
+  const [addingPerson, setAddingPerson] = useState(false);
   const [direction, setDirection] = useState<'out' | 'in'>('out');
   // Prompt 893 §B — '' is a real, distinct state now: "Channel to confirm"
   // (recommendChannel's own null case) leaves the select empty rather than
@@ -239,6 +248,60 @@ export function RailLogForm({
     fetch('/api/oauth/google/status').then((r) => r.json()).then(setGmail).catch(() => setGmail({ configured: false, connected: false }));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Prompt 896 §A — same catalog_deliveries -> catalog_id ->
+  // catalog_person_affiliations -> catalog_people chain EntityPeoplePanel.tsx
+  // already reads, for the second optgroup below. Demo mode (no live
+  // catalog_deliveries) simply leaves this empty — same fallback shape as
+  // every other authEnabled-gated read in this file.
+  useEffect(() => {
+    if (!authEnabled) { setCatalogTeam([]); return; }
+    let cancelled = false;
+    (async () => {
+      const sb = browserClient();
+      const { data: delivery } = await sb.from('catalog_deliveries').select('catalog_id').eq('entity_id', entity.id).maybeSingle();
+      if (cancelled || !delivery) { if (!cancelled) setCatalogTeam([]); return; }
+      const { data: rows } = await sb.from('catalog_person_affiliations')
+        .select('title, seniority_rank, catalog_people ( id, full_name )')
+        .eq('entity_id', delivery.catalog_id as string).eq('current', true);
+      if (cancelled) return;
+      const members = (rows ?? [])
+        .map((r) => {
+          const cp = (Array.isArray(r.catalog_people) ? r.catalog_people[0] : r.catalog_people) as { id: string; full_name: string } | null;
+          if (!cp) return null;
+          return { catalogPersonId: cp.id, fullName: cp.full_name, title: r.title as string | null, seniorityRank: r.seniority_rank as number } as CatalogTeamMember;
+        })
+        .filter((m): m is CatalogTeamMember => !!m);
+      setCatalogTeam(members);
+    })();
+    return () => { cancelled = true; };
+  }, [entity.id]);
+
+  const promotableCatalogTeam = useMemo(
+    () => computePromotableCatalogTeam(catalogTeam, people),
+    [catalogTeam, people],
+  );
+
+  async function handlePersonSelect(value: string) {
+    if (value === '__none__') { setPersonId(''); setNoSpecificPerson(true); return; }
+    if (value === '__add__') { setAddingPerson(true); return; }
+    if (value.startsWith('catalog:')) {
+      const catalogPersonId = value.slice('catalog:'.length);
+      setPromotingCatalogPerson(catalogPersonId);
+      try {
+        const result = await ensureOrgPersonFromCatalog({ entityId: entity.id, catalogPersonId });
+        setPersonId(result.person.id);
+        setNoSpecificPerson(false);
+        setToast(`Added ${result.person.full_name} as your contact.`);
+        window.setTimeout(() => setToast(''), 2500);
+      } finally {
+        setPromotingCatalogPerson(null);
+      }
+      return;
+    }
+    setPersonId(value);
+    setNoSpecificPerson(false);
+  }
+
   // Same trigger as /log's own intent effect: a fresh intent guess whenever
   // the target person changes (entity is fixed on this form, unlike /log).
   useEffect(() => {
@@ -400,6 +463,19 @@ export function RailLogForm({
         : false
   );
 
+  // Prompt 896 §B — the guide used to only exist once a person (or "No
+  // specific person") was already chosen, which meant a founder with zero
+  // contacts and zero interactions had no way to ever see it: the very
+  // thing meant to tell them what to do next was hidden behind the choice
+  // it's supposed to help them make. Before any selection, fall back to
+  // "has this entity ever had an outbound at all" — the same first-contact
+  // scope neverContactedSelection already uses for the no-specific-person
+  // case, just not yet keyed to a specific selection.
+  const noOutboundEver = !db.interactions.some((i) => i.entity_id === entity.id && i.direction === 'out');
+  const showGuideCard = shouldShowFirstContactGuide({
+    direction, hasSelection: !!person || noSpecificPerson, neverContactedSelection, noOutboundEver,
+  });
+
   // Prompt 893 §B — initializes the channel select from the shared
   // recommendation the moment this becomes a genuine first-contact
   // scenario, replacing the old hardcoded 'linkedin_dm' default. An
@@ -544,7 +620,7 @@ export function RailLogForm({
           while this is a genuine first contact for the current selection.
           Purely informational — the actual Person/Channel controls below
           are unchanged and still the real inputs. */}
-      {neverContactedSelection && (person || noSpecificPerson) && (
+      {showGuideCard && (
         <FirstContactGuideCard
           person={person} noSpecificPerson={noSpecificPerson}
           personDone={!!person || noSpecificPerson} channel={channelRec} channelDone={!!channel}
@@ -555,20 +631,54 @@ export function RailLogForm({
       )}
       <div>
         <label className="text-[10.5px] font-semibold uppercase tracking-wide text-gray-400">Person</label>
-        <select value={noSpecificPerson ? '__none__' : personId}
-          onChange={(e) => {
-            if (e.target.value === '__none__') { setPersonId(''); setNoSpecificPerson(true); }
-            else { setPersonId(e.target.value); setNoSpecificPerson(false); }
-          }}
+        {/* Prompt 896 §A — three groups: the org's own contacts; the
+            entity's catalog-affiliated team (picking one promotes it via
+            ensureOrgPersonFromCatalog, the same helper EntityPeoplePanel's
+            own "Add as contact" already uses — one materialization path,
+            not two); "No specific person". When both the org and the
+            catalog have nobody at all, the only way out used to be leaving
+            this tab entirely for People & Team's own "Add as contact" — the
+            exact deadlock this prompt exists to close — so that case
+            collapses to a single option that opens QuickCreatePerson
+            in-line instead. */}
+        <select value={noSpecificPerson ? '__none__' : personId} disabled={!!promotingCatalogPerson}
+          onChange={(e) => void handlePersonSelect(e.target.value)}
           className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm">
           <option value="">Select person…</option>
-          {people.map((p) => (
-            <option key={p.id} value={p.id} disabled={p.do_not_contact}>
-              {p.seniority_rank} · {p.full_name}{p.do_not_contact ? ' — DO NOT CONTACT' : ''}
-            </option>
-          ))}
+          {people.length === 0 && promotableCatalogTeam.length === 0 ? (
+            <option value="__add__">Nobody on file — add someone</option>
+          ) : (
+            <>
+              {people.length > 0 && (
+                <optgroup label="Your contacts">
+                  {people.map((p) => (
+                    <option key={p.id} value={p.id} disabled={p.do_not_contact}>
+                      {p.seniority_rank} · {p.full_name}{p.do_not_contact ? ' — DO NOT CONTACT' : ''}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {promotableCatalogTeam.length > 0 && (
+                <optgroup label="From their team — adds as contact">
+                  {promotableCatalogTeam.map((m) => (
+                    <option key={m.catalogPersonId} value={`catalog:${m.catalogPersonId}`}>
+                      {m.seniorityRank} · {m.fullName}{m.title ? ` · ${m.title}` : ''}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </>
+          )}
           <option value="__none__">No specific person — general/website channel</option>
         </select>
+        {promotingCatalogPerson && <p className="mt-1 text-[11px] text-gray-400">Adding as contact…</p>}
+        {addingPerson && (
+          <div className="mt-2">
+            <QuickCreatePerson entityId={entity.id}
+              onCreated={(pid) => { setPersonId(pid); setNoSpecificPerson(false); setAddingPerson(false); }}
+              onCancel={() => setAddingPerson(false)} />
+          </div>
+        )}
       </div>
 
       <div className="flex gap-2">

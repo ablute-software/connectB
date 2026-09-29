@@ -293,6 +293,7 @@ export function EntityPeoplePanel({ entityId, onShowsKeyPeopleFallback, onPerson
                           setMaterializing(null);
                         }
                       }}
+                      title="Adds this person as your contact; unlocks the log and meeting prep."
                       className="rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">
                       {materializing === p.id ? 'Adding…' : 'Add as contact'}
                     </button>
