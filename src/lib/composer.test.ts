@@ -32,6 +32,7 @@ function makeDb(entities: Entity[], interactions: Interaction[] = [], people: Pe
     companyPeople: [], tractionMetrics: [], roadmapMilestones: [], fundingRounds: [], roadmapCategories: [], roadmapEvents: [], rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
     interactionDocuments: [], sherlockNextSnoozes: [], entityReopenSnapshots: [], capTableEntries: [],
     startupInvestorDecisions: [],
+    dealTerms: [],
   };
 }
 

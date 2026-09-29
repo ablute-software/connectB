@@ -430,7 +430,19 @@ export interface Entity {
   // 0021; used today by the needs-review metadata-card routine to file the
   // full original text of a detected contact card.
   notes?: string;
+  // Prompt 894 §A — DERIVED, not editable: the amount_eur of this entity's
+  // latest non-superseded deal_terms row of kind='commitment' (see
+  // src/lib/deal-terms.ts's deriveInterestEur, and the DB trigger
+  // deal_terms_sync_interest in migration 20260929200000). No code path
+  // writes this directly any more except PreviousFundingCard.tsx's
+  // "Pipeline cleanup" (clearing a legacy stale value that predates
+  // deal_terms entirely) — see that file's own comment on the tradeoff.
   interest_eur?: number;
+  // Prompt 894 §C — set when "Lock terms" archives a deal memo for this
+  // entity; cleared by "Reopen negotiation". Gates whether new deal_terms
+  // rows may be added (TermsOnTheTable.tsx enforces this client-side; see
+  // the migration's own comment on why there's no DB constraint for it).
+  negotiation_locked_at?: string;
   contact_lock_until?: string; // ISO
   status: EntityStatus;
   dormant_since?: string;
@@ -867,6 +879,20 @@ export interface DocumentItem {
   // founder-specific file, not a lesser one — see upload-security.ts's header.
   malware_scan_status?: 'not_scanned' | 'pending' | 'clean' | 'local_only' | 'flagged';
   malware_scan_provider?: string | null;
+  // Prompt 894 §C — migration 20260929200000. Null/undefined for every
+  // document that predates this and for any document not typed at all
+  // (most of the data room). 'deal_memo' is the one value this prompt
+  // introduces — see DealTerm below and TermsOnTheTable.tsx's "Lock terms".
+  kind?: 'deal_memo';
+  // Which pipeline entity this document is specifically about — null for
+  // everything except a deal_memo (or a future per-entity document kind).
+  entity_id?: string;
+  // The deal_memo's machine-readable snapshot. Only set when kind==='deal_memo'.
+  // Typed loosely here (not as DealMemoPayload) to avoid a circular import —
+  // deal-terms.ts itself imports DealTerm/Entity/Interaction/Person FROM
+  // this file. Callers that need the real shape cast it: `d.deal_memo_payload
+  // as DealMemoPayload | undefined` (see deal-terms.ts's own export).
+  deal_memo_payload?: Record<string, unknown>;
 }
 
 // E7 — Google-Drive-style version history for a document. The document row's
@@ -885,6 +911,41 @@ export interface DocumentVersion {
   // Prompt 301 §3 — migration 0205. See documents.malware_scan_status above.
   malware_scan_status?: 'not_scanned' | 'pending' | 'clean' | 'local_only' | 'flagged';
   content_sha256?: string;
+}
+
+// Prompt 894 §A — "Terms on the table": one row per negotiated condition,
+// never overwritten (an edit or a bare status change creates a NEW row with
+// supersedes_id pointing at the one it replaces). See src/lib/deal-terms.ts
+// for the pure supersession/lock/memo logic and migration
+// 20260929200000_deal_terms.sql for the schema + RLS + the two triggers
+// (entities.interest_eur derivation; ask_amount_eur -> kind='ask' term).
+// Founder-privacy root rule (CLAUDE.md): never read on any investor-facing
+// surface, directly, via join, or via an AI prompt — see
+// TermsOnTheTable.tsx's own header comment for the audit trail.
+export type DealTermKind =
+  | 'ask' | 'offer' | 'commitment' | 'valuation' | 'instrument'
+  | 'lead_role' | 'ticket_range' | 'timing' | 'other';
+export type DealTermSide = 'ours' | 'theirs';
+export type DealTermFormality = 'mentioned' | 'negotiating' | 'agreed';
+
+export interface DealTerm {
+  id: string;
+  org_id: string;
+  entity_id: string;
+  interaction_id?: string;
+  person_id?: string;
+  kind: DealTermKind;
+  side: DealTermSide;
+  formality: DealTermFormality;
+  amount_eur?: number;
+  text?: string;
+  recorded_at: string; // ISO — when the founder pressed Save
+  effective_at?: string; // date — when the condition was actually communicated, if different
+  agreed_at?: string;
+  supersedes_id?: string;
+  locked_by_memo_id?: string;
+  created_by?: string;
+  created_at?: string;
 }
 
 // Data Room V2 (F5) — a real signed NDA file, attached to the investor's own
@@ -1296,6 +1357,10 @@ export interface Db {
   // one; see startup-investor-decision.ts for why that separation is
   // structural rather than a filter every consumer must remember.
   startupInvestorDecisions: StartupInvestorDecision[];
+  // Prompt 894 §A — see DealTerm above. Missing-table-safe like every other
+  // capability-gated array here (store-supabase.tsx's loadAll falls back to
+  // [] if migration 20260929200000 isn't applied yet).
+  dealTerms: DealTerm[];
 }
 
 // ---------------------------------------------------------------------------

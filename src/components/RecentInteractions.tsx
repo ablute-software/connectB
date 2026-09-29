@@ -16,6 +16,20 @@ import { SharedDocChip } from '@/components/SharedDocChip';
 import { InlineClassify } from '@/components/InlineClassify';
 import { EditInteractionDetails, InteractionEditHint } from '@/components/EditInteractionDetails';
 import { FocusLupa } from '@/components/SherlockInsightBanner';
+import { fmtEur } from '@/components/ui';
+import type { DealTerm } from '@/lib/types';
+
+// Prompt 894 §B — "History passa a mostrar, na linha da interacção, os
+// termos que lhe estão ligados ('Ask €1.3M · Offer €270k')". `ask` is
+// deliberately excluded here — that one already renders via formatAsk(i.
+// ask_amount_eur) just above this in InteractionRow, and showing it twice
+// on the same line would be redundant, not additive.
+function linkedTermsLabel(terms: DealTerm[], interactionId: string): string {
+  return terms
+    .filter((t) => t.interaction_id === interactionId && t.kind !== 'ask')
+    .map((t) => `${t.kind.replace('_', ' ')} ${t.amount_eur != null ? fmtEur(t.amount_eur) : t.text}`)
+    .join(' · ');
+}
 
 export function RecentInteractions({
   entity, onOpenFull, limit = 3, focusClassifyNonce = 0, focusInteraction, dealMessages = [], showFocusLupa = false,
@@ -225,6 +239,9 @@ function InteractionRow({
   showFocusLupa?: boolean;
 }) {
   const i = row.interaction;
+  // Prompt 894 §B — see linkedTermsLabel above.
+  const { db: rowDb } = useStore();
+  const linkedTerms = linkedTermsLabel(rowDb.dealTerms, i.id);
   const isPending = pending.some((p) => p.id === i.id);
   // pending is sorted oldest-first (unclassifiedInbound) — pending[0] IS
   // the exact row focusClassifyNonce's own scroll-into-view already
@@ -253,6 +270,11 @@ function InteractionRow({
       {formatAsk(i.ask_amount_eur) && (
         <span className="whitespace-nowrap rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-700">
           asked {formatAsk(i.ask_amount_eur)}
+        </span>
+      )}
+      {linkedTerms && (
+        <span className="whitespace-nowrap rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-700">
+          {linkedTerms}
         </span>
       )}
       <InteractionAttachmentChips interactionId={i.id} documentId={i.document_id} occurredAt={i.occurred_at} />

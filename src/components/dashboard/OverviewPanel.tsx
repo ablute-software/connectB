@@ -26,6 +26,8 @@ import { OutreachSettingsCard } from '@/components/company/OutreachSettingsCard'
 import type { EntityStatus } from '@/lib/types';
 import { EraSelector, useEraFilter } from './EraSelector';
 import { funnelByEra, interactionsInEra, datedInEra, entitiesActiveInEra } from '@/lib/dashboard-era';
+import { currentTermsForEntity } from '@/lib/deal-terms';
+import { conversationDeepLink } from '@/lib/conversation-deep-link';
 
 const STATUS_ORDER: EntityStatus[] = ['not_contacted', 'contacted', 'in_conversation', 'diligence', 'passed', 'invested', 'dormant'];
 const STATUS_BAR: Record<EntityStatus, string> = {
@@ -60,6 +62,18 @@ export function OverviewPanel() {
   const roundTarget = db.org.round_target_eur;
   const roundSecured = db.org.round_secured_eur ?? 0;
   const roundPct = roundTarget ? Math.min(100, (roundSecured / roundTarget) * 100) : 0;
+
+  // Prompt 894 §D — "dashboard da ronda (commitment derivado com data)":
+  // entities.interest_eur is now backed by a dated deal_terms row (see
+  // deal-terms.ts); this is the one place that date becomes visible on the
+  // Dashboard, alongside a link to the investor it belongs to (§C's own
+  // "Onde aparece" list: "Dashboard da ronda -> link no investidor
+  // comprometido"). Founder-only data about the founder's own round — no
+  // AI, no investor-facing surface involved.
+  const committedThisRound = db.entities
+    .map((e) => ({ entity: e, term: currentTermsForEntity(db.dealTerms, e.id).find((t) => t.kind === 'commitment') }))
+    .filter((row): row is { entity: typeof row.entity; term: NonNullable<typeof row.term> } => !!row.term && row.term.amount_eur != null)
+    .sort((a, b) => b.term.recorded_at.localeCompare(a.term.recorded_at));
 
   const joinedAt = db.org.created_at ?? null;
   const [era, setEra] = useEraFilter(db.org.id);
@@ -186,6 +200,20 @@ export function OverviewPanel() {
               </Fragment>
             ))}
           </div>
+          {committedThisRound.length > 0 && (
+            <div className="mt-3 border-t border-gray-100 pt-2.5">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Committed this round</div>
+              <ul className="mt-1 space-y-1">
+                {committedThisRound.map(({ entity, term }) => (
+                  <li key={entity.id} className="flex items-center justify-between gap-2 text-xs">
+                    <Link href={conversationDeepLink(entity.id, 'history')} className="min-w-0 truncate text-[#0E7490] hover:underline">{entity.name}</Link>
+                    <span className="shrink-0 font-medium text-gray-700">{fmtRoundEur(term.amount_eur as number)}</span>
+                    <span className="shrink-0 text-gray-400">since {(term.effective_at ?? term.recorded_at).slice(0, 10)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </Card>
 
         <Card title={era === 'all' ? 'Status breakdown' : 'Status breakdown — entities active in this era'}>

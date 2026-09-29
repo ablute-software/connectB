@@ -28,9 +28,26 @@ export function FilesTab({ entityId }: { entityId: string }) {
     return effect === 'shared' || effect === 'shared_pending_nda' || effect === 'shared_pending_confirmation';
   });
   const ndas = db.ndas.filter((n) => n.entity_id === entityId);
+  // Prompt 894 §C — "Onde aparece: Files (do investidor) -> 'Deal memo ·
+  // <data>'." This is the FOUNDER's own Files tab for this investor's
+  // dossier, not the investor-facing portal — the memo's visibility stays
+  // 'due_diligence' (never shared by default) regardless of it showing up
+  // here; nothing below grants the investor access to it.
+  const memos = db.documents.filter((d) => d.kind === 'deal_memo' && d.entity_id === entityId)
+    .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
 
   return (
     <div className="space-y-4">
+      {memos.length > 0 && (
+        <Card title="Deal memo">
+          <ul className="space-y-1 text-sm">
+            {memos.map((m) => (
+              <li key={m.id} className="text-gray-700">{m.name}</li>
+            ))}
+          </ul>
+          <p className="mt-1 text-xs text-gray-400">Archived, private — never shared with the investor by default. See Terms on the table (Conversation tab) for the full memo.</p>
+        </Card>
+      )}
       <Card title="Shared with this investor">
         {sharedDocs.length === 0 ? (
           <p className="text-sm text-gray-400">Nothing shared yet. Documents you share appear here.</p>

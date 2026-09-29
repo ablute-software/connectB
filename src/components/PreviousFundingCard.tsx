@@ -29,6 +29,17 @@ function fmtEur(n: number) {
 // contacted" as if it were proof of a real investor. Split into its own
 // Card, titled as what it actually is (Pipeline data hygiene), never
 // visually mixed with confirmed previous-funding rows again.
+// Prompt 894 §A — entities.interest_eur is now DERIVED from deal_terms (see
+// src/lib/deal-terms.ts). setInterest(id, undefined) below is a direct
+// cache-clear, not a real fix, for the legacy case this card exists for:
+// stale interest_eur values seeded/imported BEFORE deal_terms existed, with
+// no backing commitment row at all. If a deal_terms commitment row for that
+// entity is ever written afterward the DB trigger recomputes interest_eur
+// again regardless of this clear — which is correct, not a bug: a REAL
+// current commitment should always win over a stale-data cleanup. A fully
+// consistent fix would also supersede the (nonexistent, in this legacy
+// case) underlying deal_terms row; there is none to supersede here, so the
+// direct clear is the whole of the fix for data that predates this table.
 function PipelineCleanupCard() {
   const { db, addFundingRound, setInterest } = useStore();
   const [busy, setBusy] = useState<string | null>(null);

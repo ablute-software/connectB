@@ -52,7 +52,7 @@ import { resolveConversationParams } from '@/lib/conversation-deep-link';
 import { FilesTab } from '@/components/dossier/FilesTab';
 import { MeetingPrepNudge } from '@/components/dossier/MeetingPrepNudge';
 import { CommittedAmountField } from '@/components/dossier/CommittedAmountField';
-import { TermsOnTheTablePlaceholder } from '@/components/dossier/TermsOnTheTablePlaceholder';
+import { TermsOnTheTable } from '@/components/dossier/TermsOnTheTable';
 import type { Channel } from '@/lib/types';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
@@ -1072,9 +1072,8 @@ export default function EntityPage({ params }: { params: { id: string } }) {
 
           <TicketSignalCard orgId={db.org.id} people={people} />
 
-          {/* Prompt 893 §H — explicit extension point for Prompt 894
-              ("condições negociais") only; no deal-terms logic here. */}
-          <TermsOnTheTablePlaceholder />
+          {/* Prompt 894 — replaces the §H placeholder. */}
+          <TermsOnTheTable entityId={entity.id} onViewInteraction={focusHistory} />
         </div>
       )}
       </div>

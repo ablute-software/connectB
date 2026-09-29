@@ -5,10 +5,11 @@
 // StoreApi contract (locks, follow-up tasks, overrides, runs semantics).
 import React, { useEffect, useMemo, useState } from 'react';
 import type {
-  AccessGrant, AutomationRun, CompanyFact, Db, DocumentItem, Entity, EntityReopenSnapshot, EntityStatus, Folder, FolderKind, Interaction, InteractionDocument, Nda, Person, PersonAffiliation, FundingRound, RelationshipStage, RoadmapCategory, RoadmapEvent,
+  AccessGrant, AutomationRun, CompanyFact, DealTerm, Db, DocVisibility, DocumentItem, Entity, EntityReopenSnapshot, EntityStatus, Folder, FolderKind, Interaction, InteractionDocument, Nda, Person, PersonAffiliation, FundingRound, RelationshipStage, RoadmapCategory, RoadmapEvent,
   InteractionEdit, OrgAxisClassification, StartupInvestorDecision } from './types';
 import { seed } from './data/seed';
 import { liveDecisionByEntity, noteProblem, noteProblemMessage } from './startup-investor-decision';
+import { buildDealMemoPayload, buildDealMemoSummary, checkLockPreconditions, deriveInterestEur } from './deal-terms';
 import { revisitTasksToClose } from './exit-effects';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
@@ -199,6 +200,21 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
             id: uid('t'), kind: 'follow_up', action_type: input.next_action_type ?? 'other', done: false,
             due_at: input.next_action_due ? `${input.next_action_due}T12:00:00Z` : undefined,
             title: input.next_action, entity_id: input.entity_id, person_id: input.person_id, source: 'manual',
+          }];
+        }
+        // Prompt 894 §A — "ask_amount_eur mantém-se na interacção; ao
+        // guardar uma interacção com esse valor, cria-se também uma linha
+        // deal_terms(kind='ask')." In Supabase mode this is a DB trigger
+        // (interactions_create_ask_term, migration 20260929200000) so it
+        // fires for every insert path; demo mode has no triggers at all, so
+        // it's replicated here — the one place demo mode's logInteraction
+        // already builds the same interaction row the trigger would see.
+        if (input.ask_amount_eur != null) {
+          next.dealTerms = [...next.dealTerms, {
+            id: uid('term'), org_id: prev.org.id, entity_id: input.entity_id, interaction_id: interaction.id,
+            person_id: input.person_id, kind: 'ask', side: 'ours', formality: 'mentioned',
+            amount_eur: input.ask_amount_eur, recorded_at: new Date().toISOString(),
+            effective_at: interaction.occurred_at.slice(0, 10),
           }];
         }
         return next;
@@ -624,8 +640,110 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       });
     },
 
+    // Prompt 894 §A — since deal_terms exists, this no longer sets the
+    // founder-facing "Committed by this investor" field (that's now
+    // Terms on the table's own "+ Add term -> Commitment", which goes
+    // through addDealTerm below and is derived, not edited). The one
+    // remaining caller is PreviousFundingCard.tsx's "Pipeline cleanup",
+    // clearing a legacy stale interest_eur value that predates deal_terms
+    // entirely (imported/seeded data with no backing term row) — see that
+    // file's own comment. Directly writing entities.interest_eur here is a
+    // one-time cache clear for that case only; if a deal_terms commitment
+    // row for this entity is ever written afterward, deriveInterestEur
+    // recomputes the field again and this direct write is superseded, by
+    // design (the derived value is always the real source of truth).
     setInterest(id, eur) {
       setDb((prev) => ({ ...prev, entities: prev.entities.map((e) => e.id === id ? { ...e, interest_eur: eur } : e) }));
+    },
+    async addDealTerm({ entityId, kind, side, formality, amountEur, text, interactionId, personId, effectiveAt }) {
+      const now = new Date().toISOString();
+      const term: DealTerm = {
+        id: uid('term'), org_id: db.org.id, entity_id: entityId, interaction_id: interactionId,
+        person_id: personId, kind, side, formality: formality ?? 'mentioned', amount_eur: amountEur, text,
+        recorded_at: now, effective_at: effectiveAt, agreed_at: formality === 'agreed' ? now : undefined,
+      };
+      setDb((prev) => {
+        const dealTerms = [...prev.dealTerms, term];
+        const entities = kind === 'commitment'
+          ? prev.entities.map((e) => e.id === entityId ? { ...e, interest_eur: deriveInterestEur(dealTerms, entityId) } : e)
+          : prev.entities;
+        return { ...prev, dealTerms, entities };
+      });
+      return { term };
+    },
+    async supersedeDealTerm(id, patch) {
+      const now = new Date().toISOString();
+      let created: DealTerm | undefined;
+      setDb((prev) => {
+        const prior = prev.dealTerms.find((t) => t.id === id);
+        if (!prior) return prev;
+        created = {
+          ...prior, id: uid('term'), supersedes_id: id, recorded_at: now,
+          formality: patch.formality ?? prior.formality,
+          amount_eur: patch.amountEur !== undefined ? patch.amountEur : prior.amount_eur,
+          text: patch.text !== undefined ? patch.text : prior.text,
+          effective_at: patch.effectiveAt ?? prior.effective_at,
+          person_id: patch.personId ?? prior.person_id,
+          agreed_at: (patch.formality ?? prior.formality) === 'agreed' ? (prior.agreed_at ?? now) : prior.agreed_at,
+          locked_by_memo_id: undefined,
+        };
+        const dealTerms = [...prev.dealTerms, created];
+        const entities = created.kind === 'commitment'
+          ? prev.entities.map((e) => e.id === created!.entity_id ? { ...e, interest_eur: deriveInterestEur(dealTerms, created!.entity_id) } : e)
+          : prev.entities;
+        return { ...prev, dealTerms, entities };
+      });
+      return created ? { term: created } : { error: 'Term not found.' };
+    },
+    // Prompt 894 §C — folds in the same "stage -> decision" milestone
+    // setRelationshipStage (below) creates, inlined rather than calling that
+    // sibling action: every action in this file is a method on the SAME
+    // object literal returned by this useMemo, and none of them call each
+    // other internally (composition always happens one level up, in the UI
+    // — see RailLogForm.tsx's save() calling logInteraction then addTask
+    // separately) — kept consistent with that rather than introducing the
+    // first exception.
+    async lockDealTerms(entityId) {
+      const check = checkLockPreconditions(db.dealTerms, entityId);
+      if (!check.canLock) return { error: check.blockedReason };
+      const entity = db.entities.find((e) => e.id === entityId);
+      if (!entity) return { error: 'Entity not found.' };
+      const people = db.people.filter((p) => p.entity_id === entityId);
+      // §C — "lista as condições agreed (as mentioned ficam de fora...)":
+      // only the AGREED terms go into the archived memo and get
+      // locked_by_memo_id; a still-'mentioned' term is excluded from the
+      // snapshot entirely (it never became part of the closed agreement) and
+      // is left as-is — not locked, not archived, just historical context.
+      const agreed = check.agreedTerms;
+      if (agreed.length === 0) return { error: 'No terms are marked Agreed yet — there is nothing to archive.' };
+      const payload = buildDealMemoPayload(entity, agreed, db.dealTerms, people, db.interactions);
+      const summary = buildDealMemoSummary(payload);
+      const documentId = uid('doc');
+      const now = new Date().toISOString();
+      setDb((prev) => {
+        const documents: DocumentItem[] = [...prev.documents, {
+          id: documentId, name: `Deal memo · ${payload.generatedAt.slice(0, 10)} · ${entity.name}`,
+          is_view_only: true, visibility: 'due_diligence' as DocVisibility, watermark: false, downloadable: true,
+          notes: summary, created_at: payload.generatedAt, kind: 'deal_memo', entity_id: entityId,
+          deal_memo_payload: payload as unknown as Record<string, unknown>,
+        }];
+        const dealTerms = prev.dealTerms.map((t) => agreed.some((c) => c.id === t.id) ? { ...t, locked_by_memo_id: documentId } : t);
+        const entities = prev.entities.map((e) => e.id === entityId ? { ...e, negotiation_locked_at: now } : e);
+        const existingStage = prev.relationshipState.find((r) => r.entity_id === entityId);
+        const relationshipState = existingStage
+          ? prev.relationshipState.map((r) => r.entity_id === entityId ? { ...r, stage: 'decision' as RelationshipStage, updated_at: now } : r)
+          : [...prev.relationshipState, { entity_id: entityId, stage: 'decision' as RelationshipStage, updated_at: now }];
+        const milestone: Interaction = {
+          id: uid('int'), entity_id: entityId, occurred_at: now, direction: 'out',
+          channel: 'stage_change', content: `Terms locked — deal memo archived (${payload.terms.length} term${payload.terms.length === 1 ? '' : 's'}).`,
+        };
+        return { ...prev, documents, dealTerms, entities, relationshipState, interactions: [...prev.interactions, milestone] };
+      });
+      return { documentId };
+    },
+    async reopenNegotiation(entityId) {
+      setDb((prev) => ({ ...prev, entities: prev.entities.map((e) => e.id === entityId ? { ...e, negotiation_locked_at: undefined } : e) }));
+      return {};
     },
 
     // Prompt 273 §3 / Prompt 277 A — hard_filter_resolved_at/by only ever

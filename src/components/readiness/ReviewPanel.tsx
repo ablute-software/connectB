@@ -28,6 +28,8 @@ import { KnowledgeHealthPanel } from './KnowledgeHealthPanel';
 import { claimsNeedingStrengthening } from '@/lib/company-claims';
 import Link from 'next/link';
 import { pickCurrentGap } from '@/lib/gap-rotation';
+import { currentTermsForEntity } from '@/lib/deal-terms';
+import { conversationDeepLink } from '@/lib/conversation-deep-link';
 import { GAP_QUESTION_BUDGET } from '@/lib/company-gaps';
 import { PlanBadge } from '@/components/PlanBadge';
 import { planName, REVIEW_OPTIMIZATION_PREVIEW_COPY } from '@/lib/plans';
@@ -324,6 +326,13 @@ export function ReviewPanel() {
   // A soma agora e so de relacoes vivas (round-capital.ts, whitelist). Nos
   // dados reais da ablute_ a soma cega dava €400k contra um alvo de €300k,
   // incluindo €300k da Adara -- que tinha recusado.
+  // Prompt 894 §D — for the "Deals in progress" card only, rendered
+  // directly, never passed into pipelineStats()/companyContext below (those
+  // feed the AI review prompt) — see that card's own header comment.
+  const dealsInProgress = db.entities
+    .map((entity) => ({ entity, terms: currentTermsForEntity(db.dealTerms, entity.id) }))
+    .filter((row) => row.terms.length > 0);
+
   function pipelineStats() {
     const byStatus: Record<string, number> = {};
     for (const e of db.entities) byStatus[e.status] = (byStatus[e.status] ?? 0) + 1;
@@ -603,6 +612,36 @@ export function ReviewPanel() {
                     onSaved={handleClarificationSaved}
                   />
                 )}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      {/* Prompt 894 §D — "Readiness review (secção 'Deals in progress' com
+          estados)". Deliberately a PLAIN, deterministic card reading
+          db.dealTerms/db.entities directly — NOT folded into
+          pipelineStats()/companyContext above, which feed /api/review/
+          investability's AI prompt. This is exactly the class of data the
+          CLAUDE.md founder-privacy root rule names (ticket/valuation/
+          negotiation state) — it must never enter that prompt, so it never
+          does; this card is a separate render path with no AI involved. */}
+      {dealsInProgress.length > 0 && (
+        <Card title={<span className="text-gray-700">Deals in progress</span>}>
+          <p className="mb-2 text-xs text-gray-500">Negotiation state per investor with at least one recorded term. Internal only — never shown to investors.</p>
+          <ul className="space-y-1.5">
+            {dealsInProgress.map(({ entity, terms }) => (
+              <li key={entity.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs">
+                <Link href={conversationDeepLink(entity.id, 'history')} className="font-medium text-[#0E7490] hover:underline">{entity.name}</Link>
+                {entity.negotiation_locked_at && <span className="rounded-full bg-gray-200 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">🔒 locked</span>}
+                <span className="ml-auto flex gap-1">
+                  {(['agreed', 'negotiating', 'mentioned'] as const).map((f) => {
+                    const n = terms.filter((t) => t.formality === f).length;
+                    if (n === 0) return null;
+                    return <span key={f} className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                      f === 'agreed' ? 'bg-green-100 text-green-800' : f === 'negotiating' ? 'bg-amber-100 text-amber-800' : 'bg-gray-200 text-gray-600'}`}>{n} {f}</span>;
+                  })}
+                </span>
               </li>
             ))}
           </ul>

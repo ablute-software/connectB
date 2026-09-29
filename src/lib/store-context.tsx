@@ -7,6 +7,7 @@ import { createContext, useContext } from 'react';
 import type { SeedLane } from './roadmap-seed';
 import type {
   AccessGrant, ActionType, Automation, CapTableEntry, Channel, Classification, CompanyFact, CompanyPerson, Db,
+  DealTerm, DealTermFormality, DealTermKind, DealTermSide,
   Direction, DocumentItem, DocVisibility, Entity, EntityStatus, FitScore, FolderKind, Interaction, InvestorSubmission, Nda, Org, OverrideRule,
   PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory, RoadmapEvent,
   RejectionCode, InteractionEdit, OrgAxisClassification } from './types';
@@ -479,6 +480,33 @@ export interface StoreApi {
   // the full EntityStatus enum — see the route's own header for why
   // 'invested'/'dormant' are excluded. Same investor_decisions gate.
   overrideEntityStatus: (entityId: string, status: EntityStatus, reason?: string) => Promise<{ error?: string }>;
+
+  // Prompt 894 §A/§B/§C — deal_terms: negotiated conditions with memory.
+  // addDealTerm creates a fresh top-of-chain row. supersedeDealTerm creates
+  // a NEW row pointing supersedes_id at `id` — used for BOTH "Edit" (new
+  // amount/text) and "Change status" (same amount/text, new formality) in
+  // TermsOnTheTable.tsx; a term is never updated in place (see DealTerm's
+  // own comment — append-only, same discipline as company_facts). Every
+  // action is async: the Supabase store round-trips a real insert/RPC, and
+  // even the demo store resolves via a Promise for one consistent call
+  // shape (same convention as unlockPack/addFundingRound).
+  addDealTerm: (t: {
+    entityId: string; kind: DealTermKind; side: DealTermSide; formality?: DealTermFormality;
+    amountEur?: number; text?: string; interactionId?: string; personId?: string; effectiveAt?: string;
+  }) => Promise<{ error?: string; term?: DealTerm }>;
+  supersedeDealTerm: (id: string, patch: {
+    formality?: DealTermFormality; amountEur?: number; text?: string; effectiveAt?: string; personId?: string;
+  }) => Promise<{ error?: string; term?: DealTerm }>;
+  // Validates preconditions (checkLockPreconditions in deal-terms.ts) before
+  // doing anything: >=1 current term, none 'negotiating'. On success:
+  // creates the archived deal_memo document (private, never shared by
+  // default), stamps every current term's locked_by_memo_id, and moves the
+  // entity's relationship stage to 'decision'.
+  lockDealTerms: (entityId: string) => Promise<{ error?: string; documentId?: string }>;
+  // Clears the lock so new terms can be added again; a later Lock produces
+  // a second, independent deal_memo document (v2) while the first stays
+  // exactly as archived (never edited, never deleted).
+  reopenNegotiation: (entityId: string) => Promise<{ error?: string }>;
 }
 
 export const StoreCtx = createContext<StoreApi | null>(null);

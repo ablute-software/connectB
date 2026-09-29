@@ -15,7 +15,7 @@
 import { useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card, EntityLink } from '@/components/ui';
-import { TermsOnTheTablePlaceholder } from '@/components/dossier/TermsOnTheTablePlaceholder';
+import { TermsOnTheTable } from '@/components/dossier/TermsOnTheTable';
 import type { Interaction } from '@/lib/types';
 
 function HistoryRow({ interaction }: { interaction: Interaction }) {
@@ -87,9 +87,11 @@ export default function PrepPage({ params }: { params: { id: string } }) {
           <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">{lastInboundMessage.content}</p>
         </Card>
       )}
-      {/* Prompt 893 §H — extension point for Prompt 894 ("Terms on the
-          table") only; no deal-terms logic here. */}
-      <TermsOnTheTablePlaceholder />
+      {/* Prompt 894 §D — "preparação de reunião lê Terms on the table":
+          read-only here (no History tab on this one-pager to jump to, and
+          no editing affordance — this page's job is showing what's already
+          on record before a meeting, not managing the negotiation). */}
+      {entity && <TermsOnTheTable entityId={entity.id} readOnly />}
       <Card title={`History — every interaction (${history.length}), newest first`}>
         {history.length === 0 ? <p className="text-sm text-gray-400">No interactions yet.</p> : (
           <ul className="divide-y divide-gray-100">

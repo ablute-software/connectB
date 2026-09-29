@@ -69,6 +69,7 @@ function makeDb(overrides: Partial<Db> = {}): Db {
     companyPeople: [], tractionMetrics: [], roadmapMilestones: [], fundingRounds: [], roadmapCategories: [], roadmapEvents: [], rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
     interactionDocuments: [], sherlockNextSnoozes: [], entityReopenSnapshots: [], capTableEntries: [],
     startupInvestorDecisions: [],
+    dealTerms: [],
     ...overrides,
   };
 }

@@ -487,6 +487,7 @@ export const seed: Db = {
   entityReopenSnapshots: [],
   capTableEntries: [],
   startupInvestorDecisions: [],
+  dealTerms: [],
 
   // ===== v3: platform catalog + packs (demo). Catalog facts are minimal public
   // info and must be re-verified by the team before real distribution. =====

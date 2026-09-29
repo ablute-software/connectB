@@ -39,6 +39,7 @@ function makeDb(overrides: Partial<ReopenSignalsDb> = {}): ReopenSignalsDb {
     rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
     interactionDocuments: [], sherlockNextSnoozes: [], entityReopenSnapshots: [], capTableEntries: [],
     startupInvestorDecisions: [],
+    dealTerms: [],
     catalogDeliveries: [], investorInvestments: [], approvedClaims: [], catalogCurrent: [],
     ...overrides,
   };

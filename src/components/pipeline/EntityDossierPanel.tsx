@@ -45,7 +45,7 @@ import { ReportFraudModal } from '@/components/ReportFraudModal';
 import { FilesTab } from '@/components/dossier/FilesTab';
 import { MeetingPrepNudge } from '@/components/dossier/MeetingPrepNudge';
 import { CommittedAmountField } from '@/components/dossier/CommittedAmountField';
-import { TermsOnTheTablePlaceholder } from '@/components/dossier/TermsOnTheTablePlaceholder';
+import { TermsOnTheTable } from '@/components/dossier/TermsOnTheTable';
 import { computeEntitySummaryPrefill, matchEntityToCatalog } from '@/lib/entity-catalog-prefill';
 import {
   isPersonCandidate, isUnverifiedStub, relatedContacts, relationshipSummary,
@@ -724,9 +724,8 @@ export function EntityDossierPanel({ entityId, onClose }: {
               </div>
             </div>
             <TicketSignalCard orgId={db.org.id} people={people} />
-            {/* Prompt 893 §H — explicit extension point for Prompt 894
-                ("condições negociais") only; no deal-terms logic here. */}
-            <TermsOnTheTablePlaceholder />
+            {/* Prompt 894 — replaces the §H placeholder. */}
+            <TermsOnTheTable entityId={entity.id} onViewInteraction={focusHistory} />
           </div>
         )}
 

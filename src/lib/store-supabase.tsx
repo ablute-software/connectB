@@ -9,7 +9,7 @@ import React, { useEffect, useMemo, useReducer, useRef } from 'react';
 import { browserClient } from './supabase';
 import { StoreCtx, type StoreApi, type LogInput } from './store-context';
 import type {
-  AccessGrant, Automation, AutomationRun, CapTableEntry, CatalogEntity, Channel, Classification, CompanyFact, CompanyPerson, Db, DocumentItem,
+  AccessGrant, Automation, AutomationRun, CapTableEntry, CatalogEntity, Channel, Classification, CompanyFact, CompanyPerson, DealTerm, Db, DocumentItem,
   DocumentVersion, DocumentView, Entity, EntityReopenSnapshot, EntityStatus, FitScore, Folder, FolderKind, Interaction, InvestorSubmission, MessageTemplate,
   Nda, Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, ReawakeningProposal, RelationshipStage,
   RelationshipState, RuleOverride, TaskItem, AiReview, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory, RoadmapEvent,
@@ -17,6 +17,7 @@ import type {
   StartupInvestorDecision } from './types';
 import { seedRoadmapCategoriesOn, type SeedClientLike } from './roadmap-seed';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
+import { buildDealMemoPayload, buildDealMemoSummary, checkLockPreconditions, deriveInterestEur } from './deal-terms';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
 import { buildReawakenApproval, priorPassInfo } from './reawakening';
 import { findReactivations, reactivationTaskTitle, type PendingReactivation } from './rejection-code-match';
@@ -39,6 +40,7 @@ const EMPTY_DB: Db = {
   roadmapEvents: [], rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
   interactionDocuments: [], sherlockNextSnoozes: [], entityReopenSnapshots: [], capTableEntries: [],
   startupInvestorDecisions: [],
+  dealTerms: [],
 };
 
 function uuid() { return crypto.randomUUID(); }
@@ -87,7 +89,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     documentVersionsRes, reawakeningProposalsRes, companyPeopleRes, tractionMetricsRes, roadmapMilestonesRes,
     fundingRoundsRes, roadmapCategoriesRes, roadmapEventsRes, rejectionCodesRes, interactionEditsRes, orgAxisClassificationsRes,
     interactionDocumentsRes, sherlockNextSnoozesRes, entityReopenSnapshotsRes, capTableEntriesRes,
-    startupInvestorDecisionsRes,
+    startupInvestorDecisionsRes, dealTermsRes,
   ] = await Promise.all([
     sb.from('orgs').select('*').eq('id', orgId).single(),
     sb.from('entities').select('*').eq('org_id', orgId),
@@ -166,6 +168,12 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     // safe pattern as company_facts/ndas above. RLS is is_org_member, so the
     // browser client reads its own org's rows and nothing else.
     sb.from('startup_investor_decisions').select('*').eq('org_id', orgId),
+    // Prompt 894 §A — deal_terms (migration 20260929200000). Same missing-
+    // table-safe pattern as company_facts/ndas above: this org's browser
+    // client reads only its own rows (RLS is_org_member), and a query
+    // against a not-yet-applied migration resolves here with an error
+    // rather than throwing, falling back to [] below.
+    sb.from('deal_terms').select('*').eq('org_id', orgId),
   ]);
 
   if (orgRes.error) throw orgRes.error;
@@ -243,6 +251,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     // reverted history in memory is what lets a founder see that a decision
     // was made and undone rather than that it never existed.
     startupInvestorDecisions: ((startupInvestorDecisionsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<StartupInvestorDecision>(r)),
+    dealTerms: ((dealTermsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<DealTerm>(r)),
   };
 }
 
@@ -603,8 +612,23 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       }
       tasks = [...tasks, ...newTaskRows];
 
+      // Prompt 894 §A — the real row is written server-side by the
+      // interactions_create_ask_term DB trigger (migration
+      // 20260929200000), which fires for this insert regardless of write
+      // path; this optimistic client-side copy only keeps `db.dealTerms`
+      // (and the derived `interest_eur`, unaffected here since kind='ask'
+      // is never a commitment) from looking stale until the next
+      // refreshFromServer() replaces it with the real trigger-created row.
+      const dealTerms = input.ask_amount_eur != null
+        ? [...prev.dealTerms, {
+            id: uuid(), org_id: prev.org.id, entity_id: input.entity_id, interaction_id: interaction.id,
+            person_id: input.person_id, kind: 'ask' as const, side: 'ours' as const, formality: 'mentioned' as const,
+            amount_eur: input.ask_amount_eur, recorded_at: new Date().toISOString(), effective_at: interaction.occurred_at.slice(0, 10),
+          }]
+        : prev.dealTerms;
+
       commit({
-        ...prev, entities, tasks,
+        ...prev, entities, tasks, dealTerms,
         interactions: [...prev.interactions, interaction],
         overrides: [...prev.overrides, ...overrideRows],
         interactionDocuments: [...prev.interactionDocuments, ...attachmentRows],
@@ -1252,10 +1276,148 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       }
     },
 
+    // Prompt 894 §A — see store-demo.tsx's matching comment: the one
+    // remaining caller is PreviousFundingCard.tsx's "Pipeline cleanup",
+    // clearing a legacy stale interest_eur value that predates deal_terms.
+    // A deal_terms commitment row written afterward re-derives this field
+    // via the DB trigger regardless of this direct write, by design.
     setInterest(id: string, eur: number | undefined) {
       const prev = dbRef.current;
       commit({ ...prev, entities: prev.entities.map((e) => e.id === id ? { ...e, interest_eur: eur } : e) });
       if (orgIdRef.current) persist(sb.from('entities').update({ interest_eur: eur ?? null }).eq('id', id), 'setInterest');
+    },
+
+    // Prompt 894 §A/§C — deal_terms writes go straight from the browser
+    // client (is_org_member RLS), same tier as addFundingRound/
+    // addCapTableEntry above: a plain org-scoped table with no extra
+    // server-only logic to enforce, unlike recordInvestorDecision's
+    // capability-gated /api route. Awaited (not persist()'s fire-and-forget)
+    // because the contract returns a real Promise<{error}> the caller can
+    // act on (TermsOnTheTable.tsx surfaces a failed insert instead of
+    // pretending it saved).
+    async addDealTerm({ entityId, kind, side, formality, amountEur, text, interactionId, personId, effectiveAt }) {
+      const prev = dbRef.current;
+      const now = new Date().toISOString();
+      const row: DealTerm = {
+        id: uuid(), org_id: prev.org.id, entity_id: entityId, interaction_id: interactionId,
+        person_id: personId, kind, side, formality: formality ?? 'mentioned', amount_eur: amountEur, text,
+        recorded_at: now, effective_at: effectiveAt, agreed_at: formality === 'agreed' ? now : undefined,
+      };
+      const { error } = await sb.from('deal_terms').insert({ ...row, org_id: prev.org.id });
+      if (error) return { error: error.message };
+      const cur = dbRef.current;
+      const dealTerms = [...cur.dealTerms, row];
+      const entities = kind === 'commitment'
+        ? cur.entities.map((e) => e.id === entityId ? { ...e, interest_eur: deriveInterestEur(dealTerms, entityId) } : e)
+        : cur.entities;
+      commit({ ...cur, dealTerms, entities });
+      return { term: row };
+    },
+    // "Edit" and "Change status" both land here: a term is never UPDATEd in
+    // place (see DealTerm's own comment in types.ts) — this always inserts
+    // a NEW row with supersedes_id pointing at `id`, carrying over whatever
+    // the patch doesn't explicitly change.
+    async supersedeDealTerm(id, patch) {
+      const prev = dbRef.current;
+      const prior = prev.dealTerms.find((t) => t.id === id);
+      if (!prior) return { error: 'Term not found.' };
+      const now = new Date().toISOString();
+      const row: DealTerm = {
+        ...prior, id: uuid(), supersedes_id: id, recorded_at: now,
+        formality: patch.formality ?? prior.formality,
+        amount_eur: patch.amountEur !== undefined ? patch.amountEur : prior.amount_eur,
+        text: patch.text !== undefined ? patch.text : prior.text,
+        effective_at: patch.effectiveAt ?? prior.effective_at,
+        person_id: patch.personId ?? prior.person_id,
+        agreed_at: (patch.formality ?? prior.formality) === 'agreed' ? (prior.agreed_at ?? now) : prior.agreed_at,
+        locked_by_memo_id: undefined, created_by: undefined, created_at: undefined,
+      };
+      const { error } = await sb.from('deal_terms').insert({ ...row, org_id: prev.org.id });
+      if (error) return { error: error.message };
+      const cur = dbRef.current;
+      const dealTerms = [...cur.dealTerms, row];
+      const entities = row.kind === 'commitment'
+        ? cur.entities.map((e) => e.id === row.entity_id ? { ...e, interest_eur: deriveInterestEur(dealTerms, row.entity_id) } : e)
+        : cur.entities;
+      commit({ ...cur, dealTerms, entities });
+      return { term: row };
+    },
+    // Validates preconditions against the CURRENT snapshot, then writes:
+    // the archived deal_memo document, locked_by_memo_id on every current
+    // term, the entity's negotiation_locked_at, and the same stage ->
+    // 'decision' + stage_change milestone setRelationshipStage itself
+    // writes (inlined rather than calling that sibling action — same
+    // reasoning as store-demo.tsx's matching comment: no action in this
+    // file calls another one internally, composition happens in the UI).
+    // Sequential awaited writes, same tolerance for partial-failure as
+    // RailLogForm's own save() (interaction/overrides/task/entity are
+    // separate persist() calls there too) — this is the founder's own data
+    // under their own RLS, not a payment or anything requiring a single
+    // atomic transaction.
+    async lockDealTerms(entityId) {
+      const prev = dbRef.current;
+      const check = checkLockPreconditions(prev.dealTerms, entityId);
+      if (!check.canLock) return { error: check.blockedReason };
+      const entity = prev.entities.find((e) => e.id === entityId);
+      if (!entity) return { error: 'Entity not found.' };
+      const o = orgIdRef.current;
+      if (!o) return { error: 'Not connected.' };
+      const people = prev.people.filter((p) => p.entity_id === entityId);
+      // §C — only AGREED terms go into the memo and get locked_by_memo_id;
+      // a 'mentioned' one is excluded from the snapshot and left as-is (see
+      // store-demo.tsx's matching comment for the full reasoning).
+      const current = check.agreedTerms;
+      if (current.length === 0) return { error: 'No terms are marked Agreed yet — there is nothing to archive.' };
+      const payload = buildDealMemoPayload(entity, current, prev.dealTerms, people, prev.interactions);
+      const summary = buildDealMemoSummary(payload);
+      const documentId = uuid();
+      const now = new Date().toISOString();
+
+      const { error: docError } = await sb.from('documents').insert({
+        id: documentId, org_id: o, name: `Deal memo · ${payload.generatedAt.slice(0, 10)} · ${entity.name}`,
+        is_view_only: true, visibility: 'due_diligence', watermark: false, downloadable: true,
+        notes: summary, kind: 'deal_memo', entity_id: entityId, deal_memo_payload: payload,
+      });
+      if (docError) return { error: docError.message };
+
+      const currentIds = current.map((t) => t.id);
+      if (currentIds.length) {
+        const { error: lockError } = await sb.from('deal_terms').update({ locked_by_memo_id: documentId }).in('id', currentIds);
+        if (lockError) return { error: lockError.message };
+      }
+      persist(sb.from('entities').update({ negotiation_locked_at: now }).eq('id', entityId), 'lockDealTerms:entity');
+      persist(sb.from('relationship_state').upsert(
+        { org_id: o, entity_id: entityId, stage: 'decision', updated_at: now }, { onConflict: 'org_id,entity_id' },
+      ), 'lockDealTerms:stage');
+      const milestone: Interaction = {
+        id: uuid(), entity_id: entityId, occurred_at: now, direction: 'out', channel: 'stage_change',
+        content: `Terms locked — deal memo archived (${payload.terms.length} term${payload.terms.length === 1 ? '' : 's'}).`,
+      };
+      persist(sb.from('interactions').insert({ ...milestone, org_id: o }), 'lockDealTerms:milestone');
+
+      const cur = dbRef.current;
+      const documents: DocumentItem[] = [...cur.documents, {
+        id: documentId, name: `Deal memo · ${payload.generatedAt.slice(0, 10)} · ${entity.name}`,
+        is_view_only: true, visibility: 'due_diligence', watermark: false, downloadable: true,
+        notes: summary, created_at: payload.generatedAt, kind: 'deal_memo', entity_id: entityId,
+        deal_memo_payload: payload as unknown as Record<string, unknown>,
+      }];
+      const dealTerms = cur.dealTerms.map((t) => currentIds.includes(t.id) ? { ...t, locked_by_memo_id: documentId } : t);
+      const entities = cur.entities.map((e) => e.id === entityId ? { ...e, negotiation_locked_at: now } : e);
+      const existingStage = cur.relationshipState.find((r) => r.entity_id === entityId);
+      const relationshipState = existingStage
+        ? cur.relationshipState.map((r) => r.entity_id === entityId ? { ...r, stage: 'decision' as RelationshipStage, updated_at: now } : r)
+        : [...cur.relationshipState, { entity_id: entityId, stage: 'decision' as RelationshipStage, updated_at: now }];
+      commit({ ...cur, documents, dealTerms, entities, relationshipState, interactions: [...cur.interactions, milestone] });
+      return { documentId };
+    },
+    async reopenNegotiation(entityId) {
+      const prev = dbRef.current;
+      const { error } = await sb.from('entities').update({ negotiation_locked_at: null }).eq('id', entityId);
+      if (error) return { error: error.message };
+      const cur = dbRef.current;
+      commit({ ...cur, entities: cur.entities.map((e) => e.id === entityId ? { ...e, negotiation_locked_at: undefined } : e) });
+      return {};
     },
 
     // Prompt 273 §3 / Prompt 277 A — see the matching comment in

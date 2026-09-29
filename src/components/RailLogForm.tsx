@@ -18,6 +18,7 @@ import { Tooltip, PREFLIGHT_EXPLAIN } from '@/components/ui';
 import { lintMessage, preflight, preflightSummary } from '@/lib/rules';
 import { nextContactPerson, recommendChannel, PASS_REASON_CATEGORIES, suggestNextAction, type NextActionSuggestion } from '@/lib/relationship';
 import { buildComposerContext, pickIntent, INTENT_LABEL, type ComposerIntent } from '@/lib/composer';
+import { topicsAlreadyOnTheTable } from '@/lib/deal-terms';
 import { evaluateProvenanceGate, type ComposerClaim } from '@/lib/company-canon-logic';
 import { channelOutcomes, channelOutcomesSummary } from '@/lib/channel-learning';
 import { AI_COMPOSER_LOCKED_COPY } from '@/lib/plans';
@@ -28,7 +29,19 @@ import { PitchAndAskFields } from '@/components/dossier/PitchAndAskFields';
 import { FormAssistModal } from '@/components/FormAssistModal';
 import { QuickCreatePerson } from '@/components/QuickCreatePerson';
 import { promotableCatalogTeam as computePromotableCatalogTeam, shouldShowFirstContactGuide, type CatalogTeamMember } from '@/lib/first-contact-selector';
-import type { Channel, Classification, DocumentItem, Entity, Folder, OverrideRule, PassReasonCategory } from '@/lib/types';
+import type { Channel, Classification, DealTermKind, DealTermSide, DocumentItem, Entity, Folder, OverrideRule, PassReasonCategory } from '@/lib/types';
+
+// Prompt 894 §B — "no + Log, além de 'Amount asked', um pequeno 'Terms
+// mentioned in this message'". Excludes 'ask' (that's exactly what the
+// Amount-asked field above already covers, and the ask_amount_eur ->
+// deal_terms trigger already creates that row — a second control for the
+// same kind would double it) and orders the rest by how often a founder
+// would plausibly log one from a single message.
+const TERM_KINDS: { v: DealTermKind; l: string }[] = [
+  { v: 'offer', l: 'Offer' }, { v: 'commitment', l: 'Commitment' }, { v: 'valuation', l: 'Valuation' },
+  { v: 'instrument', l: 'Instrument' }, { v: 'lead_role', l: 'Lead/follower' },
+  { v: 'ticket_range', l: 'Ticket range' }, { v: 'timing', l: 'Timing' }, { v: 'other', l: 'Other' },
+];
 
 // Mirrors src/app/log/page.tsx's own CHANNELS/CLASSIFICATIONS — display
 // labels only, not business logic, so a small duplicate is the same
@@ -72,7 +85,7 @@ export function RailLogForm({
   channelNonce?: number;
   onSaved: () => void;
 }) {
-  const { db, logInteraction, addDocument, addGrant, addCompanyFact, addTask, updateEntity, ensureOrgPersonFromCatalog } = useStore();
+  const { db, logInteraction, addDocument, addGrant, addCompanyFact, addTask, updateEntity, ensureOrgPersonFromCatalog, addDealTerm } = useStore();
   const people = db.people.filter((p) => p.entity_id === entity.id).sort((a, b) => a.seniority_rank - b.seniority_rank);
 
   const [personId, setPersonId] = useState('');
@@ -107,6 +120,17 @@ export function RailLogForm({
   // Prompt 400 §B.1.3 — amount asked, mirrors /log's own optional
   // ask_amount_eur field exactly; outbound only, same as there.
   const [askAmount, setAskAmount] = useState('');
+  // Prompt 894 §B — "Terms mentioned in this message": a second, independent
+  // optional term, kind+side+value chosen by the founder, recorded via
+  // addDealTerm right after logInteraction succeeds (never folded into
+  // LogInput/ask_amount_eur's own DB-trigger path — this is a different
+  // kind of term, and unlike ask_amount_eur it can be 'theirs' as easily as
+  // 'ours', so it needs its own side control). Not gated to direction==='out'
+  // — a term can just as easily be exposed in an inbound reply.
+  const [termKind, setTermKind] = useState<DealTermKind | ''>('');
+  const [termSide, setTermSide] = useState<DealTermSide>('theirs');
+  const [termAmount, setTermAmount] = useState('');
+  const [termText, setTermText] = useState('');
   // Prompt 400 §B.1.1 — Draft with AI, the exact same machine as /log
   // (draftWithAi below is a near-verbatim port): same state shape, same
   // /api/compose call, same §11b provenance gate, same Watson accounting.
@@ -498,6 +522,9 @@ export function RailLogForm({
   // see channel-learning.ts's own header for why Fase 2's tie-break logic
   // is deliberately not built here.
   const outcomesSummary = useMemo(() => channelOutcomesSummary(channelOutcomes(db)), [db]);
+  // Prompt 894 §D — see the "Already on the table" hint above; computed
+  // from db.dealTerms only, never touching composer.ts/ComposerContext.
+  const alreadyOnTheTable = useMemo(() => topicsAlreadyOnTheTable(db.dealTerms, entity.id), [db.dealTerms, entity.id]);
 
   // Prompt 578 §B.3 — grows with the content instead of a fixed 5 rows (a
   // 20-line AI/prefilled draft used to show only 6 of its own lines, with no
@@ -569,10 +596,24 @@ export function RailLogForm({
       attachments: attachments.length ? attachments.map((a) => ({ documentId: a.documentId, folderId: a.folderId })) : undefined,
     });
     setToast(direction === 'out' ? `Saved. Contact lock set for 14 days.${overrides.length ? ' Override logged.' : ''}` : 'Reply saved.');
+    // Prompt 894 §B — "Terms mentioned in this message": fired straight
+    // after logInteraction, tagged with the interaction id it just
+    // returned. Fire-and-forget like every other post-save side effect on
+    // this form (addTask, etc.) — a failed term write here would not undo
+    // the interaction that was already saved.
+    if (termKind && !entity.negotiation_locked_at && (termAmount.trim() !== '' || termText.trim() !== '')) {
+      void addDealTerm({
+        entityId: entity.id, kind: termKind, side: termSide, formality: 'mentioned',
+        amountEur: termAmount.trim() !== '' ? Number(termAmount) : undefined,
+        text: termText.trim() || undefined,
+        personId: personId || undefined, interactionId: interaction.id,
+      });
+    }
     setContent(''); setClassification(''); setPassReason(''); setJustification(''); setShowOverride(false); setReopenAck(false);
     setAttachments([]);
     setPrefilledPersonId(null);
     setAskAmount(''); setSubject(''); setAiGenerated(false); setComposerMeta(null); setComposerNote(''); setDraftedForPersonId(null);
+    setTermKind(''); setTermAmount(''); setTermText(''); setTermSide('theirs');
 
     // §B.1.4 — same gate as /log: only offered when the founder didn't
     // already handle "what's next" some other way (a pass, for instance,
@@ -715,6 +756,19 @@ export function RailLogForm({
         </div>
       )}
 
+      {/* Prompt 894 §D — "Watson... para não pedir de novo o que já foi
+          oferecido." Deliberately a plain, deterministic (non-AI) founder-
+          facing hint, NEVER passed into buildComposerContext/`/api/compose`
+          — see TermsOnTheTable.tsx's header comment for the full
+          founder-privacy audit on why that boundary matters here. This is
+          the whole of §D's Watson wiring: awareness for the human writing
+          the message, not a model input. */}
+      {direction === 'out' && (person || noSpecificPerson) && alreadyOnTheTable.length > 0 && (
+        <p className="rounded-lg bg-gray-50 px-2.5 py-1.5 text-[11px] text-gray-500">
+          Already on the table (don&apos;t ask again): {alreadyOnTheTable.map((k) => TERM_KINDS.find((t) => t.v === k)?.l ?? k).join(', ')}.
+        </p>
+      )}
+
       {/* §B.1.1 — same order as /log's own "2 · What" card: intent +
           Draft with AI, then composerNote / pendingQuestions / composerMeta
           / staleDraft, then (email only) subject, then the textarea. */}
@@ -809,6 +863,44 @@ export function RailLogForm({
                 implicit constraint left to contradict it. */}
             <input type="number" min="0" value={askAmount} onChange={(e) => setAskAmount(e.target.value)}
               placeholder="e.g. 1300000" className="w-32 rounded border border-gray-300 px-2 py-1 text-sm" />
+          </div>
+        </div>
+      )}
+
+      {/* Prompt 894 §B — "Terms mentioned in this message" (optional):
+          records an offer/commitment/valuation/etc. straight from this same
+          save, tagged with the interaction it came from — works for either
+          direction (an inbound reply is exactly where a firm usually
+          exposes an offer, but a founder can just as easily state a
+          valuation outbound). Deliberately NOT wired into ComposerContext/
+          Draft-with-AI above — see TermsOnTheTable.tsx's header comment for
+          the founder-privacy audit on why. Hidden once negotiation is
+          locked — §C: "termos novos só depois de Reopen negotiation". */}
+      {!entity.negotiation_locked_at && (
+        <div className="rounded-lg border border-gray-200 bg-gray-50/60 p-2.5">
+          <label className="text-[10.5px] font-semibold uppercase tracking-wide text-gray-400">Terms mentioned in this message (optional)</label>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            <select value={termKind} onChange={(e) => setTermKind(e.target.value as DealTermKind | '')}
+              className="rounded border border-gray-300 px-1.5 py-1 text-[11px]">
+              <option value="">No term to add…</option>
+              {TERM_KINDS.map((k) => <option key={k.v} value={k.v}>{k.l}</option>)}
+            </select>
+            {termKind && (
+              <>
+                <div className="flex overflow-hidden rounded border border-gray-300">
+                  {(['theirs', 'ours'] as const).map((s) => (
+                    <button key={s} type="button" onClick={() => setTermSide(s)}
+                      className={`px-1.5 py-1 text-[11px] font-medium ${termSide === s ? 'bg-[#0E7490] text-white' : 'bg-white text-gray-600'}`}>
+                      {s === 'ours' ? 'Us' : 'Them'}
+                    </button>
+                  ))}
+                </div>
+                <input type="number" min="0" autoComplete="off" value={termAmount} onChange={(e) => setTermAmount(e.target.value)}
+                  placeholder="€ amount" className="w-28 rounded border border-gray-300 px-1.5 py-1 text-[11px]" />
+                <input autoComplete="off" value={termText} onChange={(e) => setTermText(e.target.value)}
+                  placeholder="or free text (e.g. 'lead the round')" className="min-w-0 flex-1 rounded border border-gray-300 px-1.5 py-1 text-[11px]" />
+              </>
+            )}
           </div>
         </div>
       )}

@@ -51,6 +51,7 @@ function db(entities: Entity[], interactions: Interaction[]): Db {
     roadmapEvents: [], rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
     interactionDocuments: [], sherlockNextSnoozes: [], entityReopenSnapshots: [], capTableEntries: [],
     startupInvestorDecisions: [],
+    dealTerms: [],
   } as Db;
 }
 
