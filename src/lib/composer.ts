@@ -55,6 +55,64 @@ export interface ComposerContext {
   sherlockBriefing?: NeglectAdvice;
 }
 
+// Prompt 893 §F — audited against the real Insight Venture entity
+// (catalog_entities a05ad199…, production): thesis null, sectors [],
+// website null. buildComposerContext below passes those straight through
+// as `thesis: undefined, sectors: []` — the model receives an explicit,
+// unambiguous signal that there is nothing to draw a "fund focus" from.
+// Before this prompt, buildPrompt (api/compose/route.ts) gave the model NO
+// instruction for that case, so any "focus"/"fit" language in a rationale
+// for a firm like this was the model's own invention, never grounded in
+// the context — see the delivery report for the full audit trail (no live
+// model call could be replayed: no ANTHROPIC_API_KEY in this environment,
+// and no matching /api/compose row in ai_call_log for this org in the
+// lookback window checked).
+//
+// isUngroundedForRationale is the same test in both directions: it tells
+// buildPrompt what extra instruction to add, and it tells
+// enforceGroundedRationale whether to override whatever the model said
+// regardless — a prompt instruction alone is advisory; the override below
+// is what actually guarantees the founder-facing rationale is honest.
+export const UNGROUNDED_RATIONALE_FALLBACK =
+  'No thesis or sectors on file for this firm — this draft is generic. Add the thesis or request more info to improve it.';
+export const UNGROUNDED_CONFIDENCE_CAP = 0.4;
+
+export function isUngroundedForRationale(context: Pick<ComposerContext, 'investor'>): boolean {
+  return !context.investor.thesis?.trim() && context.investor.sectors.length === 0;
+}
+
+// Appended to the prompt (api/compose/route.ts's buildPrompt) — a hard rule
+// that the rationale may only cite facts actually present in the context,
+// each with its source in parentheses, plus the forced fallback sentence
+// and confidence cap for the no-thesis-no-sectors case.
+export function groundingPromptLines(context: Pick<ComposerContext, 'investor'>): string[] {
+  const lines = [
+    '',
+    'RATIONALE GROUNDING RULE (hard): the `rationale` field may state ONLY facts that are literally present in the',
+    'CONTEXT above — never assert a sector focus, thesis, or investment pattern this firm\'s own data does not show.',
+    'Cite the source of each fact you mention in parentheses, e.g. "(thesis)", "(sectors)", "(how we pitch)", "(last reply)".',
+  ];
+  if (isUngroundedForRationale(context)) {
+    lines.push(
+      `This firm has NO thesis and NO sectors on file. Your \`rationale\` MUST be exactly this sentence, word for word: "${UNGROUNDED_RATIONALE_FALLBACK}"`,
+      `Your \`confidence\` MUST be ${UNGROUNDED_CONFIDENCE_CAP} or lower.`,
+    );
+  }
+  return lines;
+}
+
+// The deterministic backstop: whatever the model actually returned, a firm
+// with no thesis and no sectors NEVER reaches the founder with an
+// unqualified rationale or a confidence above the cap — this is enforced
+// here, not only requested in the prompt, so a model that ignores the
+// instruction still can't leak an ungrounded claim.
+export function enforceGroundedRationale<T extends { rationale: string; confidence: number }>(
+  context: Pick<ComposerContext, 'investor'>, draft: T,
+): T {
+  if (!isUngroundedForRationale(context)) return draft;
+  return { ...draft, rationale: UNGROUNDED_RATIONALE_FALLBACK, confidence: Math.min(draft.confidence, UNGROUNDED_CONFIDENCE_CAP) };
+}
+
 export function pickIntent(db: Db, entityId: string): ComposerIntent {
   const s = relationshipSummary(db, entityId);
   if (s.touchCount === 0) return 'first_touch';

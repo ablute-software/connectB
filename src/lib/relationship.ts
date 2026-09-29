@@ -324,14 +324,30 @@ export function nextContactPerson(db: Db, entityId: string): Person | undefined 
 // keeps its own caveat even when verified (a real URL doesn't guarantee a
 // DM lands); email verified is the one case with no caveat attached, since
 // a verified email is the closest thing to a guarantee this data model has.
-export interface ChannelRecommendation { value: Channel | null; label: string; needsConfirmation: boolean }
+// Prompt 893 §B — `reason` is the one-line explanation the guided
+// first-contact card (RailLogForm.tsx) shows right under the channel pick,
+// so "why this channel" is never left for the founder to guess. Kept on
+// the SAME return value as `label`/`value` (not a second call) so the two
+// can never drift apart for the same input.
+export interface ChannelRecommendation { value: Channel | null; label: string; needsConfirmation: boolean; reason: string }
 
 export function recommendChannel(person: Person | undefined, entity: Pick<Entity, 'submission_channel' | 'submission_channel_type'>): ChannelRecommendation {
-  if (person?.linkedin_verified && person.linkedin_url) return { value: 'linkedin_note', label: 'LinkedIn note', needsConfirmation: true };
-  if (person?.email_verified) return { value: 'email', label: 'Email', needsConfirmation: false };
-  if (entity.submission_channel_type === 'form' && entity.submission_channel) return { value: 'web_form', label: 'Submission form', needsConfirmation: false };
-  if (entity.submission_channel_type === 'email' && entity.submission_channel) return { value: 'email', label: 'General email', needsConfirmation: false };
-  return { value: null, label: 'Channel to confirm', needsConfirmation: true };
+  if (person?.linkedin_verified && person.linkedin_url) {
+    return { value: 'linkedin_note', label: 'LinkedIn note', needsConfirmation: true, reason: 'LinkedIn verified for this person.' };
+  }
+  if (person?.email_verified) {
+    return { value: 'email', label: 'Email', needsConfirmation: false, reason: 'Verified email on file for this person.' };
+  }
+  if (entity.submission_channel_type === 'form' && entity.submission_channel) {
+    return { value: 'web_form', label: 'Submission form', needsConfirmation: false, reason: `No verified contact — the firm accepts submissions at ${entity.submission_channel}.` };
+  }
+  if (entity.submission_channel_type === 'email' && entity.submission_channel) {
+    return { value: 'email', label: 'General email', needsConfirmation: false, reason: `No verified contact — the firm accepts submissions at ${entity.submission_channel}.` };
+  }
+  return {
+    value: null, label: 'Channel to confirm', needsConfirmation: true,
+    reason: "Nothing verified yet: find the person's LinkedIn or the firm's contact email first.",
+  };
 }
 
 export function nextBestAction(db: Db, entityId: string, now = new Date(), dealMessageTouches: DealMessageTouch[] = []): string | undefined {

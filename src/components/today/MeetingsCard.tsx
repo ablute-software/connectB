@@ -5,7 +5,9 @@
 // enforces that at the data layer) — a missed one is shown, not dropped.
 //
 // "Add meeting summary" is the ONLY way to close a meeting task — it deep-
-// links into the entity's RailLogForm (?rail=log&channel=meeting&taskId=),
+// links into the entity's RailLogForm (Prompt 893 §A:
+// ?tab=conversation&mode=log&channel=meeting&taskId=, the old
+// ?rail=log&channel=meeting&taskId= form still works too),
 // which only marks the task done as a side effect of a real logged
 // interaction actually being saved (entities/[id]/page.tsx's onSaved
 // handler). This is deliberately not a checkbox — Prompt 883 already fixed
@@ -17,6 +19,7 @@ import { useState } from 'react';
 import { Card } from '@/components/ui';
 import { useStore } from '@/lib/store';
 import { missedMeetings, upcomingMeetingGroups } from '@/lib/today-cards';
+import { conversationDeepLink } from '@/lib/conversation-deep-link';
 import type { Db, TaskItem } from '@/lib/types';
 
 function fmtTime(iso: string): string {
@@ -24,9 +27,7 @@ function fmtTime(iso: string): string {
 }
 
 function summaryHref(t: TaskItem): string {
-  const params = new URLSearchParams({ rail: 'log', channel: 'meeting', taskId: t.id });
-  if (t.person_id) params.set('person', t.person_id);
-  return `/entities/${t.entity_id}?${params.toString()}`;
+  return conversationDeepLink(t.entity_id!, 'log', { channel: 'meeting', taskId: t.id, person: t.person_id });
 }
 
 // Hoisted out of MeetingsCard (not a nested render-time definition) so React

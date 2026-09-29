@@ -23,7 +23,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
-import { Card, HardFilterBanner, PersonLink, VerBadge, fitLabel, fmtEur } from '@/components/ui';
+import { Card, HardFilterBanner, PersonLink, VerBadge, fmtEur } from '@/components/ui';
+import { effectiveFitLabel, hasThesisOrSectors } from '@/lib/entity-fit-label';
 import { EntityAvatar } from '@/components/EntityAvatar';
 import { RelationshipSummaryCard } from '@/components/RelationshipSummaryCard';
 import { SherlockInsightBanner } from '@/components/SherlockInsightBanner';
@@ -41,6 +42,10 @@ import { EntityClassificationEditor } from '@/components/EntityClassificationEdi
 import { TicketSignalCard } from '@/components/TicketSignalCard';
 import { ThreadDrawer } from '@/components/ThreadDrawer';
 import { ReportFraudModal } from '@/components/ReportFraudModal';
+import { FilesTab } from '@/components/dossier/FilesTab';
+import { MeetingPrepNudge } from '@/components/dossier/MeetingPrepNudge';
+import { CommittedAmountField } from '@/components/dossier/CommittedAmountField';
+import { TermsOnTheTablePlaceholder } from '@/components/dossier/TermsOnTheTablePlaceholder';
 import { computeEntitySummaryPrefill, matchEntityToCatalog } from '@/lib/entity-catalog-prefill';
 import {
   isPersonCandidate, isUnverifiedStub, relatedContacts, relationshipSummary,
@@ -49,21 +54,29 @@ import {
 import { computeAlignment } from '@/lib/company-canon-logic';
 import { vaultAccessAdviceFromDb } from '@/lib/vault-access-advice';
 import { pipelineStageLabel } from '@/lib/pipeline-taxonomy';
-import { findEffectiveGrant, computeCellEffect } from '@/lib/people-access-matrix';
 import { useInterestRequests } from '@/lib/interest-requests-client';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { emitProductEvent } from '@/lib/product-events';
 import type { Channel } from '@/lib/types';
 
-// Prompt 727 §1 — "Next step" is now first: opening a dossier answers "what
-// do I do about this firm" before anything else, not after paging through
-// Overview.
+// Prompt 893 §A — ONE tab set, same order as the full dossier
+// (entities/[id]/page.tsx): Entity summary · People & Team · Conversation ·
+// Files. "Next step" (627/672's own reasoning for opening action-first) is
+// preserved as the PANEL'S DEFAULT SELECTED TAB (see the `useState` below)
+// even though "Conversation" now sits third in the tab bar, not first —
+// the bar's order is the shared vocabulary; which tab opens by default is
+// a separate decision, and 727's "answer what do I do about this firm
+// first" reasoning still applies to the panel specifically. "Messages" and
+// "Overview" are no longer separate tabs: Messages is now a segment inside
+// Conversation (History/+Log/Messages, matching the full dossier), and
+// Overview's content (HardFilterBanner, SherlockInsightBanner,
+// RelationshipSummaryCard, the Entity summary card, Tasks, Recent
+// activity) moved under the "Entity summary" tab.
 const TABS = [
-  { key: 'log', label: 'Next step' },
+  { key: 'summary', label: 'Entity summary' },
   { key: 'people', label: 'People & Team' },
-  { key: 'messages', label: 'Messages' },
+  { key: 'conversation', label: 'Conversation' },
   { key: 'files', label: 'Files' },
-  { key: 'overview', label: 'Overview' },
 ] as const;
 type TabKey = typeof TABS[number]['key'];
 
@@ -97,13 +110,18 @@ export function EntityDossierPanel({ entityId, onClose }: {
   entityId: string;
   onClose: () => void;
 }) {
-  const { db, setInterest, markEntityVerified, updateEntity, updatePerson, resolveHardFilter, toggleTask } = useStore();
+  const { db, markEntityVerified, updateEntity, updatePerson, resolveHardFilter, toggleTask } = useStore();
   const entity = db.entities.find((e) => e.id === entityId);
-  const [tab, setTab] = useState<TabKey>('log');
+  // Prompt 893 §A — 'conversation' replaces 'log' as the default tab: same
+  // "answer what do I do about this firm first" intent Prompt 727
+  // established, now under the unified tab name.
+  const [tab, setTab] = useState<TabKey>('conversation');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [classifyNonce, setClassifyNonce] = useState(0);
   const [focusInteraction, setFocusInteraction] = useState<{ id: string; nonce: number }>({ id: '', nonce: 0 });
-  const [logMode, setLogMode] = useState<'history' | 'log'>('history');
+  // Prompt 893 §A — 'message' added: Messages is now a segment inside
+  // Conversation (History/+Log/Messages), not its own top-level tab.
+  const [logMode, setLogMode] = useState<'history' | 'log' | 'message'>('history');
   const [logPrefill, setLogPrefill] = useState<{ personId?: string; nonce: number }>({ nonce: 0 });
   // Prompt 727 §5 — "Already sent — log it" prefills person AND channel AND
   // direction/date together (RailLogForm already supports all three
@@ -127,12 +145,10 @@ export function EntityDossierPanel({ entityId, onClose }: {
   // shared catalog value, exactly like those other fields.
   const [editingThesis, setEditingThesis] = useState(false);
   const [thesisDraft, setThesisDraft] = useState('');
-  // Prompt 727 §3 — same pencil-icon pattern as Thesis above, for the two
-  // "only you know this" fields in the Approach card.
-  const [editingOurAngle, setEditingOurAngle] = useState(false);
-  const [ourAngleDraft, setOurAngleDraft] = useState('');
-  const [editingTheAsk, setEditingTheAsk] = useState(false);
-  const [theAskDraft, setTheAskDraft] = useState('');
+  // Prompt 893 §D — the old local editingOurAngle/ourAngleDraft/
+  // editingTheAsk/theAskDraft state (Prompt 727 §3's pencil-icon pattern)
+  // moved into PitchAndAskFields.tsx, the component now shared with the
+  // full dossier — no local copy of that state left here.
   // Prompt 727 §3 — "Sherlock prepara" is only ever shown when real
   // enrichment work is actually pending for this entity's catalog match —
   // never a promise of work that isn't happening. A live read (same
@@ -143,21 +159,21 @@ export function EntityDossierPanel({ entityId, onClose }: {
   const [catalogPending, setCatalogPending] = useState(false);
 
   // Reset tab-local UI state whenever the panel switches to a different
-  // investor — otherwise "Next step" could stay open on Log mode with
+  // investor — otherwise "Conversation" could stay open on Log mode with
   // stale prefill from the previous row.
   useEffect(() => {
-    setTab('log'); setLogMode('history'); setClassifyNonce(0);
+    setTab('conversation'); setLogMode('history'); setClassifyNonce(0);
     setFocusInteraction({ id: '', nonce: 0 }); setLogPrefill({ nonce: 0 });
     setLogChannelPrefill({ nonce: 0 }); setLogDraftPrefill({ nonce: 0 });
-    setAddingPerson(false); setEditingThesis(false); setEditingOurAngle(false); setEditingTheAsk(false);
+    setAddingPerson(false); setEditingThesis(false);
     emitProductEvent('dossier_opened', { entityId });
   }, [entityId]);
 
-  // Prompt 727 §6 — "Next step" is the default tab now, so simply opening
-  // the dossier already satisfies next_step_seen; also fires on an explicit
-  // tab switch back to it.
+  // Prompt 727 §6 — "Next step" (now "Conversation") is the default tab,
+  // so simply opening the dossier already satisfies next_step_seen; also
+  // fires on an explicit tab switch back to it.
   useEffect(() => {
-    if (tab === 'log') emitProductEvent('next_step_seen', { entityId });
+    if (tab === 'conversation') emitProductEvent('next_step_seen', { entityId });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, entityId]);
 
@@ -270,28 +286,20 @@ export function EntityDossierPanel({ entityId, onClose }: {
 
   function focusHistory(interactionId: string) {
     setFocusInteraction((p) => ({ id: interactionId, nonce: p.nonce + 1 }));
-    setTab('log'); setLogMode('history');
+    setTab('conversation'); setLogMode('history');
   }
   function classifyOnHistory() {
     setClassifyNonce((n) => n + 1);
-    setTab('log'); setLogMode('history');
+    setTab('conversation'); setLogMode('history');
   }
 
-  // Prompt 672 — "Shared with this investor": every document any of this
-  // entity's people can currently reach, reusing the exact folder/document
-  // precedence WhoHasAccessPanel/PeopleAccessPanel already use — never a
-  // second resolution of "who can see what".
-  const folderTree = db.folders.map((f) => ({ id: f.id, parent_id: f.parent_id }));
-  const personIds = new Set(people.map((p) => p.id));
-  const sharedDocs = personIds.size === 0 ? [] : db.documents.filter((d) => {
-    const g = findEffectiveGrant(db.grants, d.id, d.folder_id, personIds, folderTree);
-    const effect = computeCellEffect(g, new Date(), d.visibility);
-    return effect === 'shared' || effect === 'shared_pending_nda' || effect === 'shared_pending_confirmation';
-  });
-
+  // Prompt 893 §A — "Shared with this investor" (and NDAs/data room
+  // engagement) now live entirely inside FilesTab.tsx, shared with the
+  // full dossier — no local sharedDocs computation here, and no badge
+  // count on the Files tab button (duplicating that computation just for
+  // a number defeats the point of sharing the component).
   const tabCount: Record<TabKey, number | undefined> = {
-    overview: undefined, people: people.length || undefined, log: undefined, messages: undefined,
-    files: sharedDocs.length || undefined,
+    summary: undefined, people: people.length || undefined, conversation: undefined, files: undefined,
   };
 
   return (
@@ -336,7 +344,18 @@ export function EntityDossierPanel({ entityId, onClose }: {
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
           <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10.5px] font-semibold text-gray-700">{pipelineStageLabel(entity.status)}</span>
-          {entity.fit_score && <span className="rounded-full bg-green-50 px-2 py-0.5 text-[10.5px] font-semibold text-green-700">{fitLabel[entity.fit_score]} fit</span>}
+          {/* Prompt 893 §F.3 — "fit sem tese não é Medium": effectiveFitLabel
+              overrides ANY fit_score with an honest "Fit unknown — thesis
+              missing" the moment there's neither a thesis nor a sector on
+              file, whatever fit_score happens to hold (a stale/legacy
+              value, e.g.). Null (thesis/sectors present but no fit_score
+              yet) still renders nothing, same as before. */}
+          {effectiveFitLabel(entity) && (
+            <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-semibold ${
+              hasThesisOrSectors(entity) ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
+              {effectiveFitLabel(entity)}
+            </span>
+          )}
         </div>
         <div className="mt-2.5 flex gap-1 overflow-x-auto" role="tablist">
           {TABS.map((t) => (
@@ -351,7 +370,7 @@ export function EntityDossierPanel({ entityId, onClose }: {
 
       {/* Body — scrolls independently of the header/tabs. */}
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        {tab === 'overview' && (
+        {tab === 'summary' && (
           <div className="space-y-3">
             {personCandidate && (
               <div className="rounded-lg border-l-4 border-purple-400 bg-purple-50 px-3 py-2 text-sm">
@@ -384,8 +403,8 @@ export function EntityDossierPanel({ entityId, onClose }: {
             )}
             <SherlockInsightBanner entity={entity} dealMessageTouches={dealMessageTouches}
               onClassifyRequest={classifyOnHistory} canMessage={canMessagePanel}
-              onSwitchToMessage={() => setTab('messages')}
-              onSwitchToLog={(personId) => { setLogPrefill((p) => ({ personId, nonce: p.nonce + 1 })); setTab('log'); setLogMode('log'); }} />
+              onSwitchToMessage={() => { setTab('conversation'); setLogMode('message'); }}
+              onSwitchToLog={(personId) => { setLogPrefill((p) => ({ personId, nonce: p.nonce + 1 })); setTab('conversation'); setLogMode('log'); }} />
             <RelationshipSummaryCard entity={entity} onClassifyRequest={classifyOnHistory} onViewInHistory={focusHistory} dealMessageTouches={dealMessageTouches} />
             <Card title="Entity summary">
               <div className="grid gap-3 sm:grid-cols-2">
@@ -504,10 +523,19 @@ export function EntityDossierPanel({ entityId, onClose }: {
                       <PersonLink id={p.id}><span className="font-medium">{p.full_name}</span></PersonLink>
                       <span className="ml-2 text-xs text-gray-500">{p.role}</span>
                       {p.do_not_contact && <span className="ml-2 rounded bg-red-100 px-1.5 text-[10px] font-bold text-red-700">DO NOT CONTACT</span>}
-                      <div className="mt-0.5 flex gap-3">
+                      <div className="mt-0.5 flex flex-wrap items-center gap-3">
                         <VerBadge state={p.linkedin_verified ? 'verified' : 'missing'} label={p.linkedin_verified ? 'LinkedIn ✓' : 'LinkedIn ?'} />
                         <VerBadge state={p.bounce_count > 0 ? 'bounced' : p.email_verified ? 'verified' : p.email_guess ? 'guessed' : 'missing'}
                           label={p.bounce_count > 0 ? `Email bounced ×${p.bounce_count}` : p.email_verified ? 'Email ✓' : p.email_guess ? 'Email guessed' : 'No email'} />
+                        {/* Prompt 893 §E — "Prepare meeting →" per person, in
+                            both dossier surfaces; "LinkedIn ↗" alongside it
+                            when a URL is on file. */}
+                        {p.linkedin_url && !p.do_not_contact && (
+                          <a href={p.linkedin_url} target="_blank" rel="noreferrer" className="text-xs text-[#0E7490] hover:underline">LinkedIn ↗</a>
+                        )}
+                        {!p.do_not_contact && (
+                          <Link href={`/people/${p.id}/prep`} className="text-xs text-cyan-700 hover:underline">Prepare meeting →</Link>
+                        )}
                       </div>
                     </div>
                   </li>
@@ -534,7 +562,7 @@ export function EntityDossierPanel({ entityId, onClose }: {
           </div>
         )}
 
-        {tab === 'log' && (
+        {tab === 'conversation' && (
           <div className="space-y-3">
             {/* Prompt 727 §1 — the action block: what changes per relationship
                 state is THIS card, never the History/Log tools below it.
@@ -619,54 +647,17 @@ export function EntityDossierPanel({ entityId, onClose }: {
               );
             })()}
 
-            <Card title="Approach" tint="blue">
-              <dl className="space-y-2 text-sm">
-                <div>
-                  <dt className="text-xs text-gray-500">Our angle</dt>
-                  {editingOurAngle ? (
-                    <dd className="mt-1">
-                      <textarea value={ourAngleDraft} onChange={(e) => setOurAngleDraft(e.target.value)} autoFocus rows={2}
-                        placeholder="Your angle for this firm…" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
-                      <div className="mt-1 flex gap-2">
-                        <button onClick={() => { updateEntity(entity.id, { our_angle: ourAngleDraft.trim() || undefined }); setEditingOurAngle(false); }}
-                          className="rounded bg-[#0E7490] px-2 py-0.5 text-[11px] font-medium text-white">Save</button>
-                        <button onClick={() => setEditingOurAngle(false)} className="text-[11px] text-gray-500">Cancel</button>
-                      </div>
-                    </dd>
-                  ) : (
-                    <dd>{entity.our_angle ?? <EmptyField kind="founder" editLabel="Write" onEdit={() => { setOurAngleDraft(entity.our_angle ?? ''); setEditingOurAngle(true); }} />}</dd>
-                  )}
-                </div>
-                <div>
-                  <dt className="text-xs text-gray-500">The ask (one, small)</dt>
-                  {editingTheAsk ? (
-                    <dd className="mt-1">
-                      <textarea value={theAskDraft} onChange={(e) => setTheAskDraft(e.target.value)} autoFocus rows={2}
-                        placeholder="The one, small thing to ask for…" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
-                      <div className="mt-1 flex gap-2">
-                        <button onClick={() => { updateEntity(entity.id, { the_ask: theAskDraft.trim() || undefined }); setEditingTheAsk(false); }}
-                          className="rounded bg-[#0E7490] px-2 py-0.5 text-[11px] font-medium text-white">Save</button>
-                        <button onClick={() => setEditingTheAsk(false)} className="text-[11px] text-gray-500">Cancel</button>
-                      </div>
-                    </dd>
-                  ) : (
-                    <dd className="font-medium">{entity.the_ask ?? <EmptyField kind="founder" editLabel="Write" onEdit={() => { setTheAskDraft(entity.the_ask ?? ''); setEditingTheAsk(true); }} />}</dd>
-                  )}
-                </div>
-                <div>
-                  <dt className="text-xs text-gray-500">Committed by this investor</dt>
-                  <dd className="mt-1 text-xs text-gray-400">
-                    {entity.interest_eur == null ? (
-                      <EmptyField kind="not_yet" condition="appears after a positive response" />
-                    ) : (
-                      <>Current: {fmtEur(entity.interest_eur)}</>
-                    )}
-                    <button onClick={() => { const v = window.prompt('Amount (€)', String(entity.interest_eur ?? '')); if (v !== null) setInterest(entity.id, v ? Number(v) : undefined); }}
-                      className="ml-2 text-cyan-700 hover:underline">Edit</button>
-                  </dd>
-                </div>
-              </dl>
-            </Card>
+            {/* Prompt 893 §A/§D — the old "Approach" card is gone: "Our
+                angle"/"The ask" (relabeled "How we pitch this firm"/"What
+                we ask for first") now live inside RailLogForm's own
+                composer area (PitchAndAskFields.tsx, shown right above
+                "Let Watson Draft" — see RailLogForm.tsx), and "Prepare form
+                answers" moved into its guided first-contact card. Only
+                "Committed by this investor" keeps a persistent home here. */}
+            <div className="rounded-xl bg-gray-50 px-3 py-2.5">
+              <CommittedAmountField entity={entity} />
+            </div>
+            <MeetingPrepNudge entityId={entity.id} />
             <div className="flex gap-3">
               <div className="min-w-0 flex-1 rounded-xl bg-gray-50 px-3 py-2.5">
                 <div className="text-[11px] text-gray-500">First contact</div>
@@ -685,12 +676,27 @@ export function EntityDossierPanel({ entityId, onClose }: {
             </div>
             <div className="rounded-xl bg-gray-50 p-3">
               <div className="flex gap-1 rounded-lg bg-white p-1">
-                {(['history', 'log'] as const).map((m) => (
-                  <button key={m} onClick={() => setLogMode(m)}
-                    className={`flex-1 rounded py-1.5 text-[12px] font-semibold ${logMode === m ? 'bg-[#0E7490] text-white' : 'text-gray-500 hover:text-gray-700'}`}>
-                    {m === 'history' ? '🕐 History' : '＋ Log'}
-                  </button>
-                ))}
+                {/* Prompt 893 §A — Messages folded in as a third segment,
+                    same three-way control the full dossier already used
+                    (RecentInteractions/RailLogForm/MessageThreadCore
+                    unchanged — only Messages' home moved from its own tab
+                    into this segment). */}
+                {([
+                  { key: 'history' as const, label: '🕐 History' },
+                  { key: 'log' as const, label: '＋ Log' },
+                  { key: 'message' as const, label: '✉ Messages' },
+                ]).map((m) => {
+                  const disabled = m.key === 'message' && !canMessagePanel;
+                  return (
+                    <button key={m.key} disabled={disabled} onClick={() => setLogMode(m.key)}
+                      title={disabled ? 'In-app messaging is for MatchDeal investors who marked you Interested. For a catalog investor, reach out on your own channel and log it in + Log.' : undefined}
+                      className={`flex-1 rounded py-1.5 text-[12px] font-semibold ${
+                        logMode === m.key ? 'bg-[#0E7490] text-white'
+                        : disabled ? 'cursor-not-allowed text-gray-300' : 'text-gray-500 hover:text-gray-700'}`}>
+                      {m.label}
+                    </button>
+                  );
+                })}
               </div>
               <div className="mt-3">
                 {logMode === 'history' && (
@@ -703,23 +709,25 @@ export function EntityDossierPanel({ entityId, onClose }: {
                     draftNonce={logDraftPrefill.nonce}
                     onSaved={() => { setLogMode('history'); emitProductEvent('interaction_logged', { entityId }); }} />
                 )}
+                {logMode === 'message' && (
+                  canMessagePanel && messaging.investorCatalogEntityId ? (
+                    <div className="space-y-3">
+                      <PreContactReadinessNudge entityId={entity.id} />
+                      <MessageThreadCore entityId={entity.id} investorCatalogEntityId={messaging.investorCatalogEntityId} />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400">
+                      In-app messaging is for MatchDeal investors who marked you Interested. For a catalog investor, reach out on your own channel and log it in + Log.
+                    </p>
+                  )
+                )}
               </div>
             </div>
             <TicketSignalCard orgId={db.org.id} people={people} />
+            {/* Prompt 893 §H — explicit extension point for Prompt 894
+                ("condições negociais") only; no deal-terms logic here. */}
+            <TermsOnTheTablePlaceholder />
           </div>
-        )}
-
-        {tab === 'messages' && (
-          canMessagePanel && messaging.investorCatalogEntityId ? (
-            <div className="space-y-3">
-              <PreContactReadinessNudge entityId={entity.id} />
-              <MessageThreadCore entityId={entity.id} investorCatalogEntityId={messaging.investorCatalogEntityId} />
-            </div>
-          ) : (
-            <p className="text-sm text-gray-400">
-              In-app messaging is for MatchDeal investors who marked you Interested. For a catalog investor, reach out on your own channel and log it in Approach & Log.
-            </p>
-          )
         )}
 
         {tab === 'files' && (
@@ -730,16 +738,7 @@ export function EntityDossierPanel({ entityId, onClose }: {
                 <Link href="/documents" className="font-medium underline hover:no-underline">Share the folders that answer their questions</Link>.
               </div>
             )}
-            <Card title="Shared with this investor">
-              {sharedDocs.length === 0 ? (
-                <p className="text-sm text-gray-400">Nothing shared yet. Documents you share appear here.</p>
-              ) : (
-                <ul className="divide-y divide-gray-100 text-sm">
-                  {sharedDocs.map((d) => <li key={d.id} className="py-1.5 text-gray-700">{d.name}</li>)}
-                </ul>
-              )}
-              <Link href="/documents" className="mt-2 inline-block text-xs text-cyan-700 hover:underline">+ Share a document →</Link>
-            </Card>
+            <FilesTab entityId={entity.id} />
           </div>
         )}
       </div>

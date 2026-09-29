@@ -19,7 +19,7 @@ import type { Entity, EntityStatus } from '@/lib/types';
 import { useStore } from '@/lib/store';
 import { MANUAL_STATUS_OVERRIDE_OPTIONS, pipelineStageLabel } from '@/lib/pipeline-taxonomy';
 import {
-  relationshipSummary, nextBestAction, nextBestActionButton, nextContactPerson, needsReopenTrigger,
+  relationshipSummary, nextBestAction, nextBestActionButton, nextContactPerson, needsReopenTrigger, recommendChannel,
   type DealMessageTouch,
 } from '@/lib/relationship';
 import { derivedStage } from '@/lib/derived-stage';
@@ -259,6 +259,26 @@ export function SherlockInsightBanner({
   // instead of the "Reply now" button it's actually meant to mark.
   const showFirstInteractionButton = !pendingInterestReq && !!nextContactPreflight?.green && !!nextContact;
   const showReplyNowButton = !pendingInterestReq && !showFirstInteractionButton && actionButton?.kind === 'follow_up';
+  // Prompt 893 §B — "Ready for first contact" gains "Suggested: <channel>
+  // to <person> — <reason>", the same recommendation (and its documented
+  // reason) the guided first-contact card shows once the founder actually
+  // opens + Log — never a second, competing opinion about the channel.
+  const suggestedChannel = showFirstInteractionButton && nextContact ? recommendChannel(nextContact, entity) : undefined;
+
+  // Prompt 893 §E — "Meeting on <date> with <person> — prepare →": an
+  // Agenda item for THIS entity (kind 'meeting', not done, a specific
+  // person, a due date) landing within the next 72h.
+  const meetingWindowMs = 72 * 60 * 60 * 1000;
+  const nowForMeeting = new Date();
+  const upcomingMeetingTask = db.tasks
+    .filter((t) => !t.done && t.kind === 'meeting' && t.entity_id === entity.id && t.person_id && t.due_at)
+    .filter((t) => {
+      const diffMs = new Date(t.due_at!).getTime() - nowForMeeting.getTime();
+      return diffMs >= 0 && diffMs <= meetingWindowMs;
+    })
+    .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''))[0];
+  const upcomingMeetingPerson = upcomingMeetingTask?.person_id
+    ? db.people.find((p) => p.id === upcomingMeetingTask.person_id) : undefined;
 
   // Prompt 397 §A.4.4 — no advice, no box. Never an empty banner.
   if (!action) return null;
@@ -282,7 +302,17 @@ export function SherlockInsightBanner({
               <div className="mt-0.5 text-[12px] text-white/75">{interestRequestConsequence(pendingInterestReq.shareDirectEmail)}</div>
             </>
           ) : (
-            <div className="mt-0.5 text-[14px] leading-snug">{annotateNextStep(action)}</div>
+            <>
+              <div className="mt-0.5 text-[14px] leading-snug">{annotateNextStep(action)}</div>
+              {/* Prompt 893 §B — "Suggested: <channel> to <person> — <reason>",
+                  the exact same recommendation (and reason) the guided
+                  first-contact card shows once + Log opens. */}
+              {suggestedChannel && nextContact && (
+                <div className="mt-0.5 text-[12px] text-white/75">
+                  Suggested: {suggestedChannel.label} to {nextContact.full_name} — {suggestedChannel.reason}
+                </div>
+              )}
+            </>
           )}
         </div>
         <div className="relative flex flex-wrap items-center gap-2">
@@ -343,6 +373,15 @@ export function SherlockInsightBanner({
           used Readiness & Train once; see PreContactReadinessNudge's own
           header for why this isn't the onboarding engine. */}
       <PreContactReadinessNudge entityId={entity.id} />
+
+      {/* Prompt 893 §E — "Meeting on <date> with <person> — prepare →",
+          only while a real Agenda item for this entity is within 72h. */}
+      {upcomingMeetingTask && upcomingMeetingPerson && (
+        <div className="-mt-1 rounded-2xl border border-cyan-200 bg-[#E8F4F8] px-4 py-2.5 text-[12.5px] text-cyan-900 shadow-[0_4px_20px_rgba(15,23,42,0.06)]">
+          Meeting on {upcomingMeetingTask.due_at!.slice(0, 10)} with {upcomingMeetingPerson.full_name} —{' '}
+          <Link href={`/people/${upcomingMeetingPerson.id}/prep`} className="font-medium underline hover:no-underline">prepare →</Link>
+        </div>
+      )}
 
       {/* Prompt 410 §2.3 — the decision toast. Lives outside the button
           branches above (which swap to the next best action as soon as

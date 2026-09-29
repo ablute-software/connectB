@@ -1,8 +1,39 @@
 'use client';
 // Meeting prep — print-friendly one-pager
+//
+// Prompt 893 §D/§E — relabeled to match the dossier's own vocabulary ("How
+// we pitch this firm"/"What we ask for first", same fields as
+// entities.our_angle/the_ask, just no longer called "Our angle"/"The ask"
+// here while the rest of the app says something different). §E: the
+// history card used to hard-cap at 5 lines truncated to 120 characters —
+// now every interaction with this person (or this entity, same filter the
+// page already used) is listed, newest first, individually collapsible;
+// a dedicated card surfaces their last message in full, not truncated.
+// "Terms on the table" is Prompt 894's own extension point — nothing of
+// that prompt's scope is implemented here. Still one-pager, still
+// printable, still no AI (a "Watson prep brief" is its own future prompt).
 import { useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card, EntityLink } from '@/components/ui';
+import { TermsOnTheTablePlaceholder } from '@/components/dossier/TermsOnTheTablePlaceholder';
+import type { Interaction } from '@/lib/types';
+
+function HistoryRow({ interaction }: { interaction: Interaction }) {
+  const [expanded, setExpanded] = useState(false);
+  const preview = interaction.content.length > 140 ? `${interaction.content.slice(0, 140)}…` : interaction.content;
+  return (
+    <li className="py-1.5">
+      <button type="button" onClick={() => setExpanded((e) => !e)} className="block w-full text-left">
+        <span className="text-xs text-gray-400">
+          {interaction.occurred_at.slice(0, 10)} · {interaction.direction.toUpperCase()} · {interaction.channel.replace('_', ' ')}
+          {' '}{expanded ? '▾' : '▸'}
+        </span>
+        {' — '}
+        <span className="text-sm text-gray-700">{expanded ? interaction.content : preview}</span>
+      </button>
+    </li>
+  );
+}
 
 export default function PrepPage({ params }: { params: { id: string } }) {
   const { db } = useStore();
@@ -10,8 +41,12 @@ export default function PrepPage({ params }: { params: { id: string } }) {
   const [questions, setQuestions] = useState<string>('');
   if (!person) return <div className="text-gray-500">Person not found.</div>;
   const entity = db.entities.find((e) => e.id === person.entity_id);
+  // Prompt 893 §E — every interaction, newest first (was .slice(0, 5)).
+  // Same filter as before: this person specifically, OR this entity in
+  // general (a firm-wide reply that never named a specific person).
   const history = db.interactions.filter((i) => i.person_id === person.id || i.entity_id === person.entity_id)
-    .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at)).slice(0, 5);
+    .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
+  const lastInboundMessage = history.find((i) => i.direction === 'in');
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 print:max-w-none">
@@ -26,10 +61,10 @@ export default function PrepPage({ params }: { params: { id: string } }) {
       <Card title="1 · The hook" tint="blue">
         <p className="text-sm">{person.hook ?? 'No researched hook — research before the meeting.'}</p>
       </Card>
-      <Card title="2 · Our angle">
+      <Card title="2 · How we pitch this firm">
         <p className="text-sm">{entity?.our_angle ?? '—'}</p>
       </Card>
-      <Card title="3 · The ask (one, small)">
+      <Card title="3 · What we ask for first">
         <p className="text-sm font-semibold">{entity?.the_ask ?? '—'}</p>
       </Card>
       {person.watch_outs && (
@@ -43,15 +78,22 @@ export default function PrepPage({ params }: { params: { id: string } }) {
       {entity?.hard_filter_status === 'open' && (
         <Card title="6 · Open hard filter" tint="red"><p className="text-sm">{entity.hard_filter}</p></Card>
       )}
-      <Card title="History (last 5)">
+      {/* Prompt 893 §E — their last message, in full, never truncated — the
+          founder walking into a meeting shouldn't have to dig through
+          History to re-read exactly what the other side last said. */}
+      {lastInboundMessage && (
+        <Card title="Their last message — in full">
+          <div className="text-xs text-gray-400">{lastInboundMessage.occurred_at.slice(0, 10)} · {lastInboundMessage.channel.replace('_', ' ')}</div>
+          <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">{lastInboundMessage.content}</p>
+        </Card>
+      )}
+      {/* Prompt 893 §H — extension point for Prompt 894 ("Terms on the
+          table") only; no deal-terms logic here. */}
+      <TermsOnTheTablePlaceholder />
+      <Card title={`History — every interaction (${history.length}), newest first`}>
         {history.length === 0 ? <p className="text-sm text-gray-400">No interactions yet.</p> : (
-          <ul className="space-y-1 text-sm text-gray-600">
-            {history.map((i) => (
-              <li key={i.id}>
-                <span className="text-xs text-gray-400">{i.occurred_at.slice(0, 10)} · {i.direction.toUpperCase()} · {i.channel.replace('_', ' ')}</span>
-                {' — '}{i.content.slice(0, 120)}{i.content.length > 120 ? '…' : ''}
-              </li>
-            ))}
+          <ul className="divide-y divide-gray-100">
+            {history.map((i) => <HistoryRow key={i.id} interaction={i} />)}
           </ul>
         )}
       </Card>

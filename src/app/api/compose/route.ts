@@ -9,6 +9,7 @@ import { planEntitlements, AI_COMPOSER_LOCKED_COPY } from '@/lib/plans';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { chargeAiAction } from '@/lib/ai-credits';
 import type { ComposerContext, ComposerIntent } from '@/lib/composer';
+import { enforceGroundedRationale, groundingPromptLines } from '@/lib/composer';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import type { Channel, Entity, Person } from '@/lib/types';
@@ -122,6 +123,7 @@ function buildPrompt(context: ComposerContext, channel: Channel, intent: Compose
     '- Never include an editable document link (no "/edit" URLs).',
     context.constraints.locked ? `- NOTE: this entity is contact-locked until ${context.constraints.lockUntil?.slice(0, 10)} — draft anyway for prep, but flag this in the rationale.` : '',
     context.constraints.thirdUnansweredRisk ? '- NOTE: two prior messages already went unanswered — this would be a third. Strongly consider proposing to hold instead of drafting a third message; say so in the rationale.' : '',
+    ...groundingPromptLines(context),
   ].filter(Boolean).join('\n');
 }
 
@@ -301,6 +303,12 @@ export async function POST(req: NextRequest) {
       draft = await callClaude(apiKey, model, retryPrompt, canonGated, composeOrgId);
       findings = lintMessage(draft.body, personLike, entityLike, channel, threadSnippets);
     }
+
+    // Prompt 893 §F.2 — deterministic backstop, independent of whether the
+    // model actually followed the grounding instruction above: a firm with
+    // no thesis and no sectors never reaches the founder with an
+    // unqualified rationale or a confidence above 0.4.
+    draft = enforceGroundedRationale(context, draft);
 
     // Prompt 706 — no post-call accounting step anymore: chargeAiAction
     // already incremented the wallet BEFORE this draft was generated (a

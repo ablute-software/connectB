@@ -17,6 +17,7 @@
 // one — flagged in the Prompt 400 report, not silently dropped.
 import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { conversationDeepLink } from '@/lib/conversation-deep-link';
 
 function LogRedirect() {
   const router = useRouter();
@@ -25,16 +26,20 @@ function LogRedirect() {
   useEffect(() => {
     const entity = sp.get('entity');
     if (!entity) { router.replace('/tasks'); return; }
-    const params = new URLSearchParams({ rail: 'log' });
-    const person = sp.get('person'); if (person) params.set('person', person);
-    // Prompt 372 Block D's own shape (documents/requests/[id]/page.tsx used
-    // to link straight here before this change — now it links straight at
-    // ?rail=log itself, but this keeps any OLDER bookmark of that link
-    // working too).
-    const direction = sp.get('direction'); if (direction) params.set('direction', direction);
-    const date = sp.get('date'); if (date) params.set('date', date);
-    const content = sp.get('content'); if (content) params.set('content', content);
-    router.replace(`/entities/${entity}?${params.toString()}`);
+    // Prompt 893 §A — redirects straight to the new deep-link form now
+    // (?tab=conversation&mode=log), one layer of legacy redirect fewer for
+    // anyone still holding an old /log?... bookmark. The ?rail=log form
+    // this used to target still works too (30-day alias on the entity
+    // page itself), so this change is not load-bearing for anyone.
+    router.replace(conversationDeepLink(entity, 'log', {
+      person: sp.get('person') ?? undefined,
+      // Prompt 372 Block D's own shape (documents/requests/[id]/page.tsx
+      // links straight at the new form directly now, but this keeps any
+      // OLDER bookmark of the pre-893 /log?... link working too).
+      direction: sp.get('direction') ?? undefined,
+      date: sp.get('date') ?? undefined,
+      content: sp.get('content') ?? undefined,
+    }));
   }, [router, sp]);
 
   return <div className="text-sm text-gray-400">Redirecting…</div>;

@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/lib/store';
 import { authEnabled } from '@/lib/supabase';
-import { Card, HardFilterBanner, MatchDealProfileBadge, PersonLink, TermHint, VerBadge, fitLabel, fmtEur } from '@/components/ui';
+import { Card, HardFilterBanner, MatchDealProfileBadge, PersonLink, VerBadge, fmtEur } from '@/components/ui';
+import { effectiveFitLabel } from '@/lib/entity-fit-label';
 import { computeEntitySummaryPrefill, computeFirmSummaryPrefill, matchEntityToCatalog } from '@/lib/entity-catalog-prefill';
 import { firmHasProfileDetail, type MatchDealFirm } from '@/lib/matchdeal-firm';
 
@@ -43,16 +44,20 @@ import { computeAlignment } from '@/lib/company-canon-logic';
 import { browserClient } from '@/lib/supabase';
 import { EntityClassificationEditor } from '@/components/EntityClassificationEditor';
 import { TicketSignalCard } from '@/components/TicketSignalCard';
-import { FormAssistModal } from '@/components/FormAssistModal';
 import { useInterestRequests } from '@/lib/interest-requests-client';
 import type { DealMessage } from '@/components/deal-messages/DealThreadView';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { ReportFraudModal } from '@/components/ReportFraudModal';
+import { resolveConversationParams } from '@/lib/conversation-deep-link';
+import { FilesTab } from '@/components/dossier/FilesTab';
+import { MeetingPrepNudge } from '@/components/dossier/MeetingPrepNudge';
+import { CommittedAmountField } from '@/components/dossier/CommittedAmountField';
+import { TermsOnTheTablePlaceholder } from '@/components/dossier/TermsOnTheTablePlaceholder';
 import type { Channel } from '@/lib/types';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
   const { id } = params;
-  const { db, loading, refreshFromServer, setInterest, markEntityVerified, updateEntity, resolveHardFilter, toggleTask } = useStore();
+  const { db, loading, refreshFromServer, markEntityVerified, updateEntity, resolveHardFilter, toggleTask } = useStore();
   const entity = db.entities.find((e) => e.id === id);
   // Prompt 346 §B — this used to trust the client store blindly: an id not
   // found here was declared "Entity not found" outright, even for an
@@ -76,7 +81,10 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   // endpoint founder), a mesma que liga a task do Today ao pedido.
   const interestRequests = useInterestRequests();
   const pendingInterest = interestRequests.find((r) => r.status === 'pending' && r.entityId === id);
-  const [interest, setInterestLocal] = useState<string>('');
+  // Prompt 893 §A — the old inline input+Save for "Committed by this
+  // investor" is gone; CommittedAmountField.tsx (a window.prompt-based
+  // control, shared with the Pipeline panel) owns this field now, with no
+  // local draft state on this page.
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Prompt 208 §D — contador, nao booleano: o founder pode pedir "leva-me la"
   // duas vezes seguidas e a segunda tem de voltar a fazer scroll.
@@ -105,7 +113,10 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   // in the "People" card below so the click's effect is visible.
   const [justAddedPersonId, setJustAddedPersonId] = useState<string | null>(null);
   const personRowRefs = useRef<Record<string, HTMLLIElement | null>>({});
-  const [showFormAssist, setShowFormAssist] = useState(false);
+  // Prompt 893 §B — "Prepare form answers" (and its FormAssistModal) moved
+  // into RailLogForm's own guided first-contact card, so it lives in both
+  // dossier surfaces instead of only here — no local state for it left on
+  // this page.
   // Prompt 880 — QuickCreatePerson embedded here as "Add someone else",
   // the manual-entry counterpart to EntityPeoplePanel's "Add as contact"
   // (catalog research rows) above it.
@@ -186,7 +197,14 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   // one continuous column. True tabs now, same pattern as 394 §2's Company
   // settings page: only the active section mounts. 'summary' is the
   // default — it's also where the `entity-summary` tour anchor lives.
-  const [activeSection, setActiveSection] = useState<'summary' | 'people' | 'approach' | 'engagement'>('summary');
+  //
+  // Prompt 893 §A — 'approach'/'engagement' are gone; 'conversation' now
+  // carries everything the old sticky History/Log/Message rail held PLUS
+  // Approach's own fields (Our angle/The ask relabeled, Committed by this
+  // investor, the official channel + Prepare form answers, now inside
+  // RailLogForm's own guided card) — the Pipeline panel and this page now
+  // share the exact same four tab keys/labels/order.
+  const [activeSection, setActiveSection] = useState<'summary' | 'people' | 'conversation' | 'files'>('summary');
 
   useEffect(() => {
     fetch('/api/me').then((r) => r.json()).then((me) => {
@@ -230,7 +248,13 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   // Sherlock "Next" button (shell.tsx) is the first caller, landing here
   // already set up to act instead of a bare entity link; §B reuses this for
   // /log's own redirect.
-  const railMode = searchParams.get('rail');
+  //
+  // Prompt 893 §A — resolveConversationParams is the ONE place that decides
+  // whether this arrived via the new ?tab=conversation&mode=… form or the
+  // old ?rail=… alias (kept working for at least 30 days); `railMode` below
+  // is now that resolved mode, whichever form the URL used.
+  const resolvedConversationParams = useMemo(() => resolveConversationParams(searchParams), [searchParams]);
+  const railMode = resolvedConversationParams.mode;
   const railPerson = searchParams.get('person');
   const railClassify = searchParams.get('classify');
   // §B.2 — the document-request review page's own prefill shape (Prompt
@@ -262,6 +286,10 @@ export default function EntityPage({ params }: { params: { id: string } }) {
 
   useEffect(() => {
     if (railMode === 'log') {
+      // Prompt 893 §A — Conversation is now a Zone-B tab, not an
+      // always-visible sticky rail; a deep link into it has to select the
+      // tab AND the mode within it.
+      setActiveSection('conversation');
       setLogPrefill((p) => ({ personId: railPerson ?? undefined, nonce: p.nonce + 1 }));
       if (railDirection || railDate || railContent) {
         setLogDraftPrefill((p) => ({
@@ -277,8 +305,12 @@ export default function EntityPage({ params }: { params: { id: string } }) {
       setPanelMode('log');
       setRailHighlight(true);
     } else if (railMode === 'history') {
+      setActiveSection('conversation');
       setPanelMode('history');
       if (railClassify) setClassifyNonce((n) => n + 1);
+    } else if (railMode === 'messages') {
+      setActiveSection('conversation');
+      setPanelMode('message');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [railMode, railPerson, railClassify, railDirection, railDate, railContent, railChannel, railTaskId]);
@@ -423,15 +455,15 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   const alignment = db.companyFacts.length > 0 ? computeAlignment(entity, db.companyFacts) : null;
   const alsoConnected = relatedContacts(db, entity.id).filter((r) => r.viaAffiliation);
   const locked = entity.contact_lock_until && new Date(entity.contact_lock_until) > new Date();
-  const grants = db.grants.filter((g) => people.some((p) => p.id === g.person_id));
+  // Prompt 893 §A — grants/views/NDAs (the old "Engagement" tab's own
+  // computation) now live entirely inside FilesTab.tsx, shared with the
+  // Pipeline panel — no longer computed here.
   // Prompt 397 §B.1 — the FIRST CONTACT/LAST TOUCH mini-cards need this same
   // pure computation the journey card/banner also call independently (same
   // pattern as HealthDot/WhoseTurnChip already use throughout this codebase).
   const relSummary = relationshipSummary(db, entity.id, new Date(), dealMessageTouches);
   // Prompt 578 §A — the arrival caption's only variable part.
   const railHighlightPersonName = railPerson ? db.people.find((p) => p.id === railPerson)?.full_name : undefined;
-  const views = db.views.filter((v) => grants.some((g) => g.id === v.grant_id)
-    || people.some((p) => p.email_verified && p.email_verified === v.viewer_email));
   const canMessagePanel = !!(messaging.canMessage && messaging.investorCatalogEntityId);
   // Both the journey card's history-badge clicks and the banner's classify
   // button need to land on the History tab of the panel below, now that
@@ -490,7 +522,11 @@ export default function EntityPage({ params }: { params: { id: string } }) {
                 {entity.hq_city ? `${entity.hq_city}, ` : ''}{entity.hq_country}
               </span>
             )}
-            <span>• {entity.type.replace('_', ' ')} · Wave {entity.wave ?? '—'} · {entity.fit_score ? fitLabel[entity.fit_score] : '—'} fit</span>
+            {/* Prompt 893 §F.3 — effectiveFitLabel overrides fit_score with
+                an honest "Fit unknown — thesis missing" whenever there's
+                neither a thesis nor a sector on file; '—' only when
+                thesis/sectors exist but no fit_score has been set yet. */}
+            <span>• {entity.type.replace('_', ' ')} · Wave {entity.wave ?? '—'} · {effectiveFitLabel(entity) ?? '—'}</span>
             {followOn.signal?.active && (
               <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
                 ↻ Signaled follow-on interest
@@ -605,95 +641,36 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      {/* Prompt 397 §B.1 — below the banner: left = Zone B's 4 tabs
-          (unchanged), right = the conversation panel (History/Log/Message).
-          Stacks (panel below) under `lg`. */}
-      {/* Prompt 578 §B.1 — the rail (History/Log/Message) was a fixed 392px
-          regardless of viewport width, squeezing the Log form's own fields
-          (a 20-line draft showed 6 lines with no scroll cue) while the left
-          content column kept growing unbounded. 3fr/2fr (≈3/5·2/5) from
-          1280px, back to 2fr/1fr (2/3·1/3) from 1536px where there's room
-          for both — the 1024–1279px range is unchanged, not part of the
-          reported problem. `minmax(0,_)` on both tracks, not bare fr: a bare
-          `Xfr` track's minimum is `auto` (min-content), and the rail's own
-          unwrapped content (channel select, "Send from x@y.com & log") was
-          measured live to win a bigger share than 2fr at 1280px — confirmed
-          by comparing getBoundingClientRect() on both tracks before/after
-          adding minmax(0,_) in the running page. */}
-      <div className="grid gap-[18px] lg:grid-cols-[1fr_392px] xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] 2xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <div className="min-w-0 space-y-4">
-          {/* Prompt 396 §5 — Zone B: sub-tabs for everything accessory to
-              the main flow. Only the active section mounts (same pattern as
-              394 §2's Company settings page). */}
-          <div className="flex gap-1 overflow-x-auto border-b border-gray-200">
-            {([
-              { key: 'summary', label: 'Entity summary' },
-              { key: 'people', label: 'People & Team' },
-              { key: 'approach', label: 'Approach' },
-              { key: 'engagement', label: 'Engagement' },
-            ] as const).map((s) => (
-              // Prompt 396 §5.4 — `entity-people`'s tour anchor moved from
-              // the People card (only mounted on this tab) to this
-              // always-mounted tab button, same fix as 394 §2.4 for the
-              // same underlying problem: PageTour resolves every step's
-              // anchor up front, so a step whose anchor lives inside a
-              // not-yet-active tab gets silently dropped.
-              <button key={s.key} data-tour-id={s.key === 'people' ? 'entity-people' : undefined}
-                onClick={() => setActiveSection(s.key)}
-                className={`shrink-0 border-b-2 px-3 py-2 text-sm font-medium ${
-                  activeSection === s.key ? 'border-[#0E7490] text-[#0E7490]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                {s.label}
-              </button>
-            ))}
-          </div>
+      {/* Prompt 893 §A — ONE tab set, same order as the Pipeline panel:
+          Entity summary · People & Team · Conversation · Files. Replaces
+          the old Zone-B-tabs-plus-sticky-rail two-column layout: Conversation
+          is now a tab like any other, full width (the spec's own accepted
+          cost — "deixa de haver dossier e registo lado a lado no dossier
+          completo"). */}
+      <div className="space-y-4">
+        <div className="flex gap-1 overflow-x-auto border-b border-gray-200">
+          {([
+            { key: 'summary', label: 'Entity summary' },
+            { key: 'people', label: 'People & Team' },
+            { key: 'conversation', label: 'Conversation' },
+            { key: 'files', label: 'Files' },
+          ] as const).map((s) => (
+            // Prompt 396 §5.4 — `entity-people`'s tour anchor moved from
+            // the People card (only mounted on this tab) to this
+            // always-mounted tab button, same fix as 394 §2.4 for the
+            // same underlying problem: PageTour resolves every step's
+            // anchor up front, so a step whose anchor lives inside a
+            // not-yet-active tab gets silently dropped.
+            <button key={s.key} data-tour-id={s.key === 'people' ? 'entity-people' : undefined}
+              onClick={() => setActiveSection(s.key)}
+              className={`shrink-0 border-b-2 px-3 py-2 text-sm font-medium ${
+                activeSection === s.key ? 'border-[#0E7490] text-[#0E7490]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+              {s.label}
+            </button>
+          ))}
+        </div>
 
-      {activeSection === 'engagement' && (
-        <>
-          {db.ndas.filter((n) => n.entity_id === entity.id).length > 0 && (
-            <Card title="NDAs on file">
-              <ul className="space-y-2 text-sm">
-                {db.ndas.filter((n) => n.entity_id === entity.id).map((n) => (
-                  <li key={n.id} className="flex flex-wrap items-center gap-2">
-                    <span>{n.file_name ?? 'NDA'}</span>
-                    <span className="text-xs text-gray-400">
-                      uploaded {n.uploaded_at.slice(0, 10)}{n.uploaded_by ? ` by ${n.uploaded_by}` : ''}
-                    </span>
-                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
-                      n.match_status === 'match' ? 'bg-green-100 text-green-800'
-                      : n.match_status === 'mismatch' ? 'bg-red-100 text-[#B00000]'
-                      : 'bg-amber-100 text-amber-800'}`} title={n.match_notes}>
-                      {n.match_status === 'match' ? 'AI check: match' : n.match_status === 'mismatch' ? 'AI check: mismatch — verify' : 'AI check: uncertain'}
-                    </span>
-                    <button
-                      onClick={async () => {
-                        const sb = browserClient();
-                        const { data, error } = await sb.storage.from('data-room').createSignedUrl(n.storage_path, 60);
-                        if (error) { alert(`Could not open file: ${error.message}`); return; }
-                        window.open(data.signedUrl, '_blank');
-                      }}
-                      className="ml-auto rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">
-                      Open
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          )}
-          {(grants.length > 0 || views.length > 0) && (
-            <Card title="Data room engagement">
-              <div className="text-sm text-gray-600">
-                {grants.filter((g) => !g.revoked_at).length} active grant(s) · {views.length} view(s)
-              </div>
-              {views.slice(-3).reverse().map((v) => (
-                <div key={v.id} className="mt-1 text-xs text-gray-500">
-                  {db.documents.find((d) => d.id === v.document_id)?.name} — {v.viewed_at.slice(0, 16).replace('T', ' ')}
-                  {v.seconds ? ` · ${Math.round(v.seconds / 60)} min` : ''}
-                </div>
-              ))}
-            </Card>
-          )}
-        </>
-      )}
+        {activeSection === 'files' && <FilesTab entityId={entity.id} />}
 
       {activeSection === 'summary' && (
       <Card title={
@@ -903,11 +880,20 @@ export default function EntityPage({ params }: { params: { id: string } }) {
                       <PersonLink id={p.id}><span className="font-medium">{p.full_name}</span></PersonLink>
                       <span className="ml-2 text-xs text-gray-500">{p.role}</span>
                       {p.do_not_contact && <span className="ml-2 rounded bg-red-100 px-1.5 text-[10px] font-bold text-red-700">DO NOT CONTACT</span>}
-                      <div className="mt-0.5 flex gap-3">
+                      <div className="mt-0.5 flex flex-wrap items-center gap-3">
                         <VerBadge state={p.linkedin_verified ? 'verified' : 'missing'} label={p.linkedin_verified ? 'LinkedIn ✓' : 'LinkedIn ?'} />
                         <VerBadge state={p.bounce_count > 0 ? 'bounced' : p.email_verified ? 'verified' : p.email_guess ? 'guessed' : 'missing'}
                           label={p.bounce_count > 0 ? `Email bounced ×${p.bounce_count}` : p.email_verified ? 'Email ✓' : p.email_guess ? 'Email guessed' : 'No email'} />
                         {p.hook_status !== 'researched' && <span className="text-xs text-gray-400">no researched hook</span>}
+                        {/* Prompt 893 §E — "Prepare meeting →" per person, in
+                            both dossier surfaces; "LinkedIn ↗" alongside it
+                            when a URL is on file. */}
+                        {p.linkedin_url && !p.do_not_contact && (
+                          <a href={p.linkedin_url} target="_blank" rel="noreferrer" className="text-xs text-[#0E7490] hover:underline">LinkedIn ↗</a>
+                        )}
+                        {!p.do_not_contact && (
+                          <Link href={`/people/${p.id}/prep`} className="text-xs text-cyan-700 hover:underline">Prepare meeting →</Link>
+                        )}
                       </div>
                     </div>
                     <span title={s.green ? 'Pre-flight green' : 'Pre-flight failing'} className={s.green ? 'text-green-600' : 'text-[#B00000]'}>●</span>
@@ -967,63 +953,19 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      {activeSection === 'approach' && (
+      {/* Prompt 893 §A — the unified "Conversation" tab: First contact/Last
+          touch, an optional meeting-prep nudge, the History/+Log/Messages
+          segmented rail (unchanged internals — RecentInteractions/
+          RailLogForm/MessageThreadCore, only the surrounding layout moved),
+          "Committed by this investor", and the §H extension point for
+          Prompt 894's "Terms on the table" (not implemented here). "Our
+          angle"/"The ask" (now "How we pitch this firm"/"What we ask for
+          first") and "Prepare form answers" no longer have a standalone
+          card here — they live inside RailLogForm's own guided
+          first-contact card and composer area (PitchAndAskFields.tsx),
+          shown right where a founder is actually about to write. */}
+      {activeSection === 'conversation' && (
         <div className="space-y-4">
-          <Card title="Approach" tint="blue">
-            <dl className="space-y-2 text-sm">
-              <div><dt className="text-xs text-gray-500">Our angle</dt><dd>{entity.our_angle ?? '—'}</dd></div>
-              <div><dt className="text-xs text-gray-500">The ask (one, small)</dt><dd className="font-medium">{entity.the_ask ?? '—'}</dd></div>
-              {entity.submission_channel && (
-                <div><dt className="text-xs text-gray-500">Official channel — use first</dt>
-                  <dd className="font-mono text-xs">
-                    {entity.submission_channel_type === 'form' ? (
-                      <a href={entity.submission_channel} target="_blank" rel="noopener noreferrer" className="text-[#0E7490] hover:underline">
-                        {entity.submission_channel}
-                      </a>
-                    ) : entity.submission_channel}
-                  </dd>
-                  {entity.submission_channel_type === 'form' && (
-                    <button onClick={() => setShowFormAssist(true)}
-                      className="mt-1.5 rounded-lg border border-cyan-200 px-2.5 py-1 text-xs font-medium text-cyan-800 hover:bg-cyan-50">
-                      ✨ Prepare form answers
-                    </button>
-                  )}
-                </div>
-              )}
-              {/* Prompt 396 §6 — this used to be its own "Round" card;
-                  nobody understood the name ("ninguém entende", direct
-                  feedback). It's the one thing it always was: the € THIS
-                  investor soft-circled/committed, feeding the round's
-                  progress on the dashboard — folded into Approach, with a
-                  label that says that plainly. Same field, same Save,
-                  same "Current: X" — only the home and the name changed. */}
-              <div>
-                <dt className="flex items-center gap-1 text-xs text-gray-500">
-                  Committed by this investor
-                  <TermHint text="The amount THIS investor soft-circled or committed. It counts toward your round's progress on the dashboard." />
-                </dt>
-                <dd className="mt-1">
-                  <div className="flex gap-2">
-                    <input value={interest || (entity.interest_eur ?? '')} onChange={(e) => setInterestLocal(e.target.value)}
-                      placeholder="e.g. 250000" className="w-28 rounded border border-gray-300 px-2 py-1 text-sm" />
-                    <button onClick={() => setInterest(entity.id, interest ? Number(interest) : undefined)}
-                      className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50">Save</button>
-                  </div>
-                  <div className="mt-1 text-xs text-gray-400">Current: {fmtEur(entity.interest_eur)}</div>
-                </dd>
-              </div>
-            </dl>
-          </Card>
-          {showFormAssist && <FormAssistModal db={db} entityId={entity.id} onClose={() => setShowFormAssist(false)} />}
-          <TicketSignalCard orgId={db.org.id} people={people} />
-        </div>
-      )}
-        </div>
-
-        {/* Prompt 397 §B.1 — the conversation panel: two mini cards (data
-            from relationshipSummary, already computed above) + the
-            History/Log/Message segmented card. */}
-        <div className="space-y-3 lg:sticky lg:top-4 lg:self-start">
           <div className="flex gap-3">
             <div className="min-w-0 flex-1 rounded-2xl bg-white px-4 py-3 shadow-[0_4px_20px_rgba(15,23,42,0.06)]">
               <div className="text-[11.5px] text-gray-500">First contact</div>
@@ -1037,6 +979,12 @@ export default function EntityPage({ params }: { params: { id: string } }) {
                 {relSummary.daysSinceLastTouch != null ? `${relSummary.daysSinceLastTouch}d ago` : ' '}
               </div>
             </div>
+          </div>
+
+          <MeetingPrepNudge entityId={entity.id} />
+
+          <div className="rounded-2xl bg-white px-4 py-3 shadow-[0_4px_20px_rgba(15,23,42,0.06)]">
+            <CommittedAmountField entity={entity} />
           </div>
 
           <div ref={railPanelRef}
@@ -1121,7 +1069,14 @@ export default function EntityPage({ params }: { params: { id: string } }) {
               )}
             </div>
           </div>
+
+          <TicketSignalCard orgId={db.org.id} people={people} />
+
+          {/* Prompt 893 §H — explicit extension point for Prompt 894
+              ("condições negociais") only; no deal-terms logic here. */}
+          <TermsOnTheTablePlaceholder />
         </div>
+      )}
       </div>
 
       <ThreadDrawer entity={entity} open={drawerOpen} onClose={() => setDrawerOpen(false)}

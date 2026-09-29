@@ -90,8 +90,24 @@ export async function POST(req: Request) {
     // §C.2 — "they {hookLine}." pre-written on the entity's own angle field,
     // ready for the founder's first message — they still write and send it
     // themselves via the normal compose flow.
-    our_angle: `They ${hookLine}.`,
-    fit_score: 'medium', wave: 2, submission_channel_type: 'unknown', hard_filter_status: 'not_applicable',
+    //
+    // Prompt 893 §D — tagged 'sherlock' (migration 20260929190000): this is
+    // the one automated writer of our_angle in the whole app, and the
+    // dossier now shows "Suggested by Sherlock — edit or keep" whenever
+    // this tag is set (PitchAndAskFields.tsx). Flips to 'founder' the
+    // instant the founder edits it themselves.
+    our_angle: `They ${hookLine}.`, our_angle_source: 'sherlock',
+    // Prompt 893 §F.3 — this used to hardcode 'medium' regardless of
+    // whether the catalog row actually has a thesis or sectors to justify
+    // it, which is exactly the "fit sem tese não é Medium" problem the
+    // audit for this prompt went looking for (a related, independently
+    // confirmed instance, not the literal Insight Venture case — see the
+    // delivery report). Now only asserts 'medium' when there is SOME real
+    // signal (a thesis or at least one sector) to base it on; otherwise
+    // left unset, matching effectiveFitLabel's own "Fit unknown — thesis
+    // missing" rule (entity-fit-label.ts).
+    fit_score: (c.thesis || (Array.isArray(c.sectors) && c.sectors.length > 0)) ? 'medium' : null,
+    wave: 2, submission_channel_type: 'unknown', hard_filter_status: 'not_applicable',
     status: 'not_contacted', source: 'catalog', created_at: now, updated_at: now,
   }).select('id').single();
   if (entityError) return NextResponse.json({ ok: false, error: entityError.message }, { status: 500 });

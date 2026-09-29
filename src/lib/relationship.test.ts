@@ -315,19 +315,47 @@ describe('recommendChannel — Prompt 728 §4: LinkedIn keeps its own caveat eve
   it('email verified (and no LinkedIn) → Email, no confirmation caveat', () => {
     const person = makePerson({ id: 'p-1', entity_id: 'ent-1', full_name: 'X', seniority_rank: 1, email_verified: 'x@example.com' });
     const rec = recommendChannel(person, entityNoChannel);
-    expect(rec).toEqual({ value: 'email', label: 'Email', needsConfirmation: false });
+    expect(rec).toEqual({ value: 'email', label: 'Email', needsConfirmation: false, reason: 'Verified email on file for this person.' });
   });
 
   it('no verified LinkedIn/email but a submission form on file → the institutional channel, no meeting request implied', () => {
     const entity = makeEntity({ id: 'ent-2', submission_channel: 'https://vc.example.com/apply', submission_channel_type: 'form' });
     const rec = recommendChannel(undefined, entity);
-    expect(rec).toEqual({ value: 'web_form', label: 'Submission form', needsConfirmation: false });
+    expect(rec).toEqual({
+      value: 'web_form', label: 'Submission form', needsConfirmation: false,
+      reason: 'No verified contact — the firm accepts submissions at https://vc.example.com/apply.',
+    });
   });
 
   it('nothing known at all → an honest "confirm" fallback, never a default meeting request', () => {
     const rec = recommendChannel(undefined, entityNoChannel);
     expect(rec.value).toBeNull();
     expect(rec.needsConfirmation).toBe(true);
+  });
+
+  // Prompt 893 §B — the guided first-contact card's channel select is
+  // initialized straight from `.reason` (RailLogForm.tsx), so each branch's
+  // exact wording is a contract, not incidental copy — these three strings
+  // are the ones the spec itself names.
+  describe('Prompt 893 §B — .reason is the exact line the guided card shows under the channel pick', () => {
+    it('LinkedIn verified → "LinkedIn verified for this person."', () => {
+      const person = makePerson({ id: 'p-1', entity_id: 'ent-1', full_name: 'X', seniority_rank: 1, linkedin_verified: true, linkedin_url: 'https://linkedin.com/in/x' });
+      expect(recommendChannel(person, entityNoChannel).reason).toBe('LinkedIn verified for this person.');
+    });
+
+    it('no verified person contact, institutional form on file → names the form', () => {
+      const entity = makeEntity({ id: 'ent-2', submission_channel: 'https://vc.example.com/apply', submission_channel_type: 'form' });
+      expect(recommendChannel(undefined, entity).reason).toBe('No verified contact — the firm accepts submissions at https://vc.example.com/apply.');
+    });
+
+    it('no verified person contact, institutional email on file → names the email', () => {
+      const entity = makeEntity({ id: 'ent-3', submission_channel: 'hello@vc.example.com', submission_channel_type: 'email' });
+      expect(recommendChannel(undefined, entity).reason).toBe('No verified contact — the firm accepts submissions at hello@vc.example.com.');
+    });
+
+    it('nothing known at all → tells the founder what to go find', () => {
+      expect(recommendChannel(undefined, entityNoChannel).reason).toBe("Nothing verified yet: find the person's LinkedIn or the firm's contact email first.");
+    });
   });
 });
 

@@ -10,6 +10,7 @@ import { Card, EntityLink, PersonLink, fmtRoundEur } from '@/components/ui';
 import { outboundCounts } from '@/lib/rules';
 import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL, followUpTaskDisplayTitle } from '@/lib/relationship';
 import { FIT_ORDER, liveOverdueEntities } from '@/lib/sherlock-next';
+import { conversationDeepLink } from '@/lib/conversation-deep-link';
 import { PageTour } from '@/components/onboarding/PageTour';
 import {
   useInterestRequests, interestRequestConsequence,
@@ -192,15 +193,16 @@ export function TodayPanel() {
                   // Prompt 414 §2.2 — no task exists for this one, so there's
                   // nothing to check off; text comes straight from
                   // nextBestAction (recomputed every render, never frozen)
-                  // and Reply now uses the exact same ?rail=log&person=
-                  // deep-link sherlock-next.ts's own step 3 already builds.
+                  // and Reply now uses the same Conversation deep-link
+                  // sherlock-next.ts's own step 3 already builds (Prompt
+                  // 893 §A: ?tab=conversation&mode=log&person=).
                   return (
                     <li key={`live:${entry.entityId}`} className="py-2 text-sm">
                       <div className="flex items-center gap-3">
                         <span className="flex-1">{entry.text}
                           {' — '}<EntityLink id={entry.entityId}>{db.entities.find((e) => e.id === entry.entityId)?.name}</EntityLink>
                         </span>
-                        <Link href={`/entities/${entry.entityId}?rail=log&person=${entry.personId}`}
+                        <Link href={conversationDeepLink(entry.entityId, 'log', { person: entry.personId })}
                           className="shrink-0 rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white">
                           Reply now
                         </Link>

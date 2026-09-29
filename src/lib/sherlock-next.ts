@@ -21,6 +21,7 @@ import { passReasonAlert } from './rules';
 import { vaultStrength } from './vault-strength';
 import { chooseFirstMessageTarget, type FirstMessageCandidate } from './first-message-target';
 import { deriveSubmissionChannelType } from './catalog-delivery-mapping';
+import { conversationDeepLink } from './conversation-deep-link';
 
 export type SherlockNextKind =
   | 'interest_request' | 'cap_table_request' | 'unclassified_reply' | 'follow_up_overdue' | 'task_due_today'
@@ -47,8 +48,10 @@ export interface SherlockNextStep {
   taskId?: string;
   interactionId?: string;
   // Where clicking the button navigates — already carries whatever
-  // deep-link params the target panel/page needs (§A.3: ?rail=log&person=,
-  // ?rail=history&classify=1).
+  // deep-link params the target panel/page needs (Prompt 893 §A:
+  // ?tab=conversation&mode=log&person=, ?tab=conversation&mode=history&
+  // classify=1 — see conversation-deep-link.ts; the older ?rail=log/
+  // ?rail=history form still works too, via a 30-day alias).
   target: string;
 }
 
@@ -188,7 +191,9 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     return {
       kind: 'unclassified_reply', label: `Next: classify the reply from ${entity?.name ?? 'an investor'}`,
       entityId: i.entity_id, interactionId: i.id,
-      target: `/entities/${i.entity_id}?rail=history&classify=1&focus=unclassified_reply`,
+      // Prompt 893 §A — new deep-link form; ?rail=history&classify=1 still
+      // opens the same place (30-day alias, entities/[id]/page.tsx).
+      target: `${conversationDeepLink(i.entity_id, 'history', { classify: 1 })}&focus=unclassified_reply`,
     };
   }
 
@@ -227,7 +232,7 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     return {
       kind: 'follow_up_overdue', label: `Next: reply to ${person?.full_name ?? 'a contact'}`,
       entityId: mostOverdue.entityId, personId: mostOverdue.personId,
-      target: `/entities/${mostOverdue.entityId}?rail=log&person=${mostOverdue.personId}&focus=follow_up_overdue`,
+      target: `${conversationDeepLink(mostOverdue.entityId, 'log', { person: mostOverdue.personId })}&focus=follow_up_overdue`,
     };
   }
 
@@ -342,7 +347,7 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     if (entity) {
       return {
         kind: 'ready_to_contact', label: `Next: reach out to ${person.full_name}`,
-        entityId: entity.id, personId: person.id, target: `/entities/${entity.id}?rail=log&person=${person.id}`,
+        entityId: entity.id, personId: person.id, target: conversationDeepLink(entity.id, 'log', { person: person.id }),
       };
     }
   }

@@ -16,12 +16,16 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Tooltip, PREFLIGHT_EXPLAIN } from '@/components/ui';
 import { lintMessage, preflight, preflightSummary } from '@/lib/rules';
-import { nextContactPerson, PASS_REASON_CATEGORIES, suggestNextAction, type NextActionSuggestion } from '@/lib/relationship';
+import { nextContactPerson, recommendChannel, PASS_REASON_CATEGORIES, suggestNextAction, type NextActionSuggestion } from '@/lib/relationship';
 import { buildComposerContext, pickIntent, INTENT_LABEL, type ComposerIntent } from '@/lib/composer';
 import { evaluateProvenanceGate, type ComposerClaim } from '@/lib/company-canon-logic';
+import { channelOutcomes, channelOutcomesSummary } from '@/lib/channel-learning';
 import { AI_COMPOSER_LOCKED_COPY } from '@/lib/plans';
 import { authEnabled } from '@/lib/supabase';
 import { uploadAndVerifyFile } from '@/lib/vault-upload-client';
+import { FirstContactGuideCard } from '@/components/dossier/FirstContactGuideCard';
+import { PitchAndAskFields } from '@/components/dossier/PitchAndAskFields';
+import { FormAssistModal } from '@/components/FormAssistModal';
 import type { Channel, Classification, DocumentItem, Entity, Folder, OverrideRule, PassReasonCategory } from '@/lib/types';
 
 // Mirrors src/app/log/page.tsx's own CHANNELS/CLASSIFICATIONS — display
@@ -49,8 +53,9 @@ export function RailLogForm({
   // Prompt 400 §B.2 — the document-request review page's "Log this request
   // as an interaction" link (Prompt 372 Block D) used to pre-fill /log's
   // direction/date/content directly via query params; carried through the
-  // same way now (?rail=log&direction=in&date=&content= on the entity
-  // page). Separate from defaultPersonId/prefillNonce on purpose: this
+  // same way now (Prompt 893 §A: ?tab=conversation&mode=log&direction=in&
+  // date=&content= on the entity page). Separate from defaultPersonId/
+  // prefillNonce on purpose: this
   // doesn't drive the §D.1 "Pre-filled from Sherlock's insight" shimmer,
   // which is specifically about the Insight banner's own suggestions.
   defaultDraft?: { direction?: 'out' | 'in'; date?: string; content?: string };
@@ -65,14 +70,22 @@ export function RailLogForm({
   channelNonce?: number;
   onSaved: () => void;
 }) {
-  const { db, logInteraction, addDocument, addGrant, addCompanyFact, addTask } = useStore();
+  const { db, logInteraction, addDocument, addGrant, addCompanyFact, addTask, updateEntity } = useStore();
   const people = db.people.filter((p) => p.entity_id === entity.id).sort((a, b) => a.seniority_rank - b.seniority_rank);
 
   const [personId, setPersonId] = useState('');
   const [prefilledPersonId, setPrefilledPersonId] = useState<string | null>(null);
   const [noSpecificPerson, setNoSpecificPerson] = useState(false);
   const [direction, setDirection] = useState<'out' | 'in'>('out');
-  const [channel, setChannel] = useState<Channel>('linkedin_dm');
+  // Prompt 893 §B — '' is a real, distinct state now: "Channel to confirm"
+  // (recommendChannel's own null case) leaves the select empty rather than
+  // silently defaulting to LinkedIn DM (the exact bug the spec names —
+  // this used to be a hardcoded 'linkedin_dm' regardless of what was
+  // actually verified for the person). Watson is disabled while empty (see
+  // the composer block below); save() never persists '' (falls back to
+  // 'email' defensively — see its own comment).
+  const [channel, setChannel] = useState<Channel | ''>('linkedin_dm');
+  const [showFormAssist, setShowFormAssist] = useState(false);
   const [whatDate, setWhatDate] = useState('');
   const [content, setContent] = useState('');
   const [classification, setClassification] = useState<Classification | ''>('');
@@ -247,6 +260,10 @@ export function RailLogForm({
 
   async function draftWithAi() {
     if (!person && !noSpecificPerson) return;
+    // Prompt 893 §B — Watson stays disabled until a real channel is
+    // chosen (see the button's own `disabled` below); this is the
+    // corresponding guard on the function itself, not just the button.
+    if (!channel) return;
     setComposing(true); setComposerNote(''); setComposerMeta(null); setPendingQuestions([]);
     try {
       const context = buildComposerContext(db, entity.id, personId, channel);
@@ -373,6 +390,39 @@ export function RailLogForm({
 
   const person = people.find((p) => p.id === personId);
 
+  // Prompt 893 §B — "the selected person has never been contacted". Scoped
+  // to OUTBOUND only: logging a historical INBOUND reply for a person with
+  // no prior outbound (a cold inbound, e.g. an unsolicited submission) is
+  // not "my first contact with them" in the sense this guide is about.
+  const neverContactedSelection = direction === 'out' && (
+    person ? !db.interactions.some((i) => i.entity_id === entity.id && i.person_id === person.id)
+      : noSpecificPerson ? !db.interactions.some((i) => i.entity_id === entity.id && i.direction === 'out')
+        : false
+  );
+
+  // Prompt 893 §B — initializes the channel select from the shared
+  // recommendation the moment this becomes a genuine first-contact
+  // scenario, replacing the old hardcoded 'linkedin_dm' default. An
+  // explicit external prefill (defaultChannel, Prompt 884's own effect
+  // above) always wins — checked by reading the prop directly rather than
+  // depending on it, so a defaultChannel that arrives AFTER this effect
+  // already ran doesn't get silently overwritten on some later re-render
+  // this effect doesn't re-fire for anyway (deps are personId/
+  // noSpecificPerson only, on purpose — this must not fight the founder's
+  // own manual channel pick on every render).
+  useEffect(() => {
+    if (defaultChannel) return;
+    if (!neverContactedSelection) return;
+    setChannel(recommendChannel(person, entity).value ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personId, noSpecificPerson]);
+
+  const channelRec = useMemo(() => recommendChannel(person, entity), [person, entity]);
+  // Fase 1 (measure only) — org-wide, no entityType/seniority slice yet;
+  // see channel-learning.ts's own header for why Fase 2's tie-break logic
+  // is deliberately not built here.
+  const outcomesSummary = useMemo(() => channelOutcomesSummary(channelOutcomes(db)), [db]);
+
   // Prompt 578 §B.3 — grows with the content instead of a fixed 5 rows (a
   // 20-line AI/prefilled draft used to show only 6 of its own lines, with no
   // cue more was hiding below). Caps at ~24 so one huge paste can't push the
@@ -381,11 +431,11 @@ export function RailLogForm({
   const textareaRows = Math.min(24, Math.max(5, content.split('\n').length + 1));
 
   const checks = useMemo(() =>
-    person && direction === 'out' ? preflight(db, person, channel) : [],
+    person && direction === 'out' ? preflight(db, person, channel || null) : [],
     [db, person, channel, direction]);
   const summary = preflightSummary(checks);
   const lint = useMemo(() =>
-    person && direction === 'out' && content ? lintMessage(content, person, entity, channel) : [],
+    person && direction === 'out' && content && channel ? lintMessage(content, person, entity, channel) : [],
     [content, person, entity, channel, direction]);
   const lintErrors = lint.filter((f) => f.severity === 'error');
 
@@ -393,9 +443,16 @@ export function RailLogForm({
   const classificationMissing = direction === 'in' && classification === '';
   const reopenTrigger = entity.status === 'dormant' ? entity.reopen_trigger : undefined;
   const reopenBlocked = direction === 'out' && !!reopenTrigger && !reopenAck;
-  const formReady = content.trim().length > 0 && (direction === 'in' || !!person || noSpecificPerson) && !passMissing && !classificationMissing && !reopenBlocked;
+  // Prompt 893 §B — an unresolved "Channel to confirm" blocks Save for an
+  // OUTBOUND log, same discipline as requiring a person: the founder must
+  // pick a real channel before this can be sent, never silently fall back
+  // to whatever the select happened to default to.
+  const channelMissing = direction === 'out' && channel === '';
+  const formReady = content.trim().length > 0 && (direction === 'in' || !!person || noSpecificPerson)
+    && !passMissing && !classificationMissing && !reopenBlocked && !channelMissing;
   const disabledReason = content.trim().length === 0 ? 'Write the message content.'
     : direction === 'out' && !person && !noSpecificPerson ? 'Select a person, or choose "No specific person" if this was sent to a general channel.'
+    : channelMissing ? 'Choose a channel first — nothing verified yet.'
     : classificationMissing ? 'Choose what they said — it decides the stage.'
     : passMissing ? 'A pass reason is required.'
     : reopenBlocked ? 'Confirm the reopening checkbox above.'
@@ -415,8 +472,15 @@ export function RailLogForm({
     // §B.1.1 — same fullContent fold as /log: an AI-drafted (or manually
     // typed) email subject is never dropped on the floor.
     const fullContent = channel === 'email' && subject ? `Subject: ${subject}\n\n${content}` : content;
+    // Prompt 893 §B — channelMissing already blocks formReady for an
+    // OUTBOUND save with no channel chosen, so this only ever falls back
+    // for an INBOUND log where the select was left at '' (never surfaced
+    // to the founder as a choice for 'in' — see the guide card, outbound
+    // only) — 'email' is the same generic fallback Channel already used
+    // for a "no specific person" institutional reply elsewhere.
+    const effectiveChannel: Channel = channel || 'email';
     const interaction = logInteraction({
-      entity_id: entity.id, person_id: personId || undefined, direction, channel, content: fullContent,
+      entity_id: entity.id, person_id: personId || undefined, direction, channel: effectiveChannel, content: fullContent,
       occurred_at: whatDate ? new Date(whatDate).toISOString() : undefined,
       sent_from: direction === 'out' && channel === 'email' ? (sentFrom ?? db.org.sender_email) : undefined,
       classification: direction === 'in' ? (classification as Classification) : direction === 'out' ? 'awaiting' : undefined,
@@ -442,7 +506,7 @@ export function RailLogForm({
     // `web_form` reads it today; passing it unconditionally means a future
     // channel that needs a person does not have to re-wire this call site.
     const suggestion = suggestNextAction(
-      direction, channel, direction === 'in' ? (classification as Classification) : undefined, interaction.occurred_at,
+      direction, effectiveChannel, direction === 'in' ? (classification as Classification) : undefined, interaction.occurred_at,
       { entityName: entity?.name, followUpPersonName: entity ? (nextContactPerson(db, entity.id)?.full_name ?? null) : null },
     );
     if (suggestion) {
@@ -476,6 +540,19 @@ export function RailLogForm({
 
   return (
     <div className="space-y-3">
+      {/* Prompt 893 §B — "no topo do +Log": a step-by-step guide shown only
+          while this is a genuine first contact for the current selection.
+          Purely informational — the actual Person/Channel controls below
+          are unchanged and still the real inputs. */}
+      {neverContactedSelection && (person || noSpecificPerson) && (
+        <FirstContactGuideCard
+          person={person} noSpecificPerson={noSpecificPerson}
+          personDone={!!person || noSpecificPerson} channel={channelRec} channelDone={!!channel}
+          messageDone={content.trim().length > 0} outcomesSummary={outcomesSummary}
+          showFormAssist={entity.submission_channel_type === 'form' && !!entity.submission_channel}
+          onPrepareFormAnswers={() => setShowFormAssist(true)}
+        />
+      )}
       <div>
         <label className="text-[10.5px] font-semibold uppercase tracking-wide text-gray-400">Person</label>
         <select value={noSpecificPerson ? '__none__' : personId}
@@ -503,14 +580,30 @@ export function RailLogForm({
             </button>
           ))}
         </div>
-        <select value={channel} onChange={(e) => setChannel(e.target.value as Channel)}
-          className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-xs">
+        <select value={channel} onChange={(e) => setChannel(e.target.value as Channel | '')}
+          className={`flex-1 rounded border px-2 py-1.5 text-xs ${channel === '' ? 'border-amber-400 bg-amber-50' : 'border-gray-300'}`}>
+          {/* Prompt 893 §B — only ever selected when recommendChannel found
+              nothing verified; picking it back manually is still possible
+              (the founder decided something the recommender couldn't see). */}
+          <option value="">Channel to confirm — choose one</option>
           {CHANNELS.map((c) => <option key={c.v} value={c.v}>{c.l}</option>)}
         </select>
       </div>
       <input type="date" value={whatDate} onChange={(e) => setWhatDate(e.target.value)}
         title="When this happened — defaults to now if left blank"
         className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs" />
+
+      {/* Prompt 893 §B/§D — "How we pitch this firm" / "What we ask for
+          first", editable, right above Let Watson Draft: "Watson uses
+          these two when drafting." Same position for both the guided
+          first-contact case and any later outbound log — these two fields
+          are always what Watson reads, not only during first contact. */}
+      {direction === 'out' && (person || noSpecificPerson) && (
+        <div className="rounded-lg border border-gray-200 bg-gray-50/60 p-2.5">
+          <PitchAndAskFields entity={entity} onSave={(patch) => updateEntity(entity.id, patch)} />
+          <p className="mt-1.5 text-[10.5px] text-gray-400">Watson uses these two when drafting.</p>
+        </div>
+      )}
 
       {/* §B.1.1 — same order as /log's own "2 · What" card: intent +
           Draft with AI, then composerNote / pendingQuestions / composerMeta
@@ -527,10 +620,12 @@ export function RailLogForm({
               className="rounded border border-gray-300 px-1.5 py-1 text-[11px]">
               {(Object.keys(INTENT_LABEL) as ComposerIntent[]).map((i) => <option key={i} value={i}>{INTENT_LABEL[i]}</option>)}
             </select>
-            <Tooltip text={person
-              ? "Generates a draft using this person's hook and the entity's context — never sent automatically."
-              : "Generates a draft addressed to the firm generally, using the entity's context — never sent automatically."}>
-              <button disabled={composing} onClick={draftWithAi}
+            <Tooltip text={!channel
+              ? 'Choose a channel above first — Watson tailors the draft to it (length, tone, whether an ask belongs in message one).'
+              : person
+                ? "Generates a draft using this person's hook and the entity's context — never sent automatically."
+                : "Generates a draft addressed to the firm generally, using the entity's context — never sent automatically."}>
+              <button disabled={composing || !channel} onClick={draftWithAi}
                 className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-[11px] font-medium text-white disabled:opacity-40">
                 {composing ? 'Drafting…' : '✨ Let Watson Draft'}
               </button>
@@ -856,6 +951,10 @@ export function RailLogForm({
           {!formReady && disabledReason && <p className="mt-1 text-[11px] text-gray-400">{disabledReason}</p>}
         </div>
       )}
+      {/* Prompt 893 §B — "Prepare form answers" moved here (out of the old
+          Approach tab, removed by this same prompt) so it lives next to the
+          channel it's actually about, in both dossier surfaces. */}
+      {showFormAssist && <FormAssistModal db={db} entityId={entity.id} onClose={() => setShowFormAssist(false)} />}
     </div>
   );
 }

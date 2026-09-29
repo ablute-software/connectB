@@ -7,6 +7,7 @@ import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { uploadAndVerifyFile } from '@/lib/vault-upload-client';
 import { LoadingState } from '@/components/workspace-shell/LoadingState';
+import { conversationDeepLink } from '@/lib/conversation-deep-link';
 import type { DocVisibility } from '@/lib/types';
 
 interface Item {
@@ -49,10 +50,12 @@ export default function DocumentRequestReviewPage({ params }: { params: { id: st
   if (!request) return <LoadingState text="Loading…" compact />;
 
   const requestText = `Document request: ${request.items.map((i) => i.label).join(', ')}.${request.message ? ` "${request.message}"` : ''}`;
-  // Prompt 400 §B.2 — points at the entity dossier's own Log panel directly
-  // (rail=log), not /log (now a legacy redirect for old bookmarks/links).
+  // Prompt 400 §B.2 — points at the entity dossier's own Conversation tab,
+  // + Log segment, directly (Prompt 893 §A: ?tab=conversation&mode=log,
+  // not the old ?rail=log), not /log (a legacy redirect for old
+  // bookmarks/links).
   const logHref = request.entityId
-    ? `/entities/${request.entityId}?rail=log&direction=in&date=${new Date().toISOString().slice(0, 10)}&content=${encodeURIComponent(requestText)}`
+    ? conversationDeepLink(request.entityId, 'log', { direction: 'in', date: new Date().toISOString().slice(0, 10), content: requestText })
     : null;
 
   return (

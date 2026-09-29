@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { Card, EntityLink } from '@/components/ui';
 import { useStore } from '@/lib/store';
 import { followUpTaskDisplayTitle, ACTION_TYPE_COLOR, ACTION_TYPE_LABEL } from '@/lib/relationship';
+import { conversationDeepLink } from '@/lib/conversation-deep-link';
 import type { Db, TaskItem } from '@/lib/types';
 
 function lastOutreachDate(db: Db, t: TaskItem): string | undefined {
@@ -52,7 +53,7 @@ export function FollowUpCard({ tasks, now }: { tasks: TaskItem[]; now: Date }) {
                     </span>
                     {t.due_at && <span className="shrink-0 text-xs text-gray-400">{t.due_at.slice(0, 10)}</span>}
                     {t.entity_id && (
-                      <Link href={`/entities/${t.entity_id}?rail=log&person=${t.person_id ?? ''}`}
+                      <Link href={conversationDeepLink(t.entity_id, 'log', { person: t.person_id })}
                         className="shrink-0 rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white">
                         Reply now
                       </Link>

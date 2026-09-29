@@ -181,7 +181,10 @@ describe('sherlockNext — priority ladder', () => {
     const step = sherlockNext(db, NOW);
     expect(step.kind).toBe('unclassified_reply');
     expect(step.entityId).toBe('ent-a');
-    expect(step.target).toBe('/entities/ent-a?rail=history&classify=1&focus=unclassified_reply');
+    // Prompt 893 §A — new deep-link form (?tab=conversation&mode=…), not
+    // the old ?rail=. The old form is a separate alias test in
+    // conversation-deep-link.test.ts, not re-asserted per call site here.
+    expect(step.target).toBe('/entities/ent-a?tab=conversation&mode=history&classify=1&focus=unclassified_reply');
   });
 
   it("2b: an inbound reply already classified 'awaiting' still counts as unclassified", () => {
@@ -222,7 +225,8 @@ describe('sherlockNext — priority ladder', () => {
     expect(step.kind).toBe('follow_up_overdue');
     expect(step.entityId).toBe('ent-a');
     expect(step.personId).toBe('p-1');
-    expect(step.target).toBe('/entities/ent-a?rail=log&person=p-1&focus=follow_up_overdue');
+    // Prompt 893 §A — new deep-link form.
+    expect(step.target).toBe('/entities/ent-a?tab=conversation&mode=log&person=p-1&focus=follow_up_overdue');
   });
 
   it('4b: ties on days-overdue break by lower wave, then better fit', () => {
@@ -360,6 +364,9 @@ describe('sherlockNext — priority ladder', () => {
     expect(step.kind).toBe('ready_to_contact');
     expect(step.entityId).toBe('ent-a');
     expect(step.personId).toBe('p-1');
+    // Prompt 893 §A — new deep-link form (conversationDeepLink), not the
+    // old bare ?rail=log.
+    expect(step.target).toBe('/entities/ent-a?tab=conversation&mode=log&person=p-1');
   });
 
   it('10b: caps reached blocks step 10 even with a ready contact available', () => {

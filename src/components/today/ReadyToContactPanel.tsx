@@ -12,6 +12,7 @@ import { useStore } from '@/lib/store';
 import { Card, PersonLink, WaveTag } from '@/components/ui';
 import { readyToContact } from '@/lib/ready-to-contact';
 import { recommendedActionType } from '@/lib/relationship';
+import { conversationDeepLink } from '@/lib/conversation-deep-link';
 import { ActionTypePill } from './TodayPanel';
 
 // Prompt 400 §A.1 — the computation itself now lives in ready-to-contact.ts
@@ -43,7 +44,7 @@ export function ReadyToContactPanel() {
                   <ActionTypePill type={recommendedActionType(db, e.id, p.id)} />
                   <PersonLink id={p.id}><span className="font-medium">{p.full_name}</span></PersonLink>
                   <span className="text-gray-500">· {e.name}</span>
-                  <Link href={`/entities/${e.id}?rail=log&person=${p.id}`}
+                  <Link href={conversationDeepLink(e.id, 'log', { person: p.id })}
                     className="ml-auto rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white">Open draft flow</Link>
                 </div>
                 {p.hook && <div className="mt-0.5 text-xs text-gray-500">{p.hook}</div>}

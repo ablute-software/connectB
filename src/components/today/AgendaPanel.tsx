@@ -26,6 +26,7 @@ const TASK_KIND_OPTIONS: { value: TaskKind; label: string }[] = [
 ];
 import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL, ACTION_TYPES, followUpTaskDisplayTitle } from '@/lib/relationship';
 import { REMINDER_OPTIONS } from '@/lib/reminders';
+import { conversationDeepLink } from '@/lib/conversation-deep-link';
 
 function toICS(tasks: TaskItem[], now: Date) {
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//ablute_ IRM//EN'];
@@ -302,7 +303,7 @@ export function AgendaPanel() {
                   TaskItem — there is no document_id field to prefill from,
                   so that part of the request doesn't apply here. */}
               {selected.entity_id && (
-                <Link href={`/entities/${selected.entity_id}?rail=log${selected.person_id ? `&person=${selected.person_id}` : ''}`}
+                <Link href={conversationDeepLink(selected.entity_id, 'log', { person: selected.person_id })}
                   className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#0c637b]">
                   Log interaction
                 </Link>

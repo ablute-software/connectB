@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { useParkEntity } from '@/lib/use-park-entity';
 import { Card, Tooltip } from '@/components/ui';
+import { conversationDeepLink } from '@/lib/conversation-deep-link';
 import type { FitScore } from '@/lib/types';
 
 const FITS: FitScore[] = ['high', 'medium_high', 'medium', 'low'];
@@ -137,7 +138,7 @@ export function ReawakeningQueue() {
                     the part that's really theirs — review and send. */}
                 {p.advice && (
                   p.advice.personId ? (
-                    <Link href={`/entities/${p.entity_id}?rail=log&person=${p.advice.personId}`}
+                    <Link href={conversationDeepLink(p.entity_id, 'log', { person: p.advice.personId })}
                       className="rounded-lg bg-[#0f5132] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c4028]">
                       Draft this message
                     </Link>

@@ -388,6 +388,16 @@ export interface Entity {
   fit_score?: FitScore;
   wave?: number;
   our_angle?: string;
+  // Prompt 893 §D — who wrote `our_angle`. Set to 'sherlock' only by the
+  // one automated writer of this field (the market-data bridge's
+  // add-target route, which pre-fills a hook line); set to 'founder' the
+  // moment the founder edits it themselves (PitchAndAskFields.tsx), so a
+  // later Sherlock-authored value never silently reads as the founder's
+  // own words. Undefined for every row predating this migration (0001-era
+  // rows, and any founder-typed value before this column existed) — the
+  // dossier treats undefined the same as 'founder' (no provenance badge),
+  // never the same as 'sherlock'. Migration 20260929190000.
+  our_angle_source?: 'founder' | 'sherlock';
   the_ask?: string;
   submission_channel?: string;
   submission_channel_type: SubmissionChannelType;
