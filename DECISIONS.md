@@ -9139,3 +9139,19 @@ Verificação no browser não feita nesta sessão (disco demasiado apertado para
 **Decisão do Nuno sobre o §D, 29/09/2026: não se faz.** Mantém-se o Prompt 880 tal como está — o banner Sherlock Insight continua reservado exclusivamente para a próxima acção real com o investidor, nunca uma tarefa de configuração de dados. A entrada em `entities/[id]/page.tsx:905-909` fica intocada. A única entrada para o caso de zero contactos continua a ser directamente no separador Conversation (§A/§B acima), que já resolve o "beco sem saída" original sem depender do banner.
 
 **Merge:** `git push origin claude/log-team-selector-guide:main` (fast-forward confirmado, `ca685f7c..bb864cd1`), autorizado explicitamente por Nuno em 29/09/2026 junto com esta decisão sobre o §D. Verificação de deploy por buildId (antes/depois, com cache-busting) registada à parte, quando confirmada.
+
+---
+
+## 29/09/2026 — Prompt 897: o hook do catálogo deixa de ser copiado para `people`
+
+Branch `claude/897-hook-never-copied`, a partir de `origin/main` (`54aee3b7`, já com o 896). Regra do Nuno, citada tal como dada (04/09, reiterada 29/09/2026): **"o hook não é algo pré-feito colado ao perfil da pessoa; é criado de acordo com a startup, o momento e o motivo do contacto, servindo-se de todo o conhecimento que exista sobre aquela pessoa no seu dossier."**
+
+`ensureOrgPersonFromCatalog` (`src/lib/catalog-materialize.ts`, Prompt 728 §2 — o único sítio onde uma pessoa do catálogo se torna uma linha `people` real) deixa de copiar `hook`/`hook_status` do catálogo mesmo quando `hook_source` está presente: passa a `hook: null, hook_status: 'to_research'` incondicionalmente. Nome, cargo (`role`), `seniority_rank`, `linkedin_url`/`linkedin_verified` e `catalog_person_id` mantêm-se exactamente como antes — só o hook muda. A query a `catalog_people` deixou de pedir `hook_status, hook_source, catalog_people_research(hook)`, que ficaram sem uso nenhum — remoção, não código morto deixado para trás.
+
+Verificado que nenhum outro caminho precisa de correcção: `store-demo.tsx`'s própria versão de `ensureOrgPersonFromCatalog` (modo demo, sem o schema rico do catálogo) já nunca copiava hook nenhum — só existe para a interface do store compilar, comentário próprio já dizia isto. `store-supabase.tsx` só delega para a função da lib, sem lógica de hook própria. `addPerson`'s hook (Prompt 724 §2) é um caminho completamente separado — é o hook que o próprio founder escreve ao criar uma pessoa à mão (`QuickCreatePerson`), não um copiado do catálogo — fora do âmbito deste prompt, correctamente intocado.
+
+`catalog-materialize.test.ts`: o teste que antes esperava o hook copiado (`'materializes seniority_rank, title, linkedin, and the hook (with source) from the catalog'`) foi reescrito para já não afirmar isso; o teste que já verificava "nunca copia sem source" foi generalizado para "nunca copia, mesmo com source real" — a fixture `LURDES` mantém `hook_source`/`catalog_people_research` propositadamente, precisamente para provar que ter uma fonte real do lado do catálogo já não muda nada aqui. 6/6 testes deste ficheiro passam.
+
+**Verificação.** `tsc --noEmit` EXIT=0. `vitest run` (suite completa) EXIT=1, **4172 passed | 1 failed (4173)** — mesma falha de locale ICU pré-existente e não relacionada; os 6 testes do ficheiro tocado passam isolados. `eslint --no-eslintrc --config .eslintrc.json --ext .js,.jsx,.ts,.tsx src` EXIT=0, 264 problemas (0 erros) — mesma contagem de antes, nenhum aviso novo. `npm run build` EXIT=0, tabela de rotas completa no tail do log. Disco: 29GB livres no início desta verificação (Nuno já tinha libertado espaço fora desta sessão; `npm cache clean --force` corrido à parte por pedido dele, confirmado `EXIT=0`).
+
+**Sem migração** — mudança de comportamento em código de aplicação, nenhuma alteração de esquema. **Estado:** push confirmado por `git ls-remote`. Sem merge — aguarda "sim" do Nuno.

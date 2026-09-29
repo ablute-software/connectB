@@ -98,7 +98,7 @@ const LURDES = {
 const AFFIL = { person_id: 'catperson-1', title: 'President', seniority_rank: 1, is_primary: true };
 
 describe('ensureOrgPersonFromCatalog — Prompt 728 §2', () => {
-  it('materializes seniority_rank, title, linkedin, and the hook (with source) from the catalog — never max+1', async () => {
+  it('materializes seniority_rank, title, and linkedin from the catalog — never max+1', async () => {
     const { client } = makeFakeClient({ catalogPeople: [LURDES], affiliations: [AFFIL] });
     const result = await ensureOrgPersonFromCatalog(client, { orgId: 'org-1', entityId: 'entity-1', catalogPersonId: 'catperson-1' });
     expect(result.created).toBe(true);
@@ -106,17 +106,20 @@ describe('ensureOrgPersonFromCatalog — Prompt 728 §2', () => {
     expect(result.person.role).toBe('President');
     expect(result.person.seniority_rank).toBe(1);
     expect(result.person.linkedin_url).toBe('https://linkedin.com/in/lurdes');
-    expect(result.person.hook_status).toBe('researched');
-    expect(result.person.hook).toBe('Quoted on APBA board priorities in 2026.');
     expect(result.person.data_source).toBe('Added from catalog');
   });
 
-  it('never copies the hook when hook_source is absent, even if hook_status somehow says researched', async () => {
-    const noSource = { ...LURDES, hook_source: null };
-    const { client } = makeFakeClient({ catalogPeople: [noSource], affiliations: [AFFIL] });
+  // Prompt 897 (Nuno, 04/09 + 29/09/2026) — "o hook não é algo pré-feito
+  // colado ao perfil da pessoa; é criado de acordo com a startup, o
+  // momento e o motivo do contacto." Never copied, even when the catalog
+  // has a fully sourced one on file — LURDES's fixture still carries
+  // hook_source/catalog_people_research precisely to prove that having a
+  // real source on the catalog side changes nothing here.
+  it('never copies the catalog hook, even when the catalog has one with a real source', async () => {
+    const { client } = makeFakeClient({ catalogPeople: [LURDES], affiliations: [AFFIL] });
     const result = await ensureOrgPersonFromCatalog(client, { orgId: 'org-1', entityId: 'entity-1', catalogPersonId: 'catperson-1' });
     expect(result.person.hook_status).toBe('to_research');
-    expect(result.person.hook).toBeFalsy();
+    expect(result.person.hook).toBeNull();
   });
 
   it('is idempotent on a plain re-call — returns the SAME row, never a second one', async () => {
