@@ -27,7 +27,8 @@
 // period_kind/period_year/period_quarter/items (migration 0161).
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { closedOrgGuard } from '@/lib/org-closed';
+import { closedOrgGuard, STARTUP_UNAVAILABLE_MESSAGE, STARTUP_UNAVAILABLE_REASON } from '@/lib/org-closed';
+import { isUnavailableCard } from '@/lib/closed-org-card';
 import { serverClient } from '@/lib/supabase-server';
 import { getPipelineWaves } from '@/lib/investor-pipeline';
 import { resolveInvestorCatalogEntityId, resolveInvestorPlanTier } from '@/lib/portal-access';
@@ -60,6 +61,20 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
   // turn that flat 404 into an oracle for "this org id exists and is closed".
   const closedBlock = await closedOrgGuard(admin, params.orgId);
   if (closedBlock) return closedBlock;
+  // Prompt 744 Causa 1 — closedOrgGuard only catches orgs.closed_at. A card
+  // this route just found can ALSO be the getPipelineWaves projection of a
+  // relationship whose org is merely suspended/hidden (not closed) — reason
+  // 'unavailable' rather than 'closed' (closed-org-card.ts's own
+  // UnavailableReason). That case fell straight through here before: `card`
+  // is truthy (it has orgId/name/status/decidedAt), so the route built and
+  // returned a FULL dossier — team, traction, documents, cap table — for a
+  // startup the Pipeline UI had already stopped letting the investor click
+  // into. Same 410 contract closedOrgGuard already uses, extended to the
+  // case it doesn't cover; /api/portal/messages/route.ts already carries
+  // this exact same isUnavailableCard check for the same reason.
+  if (isUnavailableCard(card)) {
+    return NextResponse.json({ error: STARTUP_UNAVAILABLE_MESSAGE, reason: STARTUP_UNAVAILABLE_REASON }, { status: 410 });
+  }
 
   // Prompt 401 §1 — Pioneer removed from this route entirely: it's a
   // founder-ACCOUNT state (plan/promo), not a signal about the deal, and

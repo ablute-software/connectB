@@ -23,6 +23,24 @@
 // mode is gone and `partitionEvaluationCards` names the two groups instead
 // — one list, two sections, nothing to navigate into or back out of.
 import type { ValuationBasis } from './dilution';
+import { isUnavailableCard } from './closed-org-card';
+
+// Prompt 744 Causa 1 — getPipelineWaves (investor-pipeline.ts) projects a
+// closed/suspended relationship card down to UNAVAILABLE_CARD_KEYS
+// (closed-org-card.ts) at the very end of its own pipeline, and every
+// consumer of `waves.flatMap(w => w.items)` inherits BOTH shapes mixed in
+// one array. PipelinePanel.tsx already separates them (its own local
+// isUnavailable/UnavailableCard); EvaluationToolsPanel.tsx never did —
+// `setCards((d.waves ?? []).flatMap((w) => w.items))` fed an unavailable
+// card (no score, no round data, no sectors) straight into the picker as
+// if it were a full EvaluationPipelineCard, which is how Caramel Biscuit
+// (suspended, with a QA decision on record) kept showing up in Evaluation
+// Tools after it had already dropped out of the real Pipeline. One shared
+// pure filter so both of this file's call sites (initial load and the
+// deep-link merge) can't drift into filtering differently.
+export function filterAvailableCards(items: unknown[]): EvaluationPipelineCard[] {
+  return items.filter((item): item is EvaluationPipelineCard => !isUnavailableCard(item));
+}
 
 export interface EvaluationPipelineCard {
   orgId: string; name: string; oneLiner: string | null; sectors: string[]; stage: string | null;

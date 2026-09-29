@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EVALUATION_STATE_LABEL, evaluationCardState, filterCardsByName, highestFitCandidate, partitionEvaluationCards, type EvaluationPipelineCard } from './evaluation-startup-discovery';
+import { EVALUATION_STATE_LABEL, evaluationCardState, filterAvailableCards, filterCardsByName, highestFitCandidate, partitionEvaluationCards, type EvaluationPipelineCard } from './evaluation-startup-discovery';
 
 function makeCard(overrides: Partial<EvaluationPipelineCard> & { orgId: string; name: string }): EvaluationPipelineCard {
   return {
@@ -9,6 +9,32 @@ function makeCard(overrides: Partial<EvaluationPipelineCard> & { orgId: string; 
     ...overrides,
   };
 }
+
+// Prompt 744 Causa 1 — the Evaluation Tools picker's own selector must
+// never contain a closed/suspended relationship card (getPipelineWaves'
+// end-of-pipeline projection, closed-org-card.ts's UnavailableCard shape:
+// only orgId/name/status/decidedAt/unavailable/reason, no score/round data)
+// regardless of whether it arrived via the initial load or the deep-link
+// merge — both EvaluationToolsPanel.tsx call sites route through this one
+// function so they can't filter differently from each other.
+describe('filterAvailableCards — Prompt 744 Causa 1', () => {
+  const full = makeCard({ orgId: '1', name: 'Real Startup' });
+  const unavailableClosed = { orgId: '2', name: 'Closed Co', status: 'passed', decidedAt: '2026-01-01', unavailable: true, reason: 'closed' };
+  const unavailableSuspended = { orgId: '3', name: 'Suspended Co', status: 'interested', decidedAt: null, unavailable: true, reason: 'unavailable' };
+
+  it('keeps a full card and drops both unavailable-card reasons', () => {
+    expect(filterAvailableCards([full, unavailableClosed, unavailableSuspended])).toEqual([full]);
+  });
+
+  it('returns an empty array when every card is unavailable', () => {
+    expect(filterAvailableCards([unavailableClosed, unavailableSuspended])).toEqual([]);
+  });
+
+  it('is a no-op when nothing is unavailable', () => {
+    const second = makeCard({ orgId: '4', name: 'Another Real Startup' });
+    expect(filterAvailableCards([full, second])).toEqual([full, second]);
+  });
+});
 
 describe('filterCardsByName — Prompt 419 §A', () => {
   const cards = [makeCard({ orgId: '1', name: 'Acme Health' }), makeCard({ orgId: '2', name: 'Balderton Capital' })];

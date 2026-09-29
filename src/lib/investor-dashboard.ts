@@ -19,6 +19,7 @@ import 'server-only';
 //     Q&A-answered window /api/portal/today already computes.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getPipelineWaves } from './investor-pipeline';
+import { isUnavailableCard } from './closed-org-card';
 import { eligibleOrgIds, resolveInvestorCatalogEntityId } from './portal-access';
 import { currentInterestLevel, type InterestLevel } from './investor-interest-level';
 import { getInterestLevelRows } from './investor-interest-level-db';
@@ -44,7 +45,11 @@ export async function getDashboardData(sb: SupabaseClient, admin: SupabaseClient
   const pipeline = await getPipelineWaves(sb, admin, userId, email);
   if (!pipeline.linked) return empty;
 
-  const cards = pipeline.waves.flatMap((w) => w.items);
+  // Prompt 744 Causa 1 — a closed/suspended relationship card (getPipelineWaves'
+  // own end-of-pipeline projection, closed-org-card.ts) has no real status/
+  // round data; counting it here inflated the funnel/level tallies below with
+  // a startup the investor can no longer even open.
+  const cards = pipeline.waves.flatMap((w) => w.items).filter((c) => !isUnavailableCard(c));
   const byStatus = { open: 0, interested: 0, passed: 0 };
   for (const c of cards) byStatus[c.status as 'open' | 'interested' | 'passed']++;
 
