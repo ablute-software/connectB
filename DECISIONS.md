@@ -9135,3 +9135,7 @@ Branch `claude/log-team-selector-guide`, a partir de `origin/main` em `ca685f7c`
 Verificação no browser não feita nesta sessão (disco demasiado apertado para arriscar mais um `next dev`/`next build` concorrente); preview fica pendente, screenshots do §E do prompt não capturados.
 
 **Estado:** branch `claude/log-team-selector-guide`, ainda não commitada no momento em que este parágrafo foi escrito. Aguarda "sim" do Nuno para merge, e uma decisão sobre o §D antes de o considerar sequer.
+
+**Decisão do Nuno sobre o §D, 29/09/2026: não se faz.** Mantém-se o Prompt 880 tal como está — o banner Sherlock Insight continua reservado exclusivamente para a próxima acção real com o investidor, nunca uma tarefa de configuração de dados. A entrada em `entities/[id]/page.tsx:905-909` fica intocada. A única entrada para o caso de zero contactos continua a ser directamente no separador Conversation (§A/§B acima), que já resolve o "beco sem saída" original sem depender do banner.
+
+**Merge:** `git push origin claude/log-team-selector-guide:main` (fast-forward confirmado, `ca685f7c..bb864cd1`), autorizado explicitamente por Nuno em 29/09/2026 junto com esta decisão sobre o §D. Verificação de deploy por buildId (antes/depois, com cache-busting) registada à parte, quando confirmada.
