@@ -119,6 +119,12 @@ export function maskInviteEmail(email: string | null | undefined): string | null
   return `${local.slice(0, 2)}…@${domain}`;
 }
 
+// Same comparison the SQL functions make (lower/trim on both sides).
+export function inviteEmailMatches(invited: string | null | undefined, typed: string | null | undefined): boolean {
+  if (!invited || !typed) return false;
+  return invited.trim().toLowerCase() === typed.trim().toLowerCase();
+}
+
 // ---------------------------------------------------------------------------
 // Literal copy (I-01 §C.2/§C.4, as translated by I-01b §C).
 
@@ -220,9 +226,12 @@ export const INCUBATOR_MEMBER_INVITE_STORAGE_KEY = 'sd_incubator_member_invite';
 
 export interface StoredIncubatorInvite {
   token: string;
-  // I-01b §A — the signup this invite prefills locks the account's email to
-  // this address, so the new-account path can never hit the mismatch.
-  invitedEmail?: string | null;
+  // I-01b (Nuno, 30/09) — the invite's address never reaches the browser in
+  // full: only the masked form, for the hint and the mismatch message. The
+  // signup asks the server (check-email) whether the typed address is the
+  // invited one before creating the account.
+  invitedEmailMasked?: string | null;
+  incubatorName?: string | null;
   startupName?: string | null;
   sector?: string | null;
   website?: string | null;

@@ -50,7 +50,7 @@ export const DEMO_FOUNDER_PROGRAMS = {
 };
 
 export const DEMO_INVITE_PREVIEW = {
-  ok: true, status: 'invited', invitedEmail: 'founder@zz-test-startup-gama.pt',
+  ok: true, status: 'invited', invitedEmailMasked: 'fo…@zz-test-startup-gama.pt',
   incubator: { name: 'zz-test-incubadora-braga', logoUrl: null, kind: 'municipal', alsoInvests: true },
   cohortName: 'Cohort 2026-A', voucher: null,
   stub: { startupName: 'zz-test-startup-gama', sector: 'Fintech', website: 'https://zz-test-startup-gama.example' },

@@ -21,7 +21,7 @@ import { LogoLockup } from '@/components/Logo';
 import { AuthShell } from '@/components/auth/AuthShell';
 import { PasswordRequirementsIndicator } from '@/components/auth/PasswordRequirementsIndicator';
 import { checkPassword } from '@/lib/password-policy';
-import { INCUBATOR_INVITE_CONTINUE_PATH, INCUBATOR_INVITE_STORAGE_KEY, type StoredIncubatorInvite } from '@/lib/incubators';
+import { INCUBATOR_INVITE_CONTINUE_PATH, INCUBATOR_INVITE_STORAGE_KEY, inviteEmailMismatchText, type StoredIncubatorInvite } from '@/lib/incubators';
 
 const STAGES = [
   { value: '', label: 'Stage…' },
@@ -176,16 +176,18 @@ function FounderSignupForm() {
   // invite page, never in the URL) and, once the workspace exists, return to
   // the invite to accept it. `next` is honoured only for that one fixed path.
   const fromIncubatorInvite = sp.get('invite') === 'incubator';
-  const [lockedEmail, setLockedEmail] = useState<string | null>(null);
+  // I-01b (Nuno, 30/09) — the invite's address is never in the browser in
+  // full. The founder types it; before the account is created the server
+  // confirms it is the invited one (check-email), so a new account can never
+  // be one the invite will then refuse.
+  const [inviteStub, setInviteStub] = useState<StoredIncubatorInvite | null>(null);
   const afterSignup = fromIncubatorInvite && sp.get('next') === INCUBATOR_INVITE_CONTINUE_PATH ? INCUBATOR_INVITE_CONTINUE_PATH : '/';
   useEffect(() => {
     if (!fromIncubatorInvite) return;
     try {
       const raw = window.localStorage.getItem(INCUBATOR_INVITE_STORAGE_KEY);
       const stub = raw ? (JSON.parse(raw) as StoredIncubatorInvite) : null;
-      // I-01b §A — the account's email IS the invited address (locked below),
-      // so accepting right after signup can never hit invite_email_mismatch.
-      if (stub?.invitedEmail) { setEmail(stub.invitedEmail); setLockedEmail(stub.invitedEmail); }
+      if (stub?.token) setInviteStub(stub);
       if (stub?.startupName) setOrg((v) => v || stub.startupName!);
       if (stub?.sector) setSector((v) => v || stub.sector!);
       if (stub?.website) setWebsite((v) => v || stub.website!);
@@ -262,9 +264,31 @@ function FounderSignupForm() {
     await fetch('/api/terms/accept', { method: 'POST' }).catch(() => {});
   }
 
+  // true = go ahead; false = a message was set and no account is created.
+  async function inviteEmailConfirmed(): Promise<boolean> {
+    if (!inviteStub?.token) return true;
+    try {
+      const res = await fetch(`/api/invite/incubator/${encodeURIComponent(inviteStub.token)}/check-email`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
+      });
+      const body = await res.json();
+      if (body?.ok && body.matches) return true;
+      if (body?.ok && !body.matches) {
+        setMsg(inviteEmailMismatchText(body.invitedEmailMasked ?? inviteStub.invitedEmailMasked ?? null, inviteStub.incubatorName ?? 'the incubator'));
+        return false;
+      }
+      setMsg(body?.error === 'rate_limited' ? 'Too many attempts — wait a minute and try again.' : 'We could not check the invite right now. Try again.');
+      return false;
+    } catch {
+      setMsg('We could not check the invite right now. Try again.');
+      return false;
+    }
+  }
+
   async function submit() {
     setBusy(true); setMsg('');
     try {
+      if (!(await inviteEmailConfirmed())) return;
       const sb = browserClient();
       // Prompt 126 B / 119 §4.3 D3 — same shared policy as investor
       // set-password/reset-password; password_set marks this account as
@@ -369,10 +393,13 @@ function FounderSignupForm() {
         </div>
 
         <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Account</div>
-        <input autoComplete="email" value={email} onChange={(e) => { if (!lockedEmail) setEmail(e.target.value); }} type="email" placeholder="you@company.com *"
-          readOnly={!!lockedEmail} aria-readonly={!!lockedEmail}
-          className={`mb-2 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm ${lockedEmail ? 'bg-gray-50 text-gray-600' : ''}`} />
-        {lockedEmail && <p className="-mt-1 mb-2 text-[11px] text-gray-500">This is the address the incubator invited — the invite can only be accepted with it.</p>}
+        <input autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="you@company.com *"
+          className="mb-2 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
+        {inviteStub && (
+          <p className="-mt-1 mb-2 text-[11px] text-gray-500" data-testid="invite-email-hint">
+            Use the address {inviteStub.incubatorName ?? 'the incubator'} invited{inviteStub.invitedEmailMasked ? ` (${inviteStub.invitedEmailMasked})` : ''} — the invite can only be accepted with it.
+          </p>
+        )}
         <input autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Password *"
           className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
         <PasswordRequirementsIndicator password={password} />

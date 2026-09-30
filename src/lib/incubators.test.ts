@@ -8,7 +8,7 @@ import {
   defaultLevelNotice, endReasonRequired, endRelationshipConfirmText, founderCanChooseLevel,
   incubatorCanSetStatus, incubatorErrorText, levelAfterGraduation, relationshipGivesAccess,
   slugifyIncubatorName, incubatorInvitePath, INCUBATOR_INVITE_CONTINUE_PATH, maskInviteEmail, inviteEmailMismatchText,
-  PROGRAMS_READ_ONLY_NOTE, INCUBATOR_KINDS, RELATIONSHIP_STATUS_LABEL, type RelationshipStatus,
+  PROGRAMS_READ_ONLY_NOTE, INCUBATOR_KINDS, RELATIONSHIP_STATUS_LABEL, inviteEmailMatches, type RelationshipStatus,
 } from './incubators';
 import { can } from './permissions';
 
@@ -133,5 +133,14 @@ describe('helpers', () => {
   it('o token vai no path; o desvio de login usa um path fixo, sem token', () => {
     expect(incubatorInvitePath('abc_DEF-123')).toBe('/invite/incubator/abc_DEF-123');
     expect(INCUBATOR_INVITE_CONTINUE_PATH).not.toContain('?');
+  });
+});
+
+describe('check-email do signup (I-01b, 30/09): a mesma comparação do SQL', () => {
+  it('ignora maiúsculas e espaços; qualquer outro endereço não conta', () => {
+    expect(inviteEmailMatches('nuno@startup.pt', '  Nuno@Startup.PT ')).toBe(true);
+    expect(inviteEmailMatches('nuno@startup.pt', 'nuno@startup.com')).toBe(false);
+    expect(inviteEmailMatches('nuno@startup.pt', '')).toBe(false);
+    expect(inviteEmailMatches(null, 'nuno@startup.pt')).toBe(false);
   });
 });

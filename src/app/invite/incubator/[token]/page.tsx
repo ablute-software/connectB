@@ -6,7 +6,8 @@
 //
 // I-01b §A — only the invited address can accept or decline. A signed-in
 // account with another address gets the masked invited address, a sign-out
-// button, and never a write.
+// button, and never a write. The page itself only ever has the MASKED
+// address, so the mismatch is known from the server's answer to the click.
 //
 // The token lives in this PATH only. The login/signup detour never carries
 // it in a query string: it waits in this browser's localStorage and the
@@ -17,14 +18,14 @@ import Link from 'next/link';
 import { browserClient, authEnabled } from '@/lib/supabase';
 import {
   ALSO_INVESTS_NOTICE, INCUBATOR_INVITE_CONTINUE_PATH, INCUBATOR_INVITE_STORAGE_KEY,
-  defaultLevelNotice, incubatorErrorText, incubatorKindLabel, inviteEmailMismatchText, maskInviteEmail,
+  defaultLevelNotice, incubatorErrorText, incubatorKindLabel, inviteEmailMismatchText,
   type StoredIncubatorInvite,
 } from '@/lib/incubators';
 import { planLabelForSlug } from '@/lib/plans';
 import { DEMO_INVITE_PREVIEW } from '@/lib/incubator-demo';
 
 interface Preview {
-  ok: boolean; error?: string; demo?: boolean; status?: string; invitedEmail?: string;
+  ok: boolean; error?: string; demo?: boolean; status?: string; invitedEmailMasked?: string | null;
   incubator?: { name: string; logoUrl: string | null; kind: string; alsoInvests: boolean };
   cohortName?: string | null;
   voucher?: { plans: string[]; months: number | null; kind: string; discountPct: number } | null;
@@ -51,7 +52,7 @@ export default function IncubatorInvitePage({ params }: { params: { token: strin
 
   function remember() {
     const stored: StoredIncubatorInvite = {
-      token, invitedEmail: p?.invitedEmail ?? null,
+      token, invitedEmailMasked: p?.invitedEmailMasked ?? null, incubatorName: p?.incubator?.name ?? null,
       startupName: p?.stub?.startupName ?? null, sector: p?.stub?.sector ?? null, website: p?.stub?.website ?? null, savedAt: Date.now(),
     };
     try { window.localStorage.setItem(INCUBATOR_INVITE_STORAGE_KEY, JSON.stringify(stored)); } catch { /* storage blocked — the link still works */ }
@@ -102,11 +103,8 @@ export default function IncubatorInvitePage({ params }: { params: { token: strin
 
   const closedStatus = p.status && p.status !== 'invited';
   const voucherPlan = p.voucher?.plans?.[0];
-  // Known before any click when the preview carries the invited address; the
-  // server's own answer (mismatch state) wins when it arrives.
-  const wrongAccount = mismatch !== null
-    || (!!sessionEmail && !!p.invitedEmail && sessionEmail.toLowerCase() !== p.invitedEmail.toLowerCase());
-  const maskedInvited = mismatch ?? maskInviteEmail(p.invitedEmail);
+  const wrongAccount = mismatch !== null;
+  const maskedInvited = mismatch ?? p.invitedEmailMasked ?? null;
 
   return shell(
     <div>
@@ -148,7 +146,7 @@ export default function IncubatorInvitePage({ params }: { params: { token: strin
         </div>
       ) : (
         <div className="mt-5 space-y-2">
-          <p className="text-xs text-gray-500">To accept or decline, sign in to your startup account — or create it (the invite details are pre-filled, and the account uses the invited email{maskedInvited ? `, ${maskedInvited}` : ''}).</p>
+          <p className="text-xs text-gray-500">To accept or decline, sign in to your startup account — or create it (the invite details are pre-filled). Use the address the invite was sent to{maskedInvited ? ` (${maskedInvited})` : ''}.</p>
           <div className="flex flex-wrap gap-2">
             <Link href={`/signup?invite=incubator&next=${encodeURIComponent(INCUBATOR_INVITE_CONTINUE_PATH)}`} onClick={remember}
               className="rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-semibold text-white">Create account</Link>

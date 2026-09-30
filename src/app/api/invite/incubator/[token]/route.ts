@@ -3,10 +3,16 @@
 // stub fields that prefill signup, and whether the house also invests (D3).
 // Token-authorised like /api/guest/[token]: looked up by its sha256 with the
 // service role, rate-limited per IP, and never echoed back.
+//
+// The invited address leaves the server MASKED only (Nuno, 30/09): someone
+// holding a forwarded link learns neither the full address nor, through the
+// signup, anything they could not already guess. The signup confirms a typed
+// address against it through ./check-email.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { hashToken } from '@/lib/matchdeal-pairing';
 import { clientIp, guestLinkRateLimited } from '@/lib/guest-link-security';
+import { maskInviteEmail } from '@/lib/incubators';
 
 export async function GET(req: Request, { params }: { params: { token: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -33,7 +39,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
   return NextResponse.json({
     ok: true,
     status: inc.closed_at ? 'closed' : expired ? 'expired' : inv.status,
-    invitedEmail: inv.email,
+    invitedEmailMasked: maskInviteEmail(inv.email),
     incubator: { name: inc.name, logoUrl: inc.logo_url, kind: inc.kind, alsoInvests: !!inc.related_catalog_entity_id },
     cohortName: cohort?.name ?? null,
     voucher: promo ? {
