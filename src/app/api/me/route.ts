@@ -33,6 +33,7 @@ import { stripeConfigured } from '@/lib/stripe-env';
 import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
 import { aiReviewDocumentLinkAvailable } from '@/lib/ai-review-document-link-capability';
 import { roadmapEventsAvailable } from '@/lib/document-extraction-capability';
+import { buildUnauthenticatedMeResponse, buildAuthenticatedNoUserResponse, buildAuthenticatedMeResponse } from '@/lib/me-response';
 
 export async function GET(req: NextRequest) {
   const capabilities = {
@@ -65,10 +66,16 @@ export async function GET(req: NextRequest) {
     vaultPinOwnerManaged: await vaultPinOwnerManagedAvailable(),
     taskReminders: await taskRemindersAvailable(),
   };
-  if (!authEnabled) return NextResponse.json({ authEnabled: false, user: null, role: 'none', capabilities });
+  // dev:verify only (see scripts/dev-verify.mjs + CLAUDE.md's "Verifying a
+  // change in the browser" §1): verifyIdentity is attached ONLY here, on the
+  // demo-mode early return. It structurally cannot reach either
+  // authenticated branch below — see src/lib/me-response.ts, whose
+  // authenticated builders never read DEV_VERIFY_IDENTITY at all. Covered by
+  // src/lib/me-response.test.ts.
+  if (!authEnabled) return NextResponse.json(buildUnauthenticatedMeResponse(capabilities));
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
-  if (!user) return NextResponse.json({ authEnabled: true, user: null, role: 'none', capabilities });
+  if (!user) return NextResponse.json(buildAuthenticatedNoUserResponse(capabilities));
   const [role, orgRole, { orgId, plan }] = await Promise.all([
     resolveRole(user.id, user.email, sb, user.email_confirmed_at),
     getOrgRole(user.id, sb),
@@ -138,5 +145,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ authEnabled: true, user: { id: user.id, email: user.email }, role, orgRole, plan, entitlements, capabilities, watson, reviewQuota, viewer, pioneerBadge });
+  return NextResponse.json(buildAuthenticatedMeResponse({ authEnabled: true, user: { id: user.id, email: user.email }, role, orgRole, plan, entitlements, capabilities, watson, reviewQuota, viewer, pioneerBadge }));
 }
