@@ -29,7 +29,7 @@ import { UpgradeConfirmModal } from '@/components/plans/UpgradeConfirmModal';
 import type { PlanCardData } from '@/components/plans/types';
 import {
   PLANS, BILLING_PERIODS,
-  planPriceLabel, parsePlanRequest, normalizePlan, planName, type BillingPeriod,
+  planPriceLabel, parsePlanRequest, normalizePlan, planName, buildPlanSections, type BillingPeriod,
 } from '@/lib/plans';
 import { SECURE_PAYMENT_COPY } from '@/lib/billing';
 import { discountedPriceEur } from '@/lib/promo';
@@ -94,6 +94,12 @@ export function PlansPanel() {
   // master: forever; pioneer: during its offer), reported by the status
   // card so the "Your plan" price reads €0 rather than the list price.
   const [badgeFreeTier, setBadgeFreeTier] = useState<string | null>(null);
+  // Prompt 749 — live from the backoffice-editable plans.monthly_ai_credits,
+  // fetched fresh on every visit (no long cache — see /api/plan-credits).
+  // A tier missing from the response (fetch not done yet, or genuinely
+  // failed) stays undefined and buildPlanSections renders that card's AI
+  // line without a number rather than falling back to a guessed constant.
+  const [aiCredits, setAiCredits] = useState<Partial<Record<PlanTier, number>>>({});
 
   function refreshPromoStatus() {
     fetch('/api/promo/status', { cache: 'no-store' }).then((r) => r.json())
@@ -103,6 +109,8 @@ export function PlansPanel() {
   useEffect(() => {
     fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then(setMe).catch(() => setMe({ authEnabled: false }));
     refreshPromoStatus();
+    fetch('/api/plan-credits', { cache: 'no-store' }).then((r) => r.json())
+      .then((body) => { if (body.ok) setAiCredits(body.credits ?? {}); }).catch(() => {});
     // Prompt 161 §D.2 — only ever non-empty for an org that already has the
     // badge; a non-Pioneer org's own 3 referral codes simply don't exist
     // yet, so this is harmless to always call rather than gate on `me`
@@ -223,8 +231,9 @@ export function PlansPanel() {
       tagline: p.tagline,
       priceLabel: planPriceLabel(p, period),
       priceSubLabel: p.paid ? undefined : 'free forever',
-      bullets: p.bullets,
-      comingSoon: p.comingSoon,
+      annualPriceLine: p.annualEur != null ? `or €${p.annualEur.toLocaleString('en-US')}/year` : undefined,
+      annualPerMonthLine: p.annualPerMonthEur != null ? `Equivalent to €${p.annualPerMonthEur}/month` : undefined,
+      sections: buildPlanSections(p.tier, aiCredits[p.tier] ?? null),
       // "Most popular" nudges toward List of Suspects on the Monthly view —
       // the lower-commitment entry point most people actually pick first.
       popular: p.tier === 'garage' && period === 'monthly',

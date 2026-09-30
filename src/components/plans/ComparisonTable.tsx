@@ -1,76 +1,47 @@
 'use client';
-// Full feature matrix — rows are the union of every plan's bullets (in
+// Full feature matrix — rows are the union of every plan's section titles (in
 // first-appearance order across the given plans, so cheaper-tier features
-// lead), columns are plans, cells are ✓/— or (Prompt 158 §5) a per-plan
-// number. Entirely derived from PlanCardData.bullets — no separate feature
-// list to keep in sync.
+// lead), columns are plans, cells are ✓/—. Entirely derived from
+// PlanCardData.sections — no separate feature list to keep in sync.
+//
+// Prompt 749 — this used to merge a numeric row (e.g. "Up to 10/25/50 new
+// curated investors per month") into ONE row with a per-plan number cell, by
+// regex-extracting a leading number off the old `\n`+`·` bullet strings
+// (head()/parseNumericHead() below, now removed). The new section/item text
+// is prose ("Up to 25 new curated investors / month") with no shared prefix
+// to key a merge on across tiers, and each tier's line differs by more than
+// the number (idea's "5 investors available once your core profile is
+// complete" moved into the curated-pipeline note entirely) — building a
+// robust prose-number extractor was judged out of scope (ComparisonTable
+// isn't part of this prompt's own spec/test list). DELIBERATE, FLAGGED
+// REGRESSION: those rows now show as separate rows per tier (✓ only on the
+// tier whose section/item text matches exactly) instead of one merged row
+// with three numbers — the full breakdown is still on the card itself
+// (PlanCards.tsx), which is the primary surface.
 import type { PlanCardData } from './types';
 
-// Prompt 123 §B.1 — a bullet's identity for row-matching purposes is its
-// HEAD line only (text before the first '\n'). Nested-list bullets (e.g.
-// "Investor Pipeline\n· 5 investors…") carry different numbers per tier, so
-// matching on the full string would split one feature into a separate row
-// per tier — this keeps it one row, ticked wherever any tier has a bullet
-// starting with that head, and drops the sub-bullet detail (too dense for a
-// matrix cell; the full breakdown is on the card itself).
-function head(b: string): string {
-  return b.split('\n')[0];
-}
-
-// Prompt 158 §5 — the same "one feature, per-plan number" problem the \n
-// nested bullets above already solve, but for a SINGLE-line bullet with the
-// number embedded in the sentence instead (e.g. "90 AI-personalized
-// outreach drafts…" vs "210 AI-personalized outreach drafts…") — these had
-// no shared `\n` prefix, so head() returned the whole string and split one
-// feature into a separate row per plan. Detects a leading number, and keys
-// the row on the REST of the sentence (parenthetical stripped, so "1 User
-// (Owner)" still matches "2 users"/"5 users" — the parenthetical detail
-// stays on the card itself, same "drop the detail, keep the row" precedent
-// as the \n case above) rather than the head's full text.
-function parseNumericHead(h: string): { key: string; label: string; value: string } | null {
-  const m = h.match(/^([\d,]+)\s+(.*)$/);
-  if (!m) return null;
-  const restNoParen = m[2].trim().replace(/\s*\([^)]*\)\s*$/, '').trim();
-  const label = restNoParen.charAt(0).toUpperCase() + restNoParen.slice(1);
-  return { key: restNoParen.toLowerCase().replace(/s$/, ''), label, value: m[1] };
-}
-
-interface Row { key: string; label: string; numeric: boolean }
+interface Row { key: string; label: string }
 
 export function ComparisonTable({ plans }: { plans: PlanCardData[] }) {
   const rows: Row[] = [];
-  const rowByKey = new Map<string, Row>();
+  const rowKeys = new Set<string>();
   for (const p of plans) {
-    for (const b of p.bullets) {
-      const h = head(b);
-      const numeric = parseNumericHead(h);
-      const key = numeric ? numeric.key : h;
-      let row = rowByKey.get(key);
-      if (!row) {
-        row = { key, label: numeric ? numeric.label : h, numeric: !!numeric };
-        rowByKey.set(key, row);
-        rows.push(row);
-      } else if (numeric) {
-        // Later (higher) tiers set the row's displayed label — e.g. idea's
-        // "1 User (Owner)" merges into this row first, but "users" (garage/
-        // motherfunding's plural, no parenthetical) reads better as the
-        // generic column header than the free tier's own phrasing.
-        row.label = numeric.label;
+    for (const s of p.sections) {
+      if (!rowKeys.has(s.title)) {
+        rowKeys.add(s.title);
+        rows.push({ key: s.title, label: s.title });
+      }
+      for (const item of s.items) {
+        if (!rowKeys.has(item.text)) {
+          rowKeys.add(item.text);
+          rows.push({ key: item.text, label: item.text });
+        }
       }
     }
   }
 
-  // For a numeric row, the cell is that plan's own bullet's leading number
-  // (or — if this plan has no bullet at all for this feature); for a plain
-  // row, the existing ✓/— behavior is unchanged.
-  function cellFor(p: PlanCardData, row: Row): string | null {
-    const match = p.bullets.map((b) => head(b)).find((h) => {
-      const numeric = parseNumericHead(h);
-      return (numeric ? numeric.key : h) === row.key;
-    });
-    if (match == null) return null;
-    if (!row.numeric) return '✓';
-    return parseNumericHead(match)?.value ?? '✓';
+  function hasRow(p: PlanCardData, key: string): boolean {
+    return p.sections.some((s) => s.title === key || s.items.some((item) => item.text === key));
   }
 
   return (
@@ -88,16 +59,13 @@ export function ComparisonTable({ plans }: { plans: PlanCardData[] }) {
           {rows.map((row, i) => (
             <tr key={row.key} className={i % 2 === 1 ? 'bg-gray-50/50' : undefined}>
               <td className="px-4 py-2 text-xs text-gray-600">{row.label}</td>
-              {plans.map((p) => {
-                const cell = cellFor(p, row);
-                return (
-                  <td key={p.id} className="px-4 py-2 text-center">
-                    {cell != null
-                      ? <span className="text-[#0E7490]">{cell}</span>
-                      : <span className="text-gray-300">—</span>}
-                  </td>
-                );
-              })}
+              {plans.map((p) => (
+                <td key={p.id} className="px-4 py-2 text-center">
+                  {hasRow(p, row.key)
+                    ? <span className="text-[#0E7490]">✓</span>
+                    : <span className="text-gray-300">—</span>}
+                </td>
+              ))}
             </tr>
           ))}
         </tbody>

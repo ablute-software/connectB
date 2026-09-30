@@ -9,6 +9,9 @@
 // in types.ts. Legacy rows hold 'free'/'paid' (the old two-tier model) and are
 // mapped by normalizePlan.
 import type { PlanTier } from './types';
+import type { PlanCardSection } from '@/components/plans/types';
+import { PLAN_PIPELINE_MONTHLY_ADDITION } from './pipeline-unlock';
+import { aiCreditGroupsForTier } from './ai-credit-groups';
 export type { PlanTier };
 export const PLAN_TIERS: PlanTier[] = ['idea', 'garage', 'motherfunding'];
 
@@ -29,10 +32,16 @@ export const PLAN_TIERS: PlanTier[] = ['idea', 'garage', 'motherfunding'];
 
 // Watson (AI composer) monthly draft quota — Prompt 106 §B / confirmed by
 // Nuno 2026-08-03 as 90/210 (not the 100/300 that appeared in an earlier,
-// never-committed draft of the plan copy). The bullet text and the real
-// gate in /api/compose/route.ts both read this single constant — never
-// hand-write the number in two places again, that's exactly how the
-// 100/300 vs 90/210 divergence happened.
+// never-committed draft of the plan copy).
+//
+// Prompt 749 — RETIRED from the plan card. Dead since Prompt 706: nothing
+// outside this file reads it any more (confirmed by grep — every remaining
+// reference was the card's own bullet-string interpolation, now removed).
+// compose_outreach draws from the shared AI-credits wallet
+// (plans.monthly_ai_credits, ai-credits.ts) like every other metered
+// action, not from this compose-only counter. Left defined, unused, per
+// this prompt's own explicit instruction not to touch it — "a unificação
+// com a carteira é outro prompt."
 export const WATSON_DRAFT_QUOTA: Record<PlanTier, number> = {
   idea: 0,
   garage: 90,
@@ -98,21 +107,6 @@ export interface PlanRow {
   bestValue?: boolean;
   /** One line: who this plan is for. */
   tagline: string;
-  /**
-   * The FULL, cumulative list of what this plan includes — not a delta.
-   * Each tier's array is the previous tier's array plus what's new, in that
-   * order, so a generic renderer can diff consecutive entries to highlight
-   * "what's new" without any extra data (see plans/PlanCards.tsx). Every
-   * line maps to a real capability in the app today, or is explicitly
-   * marked "(coming soon)" when it names something already built but
-   * parked (Review & Optimization) rather than implying it ships now.
-   */
-  bullets: string[];
-  /** Named, already-built-but-parked capabilities for this tier. Rendered UNDER
-   *  the bullet list, in a lighter treatment, never inside it. A bullet list is a
-   *  promise of what you get on the day you pay; anything that is not available
-   *  that day does not belong in it (Prompt 113 §3.4). */
-  comingSoon?: string[];
 }
 
 // Names and prices are verbatim per the founder's spec — treated as brand copy,
@@ -122,108 +116,106 @@ export const PLANS: PlanRow[] = [
   {
     tier: 'idea', name: 'Elementary, my dear', monthly: '€0', paid: false, monthlyEur: 0,
     tagline: 'For your very first steps',
-    // Prompt 123 §B.1 — copy replaced in full per "Correção Cards Planos.md".
-    // The doc's Elementary list has no MatchDeal line at all (List of
-    // Suspects introduces "Access to MatchDeal" as something NEW at that
-    // tier) — that contradicts the live entitlement model, where idea-tier
-    // orgs already get MATCHDEAL_WEEKLY.idea (3 decks/1 like per week)
-    // enforced by matchdeal_tier_limits(tier_a) in Postgres. Following
-    // §B.1's own instruction ("where the doc and the constants diverge, the
-    // constants follow the doc") for this CARD COPY only — the bullet is
-    // dropped here — but the matching engine itself is untouched (out of
-    // scope, never touch it). Flagged for Nuno: either idea genuinely loses
-    // MatchDeal (a real entitlement change, not done here) or this was a
-    // brevity omission in the doc.
-    bullets: [
-      '1 User (Owner)',
-      'Investor Pipeline\n'
-        + '· 5 investors available once your core profile is complete\n'
-        + '· Up to 10 new Sherlock Deal investors per month\n'
-        + '· Unlimited manually added investors\n'
-        + '· 1 full pipeline reprioritization per month\n'
-        + '· Smart follow-up for up to 10 active investor contacts',
-      'Smart Calendar',
-      'Preset Vault Data Room (with Access Control)',
-      'Protected Outreach (Linting, Volume Caps & Contact Locks)',
-      'Actionable Review Queue',
-      'Bulk Investor Import',
-      'NDA-protected document sharing',
-    ],
   },
   {
     tier: 'garage', name: 'List of Suspects', monthly: '€85/month', annual: '€756/year (equivalent to €63/month)', paid: true, monthlyEur: 85, annualEur: 756, annualPerMonthEur: 63,
     tagline: 'For rounds already in motion',
-    // Prompt 123 §B.1 — "Everything in Elementary, my dear, plus:" per the
-    // doc: Elementary's own bullets carry forward (Smart Calendar, Protected
-    // Outreach, Actionable Review Queue, Bulk Investor Import, NDA sharing),
-    // with Investor Pipeline/Vault/seats replaced by this tier's own numbers
-    // and the items below added.
-    // Prompt 158 — Advanced Review & Optimization / Investability reports
-    // promoted out of `comingSoon` into real bullets: Nuno confirmed
-    // (10/08) they'll be ready by launch, so the "(coming soon)" label no
-    // longer applies to the CARD COPY. Prompt 160 (same day) closed the
-    // gap this comment used to flag: planEntitlements().reviewOptimization
-    // now actually opens for both paid plans too, so the card and the
-    // in-app gate agree again.
-    bullets: [
-      '2 users',
-      'Investor Pipeline\n'
-        + '· 10 investors available once your core profile is complete\n'
-        + '· Up to 25 new Sherlock Deal investors per month\n'
-        + '· Smart follow-up for up to 30 active investor contacts',
-      'Smart Calendar',
-      'Customizable Vault Data Room with access control',
-      'Protected Outreach (Linting, Volume Caps & Contact Locks)',
-      'Actionable Review Queue',
-      'Bulk Investor Import',
-      'NDA-protected document sharing',
-      `${WATSON_DRAFT_QUOTA.garage} AI-personalized outreach drafts and reviews per month`,
-      '1 active fundraising round',
-      'Automated reminders and follow-up sequencing',
-      'Investor re-engagement engine',
-      'Access to MatchDeal\n'
-        + `· ${MATCHDEAL_WEEKLY.garage.deck} new investors per week\n`
-        + `· ${MATCHDEAL_WEEKLY.garage.likes} Swipe Rights per week\n`
-        + `· ${MATCHDEAL_WEEKLY.garage.undos} Reconsiderations per week`,
-      'Advanced Review & Optimization',
-      'Investability reports',
-    ],
   },
   {
     tier: 'motherfunding', name: "It's the butler!", monthly: '€149/month', annual: '€1,308/year (equivalent to €109/month)', paid: true, monthlyEur: 149, annualEur: 1308, annualPerMonthEur: 109,
     bestValue: true,
     tagline: 'For serious, multi-investor raises',
-    // Prompt 123 §0.1/§B.1 — base 25 (card wins over the doc's "5/10/20"
-    // unlock-rules section; see PLAN_PIPELINE_BASE.motherfunding in
-    // pipeline-unlock.ts). Everything from List of Suspects carries forward.
-    // Prompt 158/160 — see garage's own comment above: Advanced Review &
-    // Optimization / Investability reports promoted out of `comingSoon`
-    // here too, and the entitlement gate opens for this tier as well.
-    bullets: [
-      '5 users',
-      'Investor Pipeline\n'
-        + '· 25 investors available once your core profile is complete\n'
-        + '· Up to 50 new Sherlock Deal investors per month\n'
-        + '· Smart follow-up for up to 60 active investor contacts',
-      'Smart Calendar',
-      'Customizable Vault Data Room with access control',
-      'Protected Outreach (Linting, Volume Caps & Contact Locks)',
-      'Actionable Review Queue',
-      'Bulk Investor Import',
-      'NDA-protected document sharing',
-      `${WATSON_DRAFT_QUOTA.motherfunding} AI-personalized outreach drafts and reviews per month`,
-      '1 active fundraising round',
-      'Automated reminders and follow-up sequencing',
-      'Investor re-engagement engine',
-      'Access to MatchDeal\n'
-        + `· ${MATCHDEAL_WEEKLY.motherfunding.deck} new investors per week\n`
-        + `· ${MATCHDEAL_WEEKLY.motherfunding.likes} Swipe Rights per week\n`
-        + `· Unlimited Reconsiderations until you use the ${MATCHDEAL_WEEKLY.motherfunding.likes} weekly Swipe Rights`,
-      'Advanced Review & Optimization',
-      'Investability reports',
-    ],
   },
 ];
+
+// Prompt 749 — replaces the old `PlanRow.bullets: string[]` (with `\n` +
+// `·`-prefixed sub-bullets baked into the strings) and the "each tier's
+// array is the previous tier's plus what's new" cumulative-array contract
+// that used to live here. Every tier's card now states its own COMPLETE,
+// independent feature list via structured sections — nothing implied by
+// array order, nothing filtered out at render time.
+//
+// This is a FUNCTION, not static data, because the AI-credits line's own
+// number (plans.monthly_ai_credits, backoffice-editable) is the one thing
+// on this card that is never hand-written — see this prompt's own
+// "Os números não se escrevem à mão". Every caller fetches that number
+// fresh (no long cache — see plan-credits-server.ts) and passes it in;
+// `null` (fetch not done yet, or genuinely failed) renders the AI-credits
+// line without a number ("AI credits included") rather than falling back
+// to a guessed constant.
+//
+// Audit trail (full account in DECISIONS.md, Prompt 749): six lines that
+// used to appear on the garage/motherfunding cards had no code behind
+// them at all — "1 full pipeline reprioritization per month", "Smart
+// follow-up for up to N active investor contacts", "1 active fundraising
+// round" (the schema only ever represents one current round — nothing
+// stops a second attempt, there's just nowhere to put it), "Automated
+// reminders and follow-up sequencing" (no sequencing engine exists
+// anywhere in this codebase), "Investor re-engagement engine" ("Ask
+// Sherlock" is real but is NOT plan-gated — available on idea today
+// despite the old copy implying paid-only), and the WATSON_DRAFT_QUOTA
+// line (dead since Prompt 706 — compose_outreach draws from the shared
+// AI-credits wallet now, folded into the AI-credits section below
+// instead). All six are gone. The "N investors available once your core
+// profile is complete" line moved out of the body and into the curated-
+// pipeline asterisk note, per Nuno's own instruction. The Vault Data Room
+// "Preset" vs "Customizable" distinction is dropped — no plan gate on
+// folder customization was found anywhere in the codebase, so all three
+// tiers now say the same thing rather than implying a difference that
+// isn't real. The seat-count line ("1 user"/"2 users"/"5 users") stays,
+// per Nuno's own instruction, marked enforcedBy: 'NOT_ENFORCED' — real
+// commercial language, not currently backed by a limit check anywhere
+// (api/invite/create has no seat-count comparison at all).
+function matchDealLine(tier: PlanTier): string {
+  const w = MATCHDEAL_WEEKLY[tier];
+  const parts = [
+    `${w.deck} new investors per week`,
+    `${w.likes} Swipe Right${w.likes === 1 ? '' : 's'} per week`,
+  ];
+  if (w.undos === null) parts.push(`Unlimited Reconsiderations until you use the ${w.likes} weekly Swipe Rights`);
+  else if (w.undos > 0) parts.push(`${w.undos} Reconsideration${w.undos === 1 ? '' : 's'} per week`);
+  return `MatchDeal: ${parts.join(' · ')}`;
+}
+
+const SEAT_COUNT_LABEL: Record<PlanTier, string> = { idea: '1 user', garage: '2 users', motherfunding: '5 users' };
+
+// Prompt 749 — the curated-pipeline asterisk, verbatim, shared by every
+// tier's card footer (PlanCards.tsx collects and dedupes section notes
+// rather than repeating this three times).
+export const CURATED_PIPELINE_NOTE = '*Curation unlocks once your profile has enough information for a personalised curation.';
+
+export function buildPlanSections(tier: PlanTier, aiCreditsForTier: number | null): PlanCardSection[] {
+  const aiGroups = aiCreditGroupsForTier(tier);
+  return [
+    { title: SEAT_COUNT_LABEL[tier], enforcedBy: 'NOT_ENFORCED', items: [] },
+    {
+      title: aiCreditsForTier != null ? `${aiCreditsForTier} AI credits / month` : 'AI credits included',
+      enforcedBy: 'ai-credits-wallet',
+      items: aiGroups.map((g) => ({ text: g.name, enforcedBy: 'ai-credits-wallet' as const })),
+    },
+    {
+      title: 'Curated pipeline*', enforcedBy: 'pipeline-unlock.ts',
+      items: [
+        { text: 'Curation by enriched database', enforcedBy: 'pipeline-unlock.ts' },
+        { text: `Up to ${PLAN_PIPELINE_MONTHLY_ADDITION[tier]} new curated investors / month*`, enforcedBy: 'pipeline-unlock.ts' },
+        { text: 'Unlimited manually added investors', enforcedBy: 'always-available' },
+      ],
+      note: CURATED_PIPELINE_NOTE,
+    },
+    { title: matchDealLine(tier), enforcedBy: 'matchdeal_tier_limits', items: [] },
+    { title: 'Smart Calendar', enforcedBy: 'always-available', items: [] },
+    // Prompt 749 — "Preset" (idea) vs "Customizable" (paid) dropped: no
+    // plan gate on Vault folder customization exists anywhere in the
+    // codebase (checked — folders are a free-text attribute on documents,
+    // not a first-class resource with its own creation/limit route). Same
+    // text on all three tiers rather than implying a difference that isn't real.
+    { title: 'Vault Data Room with access control', enforcedBy: 'always-available', items: [] },
+    { title: 'Protected Outreach (Linting, Volume Caps & Contact Locks)', enforcedBy: 'always-available', items: [] },
+    { title: 'Actionable Review Queue', enforcedBy: 'always-available', items: [] },
+    { title: 'Bulk Investor Import', enforcedBy: 'always-available', items: [] },
+    { title: 'NDA-protected document sharing', enforcedBy: 'always-available', items: [] },
+  ];
+}
 
 // Success fee SUSPENDED (founder decision, post legal consultation, 2026-07-23):
 // pending regulatory clarity. All user-facing fee copy (the 1,3%, the 18-month

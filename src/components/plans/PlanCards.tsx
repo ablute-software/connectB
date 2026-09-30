@@ -5,7 +5,6 @@
 // Takes plain PlanCardData + a renderCta callback so checkout/request/signup
 // behaviour stays entirely with the caller — this component only presents.
 import type { PlanCardData } from './types';
-import { newBulletsSince } from './types';
 
 export function PlanCards({
   plans,
@@ -18,21 +17,13 @@ export function PlanCards({
 }) {
   return (
     <div className="grid gap-4 md:grid-cols-3">
-      {plans.map((p, i) => {
+      {plans.map((p) => {
         const isCurrent = p.id === currentId;
-        // Prompt 158 §6 — each feature is shown once, on the card of the
-        // first plan that includes it; later plans don't repeat it (the
-        // comparison table still ticks ✓ for every plan that has it — see
-        // ComparisonTable.tsx, untouched by this). newBulletsSince still
-        // does the real work here (bullets are cumulative arrays per
-        // plans.ts's own contract — "each tier's array is the previous
-        // tier's plus what's new"), it just now controls which bullets
-        // render at all instead of which get a "New" badge — Prompt 158 §3
-        // removed the badge itself, not this function; UpgradeConfirmModal
-        // still uses it unchanged for its own "what you gain by upgrading"
-        // list, a different feature entirely.
-        const newSincePrevious = i === 0 ? null : newBulletsSince(p, plans[i - 1]);
-        const visibleBullets = newSincePrevious ? p.bullets.filter((b) => newSincePrevious.has(b)) : p.bullets;
+        // Prompt 749 — every plan states its own COMPLETE, independent
+        // feature list now (no more "only show what's new since the
+        // previous tier" filtering — that stays in UpgradeConfirmModal,
+        // whose job is specifically the delta).
+        const notes = Array.from(new Set(p.sections.map((s) => s.note).filter((n): n is string => !!n)));
         return (
           <div key={p.id}
             className={`relative flex flex-col rounded-2xl border bg-white p-5 shadow-sm ${
@@ -56,6 +47,8 @@ export function PlanCards({
               <span className="text-lg font-bold text-[#0E7490]">{p.priceLabel}</span>
             </div>
             {p.priceSubLabel && <div className="text-[11px] text-gray-400">{p.priceSubLabel}</div>}
+            {p.annualPriceLine && <div className="text-[11px] text-gray-400">{p.annualPriceLine}</div>}
+            {p.annualPerMonthLine && <div className="text-[11px] text-gray-400">{p.annualPerMonthLine}</div>}
             {p.promoNote && (
               <div className="mt-1.5 rounded-lg bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700">
                 {p.promoNote}
@@ -63,35 +56,24 @@ export function PlanCards({
             )}
 
             <ul className="mt-4 flex-1 space-y-1.5 text-xs text-gray-600">
-              {visibleBullets.map((b) => {
-                // Prompt 123 §B.1 — a bullet can carry embedded sub-items
-                // (e.g. "Investor Pipeline\n· 5 investors…") for doc-mandated
-                // nested lists (Investor Pipeline, Access to MatchDeal).
-                const [head, ...subLines] = b.split('\n');
-                return (
-                  <li key={b} className="flex items-start gap-1.5">
-                    <span className="text-gray-400">✓</span>
-                    <span>
-                      {head}
-                      {subLines.length > 0 && (
-                        <ul className="mt-1 space-y-0.5 pl-1 font-normal text-gray-500">
-                          {subLines.map((line) => <li key={line}>{line}</li>)}
-                        </ul>
-                      )}
-                    </span>
-                  </li>
-                );
-              })}
+              {p.sections.map((s) => (
+                <li key={s.title} className="flex items-start gap-1.5">
+                  <span className="text-gray-400">✓</span>
+                  <span>
+                    {s.title}
+                    {s.items.length > 0 && (
+                      <ul className="mt-1 space-y-0.5 pl-1 font-normal text-gray-500">
+                        {s.items.map((item) => <li key={item.text}>· {item.text}</li>)}
+                      </ul>
+                    )}
+                  </span>
+                </li>
+              ))}
             </ul>
 
-            {p.comingSoon && p.comingSoon.length > 0 && (
+            {notes.length > 0 && (
               <ul className="mt-3 space-y-1 border-t border-gray-100 pt-3 text-[11px] text-gray-400">
-                {p.comingSoon.map((c) => (
-                  <li key={c} className="flex items-start gap-1.5">
-                    <span>◌</span>
-                    <span>{c} <span className="italic">(coming soon)</span></span>
-                  </li>
-                ))}
+                {notes.map((n) => <li key={n}>{n}</li>)}
               </ul>
             )}
 
