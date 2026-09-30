@@ -56,6 +56,18 @@ export function AboutPreview() {
   );
 }
 
+// Prompt 746 Phase 1 — Current/Past are the real sub-tabs PortfolioPanel
+// renders; a few blank rows underneath, same shape as every other
+// preview's "furniture, no data" rule.
+export function PortfolioPreview() {
+  return (
+    <>
+      <PreviewSubTabs tabs={[{ label: 'Current' }, { label: 'Past' }]} />
+      <PreviewRows count={4} />
+    </>
+  );
+}
+
 export function DashboardPreview() {
   return (
     <>
@@ -127,6 +139,7 @@ export const PREVIEW_BODIES: Record<string, () => React.ReactElement> = {
   watson: WatsonPreview,
   bars: BarsPreview,
   about: AboutPreview,
+  portfolio: PortfolioPreview,
   dashboard: DashboardPreview,
   evaluation: EvaluationPreview,
   actions: ActionsPreview,

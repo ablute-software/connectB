@@ -6,6 +6,7 @@
 // component to serve both would need capability branching throughout.
 import { useEffect, useState } from 'react';
 import { InvestorProfilePanel, type ProfileResponse } from './InvestorProfilePanel';
+import { PortfolioPanel } from './PortfolioPanel';
 import { PipelinePanel } from './PipelinePanel';
 import { InvestorAgendaPanel } from './InvestorAgendaPanel';
 import { AccessGrantedPanel } from './AccessGrantedPanel';
@@ -51,7 +52,12 @@ import { INVESTOR_NAV } from '@/lib/investor-nav';
 // a tab value anymore.
 // Prompt 340 — adds 'dashboard' (Group 4), 'network' and 'messages' (Group
 // 3), filling the slots the Prompt 337 comment below already reserved.
-export type Tab = 'pipeline' | 'actions' | 'about' | 'access' | 'agenda' | 'plans' | 'evaluation' | 'support' | 'dashboard' | 'network' | 'messages';
+// Prompt 746 Phase 1 — adds 'portfolio' (Group 1, next to 'about'). This
+// union is investor-nav.ts's own compile-time proof of completeness (see
+// that file's `_everyTabHasAnEntry`): a Tab added here without a matching
+// INVESTOR_NAV entry fails the build, and vice versa — so the guest sidebar
+// (built from the same list) cannot silently drift from this one again.
+export type Tab = 'pipeline' | 'actions' | 'about' | 'portfolio' | 'access' | 'agenda' | 'plans' | 'evaluation' | 'support' | 'dashboard' | 'network' | 'messages';
 
 const COMPLETENESS_GATE = 50;
 
@@ -293,8 +299,12 @@ export function InvestorWorkspaceShell({
             nem o ReportProblemWidget tinham folga nenhuma no workspace do
             investidor. É o mesmo componente e o mesmo bug, corrigido de uma
             vez em vez de só do lado onde foi reportado. */}
+        {/* Prompt 746 Phase 1 — Portfolio joins plans/network/pipeline in the
+            wide container: its table (name, geography, stage, sectors,
+            ticket, instrument, contact) is cramped at max-w-3xl the same way
+            Pipeline's own row was before Prompt 345 §D.1 widened it. */}
         <main style={{ paddingBottom: investorBottomNavHeight ? `calc(1rem + ${investorBottomNavHeight}px)` : undefined }}
-          className={`mx-auto p-4 md:p-8 ${tab === 'evaluation' ? 'max-w-7xl' : tab === 'plans' || tab === 'network' || tab === 'pipeline' ? 'max-w-6xl' : 'max-w-3xl'}`}>
+          className={`mx-auto p-4 md:p-8 ${tab === 'evaluation' ? 'max-w-7xl' : tab === 'plans' || tab === 'network' || tab === 'pipeline' || tab === 'portfolio' ? 'max-w-6xl' : 'max-w-3xl'}`}>
           {tab === 'pipeline' && (
             !gateOpen ? (
               <EmptyState
@@ -339,6 +349,7 @@ export function InvestorWorkspaceShell({
           )}
           {tab === 'actions' && <InvestorActionsPanel actions={investorActions} />}
           {tab === 'about' && <InvestorProfilePanel onCompletenessChange={setPct} onEntityNameChange={setInvestorFirmName} onIdentityStatusChange={setIdentityStatus} />}
+          {tab === 'portfolio' && <PortfolioPanel />}
           {tab === 'access' && <AccessGrantedPanel />}
           {tab === 'evaluation' && <EvaluationToolsPanel initialOrgId={evaluationTargetOrgId} />}
           {tab === 'agenda' && <InvestorAgendaPanel />}

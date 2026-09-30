@@ -8,7 +8,7 @@ import { GUEST_PREVIEWABLE_KEYS, INVESTOR_NAV, INVESTOR_NAV_KEYS, isGuestPreview
 describe('INVESTOR_NAV', () => {
   it('is the workspace nav, in order', () => {
     expect(INVESTOR_NAV_KEYS).toEqual([
-      'about', 'access', 'pipeline', 'dashboard', 'evaluation',
+      'about', 'portfolio', 'access', 'pipeline', 'dashboard', 'evaluation',
       'actions', 'agenda', 'network', 'messages', 'plans', 'support',
     ]);
   });
@@ -45,7 +45,7 @@ describe('guest previewability', () => {
     // 'access' is not a tool to preview — it is the share the guest already
     // has, so the guest sidebar links it back to their own documents.
     expect(GUEST_PREVIEWABLE_KEYS).toEqual(INVESTOR_NAV_KEYS.filter((k) => k !== 'access'));
-    expect(GUEST_PREVIEWABLE_KEYS).toHaveLength(10);
+    expect(GUEST_PREVIEWABLE_KEYS).toHaveLength(11);
   });
 
   it('recognises exactly those keys, and nothing else', () => {

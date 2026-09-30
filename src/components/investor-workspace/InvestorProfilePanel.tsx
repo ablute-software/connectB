@@ -5,6 +5,7 @@
 // linked (editable thesis form + completeness bar, same field set as
 // migration 0056 added to matchdeal_profiles).
 import { Suspense, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { ColleaguesCard } from './ColleaguesCard';
 import { IDENTITY_BADGE_CLASS, IDENTITY_BADGE_LABEL, type IdentityStatus } from '@/lib/investor-identity';
 import { VouchingCard } from './VouchingCard';
@@ -15,7 +16,6 @@ import { INSTRUMENT_LABELS } from '@/lib/investor-taxonomy';
 import { SectorPicker } from '@/components/company/SectorPicker';
 import { Tabs, type TabItem } from '@/components/ui';
 import { useTabParam } from '@/lib/use-tab';
-import { ImportTab } from './about-tabs/ImportTab';
 import { AutomationsTab } from './about-tabs/AutomationsTab';
 import { AppAccessTab } from './about-tabs/AppAccessTab';
 import { PhotosMediaTab } from './about-tabs/PhotosMediaTab';
@@ -369,14 +369,19 @@ function VerificationUploadCard() {
   );
 }
 
-// Prompt 421 §A.1 — Company · Import · Automations · App access ·
-// Photos & media · MatchDeal, same useTabParam(?tab=) pattern settings/
-// page.tsx already uses — never local-only state, so a tab is linkable and
-// survives refresh/back-forward. No "Roadmap": that tab is about a
-// startup's own product timeline, which doesn't apply to an investor.
+// Prompt 421 §A.1 — Company · Automations · App access · Photos & media ·
+// MatchDeal, same useTabParam(?tab=) pattern settings/page.tsx already
+// uses — never local-only state, so a tab is linkable and survives
+// refresh/back-forward. No "Roadmap": that tab is about a startup's own
+// product timeline, which doesn't apply to an investor.
+//
+// Prompt 746 Phase 1 — "Import" (self-declared past investments,
+// investor_declared_investments) is REMOVED: it had 0 rows in production
+// and no real reader (see PortfolioPanel.tsx's own header). Superseded by
+// the new top-level Portfolio tab — see the redirect just below for the
+// stale-bookmark case.
 const ABOUT_TABS: TabItem[] = [
   { key: 'company', label: 'Company' },
-  { key: 'import', label: 'Import' },
   { key: 'automations', label: 'Automations' },
   { key: 'access', label: 'App access' },
   { key: 'photos', label: 'Photos & media' },
@@ -387,7 +392,21 @@ function InvestorProfilePanelInner({ onCompletenessChange, onEntityNameChange, o
   onCompletenessChange?: (pct: number) => void; onEntityNameChange?: (name: string | null) => void;
   onIdentityStatusChange?: (status: IdentityStatus | null) => void;
 }) {
+  const router = useRouter();
   const [tab, setTab] = useTabParam('company');
+  // Prompt 746 Phase 1 — a bookmark/link still pointing at the removed
+  // About > Import sub-tab (`?tab=import`) goes to the real Portfolio tab
+  // instead of silently landing on "Company" (ABOUT_TABS no longer has an
+  // 'import' entry, so `tab === 'import'` would otherwise just render
+  // nothing selected). This is a full-page navigation, not a local setTab:
+  // Portfolio is a TOP-LEVEL shell tab, one level up from this panel's own
+  // ?tab= sub-state, and InvestorWorkspaceShell only reads its initial tab
+  // from the URL once, at mount (see portal/page.tsx's initialTab) — so
+  // reaching it from inside About needs a real navigation, the same way a
+  // fresh /portal?tab=portfolio load would.
+  useEffect(() => {
+    if (tab === 'import') router.replace('/portal?tab=portfolio');
+  }, [tab, router]);
   const [data, setData] = useState<ProfileResponse | null>(null);
   const [draft, setDraft] = useState<Profile | null>(null);
   const [saving, setSaving] = useState(false);
@@ -470,7 +489,6 @@ function InvestorProfilePanelInner({ onCompletenessChange, onEntityNameChange, o
       <Tabs items={ABOUT_TABS} active={tab} onChange={setTab} />
 
       {tab === 'company' && <CompanyTab draft={draft} setDraft={setDraft} save={save} saving={saving} saveState={saveState} saveError={saveError} />}
-      {tab === 'import' && <ImportTab />}
       {tab === 'automations' && <AutomationsTab initialNotifyNewEligibleStartup={data.notifyNewEligibleStartup ?? false} />}
       {tab === 'access' && <AppAccessTab />}
       {tab === 'photos' && <PhotosMediaTab draft={draft} setDraft={setDraft} save={save} saving={saving} saveState={saveState} saveError={saveError} />}
