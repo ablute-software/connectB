@@ -40,6 +40,8 @@ import { gapReconciliationsAvailable } from '@/lib/document-extraction-capabilit
 import { runReconciliationForOrg } from '@/lib/reconciliation';
 import { automationRulesSweepAvailable } from '@/lib/automation-rules-capability';
 import { runAutomationRulesSweep, type AutomationRulesSweepResult } from '@/lib/automation-rules-tick-server';
+import { investorNotifyDigestAvailable } from '@/lib/investor-notify-digest-capability';
+import { runInvestorNotifyDigestSweep, type NotifyDigestSweepResult } from '@/lib/investor-notify-digest-server';
 
 // Prompt 201 §3 — limiar de sinal, não de aborto.
 const MONTHLY_DELIVERY_ALERT_THRESHOLD = 100;
@@ -249,6 +251,23 @@ export async function GET() {
     console.error('[automations] tick de regras falhou:', e);
   }
 
+  // Prompt 747 §B — the "notify me when a new startup enters my eligible
+  // pipeline" toggle (matchdeal_investor_members.notify_new_eligible_startup,
+  // migration 0267) had no motor behind it until now: nothing ever read that
+  // column to send anything. Daily cadence is the whole point — see investor-
+  // notify-digest.ts's own header for why this must NEVER fire from inside
+  // the Pipeline request itself (that would tell someone about a startup
+  // while they're the one looking at it).
+  let investorNotifyDigestSweep: NotifyDigestSweepResult | null = null;
+  try {
+    if (await investorNotifyDigestAvailable()) {
+      investorNotifyDigestSweep = await runInvestorNotifyDigestSweep(admin, new Date(now));
+      console.log(`[automations] investor notify digest: ${investorNotifyDigestSweep.membersEligible} eligible, ${investorNotifyDigestSweep.emailsSent} sent, ${investorNotifyDigestSweep.emailsFailed} failed`);
+    }
+  } catch (e) {
+    console.error('[automations] investor notify digest sweep failed:', e);
+  }
+
   return NextResponse.json({
     ok: true,
     message: 'Engine tick complete.',
@@ -262,5 +281,6 @@ export async function GET() {
     secondaryMalwareScanSweep,
     interestReminderSweep,
     reconciliationSweep,
+    investorNotifyDigestSweep,
   });
 }
