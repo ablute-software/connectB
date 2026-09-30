@@ -9334,6 +9334,10 @@ A sessão "Sherlock · Incubadoras (Fase 1)", ao trazer o `main` (já com o `dev
 
 **Estado:** branch `fix/me-response-allowlist`, à espera do "sim" do Nuno para merge — é código de aplicação já em produção que está a ser corrigido, mesma regra de sempre.
 
+**Merge feito, 30/09/2026:** `git push origin fix/me-response-allowlist:main` (fast-forward, `256e6b28..ca87ff75`). buildId antes do push: `nrmaQZ_Eyruww7DIgTZ9P`. Confirmação do deploy (buildId depois de mudar) ainda por fazer nesta entrada — a primeira releitura, só 5 segundos depois do push, devolveu o mesmo valor, o que não prova nada (o deploy do Vercel normalmente demora bem mais do que isso): registado aqui em vez de confiar numa leitura demasiado cedo.
+
+**Colisão de coordenação com a sessão "Sherlock · Incubadoras (Fase 1)":** ela avisou, já depois deste push ter acontecido, que ia levar as duas branches (`claude/incubadoras` + esta) para `main` em sequência própria, pedindo para eu não empurrar em paralelo. A mensagem chegou tarde de mais — o Nuno já me tinha dado o "sim" e eu já tinha mergeado. Avisada do estado real (SHA, buildId) para ajustar a sequência dela: agora só precisa de trazer `claude/incubadoras` por cima deste `main`, e o campo `hats` dela deve atravessar `buildAuthenticatedMeResponse` sem esforço extra, dado que a função deixou de ser uma allowlist.
+
 ## 30/09/2026 — Prompt I-01 (+ I-01a): Incubadoras, Fase 1 — fundações (incubadora, membership e papel, relação, convite, níveis, RLS)
 
 Sessão "Sherlock · Incubadoras (Fase 1)", numeração I-nn (nunca 8xx). Branch `claude/incubadoras`, worktree `.claude/worktrees/incubadoras`. Conceito: `docs/incubadoras/v4-conceito-decisoes-20260930.md`; mapa: `docs/incubadoras/I-00-mapa-20260930.md`; relatório: `docs/incubadoras/I-01-relatorio-20260930.md`.
