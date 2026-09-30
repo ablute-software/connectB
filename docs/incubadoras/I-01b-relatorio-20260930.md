@@ -95,7 +95,10 @@ As restantes (1–75, 80–83, 90–92) são as do I-01 e passam todas.
    - Parei o servidor antes de qualquer clique.
    - Tentei uma configuração temporária no `launch.json` desta worktree: a ferramenta não a vê. Reverti o ficheiro.
    - Alterar o `launch.json` de `connectB-737` foi recusado na volta anterior, por isso não o fiz.
-4. **Nenhum ecrã foi verificado no browser.** O comportamento está provado pelo ensaio SQL (secção D) e pelos testes; a verificação visual fica por fazer.
+4. **Segunda tentativa** (continuação, com a sessão já nesta pasta, `HEAD 6530e04d`, árvore limpa, nada a escutar em 3000–3199 antes de arrancar). O `preview_start` voltou a lançar o `next dev` de `connectB-737`: o processo na :3000 (PID 21772) é `connectB-737
+ode_modules
+ext … dev`. A `/api/me` desse servidor não traz `verifyIdentity`, e o código desta worktree já o tem desde o merge. Abortei antes de qualquer clique e parei o servidor. O gate de identidade do Prompt 899 fez exactamente o que devia.
+5. **Nenhum ecrã foi verificado no browser.** A pré-visualização só vai arrancar esta pasta a partir de uma sessão **nova** criada directamente nela; mudar a pasta de uma sessão existente não chega. O comportamento está provado pelo ensaio SQL (secção D) e pelos testes; a verificação visual fica por fazer.
 
 ## G. Para a sessão founder (acrescenta aos três já anotados no I-01)
 
