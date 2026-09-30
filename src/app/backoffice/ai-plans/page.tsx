@@ -9,6 +9,8 @@
 // screen ("ecrã de planos e limites").
 import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui';
+import { PLANS } from '@/lib/plans';
+import { generosityInversionWarning } from '@/lib/ai-plans-order';
 
 interface Plan {
   key: string; label: string; monthly_ai_credits: number; is_custom: boolean;
@@ -34,6 +36,9 @@ function CreatePlanForm({ onCreated }: { onCreated: () => void }) {
       });
       const body = await res.json();
       if (!body.ok) { setErr(body.error ?? 'Could not create plan.'); return; }
+      // Prompt 748 §C — the create route now reports if its own audit
+      // write failed; surfaced here rather than silently succeeding.
+      if (body.auditWarning) setErr('Plan created, but the audit entry failed — see server logs.');
       setKey(''); setLabel(''); setCredits('200');
       onCreated();
     } finally { setBusy(false); }
@@ -68,14 +73,28 @@ function CreatePlanForm({ onCreated }: { onCreated: () => void }) {
   );
 }
 
-function PlanRow({ plan, onChanged }: { plan: Plan; onChanged: () => void }) {
+// Prompt 748 §B — the built-in tier's monthly price label, straight from
+// PLANS (the same numbers the screen's own ordering already keys off) —
+// "custom" for a custom plan, since it has no real price to show.
+function priceLabel(plan: Plan): string {
+  if (plan.is_custom) return 'custom';
+  return PLANS.find((p) => p.tier === plan.key)?.monthly ?? '—';
+}
+
+function PlanRow({ plan, allPlans, onChanged }: { plan: Plan; allPlans: Plan[]; onChanged: () => void }) {
   const [credits, setCredits] = useState(String(plan.monthly_ai_credits));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  // Prompt 748 §B — non-blocking: a generosity-inversion warning just has
+  // to be looked at once, not overridden through a native confirm() the
+  // operator might reflexively dismiss. Cleared on every fresh save
+  // attempt so a NEW mistake never save-throughs on an old "Save anyway".
+  const [pendingWarning, setPendingWarning] = useState<string | null>(null);
+  const [savedMessage, setSavedMessage] = useState('');
   const dirty = credits !== String(plan.monthly_ai_credits);
 
-  async function save() {
-    setBusy(true); setErr('');
+  async function doSave() {
+    setBusy(true); setErr(''); setPendingWarning(null);
     try {
       const res = await fetch(`/api/backoffice/ai-plans/${plan.key}`, {
         method: 'PATCH', headers: { 'content-type': 'application/json' },
@@ -83,8 +102,19 @@ function PlanRow({ plan, onChanged }: { plan: Plan; onChanged: () => void }) {
       });
       const body = await res.json();
       if (!body.ok) { setErr(body.error ?? 'Could not save.'); return; }
+      // Prompt 748 §B — names the plan explicitly so the operator sees the
+      // confirmed row, not just a generic "saved" that doesn't rule out
+      // the same wrong-row mistake that started this prompt.
+      setSavedMessage(`Saved: ${plan.label} → ${credits} credits${body.auditWarning ? ' (audit entry failed — see server logs)' : ''}`);
+      setTimeout(() => setSavedMessage(''), 5000);
       onChanged();
     } finally { setBusy(false); }
+  }
+
+  function save() {
+    const warning = generosityInversionWarning({ key: plan.key, label: plan.label }, Number(credits), allPlans);
+    if (warning) { setPendingWarning(warning); return; }
+    doSave();
   }
 
   async function remove() {
@@ -92,18 +122,20 @@ function PlanRow({ plan, onChanged }: { plan: Plan; onChanged: () => void }) {
     const res = await fetch(`/api/backoffice/ai-plans/${plan.key}`, { method: 'DELETE' });
     const body = await res.json();
     if (!body.ok) { alert(body.error ?? 'Could not delete.'); return; }
+    if (body.auditWarning) alert('Deleted, but the audit entry failed — see server logs.');
     onChanged();
   }
 
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-100 bg-white px-3 py-2">
-      <div className="min-w-[160px]">
-        <div className="text-sm font-medium text-gray-900">{plan.label}</div>
+      <div className="min-w-[220px]">
+        <div className="text-sm font-medium text-gray-900">{plan.label} · {priceLabel(plan)}</div>
         <div className="text-[11px] text-gray-400">{plan.key}{plan.is_custom ? ' · custom' : ' · built-in'}</div>
       </div>
       <label className="ml-auto flex items-center gap-1.5 text-xs text-gray-500">
         Credits/month
-        <input type="number" min={0} step={1} value={credits} onChange={(e) => setCredits(e.target.value)} autoComplete="off"
+        <input type="number" min={0} step={1} value={credits}
+          onChange={(e) => { setCredits(e.target.value); setPendingWarning(null); }} autoComplete="off"
           className="w-24 rounded-lg border border-gray-300 px-2 py-1 text-sm" />
       </label>
       <button onClick={save} disabled={busy || !dirty}
@@ -115,6 +147,16 @@ function PlanRow({ plan, onChanged }: { plan: Plan; onChanged: () => void }) {
           Delete
         </button>
       )}
+      {pendingWarning && (
+        <div className="flex w-full flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
+          <span>{pendingWarning}</span>
+          <button onClick={doSave} disabled={busy} className="rounded bg-amber-600 px-2 py-0.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-40">
+            Save anyway
+          </button>
+          <button onClick={() => setPendingWarning(null)} className="text-amber-700 hover:underline">Cancel</button>
+        </div>
+      )}
+      {savedMessage && <p className="w-full text-[11px] text-emerald-700">{savedMessage}</p>}
       {err && <p className="w-full text-[11px] text-[#B00000]">{err}</p>}
     </div>
   );
@@ -202,7 +244,7 @@ export default function AiPlansPage() {
         <CreatePlanForm onCreated={refreshPlans} />
         {!plans ? <p className="text-sm text-gray-400">Loading…</p> : (
           <div className="space-y-2">
-            {plans.map((p) => <PlanRow key={p.key} plan={p} onChanged={refreshPlans} />)}
+            {plans.map((p) => <PlanRow key={p.key} plan={p} allPlans={plans} onChanged={refreshPlans} />)}
           </div>
         )}
       </section>
