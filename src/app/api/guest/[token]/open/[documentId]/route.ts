@@ -20,11 +20,18 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { descendantFolderIds, resolveDocumentAccess } from '@/lib/data-room';
-import { decideGuestOpen, shelfFromFolderKind, GUEST_SIGNED_URL_TTL_SECONDS } from '@/lib/guest-shelf';
+import { decideGuestOpen, shelfFromFolderKind } from '@/lib/guest-shelf';
 import { guestGrantTokenAvailable } from '@/lib/access-requests-capability';
 import { grantStatus } from '@/lib/access-grants';
 import { vaultFrozenForOrg } from '@/lib/data-room-server';
 import { clientIp, findGrantByGuestToken, guestLinkRateLimited } from '@/lib/guest-link-security';
+import { shouldLogOpen, streamStorageObject } from '@/lib/document-proxy';
+
+// Prompt 750 — same fix as the investor-session twin
+// (api/portal/open/[documentId]/route.ts): stream bytes through this route
+// instead of 302-redirecting to a Supabase Storage signed URL, so the
+// bearer link never reaches the browser. See DECISIONS.md, Prompt 750.
+export const runtime = 'nodejs';
 
 const NOINDEX_HEADERS = { 'X-Robots-Tag': 'noindex, nofollow, noarchive' };
 
@@ -126,25 +133,27 @@ export async function GET(
   // served to anyone but the uploading org.
   if (doc.malware_scan_status === 'flagged') return refuse('invalid', 403);
 
-  let target: string | null = (doc.external_url as string | null) ?? null;
-  if (!target && doc.storage_path) {
-    const { data: signed } = await admin.storage
-      .from('data-room')
-      .createSignedUrl(doc.storage_path as string, GUEST_SIGNED_URL_TTL_SECONDS);
-    target = signed?.signedUrl ?? null;
+  if (!doc.external_url && !doc.storage_path) return refuse('invalid', 403);
+
+  // Prompt 750 §2 — one open logged per real open, not once per byte-range
+  // chunk a video/PDF viewer fires while scrubbing/scrolling.
+  if (shouldLogOpen(req)) {
+    // Logged before serving, and never allowed to block the open: the
+    // founder's "who opened what" is worth a failed insert, not a failed read.
+    // document_views has no `source` column (checked against production), so
+    // grant_id carries the provenance — it is the guest grant, which is
+    // exactly what distinguishes this from a signed-in investor's view.
+    try {
+      await admin.from('document_views').insert({
+        org_id: orgId, document_id: doc.id, grant_id: grant.id, viewer_email: invitedEmail,
+      });
+    } catch { /* provenance is best-effort; the open is not */ }
   }
-  if (!target) return refuse('invalid', 403);
 
-  // Logged before redirecting, and never allowed to block the open: the
-  // founder's "who opened what" is worth a failed insert, not a failed read.
-  // document_views has no `source` column (checked against production), so
-  // grant_id carries the provenance — it is the guest grant, which is exactly
-  // what distinguishes this from a signed-in investor's view.
-  try {
-    await admin.from('document_views').insert({
-      org_id: orgId, document_id: doc.id, grant_id: grant.id, viewer_email: invitedEmail,
-    });
-  } catch { /* provenance is best-effort; the open is not */ }
-
-  return NextResponse.redirect(target, { status: 302, headers: NOINDEX_HEADERS });
+  // Prompt 750 §6 — an external link keeps redirecting; only a
+  // storage_path-backed document goes through the proxy.
+  if (doc.external_url) {
+    return NextResponse.redirect(doc.external_url as string, { status: 302, headers: NOINDEX_HEADERS });
+  }
+  return streamStorageObject({ admin, storagePath: doc.storage_path as string, filename: doc.name as string, req });
 }

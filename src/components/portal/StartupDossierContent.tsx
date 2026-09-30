@@ -25,6 +25,7 @@ import { WatsonEvaluationSupport } from '@/components/investor-workspace/WatsonE
 import { BarsEvaluationSection } from '@/components/investor-workspace/BarsEvaluationSection';
 import { SherlockSummaryButton } from '@/components/investor-workspace/SherlockSummaryButton';
 import { DocumentRequestPicker } from '@/components/DocumentRequestPicker';
+import { DocumentViewerModal, type ViewerDocItem } from '@/components/portal/DocumentViewerModal';
 import { Tooltip } from '@/components/ui';
 import { computeDilution, type ValuationBasis } from '@/lib/dilution';
 import { LoadingState } from '@/components/workspace-shell/LoadingState';
@@ -172,6 +173,11 @@ export function StartupDossierPageInner({ orgId: orgIdProp, variant = 'page', on
   const [levelBusy, setLevelBusy] = useState(false);
   const [levelError, setLevelError] = useState<string | null>(null);
   const [docs, setDocs] = useState<{ sections: DocSection[]; pendingNdaCount: number } | null>(null);
+  // Prompt 750 — the in-platform viewer's own state: which document id is
+  // open, if any. The ordered list it navigates (prev/next/selector) is
+  // derived from `docs` itself right below, never stored separately, so it
+  // can never drift from what the investor actually sees in the tab.
+  const [viewerDocId, setViewerDocId] = useState<string | null>(null);
   // P134-C — fetched regardless of which tab is active: the Documents tab's
   // own "Shared in messages" cross-ref needs this even if the investor
   // never opens the Messages tab this session.
@@ -362,16 +368,29 @@ export function StartupDossierPageInner({ orgId: orgIdProp, variant = 'page', on
   // abre nada — nunca se constrói um URL fora dela.
   //
   // Prompt 560 §B — one open path. Was: POST /api/portal/view to log, then
-  // window.open on a signed URL the LIST had already minted. Now:
-  // /api/portal/open/<id>, which re-checks the grants, mints the URL at
-  // click time and logs the view in the same request. The gate is unchanged
-  // and still checked here first — an id not in the gated list opens
-  // nothing, and a URL is never constructed outside it.
+  // window.open on a signed URL the LIST had already minted. The gate is
+  // unchanged and still checked here first — an id not in the gated list
+  // opens nothing.
+  //
+  // Prompt 750 — no longer window.open at all. Opens the in-platform viewer
+  // instead (DocumentViewerModal below); the actual grant re-check, view
+  // logging and byte-streaming all still happen exactly where they did
+  // before, inside /api/portal/open/<id> — that route is now the iframe/
+  // video src instead of a new-tab target.
   function openDocById(documentId: string) {
     const doc = docs?.sections.flatMap((s) => s.documents).find((d) => d.id === documentId);
     if (!doc) return;
-    window.open(`/api/portal/open/${encodeURIComponent(documentId)}`, '_blank');
+    setViewerDocId(documentId);
   }
+
+  // Prompt 750 — the viewer's own ordered list, one row per document across
+  // every section, folder label carried along for the header/selector.
+  // Derived on every render from `docs`, never cached — the same list the
+  // Documents tab itself renders, so prev/next always matches what's on screen.
+  const viewerItems: ViewerDocItem[] = docs
+    ? docs.sections.flatMap((s) => s.documents.map((d) => ({ id: d.id, name: d.name, folderName: s.label })))
+    : [];
+  const viewerIndex = viewerDocId ? viewerItems.findIndex((it) => it.id === viewerDocId) : -1;
 
   async function archiveManually() {
     setBusy(true);
@@ -830,6 +849,15 @@ export function StartupDossierPageInner({ orgId: orgIdProp, variant = 'page', on
           </div>
         ) : renderTabContent()}
       </main>
+      {viewerIndex >= 0 && (
+        <DocumentViewerModal
+          items={viewerItems}
+          index={viewerIndex}
+          onIndexChange={(i) => setViewerDocId(viewerItems[i]?.id ?? null)}
+          onClose={() => setViewerDocId(null)}
+          openUrl={(id) => `/api/portal/open/${encodeURIComponent(id)}`}
+        />
+      )}
     </div>
   );
 
@@ -877,6 +905,7 @@ export function StartupDossierPageInner({ orgId: orgIdProp, variant = 'page', on
         )}
         {tab === 'documents' && (
           <DocumentsTab orgId={orgId} hasAccess={card.hasDataRoomAccess} docs={docs} sharedInMessages={messagesInfo?.messages ?? []}
+            onOpenDoc={openDocById}
             focusDocId={focusDocId} focusSection={focusSection}
             trackEvaluate={trackEvaluate} docScores={docScores} focusedDocId={focusedDoc?.id ?? null}
             onFocusDoc={(id, name) => setFocusedDoc({ id, name })} />
@@ -941,9 +970,13 @@ function ScoreBadge({ documentId, documentName, trackEvaluate, docScores, focuse
   );
 }
 
-function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate, docScores, focusedDocId, onFocusDoc, focusDocId, focusSection }: {
+function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, onOpenDoc, trackEvaluate, docScores, focusedDocId, onFocusDoc, focusDocId, focusSection }: {
   orgId: string;
   hasAccess: boolean; docs: { sections: DocSection[]; pendingNdaCount: number } | null; sharedInMessages: DealMessage[];
+  // Prompt 750 — opens the shared in-platform viewer (DocumentViewerModal,
+  // owned by the parent so its ordered list can span every section, not
+  // just this tab's own render).
+  onOpenDoc: (documentId: string) => void;
   // Prompt 347 §B — off (all four undefined/false) means zero change from
   // before this prompt: no score badges, no "Rate" affordance.
   trackEvaluate?: boolean; docScores?: Record<string, DocScoreEntry>; focusedDocId?: string | null;
@@ -985,10 +1018,13 @@ function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate,
   }
   if (!docs) return <LoadingState text="Loading…" compact />;
 
-  // Prompt 560 §B — /api/portal/open/<id> logs and redirects in one request,
-  // so a view is recorded from here and from the Data room tab identically.
+  // Prompt 560 §B — /api/portal/open/<id> logs and streams the bytes in one
+  // request, so a view is recorded from here and from the Data room tab
+  // identically.
+  // Prompt 750 — opens the in-platform viewer (onOpenDoc, owned by the
+  // parent) instead of a new tab; the request/log/stream above is unchanged.
   function openDoc(doc: PortalDoc) {
-    window.open(`/api/portal/open/${encodeURIComponent(doc.id)}`, '_blank');
+    onOpenDoc(doc.id);
     // Prompt 347 §B — opening a document while in Track & Evaluate mode
     // brings it into focus for the right-column scoring panel; off mode
     // never calls this (onFocusDoc is undefined then).
