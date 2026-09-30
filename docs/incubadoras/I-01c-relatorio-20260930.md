@@ -96,3 +96,23 @@ A conta criada pelo convite de membro virou founder. A confirmação do e-mail n
 | `verify-incubators-i01c.sql` (tabelas reais, revertido) | **13/13 PASS** |
 | Depois | 0 fixtures `zz-test-i01c-*`, 0 ligações "idle in transaction" |
 | Advisors | iguais à linha de base, excepto `authenticated_security_definer_function_executable` 84 → 85 (a nova RPC, feita para `authenticated`); `anon_…` fica em 41 |
+
+## H. Merge, deploy e limpeza D ("sim" do Nuno)
+
+- **Merge:** `main` `59cfef14..a62d3a53`, fast-forward.
+- **Deploy:** buildId `shxlGg64vNDTRV-oHYHhg` → **`rbiQ6tq_i7x1JT1N-m5P4`**, `Age: 0`. Prova: `POST /api/invite/incubator/member/accept-pending` passou de 405 para **401 `not_signed_in`**. `/invite/incubator/member/pending` já dava 200 antes, porque o `[token]` apanha "pending", e por isso não serviu de prova.
+- **Limpeza D:**
+
+| | Feito |
+|---|---|
+| "Incubus biscuit" (org criada por engano para `appsalexandra59@gmail.com`) | `close_org()` + `closed_reason = 'platform'`; razão por extenso aqui e no DECISIONS.md (a coluna só aceita `owner`/`platform`/`last_member_deleted`). `owner` levaria a conta para `/closed` |
+| Ensaio revertido do que ela vê a seguir | acesso `active`; a RPC aceita 1 convite (organização **"Alexandra Alexandra"**); passa a membro |
+| Convite ALEX trial → `alexandrameira.ablute@gmail.com` | `removed`. A conta está bloqueada por "Caramel Biscuit" `moderation_status = 'deleted'` — Prompt 900 (sessão founder) |
+| Convite ALEX trial → `alexandrameira@ablute.pt` | continua `active` |
+| `auth.users` | nada apagado |
+
+## I. O Nuno repete o teste
+
+1. Entrar com `appsalexandra59@gmail.com` pela página normal de login → aterra no **Ecosystem workspace** da "Alexandra Alexandra" (o convite pendente é aceite na entrada).
+2. Convidar uma startup de teste (`zz-test-*`).
+3. Aceitar do lado founder; mudar o nível; terminar a relação.
