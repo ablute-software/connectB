@@ -147,3 +147,19 @@ ext … dev`. A `/api/me` desse servidor não traz `verifyIdentity`, e o código
 - **Script de RLS contra as tabelas reais** (transacção revertida): **76/76 PASS**. Não ficou nenhuma fixture nem transacção pendente.
 - **Advisors:** o único aumento é +22 em `authenticated_security_definer_function_executable`, as RPCs da própria funcionalidade. Nenhum ERROR novo.
 - **Falta:** o **"sim" para o merge** de `claude/incubadoras` para o `main`, e depois o buildId antes e depois (`www.sherlockdeal.com`). A seguir, o teste em produção só com `zz-test-incubadora-braga` e uma org `zz-test-*`.
+
+## I. Merge e deploy (30/09, "sim" do Nuno)
+
+- **`main` fast-forward `8706262b..23b374aa`**, depois de trazer o `main` actual. O conflito em `me-response.ts` ficou resolvido do lado da denylist da sessão Founder.
+- **Gates na árvore integrada:**
+  - `tsc` EXIT=0.
+  - `vitest` 4290/4291 (a falha ICU pré-existente).
+  - `eslint` EXIT=0.
+  - `build` EXIT=0.
+- **buildId:** `taYOH6dvHp08MVHrZxflK` → `qLmjsEOcjAMCDxhGxfKHj`, que é o deploy do commit anterior, com as rotas novas ainda 404 → **`DyKy0Bxi-Yz29myXoYMkb`**.
+- **Confirmado nesse build:**
+  - `/invite/incubator/continue` 200.
+  - Pré-visualização e `check-email` com token inexistente → 404 `invite_not_found`.
+  - `/api/me` normal.
+- **Falta:** o teste em produção com fixtures `zz-test-*`. É escrita em produção, por isso fica a combinar.
+

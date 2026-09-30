@@ -9380,3 +9380,11 @@ Três correcções à branch `claude/incubadoras` (`d06a84ba`) antes do "sim" pa
 
 **Produção não muda de comportamento com isto:** o `main` actual não chama nenhuma destas funções; tudo fica activo quando a `claude/incubadoras` for para o `main` — **merge ainda à espera do "sim" do Nuno**.
 
+## 30/09/2026 — Prompt I-01: merge para o `main` e deploy confirmado ("sim" do Nuno)
+
+`claude/incubadoras` trouxe primeiro o `main` actual (Prompt 747, a denylist `ca87ff75` do `me-response.ts` que a sessão Founder mergeou com o "sim" do Nuno, e `8706262b`); conflito em `me-response.ts` resolvido do lado da denylist (`hats` fica declarado em `AuthenticatedMeResponse` e no teste das chaves, e passa pelo builder sem ser nomeado). Gates sobre a árvore integrada: `tsc` EXIT=0; `vitest` EXIT=1 — 4290/4291, a falha ICU pré-existente de `market-facts-view.test.ts`; `eslint --no-eslintrc` EXIT=0, 264 avisos; `npm run build` EXIT=0. Push `claude/incubadoras:main`, fast-forward **`8706262b..23b374aa`**.
+
+**Deploy:** buildId antes `taYOH6dvHp08MVHrZxflK` → `qLmjsEOcjAMCDxhGxfKHj` (o deploy do `8706262b`, só DECISIONS — `/invite/incubator/continue` ainda 404) → **`DyKy0Bxi-Yz29myXoYMkb`**, com `/invite/incubator/continue` 200, `GET /api/invite/incubator/<token inexistente>` → 404 `invite_not_found`, `POST …/check-email` → 404 `invite_not_found`, `/api/me` normal (`authEnabled: true`). Todas as leituras com cache-busting, `Age: 0`. Lição da própria medição: um buildId que muda não é o nosso deploy até uma rota nova responder — o primeiro salto era o commit anterior.
+
+**Falta:** o teste em produção com `zz-test-incubadora-braga` e uma org `zz-test-*` (criar no backoffice, convidar, aceitar, nível, terminar) — escrita em produção, a combinar com o Nuno.
+
