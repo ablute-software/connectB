@@ -1,9 +1,12 @@
 -- Prompt I-01 (+ I-01a) — Incubadoras, Fase 1: fundações.
 --
--- NOT applied to any live database by the session that wrote it. Apply only
--- with Nuno's explicit "sim" (I-01 §F.2), via apply_migration, and rename
--- this file afterwards to the version apply_migration actually records (see
--- the "migration ledger: name vs version" note in DECISIONS.md, Prompt 898).
+-- APPLIED to production on 30/09/2026 via apply_migration, with Nuno's
+-- explicit "sim" (I-01 §F.2). Ledger: version 20260930144202, name
+-- incubators_foundation. This file was renamed from
+-- 20260930150000_incubators_foundation.sql to the version apply_migration
+-- actually recorded (the "migration ledger: name vs version" rule, DECISIONS.md
+-- Prompt 898). Apart from this header comment, the file is exactly what was
+-- applied.
 --
 -- Concept: docs/incubadoras/v4-conceito-decisoes-20260930.md (D2, D2b, D3,
 -- D4, D6, D6b, D19). Map: docs/incubadoras/I-00-mapa-20260930.md.

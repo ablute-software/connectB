@@ -1,5 +1,5 @@
 -- Prompt I-01 §A.10 — RLS / function verification for the incubator
--- foundation (migration 20260930150000_incubators_foundation.sql).
+-- foundation (migration 20260930144202_incubators_foundation.sql).
 --
 -- Pattern: verify-deal-terms-rls.sql (one transaction, ROLLBACK at the end,
 -- zz-test-* fixtures, `set local role` + request.jwt.claims). One difference,

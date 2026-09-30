@@ -1,6 +1,6 @@
 // Prompt I-01 — Incubators, Phase 1: the pure half (no I/O, safe on the
 // client). The enforcement lives in SQL (migration
-// 20260930150000_incubators_foundation.sql); everything here either mirrors
+// 20260930144202_incubators_foundation.sql); everything here either mirrors
 // a SQL rule for the UI and the tests, or holds the literal copy the prompts
 // fix. Concept: docs/incubadoras/v4-conceito-decisoes-20260930.md.
 //

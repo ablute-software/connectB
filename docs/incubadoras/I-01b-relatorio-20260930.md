@@ -137,6 +137,13 @@ ext … dev`. A `/api/me` desse servidor não traz `verifyIdentity`, e o código
 
 4. **A falha de locale ICU em `market-facts-view.test.ts` faz o `vitest` sair com 1 em todas as sessões**, o que anula o gate "EXIT=0". Corrigir o teste ou fixar o locale no `vitest.config`, para o gate voltar a significar alguma coisa.
 
-## H. Próximo passo
+## H. Migração aplicada (30/09, "sim" do Nuno) — e o que falta
 
-**"Sim" para aplicar a migração** (`apply_migration`, nome `20260930150000_incubators_foundation`). Depois: ledger, renomear o ficheiro para a versão gravada, grants em produção e o script de RLS sem a migração embutida. A seguir, **"sim" para o merge** e verificar o buildId antes e depois.
+- **Aplicada:** ledger `20260930144202 incubators_foundation`; o ficheiro foi renomeado para `20260930144202_incubators_foundation.sql`.
+- **Produção:**
+  - 6 tabelas com RLS; grants iguais aos do ensaio.
+  - `anon` sem nada: 0 privilégios de tabela e 0 EXECUTE.
+  - 27 funções; CHECK do e-mail com os três tipos novos; tabelas vazias.
+- **Script de RLS contra as tabelas reais** (transacção revertida): **76/76 PASS**. Não ficou nenhuma fixture nem transacção pendente.
+- **Advisors:** o único aumento é +22 em `authenticated_security_definer_function_executable`, as RPCs da própria funcionalidade. Nenhum ERROR novo.
+- **Falta:** o **"sim" para o merge** de `claude/incubadoras` para o `main`, e depois o buildId antes e depois (`www.sherlockdeal.com`). A seguir, o teste em produção só com `zz-test-incubadora-braga` e uma org `zz-test-*`.

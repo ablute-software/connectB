@@ -9288,3 +9288,15 @@ Três correcções à branch `claude/incubadoras` (`d06a84ba`) antes do "sim" pa
 
 **Verificação:** `tsc` EXIT=0; `vitest` EXIT=1 — **4262/4263**, a mesma falha de locale ICU pré-existente em `market-facts-view.test.ts` (não tocado; ver o ponto para a sessão founder no relatório); `eslint --no-eslintrc` EXIT=0, 264 avisos (contagem igual, nenhum em ficheiros novos); `npm run build` EXIT=0.
 
+## 30/09/2026 — Prompt I-01: migração aplicada em produção ("sim" do Nuno)
+
+**Aplicada** via `apply_migration` (nome `incubators_foundation`), exactamente o ficheiro ensaiado a 80/80 em transacção revertida. **Ledger: `version 20260930144202`, `name incubators_foundation`** — o ficheiro foi renomeado de `20260930150000_incubators_foundation.sql` para `20260930144202_incubators_foundation.sql` (regra "nome vs versão", Prompt 898); só o comentário de cabeçalho mudou. Referências em `src/lib/incubators.ts`, `src/lib/email-send-log.ts` e `scripts/verify-incubators-rls.sql` actualizadas; os relatórios e as entradas anteriores deste ficheiro mantêm o nome antigo por serem registo histórico.
+
+**Confirmado em produção depois da aplicação:** 6 tabelas `incubator%` com RLS ligada; grants `authenticated` = `incubator_access_log:SELECT, incubator_cohorts:INSERT/SELECT, incubator_invites:SELECT, incubator_members:SELECT, incubator_relationships:SELECT, incubators:INSERT/SELECT/UPDATE` (+ as colunas de insert/update de `incubator_invites`/`incubator_cohorts`); `anon`/`PUBLIC` com 0 privilégios de tabela e 0 EXECUTE; 27 funções; o CHECK de `email_send_log.kind` com os três tipos novos; 0 linhas em todas as tabelas novas. O script de RLS **corrido de novo contra as tabelas reais** (sem a migração embutida, transacção revertida): **76/76 PASS**; nenhuma fixture ficou; zero transacções idle.
+
+**Advisors de segurança, antes/depois:** só `authenticated_security_definer_function_executable` mudou (62 → 84, +22 — exactamente as funções `incubator*` / `founder_incubator_*` / `is_incubator_*` / `has_active_incubator_membership` que a app chama com a sessão do utilizador, mesmo padrão das RPCs já existentes); nenhum ERROR novo, nada para `anon`, nenhum `search_path` mutável novo.
+
+**`npm run verify:migrations -- --check`:** EXIT=1, mas pelas quatro colisões de numeração pré-existentes em branches antigas (0289, 0292, 0339, 0345) — nenhuma envolve esta migração.
+
+**Produção não muda de comportamento com isto:** o `main` actual não chama nenhuma destas funções; tudo fica activo quando a `claude/incubadoras` for para o `main` — **merge ainda à espera do "sim" do Nuno**.
+
