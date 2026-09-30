@@ -3,11 +3,12 @@
 // resolveRole (precisa de um cliente Supabase real), a precedência entre
 // eles fica aqui, testável sem nenhum I/O.
 import { describe, expect, it } from 'vitest';
-import { decideRole } from './supabase-server';
+import { decideRole, hatsFromSignals } from './supabase-server';
 
 const NONE = {
   isPlatformAdmin: false,
   hasOpenFounderOrg: false,
+  hasActiveIncubatorMembership: false,
   hasApprovedClaim: false,
   hasActiveInvestorMembership: false,
   hasAccessGrant: false,
@@ -69,5 +70,38 @@ describe('decideRole — Prompt 587 (investor_entity_claims aprovado/pendente)',
     expect(decideRole({ ...NONE, hasPendingClaim: true, hasOpenFounderOrg: true })).toBe('founder');
     expect(decideRole({ ...NONE, hasPendingClaim: true, isPlatformAdmin: true })).toBe('developer');
     expect(decideRole({ ...NONE, hasPendingClaim: true, isAbluteTeamEmailConfirmed: true })).toBe('developer');
+  });
+});
+
+// Prompt I-01 — o papel 'incubator': developer > founder > incubator > investor.
+describe('decideRole — incubadora (Prompt I-01)', () => {
+  it('membership activa de incubadora, sem outro sinal → incubator', () => {
+    expect(decideRole({ ...NONE, hasActiveIncubatorMembership: true })).toBe('incubator');
+  });
+
+  it('founder + incubadora → founder (aterra no /pipeline; o selector leva ao /incubator)', () => {
+    expect(decideRole({ ...NONE, hasOpenFounderOrg: true, hasActiveIncubatorMembership: true })).toBe('founder');
+  });
+
+  it('incubadora + investidor (D3: a aceleradora que investe) → incubator, acima de todos os sinais de investidor', () => {
+    expect(decideRole({ ...NONE, hasActiveIncubatorMembership: true, hasActiveInvestorMembership: true })).toBe('incubator');
+    expect(decideRole({ ...NONE, hasActiveIncubatorMembership: true, hasApprovedClaim: true })).toBe('incubator');
+    expect(decideRole({ ...NONE, hasActiveIncubatorMembership: true, hasAccessGrant: true })).toBe('incubator');
+  });
+
+  it('platform admin continua acima da incubadora', () => {
+    expect(decideRole({ ...NONE, isPlatformAdmin: true, hasActiveIncubatorMembership: true })).toBe('developer');
+  });
+
+  it('incubadora acima do fallback @ablute.pt e do claim pendente', () => {
+    expect(decideRole({ ...NONE, hasActiveIncubatorMembership: true, isAbluteTeamEmailConfirmed: true })).toBe('incubator');
+    expect(decideRole({ ...NONE, hasActiveIncubatorMembership: true, hasPendingClaim: true })).toBe('incubator');
+  });
+
+  it('hatsFromSignals lista todos os chapéus, não só o que ganha a precedência', () => {
+    expect(hatsFromSignals({ ...NONE, hasOpenFounderOrg: true, hasActiveIncubatorMembership: true, hasActiveInvestorMembership: true }))
+      .toEqual({ founder: true, incubator: true, investor: true });
+    expect(hatsFromSignals(NONE)).toEqual({ founder: false, incubator: false, investor: false });
+    expect(hatsFromSignals({ ...NONE, hasAccessGrant: true }).investor).toBe(true);
   });
 });

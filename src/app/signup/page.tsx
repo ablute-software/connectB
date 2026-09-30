@@ -13,7 +13,7 @@
 // with a real request-access form — /api/investor-access-request — that
 // captures the lead for manual follow-up. Not self-signup (still doesn't
 // promise instant access), but no longer a wall.
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { browserClient, authEnabled } from '@/lib/supabase';
@@ -21,6 +21,7 @@ import { LogoLockup } from '@/components/Logo';
 import { AuthShell } from '@/components/auth/AuthShell';
 import { PasswordRequirementsIndicator } from '@/components/auth/PasswordRequirementsIndicator';
 import { checkPassword } from '@/lib/password-policy';
+import { INCUBATOR_INVITE_CONTINUE_PATH, INCUBATOR_INVITE_STORAGE_KEY, type StoredIncubatorInvite } from '@/lib/incubators';
 
 const STAGES = [
   { value: '', label: 'Stage…' },
@@ -170,6 +171,26 @@ function FounderSignupForm() {
   // straight in or show the "check your email" message.
   const [pendingAccount, setPendingAccount] = useState<{ userId: string; session: boolean } | null>(null);
 
+  // Prompt I-01 §C.2 — arriving from an incubator invite: prefill the
+  // startup fields from the invite's stub (kept in this browser by the
+  // invite page, never in the URL) and, once the workspace exists, return to
+  // the invite to accept it. `next` is honoured only for that one fixed path.
+  const fromIncubatorInvite = sp.get('invite') === 'incubator';
+  const afterSignup = fromIncubatorInvite && sp.get('next') === INCUBATOR_INVITE_CONTINUE_PATH ? INCUBATOR_INVITE_CONTINUE_PATH : '/';
+  useEffect(() => {
+    if (!fromIncubatorInvite) return;
+    try {
+      const raw = window.localStorage.getItem(INCUBATOR_INVITE_STORAGE_KEY);
+      const stub = raw ? (JSON.parse(raw) as StoredIncubatorInvite) : null;
+      if (stub?.startupName) setOrg((v) => v || stub.startupName!);
+      if (stub?.sector) setSector((v) => v || stub.sector!);
+      if (stub?.website) setWebsite((v) => v || stub.website!);
+    } catch { /* no stub — the form stays empty */ }
+  }, [fromIncubatorInvite]);
+  const confirmMsg = fromIncubatorInvite
+    ? 'Account created. Check your email to confirm, then sign in — you will be taken back to the incubator invite.'
+    : 'Account created. Check your email to confirm, then sign in.';
+
   const canSubmit = !busy && !!email && checkPassword(password).valid && !!org && !!name && !!title && agreedToTerms;
 
   // Prompt 152 — found live: a real signup left auth.users with a row and
@@ -266,9 +287,9 @@ function FounderSignupForm() {
         // that does (e.g. this same form again, or a future /set-password-
         // style detour) — flagged, not silently left to look handled.
         await acceptTerms();
-        window.location.href = '/';
+        window.location.href = afterSignup;
       } else {
-        setMsg('Account created. Check your email to confirm, then sign in.');
+        setMsg(confirmMsg);
       }
     } finally { setBusy(false); }
   }
@@ -282,9 +303,9 @@ function FounderSignupForm() {
       setPendingAccount(null);
       if (pendingAccount.session) {
         await acceptTerms();
-        window.location.href = '/';
+        window.location.href = afterSignup;
       } else {
-        setMsg('Account created. Check your email to confirm, then sign in.');
+        setMsg(confirmMsg);
       }
     } finally { setBusy(false); }
   }
@@ -383,7 +404,7 @@ function FounderSignupForm() {
         <p className="mt-2 text-[11px] text-gray-400">* required</p>
         {msg && <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700">{msg}</div>}
         <div className="mt-5 border-t border-gray-100 pt-4 text-center text-xs text-gray-500">
-          Already have an account? <Link href="/login" className="font-medium text-[#0E7490] hover:underline">Sign in</Link>
+          Already have an account? <Link href={fromIncubatorInvite ? `/login?next=${encodeURIComponent(INCUBATOR_INVITE_CONTINUE_PATH)}` : '/login'} className="font-medium text-[#0E7490] hover:underline">Sign in</Link>
         </div>
       </div>
     </AuthShell>

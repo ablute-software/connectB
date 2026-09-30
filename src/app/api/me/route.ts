@@ -4,7 +4,7 @@
 // /api/ai-review) check server-side, so the UI never has to guess or
 // duplicate that logic (and never inspects env vars client-side).
 import { NextResponse, type NextRequest } from 'next/server';
-import { serverClient, resolveRole, getOrgRole, authEnabled } from '@/lib/supabase-server';
+import { serverClient, resolveRoleSignals, decideRole, hatsFromSignals, getOrgRole, authEnabled } from '@/lib/supabase-server';
 import { readViewerSession } from '@/lib/developer-viewer';
 import { companyCanonAvailable } from '@/lib/company-canon';
 import { needsReviewAiAvailable } from '@/lib/needs-review-ai';
@@ -69,11 +69,15 @@ export async function GET(req: NextRequest) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ authEnabled: true, user: null, role: 'none', capabilities });
-  const [role, orgRole, { orgId, plan }] = await Promise.all([
-    resolveRole(user.id, user.email, sb, user.email_confirmed_at),
+  const [signals, orgRole, { orgId, plan }] = await Promise.all([
+    resolveRoleSignals(user.id, user.email, sb, user.email_confirmed_at),
     getOrgRole(user.id, sb),
     resolveUserPlan(user.id, sb),
   ]);
+  const role = decideRole(signals);
+  // Prompt I-01 — every workspace this account can open (the hat switcher in
+  // the founder shell, the portal and the incubator shell reads this).
+  const hats = hatsFromSignals(signals);
   // Plans & Account batch — the plan half of the entitlement gate. The client
   // uses `entitlements` to show/hide gated UI; the server re-checks it at each
   // write path (e.g. the compose route), so this is display-truth, not the
@@ -138,5 +142,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ authEnabled: true, user: { id: user.id, email: user.email }, role, orgRole, plan, entitlements, capabilities, watson, reviewQuota, viewer, pioneerBadge });
+  return NextResponse.json({ authEnabled: true, user: { id: user.id, email: user.email }, role, hats, orgRole, plan, entitlements, capabilities, watson, reviewQuota, viewer, pioneerBadge });
 }

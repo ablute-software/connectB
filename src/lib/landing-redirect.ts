@@ -24,8 +24,13 @@ import type { Role } from './supabase';
 // of the founder shell: /claim/pending explains what's happening and what's
 // still needed, instead of either the marketing page or /portal's own
 // no-access dead end.
-export function landingDestination(role: Role): '/portal' | '/pipeline' | '/claim/pending' | null {
+export function landingDestination(role: Role): '/portal' | '/pipeline' | '/incubator' | '/claim/pending' | null {
   switch (role) {
+    // Prompt I-01 — the incubator workspace. A founder who is also an
+    // incubator member resolves as 'founder' and lands on /pipeline; the
+    // hat switcher in both shells takes them across.
+    case 'incubator':
+      return '/incubator';
     case 'investor':
       return '/portal';
     case 'founder':

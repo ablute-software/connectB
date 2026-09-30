@@ -43,6 +43,7 @@ import { SupportTicketsPanel, useSupportUnreadCount } from '@/components/Support
 import { InvestorActionsPanel, useInvestorActions } from '@/components/investor-workspace/InvestorActionsPanel';
 import { InvestorReminderPopup } from '@/components/portal/InvestorReminderPopup';
 import { INVESTOR_NAV } from '@/lib/investor-nav';
+import { HatSwitcher } from '@/components/incubator/HatSwitcher';
 
 // Prompt 337 — 'archive' is no longer its own tab: ArchivePanel's content
 // moved into PipelinePanel as an "Archived" filter (same content, same
@@ -220,6 +221,9 @@ export function InvestorWorkspaceShell({
         subtitle="Investor Workspace"
         items={navItems}
         groupStyle="cards"
+        /* Prompt I-01 §B.4 — the only portal change: links to this account's
+           other workspaces (founder / incubator), when it has them. */
+        afterItems={<HatSwitcher current="investor" />}
         footer={
           <>
             {identityStatus && (

@@ -11,7 +11,12 @@
 import 'server-only';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-export type EmailKind = 'guest_invite' | 'access_notify' | 'access_grant' | 'support' | 'other';
+// Prompt I-01 — the three incubator kinds need migration
+// 20260930150000_incubators_foundation.sql (it widens the CHECK). Before that
+// migration is applied, logEmailSend's insert fails its constraint and is
+// swallowed like any other log failure — the e-mail itself still goes out.
+export type EmailKind = 'guest_invite' | 'access_notify' | 'access_grant' | 'support' | 'other'
+  | 'incubator_invite' | 'incubator_member_invite' | 'incubator_relationship_ended';
 // Prompt 557 §3 — the four asynchronous statuses. They are written by
 // /api/resend/webhook, never by logEmailSend: nothing on the synchronous
 // send path can know whether mail arrived, and a type that let it claim so

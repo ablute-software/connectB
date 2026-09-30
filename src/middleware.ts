@@ -143,8 +143,16 @@ export async function middleware(req: NextRequest) {
     }
     const home = req.nextUrl.clone();
     home.search = '';
+    // Prompt I-01 — the incubator signal is the same SQL function resolveRole
+    // calls (has_active_incubator_membership), so the rule lives in one
+    // place; only asked when the founder branch did not already win, which
+    // is decideRole's own order (founder > incubator > investor). A missing
+    // function (migration not yet applied) reads as false.
+    const incubatorSignal = (loginAdmin || isOpenFounder) ? null : await supabase.rpc('has_active_incubator_membership');
     if (loginAdmin || isOpenFounder) {
       home.pathname = APP_HOME;
+    } else if (incubatorSignal && !incubatorSignal.error && incubatorSignal.data === true) {
+      home.pathname = '/incubator';
     } else {
       // Prompt 587 — investor_entity_claims joins the same lightweight
       // precedence resolveRole() itself now uses (supabase-server.ts's

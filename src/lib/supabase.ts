@@ -34,4 +34,7 @@ export function browserClient() {
 // from 'none' so landingDestination() can send them somewhere that explains
 // what's happening instead of either the marketing page or the empty
 // founder shell 'none' gets.
-export type Role = 'founder' | 'developer' | 'investor' | 'investor_pending' | 'none';
+// Prompt I-01 — 'incubator': an active member of an incubator workspace
+// (incubator_members, never org_members/access_grants). Ranks below founder
+// and above investor (decideRole in supabase-server.ts).
+export type Role = 'founder' | 'developer' | 'incubator' | 'investor' | 'investor_pending' | 'none';

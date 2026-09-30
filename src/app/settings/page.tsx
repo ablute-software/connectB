@@ -20,6 +20,7 @@ import { PermissionsMatrixCard } from '@/components/PermissionsMatrixCard';
 import { ImportPanel } from '@/components/settings/ImportPanel';
 import { AccountSecurityCard } from '@/components/settings/AccountSecurityCard';
 import { CloseAccountCard } from '@/components/settings/CloseAccountCard';
+import { ProgramsPanel } from '@/components/settings/ProgramsPanel';
 import { NeedsReviewPanel } from '@/components/queue/NeedsReviewPanel';
 import { CompanyPanel } from '@/components/company/CompanyPanel';
 import { RoadmapPanel } from '@/components/company/RoadmapPanel';
@@ -377,7 +378,7 @@ function TeamPanel() {
 // `!==` chains — the exact bug the prompt calls out: a tab added to one
 // chain but not the other either runs the tour where its anchors don't
 // exist, or renders CompanyPanel underneath the new tab's own content.
-const NON_COMPANY_TABS = ['automations', 'import-history', 'team', 'roadmap', 'photos-media', 'matchdeal'] as const;
+const NON_COMPANY_TABS = ['automations', 'import-history', 'team', 'roadmap', 'photos-media', 'matchdeal', 'programs'] as const;
 
 function SettingsInner() {
   useTrackPageView('/settings');
@@ -497,6 +498,9 @@ function SettingsInner() {
     // Prompt 377 §A.2 — moved out of the Company vertical flow, at the very
     // end of the bar.
     { key: 'matchdeal', label: 'MatchDeal' },
+    // Prompt I-01 §C.4 — incubator/accelerator relationships: sharing level,
+    // public badge, end, and who consulted what.
+    { key: 'programs', label: 'Programas' },
   ];
 
   // Old bookmarks/links to ?tab=needs-review (its former top-level slot)
@@ -579,6 +583,7 @@ function SettingsInner() {
       {effectiveTab === 'team' && <TeamPanel />}
       {effectiveTab === 'roadmap' && <RoadmapPanel canEdit={canEditCompany} />}
       {effectiveTab === 'matchdeal' && <MiniPitchCard canEdit={canEditCompany} />}
+      {effectiveTab === 'programs' && <ProgramsPanel />}
       {isCompanyTab && (
         <CompanyPanel canEdit={canEditCompany} companyProfileAvailable={companyProfileAvailable} missing={missing} flashId={flashId} />
       )}

@@ -14,6 +14,7 @@ import { WelcomeModal } from '@/components/onboarding/WelcomeModal';
 import { W1Badge } from '@/components/onboarding/W1Badge';
 import { DeveloperViewerFrame } from '@/components/DeveloperViewerFrame';
 import { OrphanAccountRepair } from '@/components/OrphanAccountRepair';
+import { HatSwitcher, type Hats } from '@/components/incubator/HatSwitcher';
 import { ReminderPopup } from '@/components/ReminderPopup';
 import { InvestorInterestPopup } from '@/components/InvestorInterestPopup';
 import { DocumentRequestPopup } from '@/components/DocumentRequestPopup';
@@ -56,6 +57,8 @@ type Me = {
   capabilities?: { ai: boolean; companyCanon: boolean; needsReviewAi: boolean; documentDetails: boolean; ndaSystem: boolean; entityContactFields: boolean; reviewRuns: boolean; permissionMatrix: boolean; documentOrdering: boolean; documentVersions: boolean; reawakening: boolean; planAccounts: boolean; billing: boolean };
   // Prompt 123 Block A — Developer Viewer session, if any.
   viewer?: { orgId: string; orgName: string | null } | null;
+  // Prompt I-01 §B.4 — every workspace this account can open.
+  hats?: Hats;
 };
 
 // Reorganisation batch, since revised: 11 items collapsed to separadores
@@ -196,7 +199,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // every other public sub-tree here (/guest, /claim, /invite, /portal,
   // /backoffice, /metrics) is already handled.
   const isBareShellRoute = path === '/' || path === '/investors' || path?.startsWith('/investors/') || path === '/pair' || isStandaloneAuthPage
-    || path?.startsWith('/guest') || path?.startsWith('/claim') || path?.startsWith('/invite') || path?.startsWith('/portal') || path?.startsWith('/backoffice') || path?.startsWith('/metrics');
+    || path?.startsWith('/guest') || path?.startsWith('/claim') || path?.startsWith('/invite') || path?.startsWith('/portal') || path?.startsWith('/backoffice') || path?.startsWith('/metrics')
+    // Prompt I-01 — the incubator workspace brings its own shell.
+    || path === '/incubator' || !!path?.startsWith('/incubator/');
   useUsageHeartbeat({ context: 'crm', enabled: me?.authEnabled === true && !isBareShellRoute });
   // Prompt 603 §C — once per version, founders only, and only while the
   // server-side gate is switched on (legal review pending).
@@ -235,6 +240,20 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // state with nothing to explain why.
   if (me?.authEnabled && me.user && me.role === 'none') {
     return <OrphanAccountRepair userId={me.user.id} email={me.user.email ?? null} />;
+  }
+
+  // Prompt I-01 — an account whose only home is an incubator workspace has
+  // no founder org behind these pages; send it to its own workspace rather
+  // than render an empty founder shell (the same dead end 'none' avoids).
+  if (me?.authEnabled && me.user && me.role === 'incubator') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#F7F9FA] p-6">
+        <div className="max-w-sm rounded-2xl border border-gray-100 bg-white p-6 text-center shadow-sm">
+          <p className="text-sm text-gray-700">Esta conta trabalha no workspace de uma incubadora.</p>
+          <Link href="/incubator" className="mt-3 inline-block rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-semibold text-white">Abrir o workspace da incubadora</Link>
+        </div>
+      </div>
+    );
   }
 
   // Two item lists from the same `visibleNav`, not one: the sidebar and the
@@ -286,6 +305,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 only ever renders its modal (isControlled -> no button of its
                 own), driven by helpOpen/setHelpOpen. */}
             <HelpSupportWidget source="founder_app" open={helpOpen} onOpenChange={setHelpOpen} />
+            {/* Prompt I-01 §B.4 — links to this account's other workspaces. */}
+            {me?.hats && <HatSwitcher current="founder" hats={me.hats} />}
             {showBackofficeSwitcher && (
               <>
                 <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-gray-300">Platform</div>

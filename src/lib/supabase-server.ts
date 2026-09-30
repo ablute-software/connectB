@@ -59,17 +59,26 @@ export function isAbluteTeamEmail(email: string | undefined | null): boolean {
 // the new, lowest-priority signal: only reached once nothing above it
 // matched, it resolves to 'investor_pending' rather than falling through
 // to 'none'.
-export function decideRole(signals: {
+// Prompt I-01 — hasActiveIncubatorMembership sits between founder and every
+// investor signal (v4 §10: developer > founder > incubator > investor). A
+// founder who also runs an incubator stays 'founder' (lands on /pipeline) and
+// crosses over with the hat switcher; the people of an accelerator that also
+// invests (D3) resolve as 'incubator' and reach /portal the same way.
+export interface RoleSignals {
   isPlatformAdmin: boolean;
   hasOpenFounderOrg: boolean;
+  hasActiveIncubatorMembership: boolean;
   hasApprovedClaim: boolean;
   hasActiveInvestorMembership: boolean;
   hasAccessGrant: boolean;
   isAbluteTeamEmailConfirmed: boolean;
   hasPendingClaim: boolean;
-}): Role {
+}
+
+export function decideRole(signals: RoleSignals): Role {
   if (signals.isPlatformAdmin) return 'developer';
   if (signals.hasOpenFounderOrg) return 'founder';
+  if (signals.hasActiveIncubatorMembership) return 'incubator';
   if (signals.hasApprovedClaim) return 'investor';
   if (signals.hasActiveInvestorMembership) return 'investor';
   if (signals.hasAccessGrant) return 'investor';
@@ -78,7 +87,28 @@ export function decideRole(signals: {
   return 'none';
 }
 
+// Prompt I-01 — which workspaces this user can open, independent of which
+// one decideRole() picks as the landing. Feeds the hat switcher (B.4).
+export interface Hats { founder: boolean; incubator: boolean; investor: boolean }
+
+export function hatsFromSignals(signals: RoleSignals): Hats {
+  return {
+    founder: signals.hasOpenFounderOrg,
+    incubator: signals.hasActiveIncubatorMembership,
+    investor: signals.hasApprovedClaim || signals.hasActiveInvestorMembership || signals.hasAccessGrant,
+  };
+}
+
 export async function resolveRole(
+  userId: string,
+  email: string | undefined,
+  sb: Awaited<ReturnType<typeof serverClient>>,
+  emailConfirmedAt?: string | null,
+): Promise<Role> {
+  return decideRole(await resolveRoleSignals(userId, email, sb, emailConfirmedAt));
+}
+
+export async function resolveRoleSignals(
   userId: string,
   email: string | undefined,
   sb: Awaited<ReturnType<typeof serverClient>>,
@@ -88,11 +118,16 @@ export async function resolveRole(
   // user.email_confirmed_at from the same auth.getUser() call that produced
   // `email`, never to skip this parameter.
   emailConfirmedAt?: string | null,
-): Promise<Role> {
-  const [{ data: admin }, { data: member }] = await Promise.all([
+): Promise<RoleSignals> {
+  const [{ data: admin }, { data: member }, incubatorSignal] = await Promise.all([
     sb.from('platform_admins').select('user_id').eq('user_id', userId).maybeSingle(),
     sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle(),
+    // Prompt I-01 — one SQL definition shared with middleware.ts. Until the
+    // migration is applied the function does not exist; the error resolves
+    // to false, so nothing changes for anyone before then.
+    sb.rpc('has_active_incubator_membership'),
   ]);
+  const hasActiveIncubatorMembership = !incubatorSignal.error && incubatorSignal.data === true;
   // Prompt 556 §D — a member of a CLOSED org is not a founder. An org is
   // closed when its last member was deleted (orgs.closed_at, migration
   // 0305), so this can only be reached if a member row was created against
@@ -154,15 +189,16 @@ export async function resolveRole(
       hasPendingClaim = (claims ?? []).some((c) => c.status === 'pending');
     }
   }
-  return decideRole({
+  return {
     isPlatformAdmin: !!admin,
     hasOpenFounderOrg,
+    hasActiveIncubatorMembership,
     hasApprovedClaim,
     hasActiveInvestorMembership,
     hasAccessGrant,
     isAbluteTeamEmailConfirmed: !!(emailConfirmedAt && isAbluteTeamEmail(email)),
     hasPendingClaim,
-  });
+  };
 }
 
 // Phase 3 team invitations: owner/admin can invite, others can't — the UI

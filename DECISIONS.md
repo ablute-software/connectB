@@ -9156,6 +9156,8 @@ Nota para não voltar a acontecer: o "Prompt 851" citado no enunciado do 896 (e 
 
 **Regra nova, efectiva a partir deste prompt: uma só pasta por repositório.** Um prompt é uma branch, nunca uma cópia da pasta inteira. Quando for mesmo preciso isolamento entre sessões concorrentes (a razão original destas cópias — ver `two_sessions_one_working_tree` na memória), usa-se `git worktree` dentro de `.claude/worktrees/` (o padrão que este próprio repositório já usa para os agentes desta sessão), com o worktree removido (`git worktree remove`) no fim do prompt que o criou — nunca deixado para trás indefinidamente. Espelhada também no `CLAUDE.md`, secção "Run locally", para sobreviver a sessões futuras que não leiam este ficheiro até ao fim.
 
+**Excepção (Prompt I-01a §6, 30/09/2026):** a worktree de uma linha de produto com vários prompts (Fase 1 das incubadoras, `.claude/worktrees/incubadoras`) vive até ao fim da fase e é removida nesse momento — uma worktree viva e em uso não é o problema que o 897 fechou (cinquenta abandonadas).
+
 ## 30/09/2026 — Prompt 897 §B.3: auditoria das worktrees antigas (só leitura)
 
 36 pastas candidatas auditadas (as 5 em uso — `ConnectB`, `connectB-737`, `connectB-893/894/895` — de fora, por desenho). Nenhuma escrita, nenhuma remoção — só `git -C <pasta> ...` e `du -sh`, nunca `cd`.
@@ -9227,3 +9229,22 @@ Antes de cada aplicação real: ensaio numa transacção `BEGIN...ROLLBACK` cont
 **Estado:** branch `claude/deal-terms-conversation` (`6d9154f6`), push confirmado por `git ls-remote`. Migração já em produção. Falta: merge para `main`, confirmação do buildId, e o teste em produção numa entidade `zz-test-*` (Fase 5 do 898) — a combinar com o Nuno, dado que a app escreve directamente do browser client autenticado, não por uma função de verificação dedicada, e esta sessão não tem credenciais reais de founder.
 
 **Merge feito e deploy confirmado, 30/09/2026:** `git push origin claude/deal-terms-conversation:main` (fast-forward, `0b86286f..c65581b1`). buildId antes `jIgpju0eWdRIHHNAy12fZ`, depois (cache-busting, `Age: 0`/`MISS` confirmados) `OLDw5UpDRrdUESJFwh0GB`. O 894 completo, com as três correcções do 898 e a migração já em produção, está ao vivo em `www.sherlockdeal.com`. Falta só o teste manual do Nuno numa entidade `zz-test-*` — combinado que ele o faz directamente, dado que esta sessão não tem credenciais de founder.
+
+---
+
+## 30/09/2026 — Prompt I-01 (+ I-01a): Incubadoras, Fase 1 — fundações (incubadora, membership e papel, relação, convite, níveis, RLS)
+
+Sessão "Sherlock · Incubadoras (Fase 1)", numeração I-nn (nunca 8xx). Branch `claude/incubadoras`, worktree `.claude/worktrees/incubadoras`. Conceito: `docs/incubadoras/v4-conceito-decisoes-20260930.md`; mapa: `docs/incubadoras/I-00-mapa-20260930.md`; relatório: `docs/incubadoras/I-01-relatorio-20260930.md`.
+
+**Decisão estrutural ("sim" do Nuno ao ponto 1 do mapa):** incubadora e membros em tabelas próprias (`incubators`, `incubator_members`), nunca `orgs`/`org_members`. Nenhum caminho do I-01 escreve em `orgs`, `org_members`, `access_grants`, `entities`, `interactions`, `deal_terms` ou `documents`; as tabelas novas não têm os triggers de `orgs` (sem actor de rede, sem perfil MatchDeal).
+
+**Migração** `supabase/migrations/20260930150000_incubators_foundation.sql` — **não aplicada**; espera "sim". Seis tabelas (`incubators`, `incubator_members`, `incubator_cohorts`, `incubator_invites`, `incubator_relationships`, `incubator_access_log`), helpers (`is_incubator_member`, `is_incubator_owner`, `has_active_incubator_membership`, `incubator_can_view`), transições por funções `security definer` que verificam o caller e devolvem `{ok, error}` em vez de excepções, funções de leitura que devolvem só as colunas do ecrã (`incubator_portfolio`, `founder_incubator_relationships`, `founder_incubator_access_log`, `incubator_team`), grants explícitos, e o CHECK de `email_send_log.kind` alargado com três tipos. Ensaiada contra produção numa transacção revertida com `scripts/verify-incubators-rls.sql`: **67/67 PASS**; confirmado depois que nada ficou (tabelas, funções, utilizadores e orgs de teste ausentes; zero transacções idle).
+
+**Onde o I-01 foi mais estrito do que o texto do prompt (A.9), e porquê:** `incubator_members` sem insert/update directos (só funções com verificação de owner — uma policy de update deixaria um manager promover-se a owner); `incubators` sem ramo de leitura para founders (lêem os quatro campos que o ecrã mostra por `founder_incubator_relationships()`; a RLS não restringe colunas e o ramo daria `vat_id`/`stripe_customer_id`); `incubator_invites` com grants por coluna (estado, token e aceitação só mudam pelas funções) e `promo_code_id` obrigatoriamente nulo até ao I-02 (nenhum promo-code pertence ainda a uma incubadora). `incubator_resend_invite` recebe o hash do token novo (o token cru nunca toca a base). `incubator_decline_invite` é só service-role (o convidado pode não ter conta; a rota pública chama-a com o token como autoridade).
+
+**Papel:** `Role` ganha `'incubator'`; `decideRole` developer > founder > incubator > investor > investor_pending > none; `resolveRole` e o middleware (`/login`/`/signup`) usam a mesma função SQL `has_active_incubator_membership()` — uma só definição; função em falta (migração por aplicar) lê-se como falso. `/api/me` devolve `hats`; selector mínimo (`HatSwitcher`) no shell founder, no portal e no shell da incubadora.
+
+**I-01a registado:** §3 (`resolveRole` conta grants revogados/expirados — não se corrige aqui); §4 (o nível 2 lê uma projecção `incubator_safe` construída sobre a `investor_safe` + whitelist, nunca o relatório completo — decisão para o I-03); §5 (voucher só `garage`/`motherfunding`; uma linha de `promo_codes` por voucher, `max_redemptions = 1`; revogação pelas colunas `cancelled_*` existentes — decisões para o I-02); §6 (excepção da worktree, acima); §7 (três pontos para a sessão founder, no relatório).
+
+**Verificação:** `tsc` EXIT=0; `vitest` EXIT=1 — 4253/4254, a única falha é a `market-facts-view.test.ts` de locale ICU pré-existente (ficheiro não tocado); 65 testes novos/alterados verdes; `eslint --no-eslintrc` EXIT=0, 264 avisos (a mesma contagem, nenhum em ficheiros novos); `npm run build` EXIT=0. Verificação no browser: ver o relatório.
+
