@@ -9400,3 +9400,7 @@ Três correcções à branch `claude/incubadoras` (`d06a84ba`) antes do "sim" pa
 
 **Fora desta linha, registado:** separador de contas fechadas em backoffice › Startups com "Release email"/"Reopen account" (sessão founder; caso `alexandrameira.ablute@gmail.com`); e-mail de confirmação do Supabase Auth a cair em spam — configurar SMTP do Resend em Authentication › SMTP (Nuno, configuração, não código).
 
+
+## 30/09/2026 — Prompt I-01c: as duas migrações aplicadas ("sim" do Nuno)
+
+`apply_migration` com o conteúdo exacto dos ficheiros; ledger **`20260930165056 incubator_accept_pending_member_invites`** e **`20260930165248 incubator_kinds_ecosystem`**, ficheiros renomeados para essas versões. ACL: as duas funções só `postgres`/`service_role`/`authenticated`, `security definer`, `search_path=public`; `incubators_kind_check` com os nove tipos. `scripts/verify-incubators-i01c.sql` (a partir de FIXTURES, `begin … rollback`) contra as tabelas reais: **13/13 PASS**; depois 0 fixtures `zz-test-i01c-*` e 0 ligações "idle in transaction". Advisors: igual à linha de base excepto `authenticated_security_definer_function_executable` 84 → 85 — a nova RPC, que existe precisamente para `authenticated`; `anon_security_definer_function_executable` fica em 41.

@@ -1,6 +1,6 @@
 # I-01c — Relatório: o convite de membro nunca vira founder; aterragem; "Ecosystem organisations"
 
-30/09/2026 · branch `claude/incubadoras`, a partir do `main` (`59cfef14`). **Duas migrações escritas e ensaiadas, NÃO aplicadas; sem merge.**
+30/09/2026 · branch `claude/incubadoras`, a partir do `main` (`59cfef14`). **Duas migrações aplicadas em produção ("sim" do Nuno) — ver G.**
 
 ## A. O bug do teste do Nuno (17:13–17:16)
 
@@ -9,7 +9,7 @@ A conta criada pelo convite de membro virou founder. A confirmação do e-mail n
 | # | Correcção | Onde |
 |---|---|---|
 | A.1 | O `signUp` do convite de membro leva `data.signup_intent = 'incubator_member'` e `emailRedirectTo = <origin>/auth/callback?next=/invite/incubator/member/pending` | `src/app/invite/incubator/member/[token]/page.tsx` |
-| A.2 | RPC `incubator_accept_pending_member_invites()` (security definer, `search_path` fixo, só `authenticated`). Com e-mail **confirmado**, aceita todas as linhas `invited` para esse endereço, em organização aberta e não expirada; se já existir uma linha do mesmo utilizador na mesma organização, reactiva-a | `supabase/migrations/20260930170000_incubator_accept_pending_member_invites.sql` |
+| A.2 | RPC `incubator_accept_pending_member_invites()` (security definer, `search_path` fixo, só `authenticated`). Com e-mail **confirmado**, aceita todas as linhas `invited` para esse endereço, em organização aberta e não expirada; se já existir uma linha do mesmo utilizador na mesma organização, reactiva-a | `supabase/migrations/20260930165056_incubator_accept_pending_member_invites.sql` |
 | A.3 | `/api/me` devolve `pendingIncubatorMemberInvite` (booleano, lido com o service role, só quando `role = 'none'`) e `signupIntent`. O shell, antes de qualquer `OrphanAccountRepair`, envia essa conta para `/invite/incubator/member/pending`; o mesmo acontece em `landingDestination` (`/` e `/investors`). Essa página chama a RPC → `/ecosystem`; se não aceitar nada: "This invite is no longer valid — ask the organisation to invite you again" + Sign out | `src/lib/landing-redirect.ts` (`goesToPendingMemberInvite`), `src/lib/incubator-pending-server.ts`, `src/components/shell.tsx`, `src/app/invite/incubator/member/pending/page.tsx`, `src/app/api/invite/incubator/member/accept-pending/route.ts` |
 | A.4 | `decideRole` sem mudança de ordem | — |
 | A.5 | Convite de membro: a pré-visualização devolve só `invitedEmailMasked`. O e-mail é escrito pela pessoa e confirmado no servidor antes de a conta ser criada (`…/member/[token]/check-email`); se não bater, aparece a mensagem do I-01b com o endereço mascarado | `src/app/api/invite/incubator/member/[token]/route.ts` e `…/check-email/route.ts` |
@@ -39,7 +39,7 @@ A conta criada pelo convite de membro virou founder. A confirmação do e-mail n
 - **Tipos** (`kind`):
   - **Novos:** `public_agency` (Public agency), `association` (Association), `tech_transfer_office` (Technology transfer office).
   - **Rótulos novos dos que existiam:** `municipal` "Municipal / regional incubator", `university` "University incubator", `private_accelerator` "Accelerator", `corporate` "Corporate programme".
-  - **Migração** `20260930170100_incubator_kinds_ecosystem.sql`: o `check` e o comentário da tabela, **e também** `incubator_update_profile()`, que tinha a sua própria cópia da lista. Sem isso, o owner nunca conseguiria escolher um tipo novo nas Settings. O corpo é o mesmo da fundação e só a lista muda; o ACL fica igual.
+  - **Migração** `20260930165248_incubator_kinds_ecosystem.sql`: o `check` e o comentário da tabela, **e também** `incubator_update_profile()`, que tinha a sua própria cópia da lista. Sem isso, o owner nunca conseguiria escolher um tipo novo nas Settings. O corpo é o mesmo da fundação e só a lista muda; o ACL fica igual.
 - **O que não muda:** `incubators`, `incubator_*`, as RPCs, `/api/incubator/**` e o papel `incubator`. "incubator" é o nome técnico da classe "ecosystem organisation" (DECISIONS.md).
 
 ## C. Fora desta linha (registado, não feito)
@@ -85,3 +85,14 @@ A conta criada pelo convite de membro virou founder. A confirmação do e-mail n
 2. **"Sim" para o merge**, e buildId antes e depois.
 3. **D (limpeza), com "sim":** fechar a org criada por engano para `appsalexandra59@gmail.com` com `close_org` (razão: "created by mistake during I-01 production test (I-01c)"); revogar o convite de membro para `alexandrameira.ablute@gmail.com` e manter o de `alexandrameira@ablute.pt`; não apagar nenhum utilizador em `auth`.
 4. O Nuno repete o teste: entrar com `appsalexandra59@gmail.com` pela página normal e aterrar no Ecosystem workspace; convidar uma startup de teste; aceitar do lado founder; mudar o nível; terminar.
+
+## G. Migrações aplicadas ("sim" do Nuno)
+
+| | Resultado |
+|---|---|
+| Ledger | `20260930165056 incubator_accept_pending_member_invites`, `20260930165248 incubator_kinds_ecosystem`; ficheiros renomeados para essas versões |
+| ACL | as duas funções: só `postgres`, `service_role`, `authenticated`; `security definer`; `search_path=public` |
+| CHECK | `incubators_kind_check` com os nove tipos |
+| `verify-incubators-i01c.sql` (tabelas reais, revertido) | **13/13 PASS** |
+| Depois | 0 fixtures `zz-test-i01c-*`, 0 ligações "idle in transaction" |
+| Advisors | iguais à linha de base, excepto `authenticated_security_definer_function_executable` 84 → 85 (a nova RPC, feita para `authenticated`); `anon_…` fica em 41 |
