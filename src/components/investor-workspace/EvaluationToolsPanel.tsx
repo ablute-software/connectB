@@ -1326,7 +1326,21 @@ export function EvaluationToolsPanel({ initialOrgId }: {
             that used to live here is redundant since Prompt 418: the "Compare
             startups" card is always visible in the tool list to the right,
             with the same destination. */}
-        <h1 className="text-lg font-bold text-gray-900">Evaluation tools</h1>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-lg font-bold text-gray-900">Evaluation tools</h1>
+          {/* Prompt 747 §A — moved from the Automations tab (Prompt 421 §D),
+              where it was a card that did nothing whenever the intro wasn't
+              muted. Lives right next to the thing it reactivates now, and
+              only renders when there's actually something to do — once
+              clicked, evaluationToolsIntroMuted flips back to false and this
+              link disappears on its own (no separate dismiss state needed). */}
+          {onboardingLoaded && evaluationToolsIntroMuted && (
+            <button onClick={() => setEvaluationToolsIntroMuted(false)}
+              className="shrink-0 text-xs font-medium text-gray-400 hover:text-gray-600 hover:underline">
+              Show tool introductions again
+            </button>
+          )}
+        </div>
         {/* Prompt 420 §B.2 — never blocking: a plain panel below the page's
             own title, not an overlay on top of it — the tools below stay
             reachable by scrolling past it, no need to close first. Prompt
