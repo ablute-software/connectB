@@ -84,7 +84,40 @@ As restantes (1–75, 80–83, 90–92) são as do I-01 e passam todas.
 | `npm run build` | EXIT=0 |
 | Browser | ver secção F |
 
-## F. Browser — NÃO correu, e o motivo foi apanhado pelo próprio `dev:verify`
+## F. Browser — corrido a 30/09, com a opção 1 autorizada pelo Nuno
+
+**Como se chegou a esta pasta.** A pré-visualização desta sessão só arranca configurações do `.claude/launch.json` de `connectB-737`, e o campo `cwd` tem de ficar dentro dessa pasta. Com a autorização do Nuno, fiz o seguinte:
+
+1. Registei o hash original desse ficheiro (`24dfa9abb2b01f8b1fad7f5409c006f3`). O ficheiro estava limpo no git.
+2. Acrescentei uma configuração temporária `incubadoras-verify` que corre `node <scratchpad>/run-incubadoras-dev-verify.mjs`: um lançador fora das duas árvores que arranca o `scripts/dev-verify.mjs` **desta worktree** com `cwd` nela.
+   - Primeiro tentei `npm --prefix <worktree>`, que partiu no espaço de "projetos Code" ("'C:\Program' is not recognized").
+   - Depois tentei `cwd: <worktree>`, que a ferramenta recusa por estar fora de `connectB-737`.
+
+**Gate de identidade, antes do primeiro clique:**
+- Nada a escutar em 3000–3199 antes de arrancar.
+- Consola: `[dev:verify] URL http://localhost:3000 · cwd C:\Users\nunom\Documents\projetos Code\ConnectB\.claude\worktrees\incubadoras · HEAD a98fe5a1`.
+- `GET /api/me` → `"verifyIdentity":{"cwd":"C:\\Users\\nunom\\Documents\\projetos Code\\ConnectB\\.claude\\worktrees\\incubadoras","sha":"a98fe5a1","port":3000}`. A pasta e o sha batem certo.
+- `tabs_context`: um único separador, `http://localhost:3000`, sem domínios de produção.
+
+**Os cinco ecrãs** (Claude_Browser, janela a 1280×800, modo demo, sem nenhuma escrita):
+
+| # | Ecrã | Resultado | Screenshot |
+|---|---|---|---|
+| 1 | Backoffice › Incubators | Renderiza: título, descrição, "New incubator", "All incubators — No incubators yet". Em demo aparece "Demo mode — the back-office needs a connected database". A entrada **Incubators** está no menu Accounts (`link "Incubators" href="/backoffice/incubators"`, confirmado na árvore de acessibilidade; a 1280 px a barra lateral do backoffice fica só com ícones) | [1-backoffice-incubators.jpg](screenshots/I-01b/1-backoffice-incubators.jpg) |
+| 2 | `/incubator` Portfolio | Renderiza em inglês: barra lateral Portfolio/Team/Settings, tabela Startup/Sector/Stage/Cohort/Status/Sharing/Manager/Since, acções Pause/Graduate/End e Resume. A linha pausada mostra "No access (paused)", sem sector nem fase. Há ainda "Pending invites" com Resend/Revoke. **Não está vazio:** em modo demo o Portfolio mostra as fixtures `zz-test-*` (2 relações e 1 convite). O estado vazio ("No startups linked yet." + "Invite startup") existe no código, mas não se alcança em demo | [2-incubator-portfolio-demo.jpg](screenshots/I-01b/2-incubator-portfolio-demo.jpg) |
+| 3 | Página do convite | Renderiza com o nome e o tipo da incubadora, a turma, o texto do nível 1 e o aviso do D3, literais e em inglês. `get_page_text` confirma que **o endereço completo não aparece em lado nenhum**. Em demo, o bloco de entrar ou criar conta, onde a pista mascarada aparece, é substituído por "Demo mode — accepting and declining need a connected database" | [3-invite-page.jpg](screenshots/I-01b/3-invite-page.jpg) |
+| 3b | Signup a partir do convite (e-mail mascarado) | Com o stub que o "Create account" guarda (posto no `localStorage` do separador demo, com os valores da fixture): nome, site e sector da startup pré-preenchidos, campo de e-mail **livre**, e a pista "Use the address zz-test-incubadora-braga invited (**fo…@zz-test-startup-gama.pt**) — the invite can only be accepted with it." | [3b-signup-from-invite-masked.jpg](screenshots/I-01b/3b-signup-from-invite-masked.jpg) |
+| 4 | Settings › Programmes | Separador "Programmes" com o cartão da incubadora, "Shared since", o aviso do D3 e "What … sees", com os níveis **0 · Linked / 1 · Profile / 2 · Analysis** e **3 · Documents / 4 · Fundraising** esbatidos com "Coming soon — sharing documents and fundraising arrives with its own controls". Em demo, `disabled` é verdadeiro nos cinco botões (em demo nada se grava), por isso a diferença entre 0–2 e 3–4 é a do estilo e da nota. A recusa real de 3–4 está provada no SQL (#50–51) | [4-settings-programmes.jpg](screenshots/I-01b/4-settings-programmes.jpg) |
+| 5 | "Member vê só em leitura" | **Não alcançável no browser em modo demo**: não há sessão nem papel na org, e o painel trata o modo demo como gerível. O comportamento está provado no ensaio SQL (#103–108: member não aceita, não recusa, não muda nível nem crachá, não termina; #105: continua a ler) e no gate das rotas (`requireProgramManager` → 403 `not_org_admin`). A nota "Only owners and admins can accept invites, change sharing or end a programme." tem teste em `incubators.test.ts` | — |
+
+Uma nota de ambiente: nas duas primeiras aberturas de Programmes, uma visita guiada de onboarding tapava a página. Avancei os quatro passos antes do screenshot. Não é do I-01.
+
+**Depois:**
+- Janela reposta (`desktop`) e servidor parado; nada a escutar em 3000.
+- `launch.json` de `connectB-737` revertido com `git checkout -- .claude/launch.json`: `git status` vazio para o ficheiro e **md5 `24dfa9abb2b01f8b1fad7f5409c006f3`, igual ao original**.
+- O lançador temporário ficou só no scratchpad da sessão, fora de qualquer árvore.
+
+### Histórico das tentativas anteriores (mantido)
 
 1. O `origin/main` já trazia o fix do `dev:verify` (`7794868b`: porta livre a sério, identidade anunciada, `/api/me` com gate). Fiz merge dele na branch (`5ed290d4`).
    - Conflitos em `/api/me` e no `DECISIONS.md`, resolvidos.
