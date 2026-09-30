@@ -194,7 +194,7 @@ function FounderSignupForm() {
     } catch { /* no stub — the form stays empty */ }
   }, [fromIncubatorInvite]);
   const confirmMsg = fromIncubatorInvite
-    ? 'Account created. Check your email to confirm, then sign in — you will be taken back to the incubator invite.'
+    ? 'Account created. Check your email to confirm, then sign in — you will be taken back to the invite.'
     : 'Account created. Check your email to confirm, then sign in.';
 
   const canSubmit = !busy && !!email && checkPassword(password).valid && !!org && !!name && !!title && agreedToTerms;
@@ -274,7 +274,7 @@ function FounderSignupForm() {
       const body = await res.json();
       if (body?.ok && body.matches) return true;
       if (body?.ok && !body.matches) {
-        setMsg(inviteEmailMismatchText(body.invitedEmailMasked ?? inviteStub.invitedEmailMasked ?? null, inviteStub.incubatorName ?? 'the incubator'));
+        setMsg(inviteEmailMismatchText(body.invitedEmailMasked ?? inviteStub.invitedEmailMasked ?? null, inviteStub.incubatorName ?? 'the organisation'));
         return false;
       }
       setMsg(body?.error === 'rate_limited' ? 'Too many attempts — wait a minute and try again.' : 'We could not check the invite right now. Try again.');
@@ -397,7 +397,7 @@ function FounderSignupForm() {
           className="mb-2 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
         {inviteStub && (
           <p className="-mt-1 mb-2 text-[11px] text-gray-500" data-testid="invite-email-hint">
-            Use the address {inviteStub.incubatorName ?? 'the incubator'} invited{inviteStub.invitedEmailMasked ? ` (${inviteStub.invitedEmailMasked})` : ''} — the invite can only be accepted with it.
+            Use the address {inviteStub.incubatorName ?? 'the organisation'} invited{inviteStub.invitedEmailMasked ? ` (${inviteStub.invitedEmailMasked})` : ''} — the invite can only be accepted with it.
           </p>
         )}
         <input autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Password *"

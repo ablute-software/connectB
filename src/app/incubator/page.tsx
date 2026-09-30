@@ -1,10 +1,7 @@
-'use client';
-// Prompt I-01 §C.3 — /incubator, the incubator workspace. Protected by the
-// middleware (not in PUBLIC); the data gate is requireIncubatorMember() on
-// every /api/incubator/** route. Rendered bare by the founder Shell
-// (isBareShellRoute), with its own sidebar.
-import { IncubatorWorkspace } from '@/components/incubator/IncubatorWorkspace';
+// Prompt I-01c §B — the workspace moved to /ecosystem; old links (e-mails
+// already sent, bookmarks) keep working.
+import { redirect } from 'next/navigation';
 
-export default function IncubatorPage() {
-  return <IncubatorWorkspace />;
+export default function IncubatorRedirectPage() {
+  redirect('/ecosystem');
 }

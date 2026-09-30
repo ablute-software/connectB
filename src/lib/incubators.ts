@@ -9,7 +9,10 @@
 // be Portuguese. Funder reports (I-05) are documents and get PT/EN templates;
 // the interface is English.
 
-export type IncubatorKind = 'municipal' | 'university' | 'private_accelerator' | 'corporate' | 'pre_incubation' | 'other';
+// I-01c §B — the class is "ecosystem organisations"; `incubator` stays the
+// technical name (tables, functions, routes, the role).
+export type IncubatorKind = 'municipal' | 'university' | 'private_accelerator' | 'corporate' | 'pre_incubation'
+  | 'public_agency' | 'association' | 'tech_transfer_office' | 'other';
 export type RelationshipStatus = 'active' | 'paused' | 'graduated' | 'ended';
 export type InviteStatus = 'invited' | 'accepted' | 'declined' | 'expired' | 'revoked';
 export type MemberRole = 'owner' | 'manager';
@@ -18,11 +21,14 @@ export type SharingLevel = 0 | 1 | 2 | 3 | 4;
 export type EndedBy = 'founder' | 'incubator' | 'platform';
 
 export const INCUBATOR_KINDS: { key: IncubatorKind; label: string }[] = [
-  { key: 'municipal', label: 'Municipal / regional' },
-  { key: 'university', label: 'University / R&D' },
-  { key: 'private_accelerator', label: 'Private accelerator' },
+  { key: 'municipal', label: 'Municipal / regional incubator' },
+  { key: 'university', label: 'University incubator' },
+  { key: 'private_accelerator', label: 'Accelerator' },
   { key: 'corporate', label: 'Corporate programme' },
   { key: 'pre_incubation', label: 'Pre-incubation / ideation' },
+  { key: 'public_agency', label: 'Public agency' },
+  { key: 'association', label: 'Association' },
+  { key: 'tech_transfer_office', label: 'Technology transfer office' },
   { key: 'other', label: 'Other' },
 ];
 
@@ -165,12 +171,12 @@ export const ACCESS_LOG_SURFACE_LABEL: Record<string, string> = {
 const ERROR_TEXT: Record<string, string> = {
   not_signed_in: 'Sign in to continue.',
   invite_not_found: 'This invite does not exist, or the link has been replaced by a newer one.',
-  invite_expired: 'This invite has expired. Ask the incubator to resend it.',
-  invite_revoked: 'This invite was revoked by the incubator.',
+  invite_expired: 'This invite has expired. Ask the organisation to resend it.',
+  invite_revoked: 'This invite was revoked by the organisation.',
   invite_declined: 'This invite was declined.',
   invite_already_accepted: 'This invite has already been accepted by another account.',
   invite_email_mismatch: 'This invite was sent to a different email address.',
-  incubator_closed: 'This incubator is no longer active on the platform.',
+  incubator_closed: 'This organisation is no longer active on the platform.',
   no_open_org: 'To accept you need an active startup account. Create your startup account and come back to this link.',
   not_allowed: 'You do not have permission for this action.',
   not_org_admin: PROGRAMS_READ_ONLY_NOTE,
@@ -182,11 +188,11 @@ const ERROR_TEXT: Record<string, string> = {
   invalid_token: 'Could not generate a new link.',
   invalid_email: 'Invalid email.',
   invalid_role: 'Invalid role.',
-  already_member: 'This person is already a member of the incubator.',
+  already_member: 'This person is already a member of the organisation.',
   email_mismatch: 'This invite was sent to another email. Sign in with that email’s account.',
-  last_owner: 'The incubator needs at least one owner.',
+  last_owner: 'The organisation needs at least one owner.',
   name_required: 'The name is required.',
-  invalid_kind: 'Invalid incubator type.',
+  invalid_kind: 'Invalid organisation type.',
 };
 
 export function incubatorErrorText(code: string | null | undefined): string {
@@ -203,7 +209,7 @@ export function slugifyIncubatorName(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 60) || 'incubator';
+    .slice(0, 60) || 'organisation';
 }
 
 export function normalizeInviteEmail(email: string): string {

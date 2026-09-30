@@ -22,7 +22,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const role = body.role === 'owner' ? 'owner' : 'manager';
 
   const { data: inc } = await admin.from('incubators').select('id, name, closed_at').eq('id', params.id).maybeSingle();
-  if (!inc || inc.closed_at) return NextResponse.json({ ok: false, error: 'Incubator not found or closed.' }, { status: 404 });
+  if (!inc || inc.closed_at) return NextResponse.json({ ok: false, error: 'Organisation not found or closed.' }, { status: 404 });
 
   const token = generateRawToken();
   const expires = new Date(Date.now() + 14 * 86400000).toISOString();

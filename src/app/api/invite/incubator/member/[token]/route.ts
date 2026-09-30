@@ -1,10 +1,12 @@
 // Prompt I-01 §C.1 — public preview of a MEMBER invite (incubator team):
-// which incubator, which role, and the address it was sent to (the person
-// must sign in with that address to accept).
+// which organisation, which role, and the address it was sent to — MASKED
+// only since I-01c §A.5 ("ap…@gmail.com"); the person signs in (or creates the
+// account) with that address, and the server checks it.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { hashToken } from '@/lib/matchdeal-pairing';
 import { clientIp, guestLinkRateLimited } from '@/lib/guest-link-security';
+import { maskInviteEmail } from '@/lib/incubators';
 
 export async function GET(req: Request, { params }: { params: { token: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -24,7 +26,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
   return NextResponse.json({
     ok: true,
     status: inc.closed_at ? 'closed' : expired ? 'expired' : m.status,
-    invitedEmail: m.invited_email, role: m.role,
+    invitedEmailMasked: maskInviteEmail(m.invited_email), role: m.role,
     incubator: { name: inc.name, logoUrl: inc.logo_url },
   });
 }

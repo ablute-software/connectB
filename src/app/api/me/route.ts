@@ -5,6 +5,7 @@
 // duplicate that logic (and never inspects env vars client-side).
 import { NextResponse, type NextRequest } from 'next/server';
 import { serverClient, resolveRoleSignals, decideRole, hatsFromSignals, getOrgRole, authEnabled } from '@/lib/supabase-server';
+import { hasPendingIncubatorMemberInvite } from '@/lib/incubator-pending-server';
 import { readViewerSession } from '@/lib/developer-viewer';
 import { companyCanonAvailable } from '@/lib/company-canon';
 import { needsReviewAiAvailable } from '@/lib/needs-review-ai';
@@ -85,6 +86,11 @@ export async function GET(req: NextRequest) {
   // Prompt I-01 — every workspace this account can open (the hat switcher in
   // the founder shell, the portal and the incubator shell reads this).
   const hats = hatsFromSignals(signals);
+  // Prompt I-01c §A.3 — the shell sends an account with no home that has an
+  // ecosystem-team invite waiting (or was created from one) to the page that
+  // accepts it, never to "finish your startup account". Only a boolean.
+  const pendingIncubatorMemberInvite = role === 'none' ? await hasPendingIncubatorMemberInvite(user) : false;
+  const signupIntent = (user.user_metadata?.signup_intent as string | undefined) ?? null;
   // Plans & Account batch — the plan half of the entitlement gate. The client
   // uses `entitlements` to show/hide gated UI; the server re-checks it at each
   // write path (e.g. the compose route), so this is display-truth, not the
@@ -149,5 +155,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json(buildAuthenticatedMeResponse({ authEnabled: true, user: { id: user.id, email: user.email }, role, hats, orgRole, plan, entitlements, capabilities, watson, reviewQuota, viewer, pioneerBadge }));
+  return NextResponse.json(buildAuthenticatedMeResponse({ authEnabled: true, user: { id: user.id, email: user.email }, role, hats, pendingIncubatorMemberInvite, signupIntent, orgRole, plan, entitlements, capabilities, watson, reviewQuota, viewer, pioneerBadge }));
 }

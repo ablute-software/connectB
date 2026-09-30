@@ -128,7 +128,7 @@ describe('e-mail convidado (I-01b §A) e owner/admin (I-01b §B)', () => {
 describe('helpers', () => {
   it('slug sem acentos nem símbolos', () => {
     expect(slugifyIncubatorName('Incubadora de Braga — Ideias & Negócios')).toBe('incubadora-de-braga-ideias-negocios');
-    expect(slugifyIncubatorName('   ')).toBe('incubator');
+    expect(slugifyIncubatorName('   ')).toBe('organisation');
   });
   it('o token vai no path; o desvio de login usa um path fixo, sem token', () => {
     expect(incubatorInvitePath('abc_DEF-123')).toBe('/invite/incubator/abc_DEF-123');

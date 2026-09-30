@@ -15,6 +15,7 @@ import { W1Badge } from '@/components/onboarding/W1Badge';
 import { DeveloperViewerFrame } from '@/components/DeveloperViewerFrame';
 import { OrphanAccountRepair } from '@/components/OrphanAccountRepair';
 import { HatSwitcher, type Hats } from '@/components/incubator/HatSwitcher';
+import { PENDING_MEMBER_INVITE_PATH, goesToPendingMemberInvite } from '@/lib/landing-redirect';
 import { ReminderPopup } from '@/components/ReminderPopup';
 import { InvestorInterestPopup } from '@/components/InvestorInterestPopup';
 import { DocumentRequestPopup } from '@/components/DocumentRequestPopup';
@@ -59,6 +60,9 @@ type Me = {
   viewer?: { orgId: string; orgName: string | null } | null;
   // Prompt I-01 §B.4 — every workspace this account can open.
   hats?: Hats;
+  // Prompt I-01c §A.3 — landing signals for an account with no home yet.
+  pendingIncubatorMemberInvite?: boolean;
+  signupIntent?: string | null;
 };
 
 // Reorganisation batch, since revised: 11 items collapsed to separadores
@@ -200,8 +204,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // /backoffice, /metrics) is already handled.
   const isBareShellRoute = path === '/' || path === '/investors' || path?.startsWith('/investors/') || path === '/pair' || isStandaloneAuthPage
     || path?.startsWith('/guest') || path?.startsWith('/claim') || path?.startsWith('/invite') || path?.startsWith('/portal') || path?.startsWith('/backoffice') || path?.startsWith('/metrics')
-    // Prompt I-01 — the incubator workspace brings its own shell.
-    || path === '/incubator' || !!path?.startsWith('/incubator/');
+    // Prompt I-01 — the ecosystem-organisation workspace brings its own shell
+    // (/ecosystem since I-01c; /incubator redirects there).
+    || path === '/incubator' || !!path?.startsWith('/incubator/')
+    || path === '/ecosystem' || !!path?.startsWith('/ecosystem/');
   useUsageHeartbeat({ context: 'crm', enabled: me?.authEnabled === true && !isBareShellRoute });
   // Prompt 603 §C — once per version, founders only, and only while the
   // server-side gate is switched on (legal review pending).
@@ -238,19 +244,29 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // the normal sidebar+content renders against an org that doesn't exist,
   // rather than letting every page underneath silently show empty/broken
   // state with nothing to explain why.
+  // Prompt I-01c §A — an account invited to an ecosystem organisation's team
+  // (a pending invite for its confirmed address, or created from that invite)
+  // is NOT an orphan founder: it goes to the page that accepts the invite,
+  // before "finish your startup account" can ever turn it into a founder.
+  if (me?.authEnabled && me.user && goesToPendingMemberInvite(me.role as 'none', {
+    pendingIncubatorMemberInvite: me.pendingIncubatorMemberInvite, signupIntent: me.signupIntent,
+  })) {
+    return <PendingMemberInviteRedirect />;
+  }
+
   if (me?.authEnabled && me.user && me.role === 'none') {
     return <OrphanAccountRepair userId={me.user.id} email={me.user.email ?? null} />;
   }
 
-  // Prompt I-01 — an account whose only home is an incubator workspace has
+  // Prompt I-01 — an account whose only home is an ecosystem workspace has
   // no founder org behind these pages; send it to its own workspace rather
   // than render an empty founder shell (the same dead end 'none' avoids).
   if (me?.authEnabled && me.user && me.role === 'incubator') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F7F9FA] p-6">
         <div className="max-w-sm rounded-2xl border border-gray-100 bg-white p-6 text-center shadow-sm">
-          <p className="text-sm text-gray-700">This account works in an incubator workspace.</p>
-          <Link href="/incubator" className="mt-3 inline-block rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-semibold text-white">Open the incubator workspace</Link>
+          <p className="text-sm text-gray-700">This account works in an Ecosystem workspace.</p>
+          <Link href="/ecosystem" className="mt-3 inline-block rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-semibold text-white">Open the Ecosystem workspace</Link>
         </div>
       </div>
     );
@@ -407,4 +423,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
     </div>
     </OnboardingProvider>
   );
+}
+
+// Prompt I-01c §A.3 — client-side hop to the page that accepts a pending
+// ecosystem-team invite (replace, so Back does not return to the founder shell).
+function PendingMemberInviteRedirect() {
+  useEffect(() => { window.location.replace(PENDING_MEMBER_INVITE_PATH); }, []);
+  return <div className="flex min-h-screen items-center justify-center bg-[#F7F9FA] p-6 text-sm text-gray-500">Opening your team invite…</div>;
 }

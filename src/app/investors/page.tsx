@@ -12,6 +12,7 @@ import { redirect } from 'next/navigation';
 import { Fraunces, Inter } from 'next/font/google';
 import { serverClient, authEnabled, resolveRole } from '@/lib/supabase-server';
 import { landingDestination } from '@/lib/landing-redirect';
+import { hasPendingIncubatorMemberInvite } from '@/lib/incubator-pending-server';
 import { BRAND_NAME, APP_URL } from '@/lib/brand';
 import { LogoLockup } from '@/components/Logo';
 import { LandingEffects } from '@/components/landing/LandingEffects';
@@ -120,7 +121,12 @@ export default async function InvestorLandingPage() {
       // Prompt 515 — same fix as `/`: role 'none' has nowhere to be sent, so
       // it sees this public page rather than the founder app. Shared helper
       // so the two landings can't drift apart again.
-      const dest = landingDestination(role);
+      // Prompt I-01c §A.3 — a pending ecosystem-team invite outranks the
+      // public page for an account with no home yet.
+      const dest = landingDestination(role, {
+        pendingIncubatorMemberInvite: role === 'none' ? await hasPendingIncubatorMemberInvite(user) : false,
+        signupIntent: (user.user_metadata?.signup_intent as string | undefined) ?? null,
+      });
       if (dest) redirect(dest);
     }
   }

@@ -55,7 +55,7 @@ function RelationshipCard({ rel, demo, canManage, onChanged }: { rel: Rel; demo:
 
   function end() {
     if (!window.confirm(`End the relationship with ${rel.incubator_name}?\n\n${endRelationshipConfirmText(rel.incubator_name)}`)) return;
-    const reason = window.prompt('Reason (optional — the incubator sees it):') ?? '';
+    const reason = window.prompt('Reason (optional — the organisation sees it):') ?? '';
     run(() => post(`/api/founder/incubator-programs/${rel.relationship_id}/end`, { reason }));
   }
 
@@ -142,20 +142,20 @@ export function ProgramsPanel() {
   const canManage = data.demo || can(orgRole ?? null, 'manage_programs');
   return (
     <div className="space-y-4" data-testid="programs-panel">
-      <Card title="Programmes">
-        <p className="text-sm text-gray-600">The incubators and accelerators your startup is linked to. You decide what each one sees, and you can end a relationship at any time.</p>
+      <Card title="Programmes & organisations">
+        <p className="text-sm text-gray-600">The programmes and ecosystem organisations your startup is linked to — incubators, accelerators, agencies, associations. You decide what each one sees, and you can end a relationship at any time.</p>
         {!canManage && orgRole !== undefined && <p className="mt-2 text-xs text-gray-500" data-testid="programs-read-only">{PROGRAMS_READ_ONLY_NOTE}</p>}
         {data.demo && <p className="mt-2 text-xs text-amber-700">Demo mode — sample data, nothing is saved.</p>}
       </Card>
       {data.relationships.length === 0 ? (
-        <Card><p className="text-sm text-gray-500">You are not linked to any programme yet. When an incubator invites you, the invite arrives by email and only links you if you accept.</p></Card>
+        <Card><p className="text-sm text-gray-500">You are not linked to any programme or organisation yet. When one invites you, the invite arrives by email and only links you if you accept.</p></Card>
       ) : data.relationships.map((r) => <RelationshipCard key={r.relationship_id} rel={r} demo={data.demo} canManage={canManage} onChanged={load} />)}
       <Card title="Who viewed what">
         {data.accessLog.length === 0 ? (
-          <p className="text-sm text-gray-500">No one has viewed what you share yet. Every view by an incubator (dossier, monthly updates, reports) appears here, with the manager, what and when.</p>
+          <p className="text-sm text-gray-500">No one has viewed what you share yet. Every view by an organisation (dossier, monthly updates, reports) appears here, with the manager, what and when.</p>
         ) : (
           <table className="w-full text-left text-sm">
-            <thead><tr className="border-b border-gray-100 text-[11px] uppercase tracking-wide text-gray-400"><th className="py-2 pr-3">When</th><th className="pr-3">Incubator</th><th className="pr-3">Manager</th><th>What</th></tr></thead>
+            <thead><tr className="border-b border-gray-100 text-[11px] uppercase tracking-wide text-gray-400"><th className="py-2 pr-3">When</th><th className="pr-3">Organisation</th><th className="pr-3">Manager</th><th>What</th></tr></thead>
             <tbody>
               {data.accessLog.map((l) => (
                 <tr key={l.id} className="border-b border-gray-50">

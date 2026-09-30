@@ -18,7 +18,7 @@ export default function IncubatorInviteContinuePage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#F7F9FA] p-4">
       <div className="max-w-md rounded-2xl border border-gray-100 bg-white p-6 text-center text-sm text-gray-700 shadow-sm">
-        {missing ? 'We could not find the invite in this browser. Open the link in the incubator’s email again.' : 'Opening the invite…'}
+        {missing ? 'We could not find the invite in this browser. Open the link in the invite email again.' : 'Opening the invite…'}
       </div>
     </div>
   );

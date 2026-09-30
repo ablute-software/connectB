@@ -312,7 +312,7 @@ function SettingsPanel({ me, demo, onSaved }: { me: MeResponse; demo: boolean; o
 
   return (
     <div className="space-y-4">
-      <Card title="Incubator profile">
+      <Card title="Organisation profile">
         <div className="grid gap-2 sm:grid-cols-2">
           {field('name', 'Name')}
           <label className="text-xs text-gray-600">Type
@@ -385,8 +385,8 @@ export function IncubatorWorkspace() {
   if (!me.ok || !me.incubator) {
     return (
       <div className="mx-auto mt-24 max-w-md rounded-2xl border border-gray-100 bg-white p-6 text-center shadow-sm">
-        <h1 className="text-lg font-bold text-gray-900">No incubator workspace access</h1>
-        <p className="mt-2 text-sm text-gray-600">This account is not an active member of any incubator. If you received an invite, open the link in the email while signed in to this account.</p>
+        <h1 className="text-lg font-bold text-gray-900">No Ecosystem workspace access</h1>
+        <p className="mt-2 text-sm text-gray-600">This account is not an active member of any ecosystem organisation. If you received an invite, open the link in the email while signed in to this account.</p>
       </div>
     );
   }

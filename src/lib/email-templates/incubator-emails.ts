@@ -32,10 +32,10 @@ export function startupInviteEmail(v: {
 }
 
 export function memberInviteEmail(v: { incubatorName: string; role: 'owner' | 'manager'; url: string }): BuiltEmail {
-  const subject = `Join the ${v.incubatorName} team on Sherlock Deal`;
-  const body = `You have been invited as ${v.role === 'owner' ? 'an owner' : 'a programme manager'} of the ${v.incubatorName} workspace on Sherlock Deal. Sign in with this email address to accept.`;
+  const subject = `Join ${v.incubatorName}'s team on Sherlock Deal`;
+  const body = `You have been invited as ${v.role === 'owner' ? 'an owner' : 'a programme manager'} of ${v.incubatorName}'s Ecosystem workspace on Sherlock Deal. Sign in with this email address to accept.`;
   const text = `${body}\n\nAccept the invite: ${v.url}\n\nThis link is personal and expires in 14 days.`;
-  return { subject, text, heading: `${v.incubatorName} team`, body, ctaLabel: 'Accept', ctaUrl: v.url };
+  return { subject, text, heading: `${v.incubatorName}'s team`, body, ctaLabel: 'Accept', ctaUrl: v.url };
 }
 
 // To the founder, when the incubator ends the relationship (with its reason).

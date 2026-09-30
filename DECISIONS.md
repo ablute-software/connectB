@@ -9456,3 +9456,30 @@ O Nuno leu o branch `claude/prompt-750-data-room-signed-url-leak` antes de dar o
 **Nada tocado fora do que o Nuno apontou** — as regras de NDA, o modelo de grants, o TTL, e todas as outras rotas da tabela original ficam exactamente como na entrada anterior deste ficheiro.
 
 Sem merge — ainda aguarda o parecer final do Nuno sobre esta correcção, como ele próprio pediu.
+
+---
+
+## 30/09/2026 — Prompt I-01c: o convite de membro nunca vira founder; "Ecosystem organisations"
+
+**Bug do teste do Nuno (17:13–17:16):** a conta criada pelo convite de membro da "ALEX trial" (`appsalexandra59@gmail.com`) confirmou o e-mail sem voltar ao convite, entrou pela porta normal, o shell mostrou-lhe `OrphanAccountRepair` e o `provision-org` fez dela founder; o convite ficou `invited`. Correcção: `signUp` do convite de membro com `signup_intent = 'incubator_member'` e `emailRedirectTo` para o caminho fixo `/invite/incubator/member/pending` (nunca o token numa query string); RPC `incubator_accept_pending_member_invites()` que, com e-mail **confirmado**, aceita todos os convites de equipa pendentes para esse endereço (organização aberta, não expirado); `/api/me` expõe `pendingIncubatorMemberInvite` (só booleano, service role) e `signupIntent`; o shell e `landingDestination` mandam uma conta sem org nessas condições para a página de aceitação **antes** de qualquer "finish your startup account". `decideRole` não muda de ordem. Pré-visualização do convite de membro mascarada e `check-email` para membros antes de criar a conta. O callback de auth não mudou — já honrava qualquer `next` relativo; restringi-lo a uma regex partiria login/magic link/recovery.
+
+**Nome da categoria (decisão do Nuno):** "Ecosystem organisations" / "Ecosystem workspace" (`/ecosystem`, `/incubator` redirecciona) / "Programmes & organisations" nas Settings do founder. Tipos novos `public_agency`, `association`, `tech_transfer_office`; rótulos novos para os existentes. **"incubator" é o nome técnico da classe "ecosystem organisation"** — tabelas, funções, rotas `/api/incubator/**` e o papel `incubator` ficam como estão. A migração dos tipos alarga também `incubator_update_profile()`, que tinha a sua própria cópia da lista (sem isso o owner não podia escolher um tipo novo).
+
+**Ensaio** (duas migrações + `scripts/verify-incubators-i01c.sql`, transacção revertida contra produção): **13/13 PASS**; produção igual depois. **Verificação:** `tsc` EXIT=0; `vitest` 4295/4296 (a falha ICU pré-existente); `eslint --no-eslintrc` EXIT=0 depois de corrigir 2 erros `react/no-unescaped-entities` que a primeira corrida apanhou; `build` EXIT=0. **Migrações NÃO aplicadas; sem merge** — à espera do "sim".
+
+**Fora desta linha, registado:** separador de contas fechadas em backoffice › Startups com "Release email"/"Reopen account" (sessão founder; caso `alexandrameira.ablute@gmail.com`); e-mail de confirmação do Supabase Auth a cair em spam — configurar SMTP do Resend em Authentication › SMTP (Nuno, configuração, não código).
+
+
+## 30/09/2026 — Prompt I-01c: as duas migrações aplicadas ("sim" do Nuno)
+
+`apply_migration` com o conteúdo exacto dos ficheiros; ledger **`20260930165056 incubator_accept_pending_member_invites`** e **`20260930165248 incubator_kinds_ecosystem`**, ficheiros renomeados para essas versões. ACL: as duas funções só `postgres`/`service_role`/`authenticated`, `security definer`, `search_path=public`; `incubators_kind_check` com os nove tipos. `scripts/verify-incubators-i01c.sql` (a partir de FIXTURES, `begin … rollback`) contra as tabelas reais: **13/13 PASS**; depois 0 fixtures `zz-test-i01c-*` e 0 ligações "idle in transaction". Advisors: igual à linha de base excepto `authenticated_security_definer_function_executable` 84 → 85 — a nova RPC, que existe precisamente para `authenticated`; `anon_security_definer_function_executable` fica em 41.
+
+## 30/09/2026 — Prompt I-01c: merge, deploy e limpeza D ("sim" do Nuno)
+
+**Merge:** `origin/main` não tinha andado; push `claude/incubadoras:main` fast-forward **`59cfef14..a62d3a53`** (gates do I-01c corridos em `9e313421`; depois só docs e renomeação dos SQL). **Deploy:** buildId `shxlGg64vNDTRV-oHYHhg` → **`rbiQ6tq_i7x1JT1N-m5P4`** (`Age: 0`), com `POST /api/invite/incubator/member/accept-pending` a passar de 405 (a rota `[token]` apanhava-o) para **401 `not_signed_in`** — a rota nova. `/invite/incubator/member/pending` não servia de prova: já dava 200 antes, porque o `[token]` dinâmico apanha "pending".
+
+**Limpeza D** (escrita em produção, ensaiada antes em `begin … rollback`, incluindo o que a conta vê a seguir):
+- Org **"Incubus biscuit"** (`dfcbc488-…`), criada por engano às 16:15:59 para `appsalexandra59@gmail.com` (vazia: sem perfil, ronda, nem acessos): `close_org()` + `closed_reason = 'platform'`. Razão por extenso, que a coluna não aceita (CHECK: `owner`/`platform`/`last_member_deleted`): *created by mistake during I-01 production test (I-01c)*. **Não** `owner`: `account_access_state()` manda para `/closed` só com `closed_reason = 'owner'`. `moderation_status` fica `active`, por isso `is_account_suspended()` não a bloqueia.
+- Ensaio revertido: depois do fecho, `account_access_state` = `active`; `incubator_accept_pending_member_invites()` como essa conta → 1 aceite (organização "Alexandra Alexandra" — é para aí o convite dela, não para a ALEX trial); `has_active_incubator_membership()` passa a `true`. Em produção, o convite continua `invited`, à espera do login dela.
+- Convite de owner da ALEX trial para `alexandrameira.ablute@gmail.com` → `removed` (token limpo). A conta está bloqueada porque a sua única org, "Caramel Biscuit", tem `moderation_status = 'deleted'` (não `closed_at`) — é o caso do Prompt 900 (sessão founder, "Release email"); o convite repete-se depois disso. O de `alexandrameira@ablute.pt` fica `active`.
+- Nenhum utilizador em `auth.users` apagado (os dois existem).

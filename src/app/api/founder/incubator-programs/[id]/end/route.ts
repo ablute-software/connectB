@@ -28,7 +28,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         admin.from('orgs').select('name').eq('id', data.org_id).maybeSingle(),
         admin.from('incubator_members').select('user_id').eq('incubator_id', data.incubator_id).eq('status', 'active'),
       ]);
-      const email = relationshipEndedByFounderEmail({ startupName: org?.name ?? 'A startup', reason: data.reason ?? null, url: `${APP_URL}/incubator` });
+      const email = relationshipEndedByFounderEmail({ startupName: org?.name ?? 'A startup', reason: data.reason ?? null, url: `${APP_URL}/ecosystem` });
       for (const m of members ?? []) {
         if (!m.user_id) continue;
         const { data: u } = await admin.auth.admin.getUserById(m.user_id);

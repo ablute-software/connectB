@@ -59,7 +59,7 @@ export default function IncubatorInvitePage({ params }: { params: { token: strin
   }
 
   async function act(kind: 'accept' | 'decline') {
-    if (kind === 'decline' && !window.confirm('Decline this invite? The incubator will see that you declined.')) return;
+    if (kind === 'decline' && !window.confirm('Decline this invite? The organisation will see that you declined.')) return;
     setBusy(true); setErr(''); setMismatch(null);
     try {
       const r = await fetch(`/api/invite/incubator/${encodeURIComponent(token)}/${kind}`, { method: 'POST' }).then((x) => x.json());
