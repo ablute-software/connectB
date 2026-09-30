@@ -1,6 +1,6 @@
 # I-01b — Relatório: e-mail do convite, owner/admin, inglês
 
-30/09/2026 · branch `claude/incubadoras` · base `d06a84ba` · **migração ainda não aplicada, nada em produção, sem merge.**
+30/09/2026 · branch `claude/incubadoras` · base `d06a84ba` · commits `e3dc85e1` (I-01b), `9dc4a900` (e-mail mascarado + check-email), `5ed290d4` (merge do `origin/main` com o fix do `dev:verify`) · **migração ainda não aplicada, nada em produção, sem merge para o main.**
 
 Complementa o [relatório do I-01](I-01-relatorio-20260930.md): as secções 2–4 dele continuam válidas, com as alterações abaixo.
 
@@ -15,8 +15,12 @@ Complementa o [relatório do I-01](I-01-relatorio-20260930.md): as secções 2�
   - Com sessão de outro endereço: *"This invite was sent to n…@startup.pt. Sign in with that email, or ask <incubator> to send the invite to the address you use."*, mais "You are signed in as …" e o botão **Sign out**. Terminar a sessão guarda o convite e leva ao login com `next=/invite/incubator/continue`.
   - Sem sessão, Accept e Decline estão escondidos e aparecem só Create account / I already have an account.
   - Com o endereço certo: Accept e Decline.
-- **Signup** a partir do convite: o e-mail da conta fica fixo no endereço convidado (só-leitura, com a explicação), para o caminho novo nunca cair no erro. Para isso, o stub guardado no browser leva `invitedEmail`.
-- **Nota de desenho:** a pré-visualização pública do convite (`GET /api/invite/incubator/[token]`) continua a devolver o endereço completo, porque é o que o signup precisa para o fixar. Quem tem o link fica a saber o endereço para onde ele foi enviado, e o erro de aceitação devolve só a versão mascarada. Se preferires esconder também na pré-visualização, o signup passa a pedir o e-mail e a verificação fica só no servidor. É uma mudança pequena; diz se a queres.
+- **Pré-visualização pública** (`GET /api/invite/incubator/[token]`): devolve só `invitedEmailMasked` (2 caracteres + `…@domínio`), nunca o endereço inteiro (decisão do Nuno, 30/09). Na página, o aviso de endereço errado passa a aparecer só depois da resposta do servidor ao clique.
+- **Signup** a partir do convite: o founder escreve o e-mail. Antes de a conta ser criada, o signup chama o `POST /api/invite/incubator/[token]/check-email` (autorizado pelo token e limitado por IP, como a pré-visualização), que responde só se o endereço bate certo e dá a versão mascarada.
+  - Se não bater, aparece a mensagem do I-01b com o endereço mascarado e **nenhuma conta é criada**.
+  - Por baixo do campo há uma pista: "Use the address <incubator> invited (fo…@domínio)".
+  - O stub guardado no browser leva só a versão mascarada e o nome da incubadora.
+- A verificação no aceitar e no recusar (SQL) mantém-se como estava.
 
 ## B. Owner/admin
 
@@ -75,14 +79,23 @@ As restantes (1–75, 80–83, 90–92) são as do I-01 e passam todas.
 | Instrumento | Resultado |
 |---|---|
 | `tsc --noEmit` | EXIT=0 |
-| `vitest run` | EXIT=1 — **4262/4263**. A falha é `market-facts-view.test.ts > factSummaryLine > renders a market_size point fact with currency`, a falha de locale ICU que já existia, num ficheiro não tocado. Os 74 testes das incubadoras e de `decideRole` estão verdes |
+| `vitest run` | EXIT=1 — **4272/4273** depois do merge com o main (antes do merge: 4262/4263). A falha é `market-facts-view.test.ts > factSummaryLine > renders a market_size point fact with currency`, a falha de locale ICU que já existia, num ficheiro não tocado. Os 74 testes das incubadoras e de `decideRole` estão verdes |
 | `eslint --no-eslintrc --config .eslintrc.json …` | EXIT=0 — `✖ 264 problems (0 errors, 264 warnings)`, a mesma contagem, 0 em ficheiros novos ou alterados |
 | `npm run build` | EXIT=0 |
 | Browser | ver secção F |
 
-## F. Browser
+## F. Browser — NÃO correu, e o motivo foi apanhado pelo próprio `dev:verify`
 
-Antes de arrancar confirmei, com `netstat`, que não havia nenhum servidor a escutar nas portas 3000–3002 e 3100. A secção é preenchida com os cinco ecrãs de D, capturados em `dev:verify` com o `Claude_Browser`. Se ficar vazia, é porque o passo não correu, e o relatório di-lo.
+1. O `origin/main` já trazia o fix do `dev:verify` (`7794868b`: porta livre a sério, identidade anunciada, `/api/me` com gate). Fiz merge dele na branch (`5ed290d4`).
+   - Conflitos em `/api/me` e no `DECISIONS.md`, resolvidos.
+   - Achado do merge: o `buildAuthenticatedMeResponse` novo do main só deixa passar uma lista fechada de campos, e ia **deixar cair `hats` em silêncio**, o que partia o selector de chapéu. Acrescentei `hats` ao tipo e ao builder, e actualizei o teste que lista as chaves.
+2. Antes de arrancar confirmei, com `netstat`, que não havia nada a escutar nas portas 3000–3199.
+3. O `preview_start` arrancou o `dev:verify`, e a identidade anunciada na consola foi `cwd …\connectB-737 · HEAD 537ddb14`. Era a pasta antiga desta sessão (branch do 897), **não esta worktree**.
+   - A ferramenta de pré-visualização continua a ler o `.claude/launch.json` e a pasta de `connectB-737`, apesar de a sessão ter mudado de pasta.
+   - Parei o servidor antes de qualquer clique.
+   - Tentei uma configuração temporária no `launch.json` desta worktree: a ferramenta não a vê. Reverti o ficheiro.
+   - Alterar o `launch.json` de `connectB-737` foi recusado na volta anterior, por isso não o fiz.
+4. **Nenhum ecrã foi verificado no browser.** O comportamento está provado pelo ensaio SQL (secção D) e pelos testes; a verificação visual fica por fazer.
 
 ## G. Para a sessão founder (acrescenta aos três já anotados no I-01)
 
