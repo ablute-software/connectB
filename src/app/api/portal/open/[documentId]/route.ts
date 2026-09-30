@@ -1,3 +1,14 @@
+// Prompt 750 — this route used to end with a 302 redirect to a Supabase
+// Storage SIGNED URL. A signed URL is a bearer link: whoever has it can
+// open the file, with or without a session, until it expires. The browser
+// navigated to it, so it landed in the address bar, history and clipboard —
+// reproduced live by Nuno by copying that URL into an anonymous window,
+// where it opened with no session at all. Fixed by streaming the bytes
+// through this route instead (streamStorageObject, document-proxy.ts) — the
+// browser never sees anything but this route's own URL. See DECISIONS.md,
+// Prompt 750, for the full account and every other site that had the same
+// shape of leak.
+//
 // Prompt 560 §B — the ONE route that turns a signed-in investor into an
 // opened document, and the only one that can.
 //
@@ -38,8 +49,12 @@ import { vaultFrozenForOrg } from '@/lib/data-room-server';
 import { closedOrgGuard } from '@/lib/org-closed';
 import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
 import { recordInvestorSignalForEntity } from '@/lib/investor-signal-events-server';
+import { shouldLogOpen, streamStorageObject } from '@/lib/document-proxy';
 
-const SIGNED_URL_TTL_SECONDS = 300;
+// Prompt 750 — streaming a real 18MB video / 11MB PDF through this route
+// needs the Node runtime (not Edge) and no route-level body size cap.
+export const runtime = 'nodejs';
+
 const NOINDEX_HEADERS = { 'X-Robots-Tag': 'noindex, nofollow, noarchive' };
 
 function refuse(reason: string, status: number) {
@@ -117,47 +132,55 @@ export async function GET(req: Request, { params }: { params: { documentId: stri
   // uploading org. Same refusal /api/portal/access-granted applies.
   if (doc.malware_scan_status === 'flagged') return refuse('unavailable', 403);
 
-  let target: string | null = (doc.external_url as string | null) ?? null;
-  if (!target && doc.storage_path) {
-    const { data: signed } = await admin.storage.from('data-room')
-      .createSignedUrl(doc.storage_path as string, SIGNED_URL_TTL_SECONDS);
-    target = signed?.signedUrl ?? null;
+  if (!doc.external_url && !doc.storage_path) return refuse('unavailable', 404);
+
+  // Prompt 750 §2 — one open logged per real open, not once per byte-range
+  // chunk a video/PDF viewer fires while scrubbing/scrolling. shouldLogOpen
+  // is true for the first request (no Range, or Range starting at 0) and
+  // false for every later chunk of the same playback.
+  if (shouldLogOpen(req)) {
+    // Logged before serving, and never allowed to block the open: the
+    // founder's "who opened what" is worth a failed insert, not a failed read.
+    //
+    // grant_id carries the provenance and is resolved with the same
+    // specificity rule /api/portal/view uses — a document-level grant wins
+    // over the folder grant that also covers it — so the two paths produce
+    // rows that are indistinguishable downstream. That is the point: Actions
+    // required, the founder's opens count and the back-office join all read
+    // document_views, and none of them should have to know which tab the
+    // investor happened to click in.
+    const grantId = grants.find((g) => g.document_id === doc.id)?.id
+      ?? grants.find((g) => g.folder_id && descendantFolderIds(folderTree, [g.folder_id as string]).includes(doc.folder_id as string))?.id
+      ?? grants[0]?.id ?? null;
+    try {
+      await admin.from('document_views').insert({
+        org_id: orgId, document_id: doc.id, grant_id: grantId, viewer_email: email,
+      });
+    } catch { /* provenance is best-effort; the open is not */ }
+
+    // Prompt 741 §B.2 — the signal-ledger twin of the document_views insert
+    // above: same best-effort posture, never blocks the response. Dedup
+    // collapses repeat opens of the same document by the same firm on the
+    // same UTC day into one event; a different day is a deliberately new one.
+    const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, user.id);
+    if (investorCatalogEntityId) {
+      const ndaRequired = grants.find((g) => g.id === grantId)?.nda_required ?? false;
+      const dedupDay = now.toISOString().slice(0, 10);
+      await recordInvestorSignalForEntity(admin, {
+        investorCatalogEntityId, orgId, actorUserId: user.id, level: 'avaliacao_substantiva', kind: 'document_opened',
+        snapshot: { document_id: doc.id, visibility: doc.visibility, nda_required: ndaRequired, via: 'open_route' },
+        dedupKey: `${investorCatalogEntityId}:${orgId}:document_opened:${doc.id}:${user.id}:${dedupDay}`,
+      });
+    }
   }
-  if (!target) return refuse('unavailable', 404);
 
-  // Logged before redirecting, and never allowed to block the open: the
-  // founder's "who opened what" is worth a failed insert, not a failed read.
-  //
-  // grant_id carries the provenance and is resolved with the same
-  // specificity rule /api/portal/view uses — a document-level grant wins
-  // over the folder grant that also covers it — so the two paths produce
-  // rows that are indistinguishable downstream. That is the point: Actions
-  // required, the founder's opens count and the back-office join all read
-  // document_views, and none of them should have to know which tab the
-  // investor happened to click in.
-  const grantId = grants.find((g) => g.document_id === doc.id)?.id
-    ?? grants.find((g) => g.folder_id && descendantFolderIds(folderTree, [g.folder_id as string]).includes(doc.folder_id as string))?.id
-    ?? grants[0]?.id ?? null;
-  try {
-    await admin.from('document_views').insert({
-      org_id: orgId, document_id: doc.id, grant_id: grantId, viewer_email: email,
-    });
-  } catch { /* provenance is best-effort; the open is not */ }
-
-  // Prompt 741 §B.2 — the signal-ledger twin of the document_views insert
-  // above: same best-effort posture, never blocks the redirect. Dedup
-  // collapses repeat opens of the same document by the same firm on the
-  // same UTC day into one event; a different day is a deliberately new one.
-  const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, user.id);
-  if (investorCatalogEntityId) {
-    const ndaRequired = grants.find((g) => g.id === grantId)?.nda_required ?? false;
-    const dedupDay = now.toISOString().slice(0, 10);
-    await recordInvestorSignalForEntity(admin, {
-      investorCatalogEntityId, orgId, actorUserId: user.id, level: 'avaliacao_substantiva', kind: 'document_opened',
-      snapshot: { document_id: doc.id, visibility: doc.visibility, nda_required: ndaRequired, via: 'open_route' },
-      dedupKey: `${investorCatalogEntityId}:${orgId}:document_opened:${doc.id}:${user.id}:${dedupDay}`,
-    });
+  // Prompt 750 §6 — an external link (Drive, DocSend, ...) keeps redirecting:
+  // access control there belongs to the third party, not to us, and there
+  // are no bytes of ours to stream. Only a storage_path-backed document goes
+  // through the proxy — that is the one case where the URL that would reach
+  // the browser is ours to withhold.
+  if (doc.external_url) {
+    return NextResponse.redirect(doc.external_url as string, { status: 302, headers: NOINDEX_HEADERS });
   }
-
-  return NextResponse.redirect(target, { status: 302, headers: NOINDEX_HEADERS });
+  return streamStorageObject({ admin, storagePath: doc.storage_path as string, filename: doc.name as string, req });
 }

@@ -128,17 +128,24 @@ async function investorProfileDefaults(admin: SupabaseClient, userId: string) {
   return data ?? null;
 }
 
-async function toPortalDoc(admin: SupabaseClient, d: Record<string, unknown>) {
-  let signedUrl: string | null = (d.external_url as string | null) ?? null;
-  // Prompt 301 §3 — same gate as /api/portal/access-granted: a flagged
-  // document is refused to any viewer other than the uploading org itself.
-  if (!signedUrl && d.storage_path && d.malware_scan_status !== 'flagged') {
-    const { data: signed } = await admin.storage.from('data-room').createSignedUrl(d.storage_path as string, 300);
-    signedUrl = signed?.signedUrl ?? null;
-  }
+// Prompt 750 — used to mint a live Supabase Storage signed URL for EVERY
+// visible document, up front, on every call to this route — a bearer link
+// per document sitting in this response's JSON, in React state
+// (EvidenceAccessDialog.tsx), reachable via DOM/devtools regardless of
+// whether the investor ever opened any of them, exactly the class of leak
+// Prompt 560 §B already fixed for the Data room tab's own listing
+// (access-granted/route.ts). Fixed the same way: `url` now points at
+// /api/portal/open/<id>, which re-checks the grant and streams the bytes
+// itself (document-proxy.ts) — no Storage URL ever reaches the browser.
+// external_url documents still point straight at the third party, same as
+// /api/portal/open decides for itself; the malware-flagged gate stays here
+// too, since a flagged doc should not even offer an Open link.
+function toPortalDoc(d: Record<string, unknown>) {
+  const openable = !!d.external_url || (!!d.storage_path && d.malware_scan_status !== 'flagged');
   return {
     id: d.id, name: d.name, version: d.version, watermark: d.watermark,
-    downloadable: d.downloadable, folder_id: d.folder_id, url: signedUrl,
+    downloadable: d.downloadable, folder_id: d.folder_id,
+    url: openable ? `/api/portal/open/${encodeURIComponent(d.id as string)}` : null,
   };
 }
 
@@ -295,14 +302,14 @@ export async function GET(req: Request) {
     : { data: [] };
 
   const visibleDocs = candidateDocs.filter((d) => visibleIds.includes(d.id as string));
-  const documents = await Promise.all(visibleDocs.map((d) => toPortalDoc(admin, d)));
+  const documents = visibleDocs.map(toPortalDoc);
 
   // Prompt 557 — the same "name it, don't just count it" fix the guest page
-  // gets, for the confirmed investor. NOT toPortalDoc: that resolves a
-  // signed URL, and these documents are precisely the ones this investor may
-  // not open yet. Name and folder only, built here from rows already in
-  // memory — no extra query, and nothing openable can leak through a field
-  // this projection does not carry.
+  // gets, for the confirmed investor. NOT toPortalDoc: that builds an `url`
+  // an investor could open, and these documents are precisely the ones this
+  // investor may not open yet. Name and folder only, built here from rows
+  // already in memory — no extra query, and nothing openable can leak
+  // through a field this projection does not carry.
   const ndaPendingDocs = candidateDocs.filter((d) => pendingIds.includes(d.id as string));
   const ndaFolderIds = [...new Set(ndaPendingDocs.map((d) => d.folder_id as string | undefined).filter(Boolean))] as string[];
   const { data: ndaFolderRows } = ndaFolderIds.length

@@ -210,10 +210,20 @@ export { isTreatedForWaveDosage } from './pipeline-waves';
 type Decision = { org_id: string; decision: string; reason_detail: string | null; decided_at: string; decided_by: string };
 type LevelRow = { org_id: string; level: 2 | 3; status: 'granted' | 'pending' | 'denied' };
 
-export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient, userId: string, email: string) {
-  const pipelineStart = Date.now();
+// Prompt 750 — extracted verbatim from getPipelineWaves's own Stage 1 (no
+// logic changed, only lifted into its own function) so a caller that only
+// needs "which orgs is this investor eligible for" — not the full
+// Pipeline board — can stop here, before Stage 2's dozen-plus queries and
+// its `reserve_pipeline_admissions` WRITE. getPipelineWaves itself now
+// calls this and continues exactly as before. See resolveInvestorOrgIds's
+// own caller in api/portal/media/[mediaId]/route.ts for why this mattered:
+// that route used to call the FULL getPipelineWaves once per photo/video
+// in a gallery — a 15-image dossier meant 15x the cost AND 15
+// reserve_pipeline_admissions writes for something that never needed to
+// touch admissions at all.
+async function resolveInvestorOrgIds(admin: SupabaseClient, userId: string, email: string) {
   const investorProfile = await timeBlock('investorProfile', () => resolveInvestorProfile(admin, userId));
-  if (!investorProfile) return { linked: false as const };
+  if (!investorProfile) return null;
 
   // Stage 1, wave A — everything that depends on nothing but userId/email/
   // investorProfile.id, which are all already in hand. computeTrackingCountsByStage
@@ -265,6 +275,44 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   //      (P120-A, unchanged).
   const orgIds = [...new Set([...publishedOrgIds, ...grantedOrgIdList, ...decidedOrgIds, ...referredOrgIdsViaReferral, ...portfolioOrgIdsSet])];
   const usualCoInvestors = (investorProfile as { usual_co_investors: string | null }).usual_co_investors;
+  return {
+    investorProfile, orgIds, usualCoInvestors, person, investorCatalogEntityId, viewerPlanTier, trackingCountByStage,
+    referredOrgIdsViaReferralSet, referrerNameByOrgId, grantedOrgIds, viewerIsTest, decisionByOrg, decidedOrgIds, portfolioOrgIdsSet,
+    publishedOrgIds,
+  };
+}
+
+// Prompt 750 — the lightweight read-only check the media proxy route
+// needs: is this ONE org in this investor's eligible set at all, and (for
+// the disclosure-level gate on team photos) what decision this investor
+// has recorded for it — with none of Stage 2's card-building queries and
+// none of its reserve_pipeline_admissions write. `decision` comes straight
+// from the same investor_relationship_decisions read Stage 1 already does
+// (decisionByOrg) — the exact source a Stage-2 "card" object's own
+// `.status` is itself derived from, just without paying for the rest of
+// the card. Never used for anything that needs the FULL card (name,
+// stage, signals, etc.) — callers that need that still go through the
+// real /api/portal/startup/[orgId] route, which already pays the full
+// cost once per dossier view, not once per asset in it.
+export async function resolveInvestorOrgEligibility(
+  admin: SupabaseClient, userId: string, email: string, orgId: string,
+): Promise<{ eligible: boolean; decision: 'interested' | 'passed' | null; investorCatalogEntityId: string | null }> {
+  const resolved = await resolveInvestorOrgIds(admin, userId, email);
+  if (!resolved || !resolved.orgIds.includes(orgId)) return { eligible: false, decision: null, investorCatalogEntityId: null };
+  const rawDecision = resolved.decisionByOrg.get(orgId)?.decision;
+  const decision = rawDecision === 'passed' ? 'passed' : rawDecision === 'interested' ? 'interested' : null;
+  return { eligible: true, decision, investorCatalogEntityId: resolved.investorCatalogEntityId };
+}
+
+export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient, userId: string, email: string) {
+  const pipelineStart = Date.now();
+  const resolved = await resolveInvestorOrgIds(admin, userId, email);
+  if (!resolved) return { linked: false as const };
+  const {
+    investorProfile, orgIds, usualCoInvestors, person, investorCatalogEntityId, viewerPlanTier, trackingCountByStage,
+    referredOrgIdsViaReferralSet, referrerNameByOrgId, grantedOrgIds, viewerIsTest, decisionByOrg, decidedOrgIds, portfolioOrgIdsSet,
+    publishedOrgIds,
+  } = resolved;
   if (orgIds.length === 0) return { linked: true as const, waves: [], usualCoInvestors, quota: null as PipelineQuota | null };
 
   // Stage 2, wave A — everything that only needs orgIds / investorCatalogEntityId

@@ -35,6 +35,7 @@ import { useEffect, useState } from 'react';
 import { GuestPreviewShell } from '@/components/guest/GuestPreviewShell';
 import { browserClient, authEnabled } from '@/lib/supabase';
 import { groupGuestDocuments, type GuestShelf } from '@/lib/guest-shelf';
+import { DocumentViewerModal, type ViewerDocItem } from '@/components/portal/DocumentViewerModal';
 
 // Prompt 547 — the address is shown masked in the "we'll email a code" line:
 // enough for the recipient to recognise their own inbox, not enough to hand a
@@ -75,6 +76,8 @@ export default function GuestPreviewPage({ params }: { params: { token: string }
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [sendErr, setSendErr] = useState('');
+  // Prompt 750 — the in-platform viewer's own state, guest side.
+  const [viewerDocId, setViewerDocId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`/api/guest/${token}`).then((r) => r.json()).then(setData).catch(() => setLoadErr(true));
@@ -165,11 +168,15 @@ export default function GuestPreviewPage({ params }: { params: { token: string }
                           <ul className="space-y-1">
                             {openNow.map((d) => (
                               <li key={d.id}>
-                                <a href={`/api/guest/${token}/open/${d.id}`} target="_blank" rel="noopener noreferrer"
-                                  className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-[#0E7490] hover:bg-gray-50">
+                                {/* Prompt 750 — the in-platform viewer
+                                    instead of a new tab; same
+                                    /api/guest/<token>/open/<id> request
+                                    underneath (streamed, never a Storage URL). */}
+                                <button onClick={() => setViewerDocId(d.id)}
+                                  className="flex w-full items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-left text-sm text-[#0E7490] hover:bg-gray-50">
                                   📄 <span className="truncate font-medium">{d.name}</span>
                                   <span className="ml-auto shrink-0 text-[10px] text-gray-400">view only</span>
-                                </a>
+                                </button>
                               </li>
                             ))}
                           </ul>
@@ -240,6 +247,21 @@ export default function GuestPreviewPage({ params }: { params: { token: string }
                           </p>
                         </div>
                       )}
+
+                      {viewerDocId && (() => {
+                        const items: ViewerDocItem[] = openNow.map((d) => ({ id: d.id, name: d.name }));
+                        const index = items.findIndex((it) => it.id === viewerDocId);
+                        if (index < 0) return null;
+                        return (
+                          <DocumentViewerModal
+                            items={items}
+                            index={index}
+                            onIndexChange={(i) => setViewerDocId(items[i].id)}
+                            onClose={() => setViewerDocId(null)}
+                            openUrl={(id) => `/api/guest/${token}/open/${id}`}
+                          />
+                        );
+                      })()}
                     </div>
                   );
                 })()

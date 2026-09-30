@@ -113,6 +113,15 @@ export async function GET() {
     const activeGrants = orgGrants.filter((g) => grantIsActive(g, now));
     const expiredGrants = orgGrants.filter((g) => grantStatus(g, now) === 'expired');
 
+    // Prompt 750 — evaluated, deliberately left as a signed URL, not
+    // proxied: a brand logo, the same image this startup already shows
+    // unauthenticated on its own MatchDeal card and every dossier header
+    // across the app (matchdeal_profiles.photo_url is a public-bucket,
+    // long-lived signed URL by the very same pattern — see upload-security.ts's
+    // own comment on that). Nothing confidential leaks if this one URL
+    // outlives its TTL or is opened without a session; it is not a data-room
+    // document and does not carry the "only shared with who the startup
+    // decides" promise this prompt is about.
     let logoUrl: string | null = null;
     const logoPath = orgLogoPathById.get(orgId);
     if (logoPath) {

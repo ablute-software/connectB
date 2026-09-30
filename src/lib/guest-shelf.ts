@@ -88,5 +88,10 @@ export function shelfFromFolderKind(kind: string | null | undefined): GuestShelf
   return kind === 'materials' ? 'materials' : 'data_room';
 }
 
-/** Seconds a guest signed URL stays valid. */
+// Prompt 750 — RETIRED from the guest open route: that route no longer
+// hands a signed URL to the browser at all (it streams the bytes through
+// itself — see document-proxy.ts's own, much shorter, internal-only TTL).
+// Left defined, unused, in case another caller still needs the number this
+// constant used to document; nothing in src/ references it any more
+// (confirmed by grep).
 export const GUEST_SIGNED_URL_TTL_SECONDS = 120;

@@ -6,6 +6,7 @@
 // anywhere in this file). Three sub-tabs kept as-is (Granted/Requested/
 // Expired); Prompt 338's own scope is enriching Granted specifically.
 import { useEffect, useState } from 'react';
+import { DocumentViewerModal, type ViewerDocItem } from '@/components/portal/DocumentViewerModal';
 
 type SubTab = 'granted' | 'requested' | 'expired';
 
@@ -69,6 +70,11 @@ export function AccessGrantedPanel() {
   // Prompt 338 — minimal filters: by startup, and "only new".
   const [startupFilter, setStartupFilter] = useState<string>('all');
   const [onlyNew, setOnlyNew] = useState(false);
+  // Prompt 750 — the in-platform viewer's own state: which startup's card
+  // and which document within it. Prev/next/selector walk that ONE card's
+  // documents, in the same order they're already rendered — "the documents
+  // from the list it was opened from," per spec.
+  const [viewerCard, setViewerCard] = useState<{ orgId: string; docId: string } | null>(null);
 
   function load() {
     fetch('/api/portal/access-granted').then((r) => r.json()).then(setData).catch(() => setData(null));
@@ -227,10 +233,15 @@ export function AccessGrantedPanel() {
                                       {d.locked ? (
                                         <span className="text-xs text-gray-300">Pending NDA</span>
                                       ) : (
-                                        <a href={`/api/portal/open/${encodeURIComponent(d.id)}`} target="_blank" rel="noreferrer"
+                                        // Prompt 750 — the in-platform viewer
+                                        // instead of a new tab; same
+                                        // /api/portal/open/<id> request
+                                        // underneath, now streamed into an
+                                        // iframe/video rather than navigated to.
+                                        <button onClick={() => setViewerCard({ orgId: card.orgId, docId: d.id })}
                                           className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">
                                           Open
-                                        </a>
+                                        </button>
                                       )}
                                     </div>
                                   </li>
@@ -366,6 +377,23 @@ export function AccessGrantedPanel() {
           </div>
         )
       )}
+      {viewerCard && (() => {
+        const card = data.granted.find((c) => c.orgId === viewerCard.orgId);
+        if (!card) return null;
+        const items: ViewerDocItem[] = card.folders.flatMap((f) =>
+          f.documents.filter((d) => !d.locked).map((d) => ({ id: d.id, name: d.name, folderName: f.folderName })));
+        const index = items.findIndex((it) => it.id === viewerCard.docId);
+        if (index < 0) return null;
+        return (
+          <DocumentViewerModal
+            items={items}
+            index={index}
+            onIndexChange={(i) => setViewerCard({ orgId: viewerCard.orgId, docId: items[i].id })}
+            onClose={() => setViewerCard(null)}
+            openUrl={(id) => `/api/portal/open/${encodeURIComponent(id)}`}
+          />
+        );
+      })()}
     </div>
   );
 }

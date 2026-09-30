@@ -441,22 +441,34 @@ export async function fetchDossierRawData(
       // image and still renders — never a broken link, never an unscanned
       // file reaching an investor.
       const mediaIds = [...new Set(projected.map((s) => s.mediaId).filter((id): id is string => !!id))];
-      const signedById = new Map<string, { url: string; caption: string }>();
+      const resolvedById = new Map<string, { url: string; caption: string }>();
       if (mediaIds.length > 0) {
         const { data: pitchMedia } = await admin.from('company_media')
           .select('id, caption, storage_path')
           .eq('org_id', orgId).eq('kind', 'image').in('id', mediaIds)
           .in('malware_scan_status', ['clean', 'local_only']);
+        // Prompt 750 — used to mint a live Storage signed URL here (a bearer
+        // link embedded in the dossier JSON, same leak shape as the
+        // documents proxy fixes elsewhere in this prompt). Points at the
+        // media proxy instead — /api/portal/media/<id> re-checks this
+        // investor's level (team-photo-strength gating) and streams the
+        // bytes itself, so no Storage URL reaches the browser.
         for (const m of pitchMedia ?? []) {
           if (!m.storage_path) continue;
-          const { data: signed } = await admin.storage.from('data-room').createSignedUrl(m.storage_path as string, 300);
-          if (signed?.signedUrl) signedById.set(m.id as string, { url: signed.signedUrl, caption: m.caption as string });
+          resolvedById.set(m.id as string, { url: `/api/portal/media/${m.id}`, caption: m.caption as string });
         }
       }
       miniPitch = projected.map((s) => {
-        const media = s.mediaId ? signedById.get(s.mediaId) : undefined;
-        // mediaId itself never travels to the client — only the resolved
-        // URL, so an investor can't enumerate the org's media by id.
+        const media = s.mediaId ? resolvedById.get(s.mediaId) : undefined;
+        // Prompt 379 §D's original intent here was "mediaId itself never
+        // travels to the client" — narrower than what's achievable now that
+        // the client needs a URL to fetch the image THROUGH: the id is
+        // necessarily part of that proxy path. What still holds is the
+        // thing that intent actually protected: this is a random,
+        // unguessable UUID scoped to one org's own media, the exact same
+        // posture /api/portal/open/<documentId> already takes for every
+        // document id in this app — not a new exposure, just no longer
+        // stripped from a URL that needs it to do its job.
         const { mediaId: _dropped, ...rest } = s;
         void _dropped;
         return { ...rest, imageUrl: media?.url ?? null, imageCaption: media?.caption ?? null };
@@ -480,10 +492,15 @@ export async function fetchDossierRawData(
   for (const m of mediaRows ?? []) {
     let itemUrl: string | null = null;
     if (m.kind === 'video_link') {
+      // Third-party link (external access control, not ours) — unchanged.
       itemUrl = m.external_url as string;
     } else if (m.storage_path) {
-      const { data: signed } = await admin.storage.from('data-room').createSignedUrl(m.storage_path as string, 300);
-      itemUrl = signed?.signedUrl ?? null;
+      // Prompt 750 — same fix as the mini-pitch images above: the media
+      // proxy re-checks this investor's level (team photos need level>=2,
+      // company/technology need only that the investor is linked at all,
+      // same as this array's own gate in projectDossier) and streams the
+      // bytes; no Storage signed URL reaches the browser.
+      itemUrl = `/api/portal/media/${m.id}`;
     }
     if (itemUrl) {
       media.push({
