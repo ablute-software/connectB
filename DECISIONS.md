@@ -9150,6 +9150,28 @@ Nota para não voltar a acontecer: o "Prompt 851" citado no enunciado do 896 (e 
 
 ## 30/09/2026 — Prompt 897 §B: uma pasta por repositório, nunca mais `connectB-NNN`
 
-**O que aconteceu, para registo.** `C:\Users\nunom\Documents\projetos Code` tinha 58 pastas, 50 delas `connectB-527` … `connectB-895` — uma cópia completa do repositório por prompt, cada uma com `node_modules` (~700MB) e `.next` (~785MB) próprios. Isto, não as caches em `AppData\Local` (~8GB), é que enchia os 237GB do disco. A 29-30/09/2026 o Nuno e uma sessão anterior retiraram `node_modules`/`.next` de 46 cópias antigas (nenhum ficheiro de código ou de git tocado) e apagaram ~3,9GB de caches em `AppData\Local`. Cinco cópias continuam em uso: `ConnectB`, `connectB-737`, `connectB-893`, `connectB-894`, `connectB-895`.
+**O que aconteceu, para registo.** `C:\Users\nunom\Documents\projetos Code` tinha 58 pastas, 50 delas `connectB-527` … `connectB-895` — cada uma com `node_modules` (~700MB) e `.next` (~785MB) próprios, o que enchia os 237GB do disco (não as caches em `AppData\Local`, ~8GB). A 29-30/09/2026 o Nuno e uma sessão anterior retiraram `node_modules`/`.next` de 46 cópias antigas (nenhum ficheiro de código ou de git tocado) e apagaram ~3,9GB de caches em `AppData\Local`. Cinco cópias continuam em uso: `ConnectB`, `connectB-737`, `connectB-893`, `connectB-894`, `connectB-895`.
+
+**Correcção à afirmação acima, confirmada por auditoria (30/09/2026): não são cópias/clones separados — são `git worktree` reais, já do padrão certo, só nunca removidos.** Cada `connectB-NNN/.git` é um ficheiro de 84 bytes (`gitdir: .../ConnectB/.git/worktrees/<nome>`), não um directório `.git` completo; `git -C ConnectB worktree list` confirma todas as pastas candidatas como worktrees registadas da mesma `ConnectB`. O erro não era "não usar worktrees" — já eram worktrees. O erro era nunca correr `git worktree remove` depois de cada prompt terminar, deixando cada worktree com o seu próprio `node_modules`/`.next` instalado (partilham a base de objectos git, mas não o conteúdo do working directory fora do controlo de versão) a acumular-se indefinidamente. A regra abaixo mantém-se correcta (worktree + remoção no fim), só a descrição do problema estava errada.
 
 **Regra nova, efectiva a partir deste prompt: uma só pasta por repositório.** Um prompt é uma branch, nunca uma cópia da pasta inteira. Quando for mesmo preciso isolamento entre sessões concorrentes (a razão original destas cópias — ver `two_sessions_one_working_tree` na memória), usa-se `git worktree` dentro de `.claude/worktrees/` (o padrão que este próprio repositório já usa para os agentes desta sessão), com o worktree removido (`git worktree remove`) no fim do prompt que o criou — nunca deixado para trás indefinidamente. Espelhada também no `CLAUDE.md`, secção "Run locally", para sobreviver a sessões futuras que não leiam este ficheiro até ao fim.
+
+## 30/09/2026 — Prompt 897 §B.3: auditoria das worktrees antigas (só leitura)
+
+36 pastas candidatas auditadas (as 5 em uso — `ConnectB`, `connectB-737`, `connectB-893/894/895` — de fora, por desenho). Nenhuma escrita, nenhuma remoção — só `git -C <pasta> ...` e `du -sh`, nunca `cd`.
+
+**Nota de metodologia, porque o comando literal do prompt não servia:** `git log --branches --not --remotes` conta commits em QUALQUER branch local do repositório partilhado, não só o branch desta worktree — devolveu o mesmo 19 em todas as 36 pastas, o que marcaria tudo como "KEEP" sem sentido nenhum. Corrigido para `git log HEAD --not --remotes --oneline`, por worktree — confirmado certo: dos 19 commits globalmente por enviar, exactamente 3 batem com 3 das pastas candidatas (as únicas com commits por enviar reais), os outros 16 pertencem a branches fora deste conjunto. `git stash list` é igualmente partilhado por todas as worktrees (bate com a nota já registada na memória desta sessão — "the git stash stack is shared... only git worktree does" — mas aqui é a mesma partilha do lado inverso: entre worktrees da mesma árvore) — deu 0 em todo o lado, não chegou a ser um problema real.
+
+**Resultado: 31 SAFE TO DELETE (0 por commitar, 0 por enviar, 0 stashes), 5 KEEP com trabalho real por resgatar:**
+
+| Pasta | Branch | Motivo para não apagar |
+|---|---|---|
+| connectB-687 | claude/prompt-687-pipeline-performance | 1 commit por enviar (`6af3eac4`) |
+| connectB-687v2 | claude/prompt-687-pipeline-performance-v2 | 1 ficheiro por commitar (`start.log`, provavelmente log solto, não código) |
+| connectB-704 | claude/prompt-704-owner-developer-mode-toggle | 1 commit por enviar (`b3b95cfc`) |
+| connectB-706 | claude/prompt-706-ai-credits-wallet | 1 ficheiro por commitar (`supabase/migrations/20260921090000_ai_credits_wallet.sql`, modificado — parece trabalho real) |
+| connectB-727-clean | claude/prompt-727-dossier-next-step-clean | 1 commit por enviar (`7b5fa6f2`) |
+
+As 31 restantes (lista completa em `audit_results.tsv`, guardado no scratchpad desta sessão): todas já reduzidas a 21-31MB pela limpeza anterior de `node_modules`/`.next` — o total recuperável destas 31 é só **~915MB**, não os vários GB que se poderia esperar, porque a limpeza grande (retirar `node_modules`/`.next`) já tinha sido feita antes desta auditoria. Total das 36 pastas juntas: ~1058MB.
+
+**Remoção correcta, quando autorizada:** `git worktree remove`, não `rm -rf` directo — como são worktrees reais (ver correcção acima), apagar a pasta à mão deixaria uma entrada órfã em `ConnectB/.git/worktrees/<nome>` (inofensiva mas suja; `git worktree prune` a partir de `ConnectB` limpa isso se acontecer). Nenhuma pasta foi removida por esta sessão — fica à espera do "sim" do Nuno, pasta a pasta ou em bloco, como o prompt pediu.
