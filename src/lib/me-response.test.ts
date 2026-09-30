@@ -108,6 +108,29 @@ describe('authenticated response builders never carry verifyIdentity', () => {
     expect(result).toEqual(fields);
   });
 
+  it('passes through a field route.ts adds tomorrow that this file does not yet know about — the allowlist bug found by a sibling session on 30/09/2026', () => {
+    process.env[DEV_VERIFY_IDENTITY_ENV_KEY] = JSON.stringify({ cwd: '/repo', sha: 'deadbee', port: 3000 });
+    const fieldsWithAFutureField = {
+      authEnabled: true,
+      user: { id: 'user-1', email: 'founder@example.com' },
+      role: 'founder',
+      orgRole: 'owner',
+      plan: 'garage',
+      entitlements: {} as unknown as AuthenticatedMeResponse['entitlements'],
+      capabilities: { ai: true },
+      watson: null,
+      reviewQuota: null,
+      viewer: null,
+      pioneerBadge: false,
+      // Not declared on AuthenticatedMeResponse — stands in for whatever the
+      // next route.ts change adds. Must survive the round trip untouched.
+      someFutureField: { anything: 'goes-here' },
+    } as const;
+    const result = buildAuthenticatedMeResponse(fieldsWithAFutureField as unknown as AuthenticatedMeResponse & { someFutureField: unknown });
+    expect((result as unknown as { someFutureField: unknown }).someFutureField).toEqual({ anything: 'goes-here' });
+    expect('verifyIdentity' in result).toBe(false);
+  });
+
   it('JSON.stringify of either authenticated shape never contains the string "verifyIdentity"', () => {
     process.env[DEV_VERIFY_IDENTITY_ENV_KEY] = JSON.stringify({ cwd: '/repo', sha: 'deadbee', port: 3000 });
     const noUser = buildAuthenticatedNoUserResponse({ ai: true });

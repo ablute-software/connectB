@@ -9313,3 +9313,21 @@ Ensaio prévio em transacção revertida contra produção — limpo. Migração
 **Merges:** `claude/dev-verify-port-and-identity` → `main` primeiro (independente, sem migração, fast-forward `f3106809..2fda8d29`), depois `claude/investor-automations-real-notify` (com a correcção A do 899 e a migração já aplicada) → `main`. buildId e confirmação de deploy registados à parte, quando confirmados.
 
 **Deploy confirmado, 30/09/2026:** buildId antes das duas fusões `1dldbq_yzNooOZq9M9tYD`; depois (cache-busting, `Age: 0`/`MISS` confirmados) `OEw3yUaZRTHvh1anSeDJU`. `dev:verify` com porta livre anunciada e o digest com o filtro de visibilidade estão os dois em produção. Falta: a corrida real das 9h de amanhã (linha `[automations] investor notify digest: ...` + `orgsSkippedNotVisible`) para confirmar ponta-a-ponta em produção — a colar aqui quando disponível.
+
+---
+
+## 30/09/2026 — `buildAuthenticatedMeResponse` era uma allowlist, não uma denylist — achado real de uma sessão irmã
+
+A sessão "Sherlock · Incubadoras (Fase 1)", ao trazer o `main` (já com o `dev:verify`/`verifyIdentity` do Prompt 899) para a sua própria branch, reportou: o gate de identidade funcionou bem (abortou correctamente uma verificação contra o servidor errado), mas o merge obrigou-a a adicionar manualmente um campo novo ao `AuthenticatedMeResponse`/`buildAuthenticatedMeResponse`, porque o builder anterior deixava-o cair em silêncio.
+
+**Causa real, confirmada no código:** `buildAuthenticatedMeResponse` (o mecanismo estrutural que garante que `verifyIdentity` nunca chega a uma resposta autenticada) fazia isso com uma **allowlist explícita** — desestruturava os 11 campos nomeados e devolvia só esses. Isto funciona para impedir a fuga que motivou o mecanismo, mas tem um efeito colateral não pedido: qualquer campo NOVO que uma branch futura acrescente ao literal que `route.ts` passa fica **silenciosamente perdido** no runtime, sem erro de tipo nenhum (o parâmetro genérico faz o TypeScript inferir o tipo a partir do próprio literal, incluindo campos extra, por isso não há aviso de "excess property" a apanhar isto).
+
+**Corrigido para uma denylist:** `buildAuthenticatedMeResponse<T extends AuthenticatedMeResponse>(fields: T): T` agora faz `{ ...fields }` e só remove `verifyIdentity` explicitamente — qualquer outro campo, presente ou futuro, atravessa sem precisar de ser nomeado aqui. A garantia de segurança (nunca `verifyIdentity` numa resposta autenticada) mantém-se exactamente igual; só deixou de exigir que este ficheiro seja actualizado sempre que `route.ts` cresce.
+
+**Teste novo** em `me-response.test.ts`: um campo inventado (`someFutureField`), não declarado em `AuthenticatedMeResponse`, sobrevive ao round-trip da função, e `verifyIdentity` continua ausente mesmo com a variável de ambiente definida.
+
+**Não tocado:** `.claude/launch.json` mudou sozinho nesta pasta (ganhou uma terceira entrada `incubadoras-verify` com `cwd` explícito para a worktree da outra sessão) — não fui eu, provavelmente o `preview_start` dessa sessão ou o próprio harness a escrever aqui. Explica o sintoma que reportaram (o `preview_start` deles a arrancar o `next dev` desta pasta, sem `verifyIdentity`, porque as duas entradas sem `cwd` explícito resolvem para aqui por defeito). Deixado como está — pode estar em uso pela sessão deles agora, e não é uma decisão minha para tomar sozinha.
+
+**Verificação.** `tsc --noEmit` EXIT=0. `vitest run` EXIT=1, **4227/4228** — mesma falha de locale ICU pré-existente; os 10 testes de `me-response.test.ts` (9 + 1 novo) todos verdes. `eslint` EXIT=0, 264 problemas (0 erros), mesma contagem. `npm run build` EXIT=0. Sem migração, sem escrita em produção.
+
+**Estado:** branch `fix/me-response-allowlist`, à espera do "sim" do Nuno para merge — é código de aplicação já em produção que está a ser corrigido, mesma regra de sempre.

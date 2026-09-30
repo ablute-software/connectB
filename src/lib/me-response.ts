@@ -98,7 +98,23 @@ export interface AuthenticatedMeResponse {
   pioneerBadge: boolean;
 }
 
-export function buildAuthenticatedMeResponse(fields: AuthenticatedMeResponse): AuthenticatedMeResponse {
-  const { authEnabled, user, role, orgRole, plan, entitlements, capabilities, watson, reviewQuota, viewer, pioneerBadge } = fields;
-  return { authEnabled, user, role, orgRole, plan, entitlements, capabilities, watson, reviewQuota, viewer, pioneerBadge };
+// Denylist, not allowlist: strips ONLY `verifyIdentity` (the one field that
+// must never reach an authenticated response — see this file's own header)
+// and passes every other field through untouched, including one route.ts
+// starts sending tomorrow that this file doesn't know about yet. Generic
+// over T (rather than a plain `fields: AuthenticatedMeResponse` parameter)
+// so TypeScript infers T from the actual object literal route.ts passes —
+// a caller adding a new field to that literal widens T to include it,
+// rather than either tripping an excess-property error or (worse) silently
+// losing the field the way the previous explicit-destructure-then-
+// reconstruct version of this function did. Confirmed necessary the hard
+// way, 30/09/2026: a sibling session's own feature branch added a new
+// field to the authenticated response, and the old allowlist version
+// dropped it at runtime with no type error and no visible failure — a
+// structural-safety mechanism (built to stop one specific leak) had the
+// side effect of silently breaking anything unrelated to that leak.
+export function buildAuthenticatedMeResponse<T extends AuthenticatedMeResponse>(fields: T): T {
+  const rest = { ...fields } as Record<string, unknown>;
+  delete rest.verifyIdentity;
+  return rest as T;
 }
