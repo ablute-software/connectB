@@ -1,21 +1,18 @@
 // Prompt I-01 §A.8/§C.2 — accept, for the signed-in founder's own open org.
 // The relationship is created by incubator_accept_invite() under the
-// caller's session (it checks the org itself); the voucher, if any, is
-// redeemed afterwards and never undoes the relationship.
+// caller's session, which checks (I-01b) that the caller's address is the
+// invited one and that they are an owner/admin of that org; the voucher, if
+// any, is redeemed afterwards and never undoes the relationship.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { serverClient, authEnabled } from '@/lib/supabase-server';
-import { assertNotViewer } from '@/lib/developer-viewer';
+import { requireProgramManager } from '@/lib/incubator-founder-gate';
 import { acceptIncubatorInvite, type AcceptRpcResult } from '@/lib/incubator-accept';
 import { redeemIncubatorInviteVoucher } from '@/lib/incubator-voucher-server';
 
 export async function POST(req: Request, { params }: { params: { token: string } }) {
-  if (!authEnabled) return NextResponse.json({ ok: false, demo: true, error: 'not configured' });
-  const sb = await serverClient();
-  const { data: { user } } = await sb.auth.getUser();
-  if (!user) return NextResponse.json({ ok: false, error: 'not_signed_in' }, { status: 401 });
-  const viewerBlock = await assertNotViewer(sb, req);
-  if (viewerBlock) return viewerBlock;
+  const gate = await requireProgramManager(req, { allowNoOrg: true });
+  if ('error' in gate) return gate.error;
+  const { sb, userId } = gate;
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -28,7 +25,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
     redeemVoucher: async (promoCodeId, orgId) => {
       if (!service) return { ok: false, reason: 'not_configured' };
       const admin = createClient(url, service, { auth: { persistSession: false } });
-      return redeemIncubatorInviteVoucher(admin, promoCodeId, orgId, user.id);
+      return redeemIncubatorInviteVoucher(admin, promoCodeId, orgId, userId);
     },
   });
   return NextResponse.json(outcome, { status: outcome.ok ? 200 : 400 });

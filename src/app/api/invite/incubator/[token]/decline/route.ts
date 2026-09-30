@@ -1,21 +1,22 @@
-// Prompt I-01 §A.8 — decline. The invitee may have no account, so the token
-// is the authority: incubator_decline_invite() is service-role only and is
-// called here with it, rate-limited like the preview.
+// Prompt I-01 §A.8 / I-01b §A — decline. Since I-01b the invitee must be
+// signed in with the invited address (a forwarded link cannot decline on
+// their behalf), so this runs under the caller's own session;
+// incubator_decline_invite() checks the address and, if the caller already
+// runs an org, that they are an owner/admin of it.
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { clientIp, guestLinkRateLimited } from '@/lib/guest-link-security';
+import { requireProgramManager } from '@/lib/incubator-founder-gate';
 import { incubatorErrorText } from '@/lib/incubators';
 
 export async function POST(req: Request, { params }: { params: { token: string } }) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !service) return NextResponse.json({ ok: false, demo: true, error: 'not configured' });
-  const admin = createClient(url, service, { auth: { persistSession: false } });
-  if (await guestLinkRateLimited(admin, clientIp(req))) {
-    return NextResponse.json({ ok: false, error: 'rate_limited' }, { status: 429 });
-  }
-  const { data, error } = await admin.rpc('incubator_decline_invite', { p_token: params.token });
+  const gate = await requireProgramManager(req, { allowNoOrg: true });
+  if ('error' in gate) return gate.error;
+  const { data, error } = await gate.sb.rpc('incubator_decline_invite', { p_token: params.token });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  if (!data?.ok) return NextResponse.json({ ok: false, error: data?.error, message: incubatorErrorText(data?.error) }, { status: 400 });
+  if (!data?.ok) {
+    return NextResponse.json({
+      ok: false, error: data?.error, message: incubatorErrorText(data?.error),
+      invitedEmailMasked: data?.invited_email_masked ?? null,
+    }, { status: 400 });
+  }
   return NextResponse.json({ ok: true });
 }

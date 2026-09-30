@@ -12,14 +12,14 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   const { reason } = await req.json().catch(() => ({})) as { reason?: string };
   const why = reason?.trim();
-  if (!why) return NextResponse.json({ ok: false, error: 'Indica o motivo.' }, { status: 400 });
+  if (!why) return NextResponse.json({ ok: false, error: 'Give a reason.' }, { status: 400 });
 
   const now = new Date().toISOString();
   const { data: inc, error } = await admin.from('incubators')
     .update({ closed_at: now, closed_by: userId, closed_reason: why })
     .eq('id', params.id).is('closed_at', null).select('id, name').maybeSingle();
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  if (!inc) return NextResponse.json({ ok: false, error: 'Não encontrada ou já fechada.' }, { status: 404 });
+  if (!inc) return NextResponse.json({ ok: false, error: 'Not found or already closed.' }, { status: 404 });
 
   const { data: ended } = await admin.from('incubator_relationships')
     .update({ status: 'ended', ended_at: now, ended_by: 'platform', end_reason: why })

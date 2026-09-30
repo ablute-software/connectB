@@ -176,12 +176,16 @@ function FounderSignupForm() {
   // invite page, never in the URL) and, once the workspace exists, return to
   // the invite to accept it. `next` is honoured only for that one fixed path.
   const fromIncubatorInvite = sp.get('invite') === 'incubator';
+  const [lockedEmail, setLockedEmail] = useState<string | null>(null);
   const afterSignup = fromIncubatorInvite && sp.get('next') === INCUBATOR_INVITE_CONTINUE_PATH ? INCUBATOR_INVITE_CONTINUE_PATH : '/';
   useEffect(() => {
     if (!fromIncubatorInvite) return;
     try {
       const raw = window.localStorage.getItem(INCUBATOR_INVITE_STORAGE_KEY);
       const stub = raw ? (JSON.parse(raw) as StoredIncubatorInvite) : null;
+      // I-01b §A — the account's email IS the invited address (locked below),
+      // so accepting right after signup can never hit invite_email_mismatch.
+      if (stub?.invitedEmail) { setEmail(stub.invitedEmail); setLockedEmail(stub.invitedEmail); }
       if (stub?.startupName) setOrg((v) => v || stub.startupName!);
       if (stub?.sector) setSector((v) => v || stub.sector!);
       if (stub?.website) setWebsite((v) => v || stub.website!);
@@ -365,8 +369,10 @@ function FounderSignupForm() {
         </div>
 
         <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Account</div>
-        <input autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="you@company.com *"
-          className="mb-2 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
+        <input autoComplete="email" value={email} onChange={(e) => { if (!lockedEmail) setEmail(e.target.value); }} type="email" placeholder="you@company.com *"
+          readOnly={!!lockedEmail} aria-readonly={!!lockedEmail}
+          className={`mb-2 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm ${lockedEmail ? 'bg-gray-50 text-gray-600' : ''}`} />
+        {lockedEmail && <p className="-mt-1 mb-2 text-[11px] text-gray-500">This is the address the incubator invited — the invite can only be accepted with it.</p>}
         <input autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Password *"
           className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
         <PasswordRequirementsIndicator password={password} />

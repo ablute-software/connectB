@@ -16,6 +16,7 @@ export interface AcceptRpcResult {
   promo_code_id?: string | null;
   incubator_id?: string;
   org_id?: string;
+  invited_email_masked?: string | null;
 }
 
 export interface VoucherOutcome { ok: boolean; reason?: string }
@@ -27,9 +28,11 @@ export interface AcceptOutcome {
   relationshipId?: string;
   already?: boolean;
   voucher?: { applied: boolean; message?: string } | null;
+  // I-01b §A — present with error 'invite_email_mismatch'.
+  invitedEmailMasked?: string | null;
 }
 
-export const VOUCHER_NOT_APPLICABLE_TEXT = 'Voucher não aplicável ao teu plano — fala com a incubadora.';
+export const VOUCHER_NOT_APPLICABLE_TEXT = 'This voucher does not apply to your plan — talk to the incubator.';
 
 export async function acceptIncubatorInvite(
   token: string,
@@ -43,7 +46,12 @@ export async function acceptIncubatorInvite(
   }
   const res = await deps.acceptRpc(token);
   if (!res) return { ok: false, error: 'unknown', message: incubatorErrorText(null) };
-  if (!res.ok) return { ok: false, error: res.error, message: incubatorErrorText(res.error) };
+  if (!res.ok) {
+    return {
+      ok: false, error: res.error, message: incubatorErrorText(res.error),
+      invitedEmailMasked: res.error === 'invite_email_mismatch' ? res.invited_email_masked ?? null : undefined,
+    };
+  }
 
   let voucher: AcceptOutcome['voucher'] = null;
   if (res.promo_code_id && res.org_id && !res.already) {

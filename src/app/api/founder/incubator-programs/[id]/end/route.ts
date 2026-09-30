@@ -1,24 +1,20 @@
 // Prompt I-01 §C.4/§C.5 — the founder ends a relationship (reason optional).
-// The incubator's access drops in the same statement (D6); its owners and
-// managers are told, without a reason if the founder gave none.
+// Owner/admin only (I-01b §B). The incubator's access drops in the same
+// statement (D6); its active members are told, without a reason if the
+// founder gave none.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { serverClient, authEnabled } from '@/lib/supabase-server';
-import { assertNotViewer } from '@/lib/developer-viewer';
+import { requireProgramManager } from '@/lib/incubator-founder-gate';
 import { incubatorErrorText } from '@/lib/incubators';
 import { APP_URL } from '@/lib/brand';
 import { relationshipEndedByFounderEmail } from '@/lib/email-templates/incubator-emails';
 import { sendIncubatorEmail } from '@/lib/incubator-email-server';
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
-  if (!authEnabled) return NextResponse.json({ ok: false, demo: true, error: 'not configured' });
-  const sb = await serverClient();
-  const { data: { user } } = await sb.auth.getUser();
-  if (!user) return NextResponse.json({ ok: false, error: 'not_signed_in' }, { status: 401 });
-  const viewerBlock = await assertNotViewer(sb, req);
-  if (viewerBlock) return viewerBlock;
+  const gate = await requireProgramManager(req);
+  if ('error' in gate) return gate.error;
   const { reason } = await req.json().catch(() => ({})) as { reason?: string };
-  const { data, error } = await sb.rpc('incubator_end_relationship', { p_relationship_id: params.id, p_reason: reason ?? '' });
+  const { data, error } = await gate.sb.rpc('incubator_end_relationship', { p_relationship_id: params.id, p_reason: reason ?? '' });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   if (!data?.ok) return NextResponse.json({ ok: false, error: data?.error, message: incubatorErrorText(data?.error) }, { status: 400 });
 

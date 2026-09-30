@@ -314,6 +314,29 @@ returns uuid language sql stable security definer set search_path = public as $$
   where om.user_id = auth.uid() and o.closed_at is null;
 $$;
 
+-- Prompt I-01b §B — the founder-side actions (accept/decline an invite,
+-- change the sharing level or the badge, end the relationship) belong to the
+-- org's owners and admins, the same people as manage_org_settings
+-- (src/lib/permissions.ts, capability manage_programs). Reading stays open to
+-- every member of the org.
+create or replace function public.incubator_caller_org_can_manage(p_org_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from org_members om
+    where om.org_id = p_org_id and om.user_id = auth.uid() and om.role::text in ('owner', 'admin')
+  );
+$$;
+
+-- Prompt I-01b §A — "n…@startup.pt": enough for the invitee to recognise the
+-- address, not enough to hand a forwarded link's reader someone's e-mail.
+create or replace function public.incubator_mask_email(p_email text)
+returns text language sql immutable set search_path = public as $$
+  select case
+    when p_email is null or position('@' in p_email) = 0 then null
+    else left(split_part(p_email, '@', 1), 2) || '…@' || split_part(p_email, '@', 2)
+  end;
+$$;
+
 -- ===========================================================================
 -- A.8 State transitions. Business errors come back as {ok:false, error:<code>}
 -- rather than as exceptions, so a status write that accompanies a refusal
@@ -335,12 +358,23 @@ begin
   if not found then
     return jsonb_build_object('ok', false, 'error', 'invite_not_found');
   end if;
+  -- Prompt I-01b §A — only the invited address can accept: a forwarded link
+  -- must not attach someone else's startup to the portfolio (nor, from I-02
+  -- on, hand it the voucher). Checked before any write.
+  if lower(coalesce(auth.jwt() ->> 'email', '')) <> lower(v_inv.email) then
+    return jsonb_build_object('ok', false, 'error', 'invite_email_mismatch',
+      'invited_email_masked', public.incubator_mask_email(v_inv.email));
+  end if;
   if exists (select 1 from incubators where id = v_inv.incubator_id and closed_at is not null) then
     return jsonb_build_object('ok', false, 'error', 'incubator_closed');
   end if;
   v_org := public.incubator_caller_open_org();
   if v_org is null then
     return jsonb_build_object('ok', false, 'error', 'no_open_org');
+  end if;
+  -- Prompt I-01b §B — owners and admins only.
+  if not public.incubator_caller_org_can_manage(v_org) then
+    return jsonb_build_object('ok', false, 'error', 'not_allowed');
   end if;
 
   -- Idempotent: the same org accepting the same invite again gets the
@@ -389,17 +423,31 @@ begin
     'promo_code_id', v_inv.promo_code_id, 'incubator_id', v_inv.incubator_id, 'org_id', v_org);
 end $$;
 
--- Decline. Token possession is the authority (the invitee may have no
--- account); the public route calls this with the service role.
+-- Decline. Prompt I-01b §A — the same address check as accept, so a
+-- forwarded link cannot decline on the invitee's behalf either. Signed in;
+-- if the caller already runs an org, declining is an owner/admin act there
+-- too (§B); someone with no org yet declines for themselves.
 create or replace function public.incubator_decline_invite(p_token text)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare
   v_hash text := encode(sha256(convert_to(coalesce(p_token, ''), 'UTF8')), 'hex');
   v_inv incubator_invites%rowtype;
+  v_org uuid;
 begin
+  if auth.uid() is null then
+    return jsonb_build_object('ok', false, 'error', 'not_signed_in');
+  end if;
   select * into v_inv from incubator_invites where token_hash = v_hash for update;
   if not found then
     return jsonb_build_object('ok', false, 'error', 'invite_not_found');
+  end if;
+  if lower(coalesce(auth.jwt() ->> 'email', '')) <> lower(v_inv.email) then
+    return jsonb_build_object('ok', false, 'error', 'invite_email_mismatch',
+      'invited_email_masked', public.incubator_mask_email(v_inv.email));
+  end if;
+  v_org := public.incubator_caller_open_org();
+  if v_org is not null and not public.incubator_caller_org_can_manage(v_org) then
+    return jsonb_build_object('ok', false, 'error', 'not_allowed');
   end if;
   if v_inv.status = 'declined' then
     return jsonb_build_object('ok', true, 'already', true);
@@ -411,14 +459,14 @@ begin
   return jsonb_build_object('ok', true, 'already', false, 'incubator_id', v_inv.incubator_id);
 end $$;
 
--- Founder only. 0–2 in Phase 1; 3–4 exist in the model and are refused here.
+-- Founder owner/admin only (I-01b §B). 0–2 in Phase 1; 3–4 exist in the model and are refused here.
 create or replace function public.incubator_set_sharing_level(p_relationship_id uuid, p_level smallint)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare
   v_rel incubator_relationships%rowtype;
 begin
   select * into v_rel from incubator_relationships where id = p_relationship_id for update;
-  if not found or not public.is_org_member(v_rel.org_id) then
+  if not found or not public.incubator_caller_org_can_manage(v_rel.org_id) then
     return jsonb_build_object('ok', false, 'error', 'not_allowed');
   end if;
   if v_rel.status = 'ended' then
@@ -440,7 +488,7 @@ declare
   v_rel incubator_relationships%rowtype;
 begin
   select * into v_rel from incubator_relationships where id = p_relationship_id for update;
-  if not found or not public.is_org_member(v_rel.org_id) then
+  if not found or not public.incubator_caller_org_can_manage(v_rel.org_id) then
     return jsonb_build_object('ok', false, 'error', 'not_allowed');
   end if;
   if v_rel.status = 'ended' then
@@ -450,7 +498,8 @@ begin
   return jsonb_build_object('ok', true, 'public_badge', coalesce(p_value, true));
 end $$;
 
--- Either side, any time. Founder: reason optional. Incubator: reason
+-- Either side, any time. Founder side = the org's owners/admins (I-01b §B);
+-- reason optional. Incubator: reason
 -- required (the founder sees it). Immediate — incubator_can_view() is false
 -- from this statement on (D6).
 create or replace function public.incubator_end_relationship(p_relationship_id uuid, p_reason text)
@@ -464,7 +513,7 @@ begin
   if not found then
     return jsonb_build_object('ok', false, 'error', 'not_allowed');
   end if;
-  if public.is_org_member(v_rel.org_id) then
+  if public.incubator_caller_org_can_manage(v_rel.org_id) then
     v_by := 'founder';
   elsif public.is_incubator_member(v_rel.incubator_id) then
     v_by := 'incubator';
@@ -873,8 +922,8 @@ create policy incubator_access_log_read on public.incubator_access_log for selec
   ));
 
 -- Functions: nothing for public/anon; the ones a signed-in caller uses get
--- authenticated. incubator_decline_invite is service-role only (the public
--- route calls it for someone who may have no account). Trigger functions get
+-- authenticated (incubator_decline_invite included since I-01b: it now
+-- checks the caller's address, so it needs a session). Trigger functions get
 -- nothing: Postgres never needs EXECUTE from the role firing a trigger
 -- (confirmed live for deal_terms in Prompt 898).
 revoke execute on function
@@ -886,6 +935,8 @@ revoke execute on function
   public.incubator_can_view(uuid, smallint),
   public.incubator_my_member_id(uuid),
   public.incubator_caller_open_org(),
+  public.incubator_caller_org_can_manage(uuid),
+  public.incubator_mask_email(text),
   public.incubator_accept_invite(text),
   public.incubator_decline_invite(text),
   public.incubator_set_sharing_level(uuid, smallint),
@@ -912,6 +963,7 @@ grant execute on function
   public.incubator_can_view(uuid, smallint),
   public.incubator_my_member_id(uuid),
   public.incubator_accept_invite(text),
+  public.incubator_decline_invite(text),
   public.incubator_set_sharing_level(uuid, smallint),
   public.incubator_set_public_badge(uuid, boolean),
   public.incubator_end_relationship(uuid, text),
@@ -928,8 +980,9 @@ grant execute on function
   public.founder_incubator_access_log(),
   public.incubator_team(uuid)
   to authenticated;
--- incubator_caller_open_org is an internal helper of accept; service_role
--- keeps EXECUTE on everything through its own default privileges.
+-- incubator_caller_open_org, incubator_caller_org_can_manage and
+-- incubator_mask_email are internal helpers of the functions above;
+-- service_role keeps EXECUTE on everything through its own default privileges.
 
 -- ===========================================================================
 -- C.5 — the invite/notice e-mails are logged like every other platform

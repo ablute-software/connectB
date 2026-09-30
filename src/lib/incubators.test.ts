@@ -7,8 +7,10 @@ import {
   ALSO_INVESTS_NOTICE, LEVEL_COMING_SOON_TEXT, SHARING_LEVELS, DEFAULT_SHARING_LEVEL,
   defaultLevelNotice, endReasonRequired, endRelationshipConfirmText, founderCanChooseLevel,
   incubatorCanSetStatus, incubatorErrorText, levelAfterGraduation, relationshipGivesAccess,
-  slugifyIncubatorName, incubatorInvitePath, INCUBATOR_INVITE_CONTINUE_PATH, type RelationshipStatus,
+  slugifyIncubatorName, incubatorInvitePath, INCUBATOR_INVITE_CONTINUE_PATH, maskInviteEmail, inviteEmailMismatchText,
+  PROGRAMS_READ_ONLY_NOTE, INCUBATOR_KINDS, RELATIONSHIP_STATUS_LABEL, type RelationshipStatus,
 } from './incubators';
+import { can } from './permissions';
 
 describe('níveis de partilha (v4 §5.1, refinamento do D19)', () => {
   it('o modelo tem 0–4, por esta ordem', () => {
@@ -20,14 +22,14 @@ describe('níveis de partilha (v4 §5.1, refinamento do D19)', () => {
   });
   it('o defeito ao aceitar é 1 · Perfil (D2)', () => {
     expect(DEFAULT_SHARING_LEVEL).toBe(1);
-    expect(SHARING_LEVELS[1].label).toBe('1 · Perfil');
+    expect(SHARING_LEVELS[1].label).toBe('1 · Profile');
   });
   it('founderCanChooseLevel aceita 0–2 e recusa 3, 4, negativos e fracções', () => {
     expect([0, 1, 2].every(founderCanChooseLevel)).toBe(true);
     expect([3, 4, -1, 1.5, 5].some(founderCanChooseLevel)).toBe(false);
   });
-  it('o texto de "em breve" é o literal do prompt', () => {
-    expect(LEVEL_COMING_SOON_TEXT).toBe('Disponível em breve — a partilha de documentos e da angariação chega com controlos próprios');
+  it('o texto de "em breve" (inglês, I-01b §C)', () => {
+    expect(LEVEL_COMING_SOON_TEXT).toBe('Coming soon — sharing documents and fundraising arrives with its own controls');
     expect(incubatorErrorText('level_coming_soon')).toBe(LEVEL_COMING_SOON_TEXT);
   });
 });
@@ -72,28 +74,61 @@ describe('graduação (D6b) e transições do lado da incubadora', () => {
   });
 });
 
-describe('texto literal (I-01 §C.2, §C.4, D3, D6)', () => {
+describe('texto literal (I-01 §C.2, §C.4, D3, D6 — em inglês desde o I-01b §C)', () => {
   it('aviso do nível por defeito', () => {
     expect(defaultLevelNotice('Startup Braga')).toBe(
-      'Ao aceitar, a Startup Braga passa a ver o teu perfil público, os factos da empresa com fonte e o roadmap (nível 1 · Perfil). Podes mudar isto a qualquer momento em Definições › Programas, e terminar a relação quando quiseres.',
+      'By accepting, Startup Braga will see your public profile, your sourced company facts and your roadmap (level 1 · Profile). You can change this at any time in Settings › Programmes, and end the relationship whenever you want.',
     );
   });
   it('aviso D3', () => {
-    expect(ALSO_INVESTS_NOTICE).toBe('Esta organização também é investidora na Sherlock. O que partilhas aqui é para o programa, não para o comité de investimento; a plataforma não cruza os dois lados.');
+    expect(ALSO_INVESTS_NOTICE).toBe('This organisation is also an investor on Sherlock. What you share here is for the programme, not for the investment committee; the platform never joins the two sides.');
   });
   it('confirmação de fim de relação', () => {
-    expect(endRelationshipConfirmText('Startup Braga')).toBe('A Startup Braga perde o acesso de imediato. Mantém os relatórios e notas que já produziu.');
+    expect(endRelationshipConfirmText('Startup Braga')).toBe('Startup Braga loses access immediately. It keeps the reports and notes it has already produced.');
+  });
+  it('nota de só-leitura para manager/member (I-01b §B)', () => {
+    expect(PROGRAMS_READ_ONLY_NOTE).toBe('Only owners and admins can accept invites, change sharing or end a programme.');
   });
   it('códigos de erro desconhecidos caem numa mensagem genérica, nunca no código cru', () => {
-    expect(incubatorErrorText('xpto')).toBe('Algo correu mal. Tenta de novo.');
-    expect(incubatorErrorText(undefined)).toBe('Algo correu mal. Tenta de novo.');
+    expect(incubatorErrorText('xpto')).toBe('Something went wrong. Please try again.');
+    expect(incubatorErrorText(undefined)).toBe('Something went wrong. Please try again.');
+  });
+  it('nenhum texto de interface ficou em português', () => {
+    const all = [
+      ...SHARING_LEVELS.flatMap((l) => [l.name, l.label, l.includes]), ...INCUBATOR_KINDS.map((k) => k.label),
+      ...Object.values(RELATIONSHIP_STATUS_LABEL), LEVEL_COMING_SOON_TEXT, ALSO_INVESTS_NOTICE, PROGRAMS_READ_ONLY_NOTE,
+      defaultLevelNotice('X'), endRelationshipConfirmText('X'), inviteEmailMismatchText('ab…@x.pt', 'X'),
+      ...['invite_not_found', 'invite_expired', 'no_open_org', 'not_allowed', 'reason_required', 'invite_email_mismatch'].map(incubatorErrorText),
+    ].join(' ');
+    expect(all).not.toMatch(/\b(convite|relação|partilh|incubadora|razão|nível|programa|aceitar|podes)\b/i);
+  });
+});
+
+describe('e-mail convidado (I-01b §A) e owner/admin (I-01b §B)', () => {
+  it('máscara igual à do SQL: 2 caracteres + …@ + domínio', () => {
+    expect(maskInviteEmail('nuno@startup.pt')).toBe('nu…@startup.pt');
+    expect(maskInviteEmail('n@x.io')).toBe('n…@x.io');
+    expect(maskInviteEmail('sem-arroba')).toBeNull();
+    expect(maskInviteEmail(null)).toBeNull();
+  });
+  it('mensagem de e-mail diferente, com a incubadora', () => {
+    expect(inviteEmailMismatchText('nu…@startup.pt', 'Startup Braga')).toBe(
+      'This invite was sent to nu…@startup.pt. Sign in with that email, or ask Startup Braga to send the invite to the address you use.',
+    );
+  });
+  it('manage_programs: owner e admin sim; manager, member e sem papel não', () => {
+    expect(can('owner', 'manage_programs')).toBe(true);
+    expect(can('admin', 'manage_programs')).toBe(true);
+    expect(can('manager', 'manage_programs')).toBe(false);
+    expect(can('member', 'manage_programs')).toBe(false);
+    expect(can(null, 'manage_programs')).toBe(false);
   });
 });
 
 describe('helpers', () => {
   it('slug sem acentos nem símbolos', () => {
     expect(slugifyIncubatorName('Incubadora de Braga — Ideias & Negócios')).toBe('incubadora-de-braga-ideias-negocios');
-    expect(slugifyIncubatorName('   ')).toBe('incubadora');
+    expect(slugifyIncubatorName('   ')).toBe('incubator');
   });
   it('o token vai no path; o desvio de login usa um path fixo, sem token', () => {
     expect(incubatorInvitePath('abc_DEF-123')).toBe('/invite/incubator/abc_DEF-123');

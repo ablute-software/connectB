@@ -1,8 +1,13 @@
-// Prompt I-01 — Incubadoras, Fase 1: the pure half (no I/O, safe on the
+// Prompt I-01 — Incubators, Phase 1: the pure half (no I/O, safe on the
 // client). The enforcement lives in SQL (migration
 // 20260930150000_incubators_foundation.sql); everything here either mirrors
-// a SQL rule for the UI and the tests, or holds the literal copy the prompt
-// fixes. Concept: docs/incubadoras/v4-conceito-decisoes-20260930.md.
+// a SQL rule for the UI and the tests, or holds the literal copy the prompts
+// fix. Concept: docs/incubadoras/v4-conceito-decisoes-20260930.md.
+//
+// Prompt I-01b §C — English, like the rest of the app (founder app, investor
+// portal, back-office): there is no i18n layer, and incubators will not only
+// be Portuguese. Funder reports (I-05) are documents and get PT/EN templates;
+// the interface is English.
 
 export type IncubatorKind = 'municipal' | 'university' | 'private_accelerator' | 'corporate' | 'pre_incubation' | 'other';
 export type RelationshipStatus = 'active' | 'paused' | 'graduated' | 'ended';
@@ -14,34 +19,34 @@ export type EndedBy = 'founder' | 'incubator' | 'platform';
 
 export const INCUBATOR_KINDS: { key: IncubatorKind; label: string }[] = [
   { key: 'municipal', label: 'Municipal / regional' },
-  { key: 'university', label: 'Universitária / I&D' },
-  { key: 'private_accelerator', label: 'Aceleradora privada' },
-  { key: 'corporate', label: 'Programa corporate' },
-  { key: 'pre_incubation', label: 'Pré-incubação / ideação' },
-  { key: 'other', label: 'Outra' },
+  { key: 'university', label: 'University / R&D' },
+  { key: 'private_accelerator', label: 'Private accelerator' },
+  { key: 'corporate', label: 'Corporate programme' },
+  { key: 'pre_incubation', label: 'Pre-incubation / ideation' },
+  { key: 'other', label: 'Other' },
 ];
 
 export function incubatorKindLabel(kind: string | null | undefined): string {
-  return INCUBATOR_KINDS.find((k) => k.key === kind)?.label ?? 'Outra';
+  return INCUBATOR_KINDS.find((k) => k.key === kind)?.label ?? 'Other';
 }
 
 export const RELATIONSHIP_STATUS_LABEL: Record<RelationshipStatus, string> = {
-  active: 'Activa',
-  paused: 'Pausada',
-  graduated: 'Graduada',
-  ended: 'Terminada',
+  active: 'Active',
+  paused: 'Paused',
+  graduated: 'Graduated',
+  ended: 'Ended',
 };
 
 export const INVITE_STATUS_LABEL: Record<InviteStatus, string> = {
-  invited: 'Pendente',
-  accepted: 'Aceite',
-  declined: 'Recusado',
-  expired: 'Expirado',
-  revoked: 'Revogado',
+  invited: 'Pending',
+  accepted: 'Accepted',
+  declined: 'Declined',
+  expired: 'Expired',
+  revoked: 'Revoked',
 };
 
-// v4 §5.1, literal. Levels 3 and 4 exist in the model and are shown, but are
-// not selectable in Phase 1 (refinement of D19): level 3 cannot go through
+// v4 §5.1. Levels 3 and 4 exist in the model and are shown, but are not
+// selectable in Phase 1 (refinement of D19): level 3 cannot go through
 // access_grants (I-00 C.6) and level 4 needs the deal_terms fail-closed with
 // its own tests.
 export interface SharingLevelInfo {
@@ -53,26 +58,26 @@ export interface SharingLevelInfo {
 }
 
 export const SHARING_LEVELS: SharingLevelInfo[] = [
-  { level: 0, name: 'Ligada', label: '0 · Ligada', enabled: true,
-    includes: 'nome, sector, fase, programa/turma, gestor' },
-  { level: 1, name: 'Perfil', label: '1 · Perfil', enabled: true,
-    includes: '+ perfil público, factos da empresa com fonte, roadmap' },
-  { level: 2, name: 'Análise', label: '2 · Análise', enabled: true,
-    includes: '+ Readiness review (SWOT, investability, plano de acção), histórico de readiness, escada IRL/TRL, a parte partilhada do registo de riscos' },
-  { level: 3, name: 'Documentos', label: '3 · Documentos', enabled: false,
-    includes: '+ documentos, um a um (grants do data room com um sujeito "incubadora")' },
-  { level: 4, name: 'Angariação', label: '4 · Angariação', enabled: false,
-    includes: '+ progresso da ronda declarado, pipeline (investidores, fase, razões de pass como o founder as registou)' },
+  { level: 0, name: 'Linked', label: '0 · Linked', enabled: true,
+    includes: 'name, sector, stage, programme/cohort, manager' },
+  { level: 1, name: 'Profile', label: '1 · Profile', enabled: true,
+    includes: '+ public profile, sourced company facts, roadmap' },
+  { level: 2, name: 'Analysis', label: '2 · Analysis', enabled: true,
+    includes: '+ Readiness review (SWOT, investability, action plan), readiness history, IRL/TRL ladder, the shared part of the risk register' },
+  { level: 3, name: 'Documents', label: '3 · Documents', enabled: false,
+    includes: '+ documents, one by one' },
+  { level: 4, name: 'Fundraising', label: '4 · Fundraising', enabled: false,
+    includes: '+ declared round progress, pipeline (investors, stage, pass reasons as the founder logged them)' },
 ];
 
 export const DEFAULT_SHARING_LEVEL: SharingLevel = 1;
 export const MAX_SELECTABLE_LEVEL = 2;
 
 export const LEVEL_COMING_SOON_TEXT =
-  'Disponível em breve — a partilha de documentos e da angariação chega com controlos próprios';
+  'Coming soon — sharing documents and fundraising arrives with its own controls';
 
 export function sharingLevelName(level: number): string {
-  return SHARING_LEVELS.find((l) => l.level === level)?.name ?? `Nível ${level}`;
+  return SHARING_LEVELS.find((l) => l.level === level)?.name ?? `Level ${level}`;
 }
 
 export function founderCanChooseLevel(level: number): boolean {
@@ -107,63 +112,80 @@ export function endReasonRequired(side: 'founder' | 'incubator'): boolean {
   return side === 'incubator';
 }
 
-// ---------------------------------------------------------------------------
-// Literal copy (I-01 §C.2/§C.4).
-
-export function defaultLevelNotice(incubatorName: string): string {
-  return `Ao aceitar, a ${incubatorName} passa a ver o teu perfil público, os factos da empresa com fonte e o roadmap (nível 1 · Perfil). Podes mudar isto a qualquer momento em Definições › Programas, e terminar a relação quando quiseres.`;
+// Mirrors incubator_mask_email() (I-01b §A): "n…@startup.pt".
+export function maskInviteEmail(email: string | null | undefined): string | null {
+  if (!email || !email.includes('@')) return null;
+  const [local, domain] = [email.slice(0, email.indexOf('@')), email.slice(email.indexOf('@') + 1)];
+  return `${local.slice(0, 2)}…@${domain}`;
 }
 
-// D3 — shown before the accept button, and in Definições › Programas.
+// ---------------------------------------------------------------------------
+// Literal copy (I-01 §C.2/§C.4, as translated by I-01b §C).
+
+export function defaultLevelNotice(incubatorName: string): string {
+  return `By accepting, ${incubatorName} will see your public profile, your sourced company facts and your roadmap (level 1 · Profile). You can change this at any time in Settings › Programmes, and end the relationship whenever you want.`;
+}
+
+// D3 — shown before the accept button, and in Settings › Programmes.
 export const ALSO_INVESTS_NOTICE =
-  'Esta organização também é investidora na Sherlock. O que partilhas aqui é para o programa, não para o comité de investimento; a plataforma não cruza os dois lados.';
+  'This organisation is also an investor on Sherlock. What you share here is for the programme, not for the investment committee; the platform never joins the two sides.';
 
 export function endRelationshipConfirmText(incubatorName: string): string {
-  return `A ${incubatorName} perde o acesso de imediato. Mantém os relatórios e notas que já produziu.`;
+  return `${incubatorName} loses access immediately. It keeps the reports and notes it has already produced.`;
+}
+
+// I-01b §B — shown to managers/members in Settings › Programmes.
+export const PROGRAMS_READ_ONLY_NOTE = 'Only owners and admins can accept invites, change sharing or end a programme.';
+
+// I-01b §A — the invite page when the signed-in address is not the invited one.
+export function inviteEmailMismatchText(maskedEmail: string | null, incubatorName: string): string {
+  return `This invite was sent to ${maskedEmail ?? 'another address'}. Sign in with that email, or ask ${incubatorName} to send the invite to the address you use.`;
 }
 
 export const ACCESS_LOG_SURFACE_LABEL: Record<string, string> = {
-  dossier_profile: 'Dossier · perfil',
-  dossier_facts: 'Dossier · factos',
+  dossier_profile: 'Dossier · profile',
+  dossier_facts: 'Dossier · facts',
   dossier_roadmap: 'Dossier · roadmap',
   dossier_readiness: 'Dossier · readiness',
-  dossier_documents: 'Dossier · documentos',
-  dossier_round: 'Dossier · ronda',
-  declaration: 'Declaração mensal',
-  report: 'Relatório',
+  dossier_documents: 'Dossier · documents',
+  dossier_round: 'Dossier · round',
+  declaration: 'Monthly update',
+  report: 'Report',
 };
 
 // ---------------------------------------------------------------------------
 // Error codes returned by the SQL functions ({ok:false, error:<code>}).
 
 const ERROR_TEXT: Record<string, string> = {
-  not_signed_in: 'Entra na tua conta para continuar.',
-  invite_not_found: 'Este convite não existe ou o link já foi substituído por um mais recente.',
-  invite_expired: 'Este convite expirou. Pede à incubadora que o reenvie.',
-  invite_revoked: 'Este convite foi revogado pela incubadora.',
-  invite_declined: 'Este convite foi recusado.',
-  invite_already_accepted: 'Este convite já foi aceite por outra conta.',
-  incubator_closed: 'Esta incubadora já não está activa na plataforma.',
-  no_open_org: 'Para aceitar precisas de uma conta de startup activa. Cria a conta da tua startup e volta a este link.',
-  not_allowed: 'Não tens permissão para esta acção.',
-  relationship_ended: 'Esta relação já terminou.',
-  invalid_level: 'Nível inválido.',
+  not_signed_in: 'Sign in to continue.',
+  invite_not_found: 'This invite does not exist, or the link has been replaced by a newer one.',
+  invite_expired: 'This invite has expired. Ask the incubator to resend it.',
+  invite_revoked: 'This invite was revoked by the incubator.',
+  invite_declined: 'This invite was declined.',
+  invite_already_accepted: 'This invite has already been accepted by another account.',
+  invite_email_mismatch: 'This invite was sent to a different email address.',
+  incubator_closed: 'This incubator is no longer active on the platform.',
+  no_open_org: 'To accept you need an active startup account. Create your startup account and come back to this link.',
+  not_allowed: 'You do not have permission for this action.',
+  not_org_admin: PROGRAMS_READ_ONLY_NOTE,
+  relationship_ended: 'This relationship has already ended.',
+  invalid_level: 'Invalid level.',
   level_coming_soon: LEVEL_COMING_SOON_TEXT,
-  reason_required: 'Indica a razão — o founder vai vê-la.',
-  invalid_transition: 'Esta mudança de estado não é possível.',
-  invalid_token: 'Não foi possível gerar um link novo.',
-  invalid_email: 'E-mail inválido.',
-  invalid_role: 'Papel inválido.',
-  already_member: 'Esta pessoa já é membro da incubadora.',
-  email_mismatch: 'Este convite foi enviado para outro e-mail. Entra com a conta desse e-mail.',
-  last_owner: 'A incubadora precisa de pelo menos um owner.',
-  name_required: 'O nome é obrigatório.',
-  invalid_kind: 'Tipo de incubadora inválido.',
+  reason_required: 'Give a reason — the founder will see it.',
+  invalid_transition: 'This status change is not possible.',
+  invalid_token: 'Could not generate a new link.',
+  invalid_email: 'Invalid email.',
+  invalid_role: 'Invalid role.',
+  already_member: 'This person is already a member of the incubator.',
+  email_mismatch: 'This invite was sent to another email. Sign in with that email’s account.',
+  last_owner: 'The incubator needs at least one owner.',
+  name_required: 'The name is required.',
+  invalid_kind: 'Invalid incubator type.',
 };
 
 export function incubatorErrorText(code: string | null | undefined): string {
-  if (!code) return 'Algo correu mal. Tenta de novo.';
-  return ERROR_TEXT[code] ?? 'Algo correu mal. Tenta de novo.';
+  if (!code) return 'Something went wrong. Please try again.';
+  return ERROR_TEXT[code] ?? 'Something went wrong. Please try again.';
 }
 
 // ---------------------------------------------------------------------------
@@ -175,7 +197,7 @@ export function slugifyIncubatorName(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 60) || 'incubadora';
+    .slice(0, 60) || 'incubator';
 }
 
 export function normalizeInviteEmail(email: string): string {
@@ -198,6 +220,9 @@ export const INCUBATOR_MEMBER_INVITE_STORAGE_KEY = 'sd_incubator_member_invite';
 
 export interface StoredIncubatorInvite {
   token: string;
+  // I-01b §A — the signup this invite prefills locks the account's email to
+  // this address, so the new-account path can never hit the mismatch.
+  invitedEmail?: string | null;
   startupName?: string | null;
   sector?: string | null;
   website?: string | null;

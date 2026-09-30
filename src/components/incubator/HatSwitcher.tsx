@@ -10,9 +10,9 @@ export interface Hats { founder: boolean; incubator: boolean; investor: boolean 
 type Hat = keyof Hats;
 
 const TARGETS: Record<Hat, { href: string; label: string }> = {
-  founder: { href: '/pipeline', label: 'Workspace founder' },
-  incubator: { href: '/incubator', label: 'Workspace da incubadora' },
-  investor: { href: '/portal', label: 'Portal do investidor' },
+  founder: { href: '/pipeline', label: 'Founder workspace' },
+  incubator: { href: '/incubator', label: 'Incubator workspace' },
+  investor: { href: '/portal', label: 'Investor portal' },
 };
 
 export function HatSwitcher({ current, hats: given, tone = 'light' }: { current: Hat; hats?: Hats | null; tone?: 'light' | 'dark' }) {
@@ -26,7 +26,7 @@ export function HatSwitcher({ current, hats: given, tone = 'light' }: { current:
   if (others.length === 0) return null;
   return (
     <div className="px-1 pt-3" data-testid="hat-switcher">
-      <div className={`px-2 pb-1 text-[10px] font-semibold uppercase tracking-widest ${tone === 'dark' ? 'text-gray-500' : 'text-gray-300'}`}>Mudar para</div>
+      <div className={`px-2 pb-1 text-[10px] font-semibold uppercase tracking-widest ${tone === 'dark' ? 'text-gray-500' : 'text-gray-300'}`}>Switch to</div>
       {others.map((h) => (
         <Link key={h} href={TARGETS[h].href}
           className="mb-1 flex items-center gap-2.5 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-[13.5px] text-gray-700 transition hover:bg-gray-100">

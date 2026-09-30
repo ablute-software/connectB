@@ -28,12 +28,12 @@ function text(v: unknown): string | null {
 
 export function parseIncubatorFields(body: Record<string, unknown>): { ok: true; fields: IncubatorFields } | { ok: false; error: string } {
   const name = text(body.name);
-  if (!name) return { ok: false, error: 'O nome é obrigatório.' };
+  if (!name) return { ok: false, error: 'The name is required.' };
   const kind = (text(body.kind) ?? 'other') as IncubatorKind;
-  if (!INCUBATOR_KINDS.some((k) => k.key === kind)) return { ok: false, error: 'Tipo inválido.' };
+  if (!INCUBATOR_KINDS.some((k) => k.key === kind)) return { ok: false, error: 'Invalid type.' };
   const slug = slugifyIncubatorName(text(body.slug) ?? name);
   const related = text(body.related_catalog_entity_id);
-  if (related && !UUID_RE.test(related)) return { ok: false, error: 'Entidade do catálogo inválida.' };
+  if (related && !UUID_RE.test(related)) return { ok: false, error: 'Invalid catalog entity.' };
   return {
     ok: true,
     fields: {

@@ -24,9 +24,9 @@ export async function POST(req: Request) {
     email?: string; startupName?: string; sector?: string; website?: string; cohortId?: string | null; note?: string; promoCodeId?: string | null;
   };
   const email = normalizeInviteEmail(body.email ?? '');
-  if (!looksLikeEmail(email)) return NextResponse.json({ ok: false, error: 'E-mail inválido.' }, { status: 400 });
+  if (!looksLikeEmail(email)) return NextResponse.json({ ok: false, error: 'Invalid email.' }, { status: 400 });
   if (body.promoCodeId) {
-    return NextResponse.json({ ok: false, error: 'Sem vouchers disponíveis — os protocolos chegam no I-02.' }, { status: 400 });
+    return NextResponse.json({ ok: false, error: 'No vouchers available — protocols arrive in I-02.' }, { status: 400 });
   }
 
   const token = generateRawToken();
@@ -43,7 +43,7 @@ export async function POST(req: Request) {
     token_hash: hashToken(token),
   }).select('id').single();
   if (error) {
-    const msg = error.code === '23505' ? 'Já existe um convite pendente para este e-mail.' : error.message;
+    const msg = error.code === '23505' ? 'There is already a pending invite for this email.' : error.message;
     return NextResponse.json({ ok: false, error: msg }, { status: error.code === '23505' ? 409 : 500 });
   }
 

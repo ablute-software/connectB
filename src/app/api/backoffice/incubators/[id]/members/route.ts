@@ -18,11 +18,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   const body = await req.json().catch(() => ({})) as { email?: string; role?: string; fullName?: string };
   const email = normalizeInviteEmail(body.email ?? '');
-  if (!looksLikeEmail(email)) return NextResponse.json({ ok: false, error: 'E-mail inválido.' }, { status: 400 });
+  if (!looksLikeEmail(email)) return NextResponse.json({ ok: false, error: 'Invalid email.' }, { status: 400 });
   const role = body.role === 'owner' ? 'owner' : 'manager';
 
   const { data: inc } = await admin.from('incubators').select('id, name, closed_at').eq('id', params.id).maybeSingle();
-  if (!inc || inc.closed_at) return NextResponse.json({ ok: false, error: 'Incubadora não encontrada ou fechada.' }, { status: 404 });
+  if (!inc || inc.closed_at) return NextResponse.json({ ok: false, error: 'Incubator not found or closed.' }, { status: 404 });
 
   const token = generateRawToken();
   const expires = new Date(Date.now() + 14 * 86400000).toISOString();

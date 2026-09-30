@@ -28,7 +28,7 @@ const ghost = 'rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium
 
 async function send(url: string, method: string, body?: unknown) {
   const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
-  return r.json().catch(() => ({ ok: false, error: 'Resposta inválida.' }));
+  return r.json().catch(() => ({ ok: false, error: 'Invalid response.' }));
 }
 
 function CatalogPicker({ value, onChange }: { value: string; onChange: (id: string, name?: string) => void }) {
@@ -43,12 +43,12 @@ function CatalogPicker({ value, onChange }: { value: string; onChange: (id: stri
   }, [q]);
   return (
     <div className="text-xs text-gray-600 sm:col-span-2">
-      Organização investidora da mesma casa (D3) — <em>só para o aviso ao founder</em>
+      Investor organisation of the same house (D3) — <em>only for the founder notice</em>
       <div className="mt-1 flex gap-2">
-        <input className={inputCls} placeholder="Pesquisar no catálogo…" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" />
-        {value && <button className={ghost} onClick={() => onChange('')}>Limpar ligação</button>}
+        <input className={inputCls} placeholder="Search the catalog…" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" />
+        {value && <button className={ghost} onClick={() => onChange('')}>Clear link</button>}
       </div>
-      {value && <div className="mt-1 text-[11px] text-gray-500">Ligada a {value}</div>}
+      {value && <div className="mt-1 text-[11px] text-gray-500">Linked to {value}</div>}
       {results.length > 0 && (
         <ul className="mt-1 rounded-lg border border-gray-100 bg-white">
           {results.map((r) => (
@@ -69,24 +69,24 @@ function IncubatorForm({ initial, submitLabel, onSubmit }: { initial: Form; subm
   );
   return (
     <div className="grid gap-2 sm:grid-cols-2" data-testid="incubator-form">
-      {txt('name', 'Nome *')}
-      <label className="text-xs text-gray-600">Tipo
+      {txt('name', 'Name *')}
+      <label className="text-xs text-gray-600">Type
         <select className={inputCls} value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>
           {INCUBATOR_KINDS.map((k) => <option key={k.key} value={k.key}>{k.label}</option>)}
         </select>
       </label>
-      {txt('legal_name', 'Nome legal')}
-      {txt('vat_id', 'NIF')}
+      {txt('legal_name', 'Legal name')}
+      {txt('vat_id', 'VAT number (NIF)')}
       {txt('website', 'Website')}
-      {txt('country', 'País')}
-      {txt('city', 'Cidade')}
-      {txt('logo_url', 'Logótipo (URL)')}
-      <label className="text-xs text-gray-600 sm:col-span-2">Descrição<textarea className={inputCls} rows={2} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></label>
+      {txt('country', 'Country')}
+      {txt('city', 'City')}
+      {txt('logo_url', 'Logo (URL)')}
+      <label className="text-xs text-gray-600 sm:col-span-2">Description<textarea className={inputCls} rows={2} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></label>
       <CatalogPicker value={f.related_catalog_entity_id} onChange={(id) => setF({ ...f, related_catalog_entity_id: id })} />
-      <label className="flex items-center gap-2 text-xs text-gray-600"><input type="checkbox" checked={f.is_test} onChange={(e) => setF({ ...f, is_test: e.target.checked })} /> is_test (fixture de verificação)</label>
+      <label className="flex items-center gap-2 text-xs text-gray-600"><input type="checkbox" checked={f.is_test} onChange={(e) => setF({ ...f, is_test: e.target.checked })} /> is_test (verification fixture)</label>
       <label className="flex items-center gap-2 text-xs text-gray-600"><input type="checkbox" checked={f.is_internal} onChange={(e) => setF({ ...f, is_internal: e.target.checked })} /> is_internal</label>
       <div className="flex items-center gap-3 sm:col-span-2">
-        <button className={btn} disabled={busy || !f.name.trim()} onClick={async () => { setBusy(true); setMsg(''); const e = await onSubmit(f); setMsg(e ?? 'Guardado.'); setBusy(false); }}>{submitLabel}</button>
+        <button className={btn} disabled={busy || !f.name.trim()} onClick={async () => { setBusy(true); setMsg(''); const e = await onSubmit(f); setMsg(e ?? 'Saved.'); setBusy(false); }}>{submitLabel}</button>
         {msg && <span className="text-xs text-gray-600">{msg}</span>}
       </div>
     </div>
@@ -101,20 +101,20 @@ function IncubatorRow({ inc, onChanged }: { inc: Incubator; onChanged: () => voi
 
   async function addMember() {
     const r = await send(`/api/backoffice/incubators/${inc.id}/members`, 'POST', { email, role });
-    setMsg(r.ok ? (r.emailSent ? 'Convite enviado.' : `Membro criado, e-mail não saiu${r.emailError ? ` (${r.emailError})` : ''}.`) : r.error ?? 'Erro.');
+    setMsg(r.ok ? (r.emailSent ? 'Invite sent.' : `Member created; the email did not go out${r.emailError ? ` (${r.emailError})` : ''}.`) : r.error ?? 'Error.');
     if (r.ok) { setEmail(''); onChanged(); }
   }
   async function removeMember(id: string) {
-    if (!window.confirm('Remover este membro?')) return;
+    if (!window.confirm('Remove this member?')) return;
     const r = await send(`/api/backoffice/incubators/${inc.id}/members/${id}`, 'DELETE');
-    if (!r.ok) setMsg(r.error ?? 'Erro.');
+    if (!r.ok) setMsg(r.error ?? 'Error.');
     onChanged();
   }
   async function close() {
-    const reason = window.prompt(`Fechar ${inc.name}? Todas as relações activas terminam (ended_by = platform). Motivo:`);
+    const reason = window.prompt(`Close ${inc.name}? Every live relationship ends (ended_by = platform). Reason:`);
     if (!reason?.trim()) return;
     const r = await send(`/api/backoffice/incubators/${inc.id}/close`, 'POST', { reason });
-    setMsg(r.ok ? `Fechada; ${r.relationshipsEnded} relação(ões) terminada(s).` : r.error ?? 'Erro.');
+    setMsg(r.ok ? `Closed; ${r.relationshipsEnded} relationship(s) ended.` : r.error ?? 'Error.');
     onChanged();
   }
 
@@ -127,44 +127,44 @@ function IncubatorRow({ inc, onChanged }: { inc: Incubator; onChanged: () => voi
   return (
     <>
       <tr className="border-b border-gray-50 align-top">
-        <td className="py-2 pr-3 font-medium text-gray-900">{inc.name}{inc.closed_at && <span className="ml-2 rounded bg-gray-100 px-1.5 text-[10px] text-gray-500">fechada</span>}</td>
+        <td className="py-2 pr-3 font-medium text-gray-900">{inc.name}{inc.closed_at && <span className="ml-2 rounded bg-gray-100 px-1.5 text-[10px] text-gray-500">closed</span>}</td>
         <td className="pr-3 text-gray-600">{incubatorKindLabel(inc.kind)}</td>
         <td className="pr-3 text-gray-600">{inc.country ?? '—'}</td>
         <td className="pr-3 text-gray-600">{inc.members.length}</td>
         <td className="pr-3 text-gray-600">{inc.active_relationships}</td>
-        <td className="pr-3 text-gray-600">{inc.is_test ? 'sim' : '—'}</td>
-        <td className="py-1.5 text-right"><button className={ghost} onClick={() => setOpen((v) => !v)}>{open ? 'Fechar painel' : 'Abrir'}</button></td>
+        <td className="pr-3 text-gray-600">{inc.is_test ? 'yes' : '—'}</td>
+        <td className="py-1.5 text-right"><button className={ghost} onClick={() => setOpen((v) => !v)}>{open ? 'Collapse' : 'Open'}</button></td>
       </tr>
       {open && (
         <tr><td colSpan={7} className="bg-gray-50/60 p-4">
           <div className="space-y-4">
-            <IncubatorForm initial={initial} submitLabel="Guardar alterações" onSubmit={async (f) => {
-              const r = await send(`/api/backoffice/incubators/${inc.id}`, 'PATCH', f); onChanged(); return r.ok ? null : r.error ?? 'Erro.';
+            <IncubatorForm initial={initial} submitLabel="Save changes" onSubmit={async (f) => {
+              const r = await send(`/api/backoffice/incubators/${inc.id}`, 'PATCH', f); onChanged(); return r.ok ? null : r.error ?? 'Error.';
             }} />
             <div>
-              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Membros</div>
+              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Members</div>
               <ul className="text-sm">
                 {inc.members.map((m) => (
                   <li key={m.id} className="flex items-center gap-3 py-1">
                     <span className="text-gray-900">{m.full_name ?? m.email}</span><span className="text-xs text-gray-500">{m.email}</span>
                     <span className="text-xs text-gray-500">{m.role}</span><span className="text-xs text-gray-400">{m.status}</span>
-                    <button className={`${ghost} ml-auto text-red-700`} onClick={() => removeMember(m.id)}>Remover</button>
+                    <button className={`${ghost} ml-auto text-red-700`} onClick={() => removeMember(m.id)}>Remove</button>
                   </li>
                 ))}
-                {inc.members.length === 0 && <li className="text-gray-400">Sem membros.</li>}
+                {inc.members.length === 0 && <li className="text-gray-400">No members.</li>}
               </ul>
               {!inc.closed_at && (
                 <div className="mt-2 flex flex-wrap items-end gap-2">
-                  <label className="text-xs text-gray-600">E-mail<input className={inputCls} value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" /></label>
-                  <label className="text-xs text-gray-600">Papel
+                  <label className="text-xs text-gray-600">Email<input className={inputCls} value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" /></label>
+                  <label className="text-xs text-gray-600">Role
                     <select className={inputCls} value={role} onChange={(e) => setRole(e.target.value as 'owner' | 'manager')}><option value="owner">owner</option><option value="manager">manager</option></select>
                   </label>
-                  <button className={btn} disabled={!email.trim()} onClick={addMember}>Adicionar e enviar convite</button>
+                  <button className={btn} disabled={!email.trim()} onClick={addMember}>Add and send invite</button>
                 </div>
               )}
             </div>
-            {!inc.closed_at ? <button className={`${ghost} text-red-700`} onClick={close}>Fechar incubadora…</button>
-              : <p className="text-xs text-gray-500">Fechada: {inc.closed_reason}</p>}
+            {!inc.closed_at ? <button className={`${ghost} text-red-700`} onClick={close}>Close incubator…</button>
+              : <p className="text-xs text-gray-500">Closed: {inc.closed_reason}</p>}
             {msg && <p className="text-xs text-gray-600">{msg}</p>}
           </div>
         </td></tr>
@@ -180,30 +180,30 @@ export default function BackofficeIncubatorsPage() {
 
   const load = useCallback(() => {
     fetch('/api/backoffice/incubators').then((r) => r.json()).then((d) => {
-      if (d.ok) setList(d.incubators); else { setErr(d.error ?? 'Erro a carregar.'); setList([]); }
-    }).catch(() => { setErr('Erro a carregar.'); setList([]); });
+      if (d.ok) setList(d.incubators); else { setErr(d.error ?? 'Could not load.'); setList([]); }
+    }).catch(() => { setErr('Could not load.'); setList([]); });
   }, []);
   useEffect(load, [load]);
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-bold">Incubadoras</h1>
-        <p className="text-sm text-gray-500">Organizações de incubação/aceleração e as suas equipas. Uma incubadora nunca é uma org de startup, e os seus gestores nunca recebem access_grants.</p>
+        <h1 className="text-xl font-bold">Incubators</h1>
+        <p className="text-sm text-gray-500">Incubation/acceleration organisations and their teams. An incubator is never a startup org, and its managers never get access_grants.</p>
       </div>
-      {err && <p className="text-xs text-red-600">{err === 'not configured' ? 'Modo demo — o backoffice precisa de uma base de dados ligada.' : err}</p>}
-      <Card title="Nova incubadora" right={<button className={ghost} onClick={() => setCreating((v) => !v)}>{creating ? 'Fechar' : 'Criar'}</button>}>
-        {creating && <IncubatorForm initial={EMPTY} submitLabel="Criar incubadora" onSubmit={async (f) => {
+      {err && <p className="text-xs text-red-600">{err === 'not configured' ? 'Demo mode — the back-office needs a connected database.' : err}</p>}
+      <Card title="New incubator" right={<button className={ghost} onClick={() => setCreating((v) => !v)}>{creating ? 'Close' : 'Create'}</button>}>
+        {creating && <IncubatorForm initial={EMPTY} submitLabel="Create incubator" onSubmit={async (f) => {
           const r = await send('/api/backoffice/incubators', 'POST', f);
           if (r.ok) { setCreating(false); load(); return null; }
-          return r.error ?? 'Erro.';
+          return r.error ?? 'Error.';
         }} />}
       </Card>
-      <Card title="Todas">
-        {!list ? <p className="text-sm text-gray-400">A carregar…</p> : list.length === 0 ? <p className="text-sm text-gray-400">Ainda não há incubadoras.</p> : (
+      <Card title="All incubators">
+        {!list ? <p className="text-sm text-gray-400">Loading…</p> : list.length === 0 ? <p className="text-sm text-gray-400">No incubators yet.</p> : (
           <table className="w-full text-left text-sm" data-testid="incubators-table">
             <thead><tr className="border-b border-gray-100 text-[11px] uppercase tracking-wide text-gray-400">
-              <th className="py-2 pr-3">Nome</th><th className="pr-3">Tipo</th><th className="pr-3">País</th><th className="pr-3">Membros</th><th className="pr-3">Relações activas</th><th className="pr-3">is_test</th><th />
+              <th className="py-2 pr-3">Name</th><th className="pr-3">Type</th><th className="pr-3">Country</th><th className="pr-3">Members</th><th className="pr-3">Active relationships</th><th className="pr-3">is_test</th><th />
             </tr></thead>
             <tbody>{list.map((i) => <IncubatorRow key={i.id} inc={i} onChanged={load} />)}</tbody>
           </table>

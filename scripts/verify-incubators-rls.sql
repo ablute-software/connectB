@@ -8,6 +8,11 @@
 -- selects that table — so one run shows every check, and a run through the
 -- Supabase MCP (which returns the last result set) shows them too.
 --
+-- I-01b: every simulated session carries its e-mail in request.jwt.claims
+-- (the accept/decline functions compare auth.jwt()->>'email' with the invited
+-- address), and org A has a member (not allowed) and an admin (allowed) so
+-- the owner/admin rule is exercised in SQL, not only in the routes.
+--
 -- Usage BEFORE the migration is applied (I-01 §D): one session, in order —
 --   begin;
 --   <the whole migration file>
@@ -31,7 +36,9 @@ insert into auth.users (id, email) values
   ('f0000000-0000-0000-0000-00000000000b', 'zz-test-incub-founder-b@example.com'),
   ('e0000000-0000-0000-0000-00000000000a', 'zz-test-incub-member-a@example.com'),
   ('e0000000-0000-0000-0000-00000000000b', 'zz-test-incub-member-b@example.com'),
-  ('d0000000-0000-0000-0000-000000000001', 'zz-test-incub-outsider@example.com')
+  ('d0000000-0000-0000-0000-000000000001', 'zz-test-incub-outsider@example.com'),
+  ('f0000000-0000-0000-0000-00000000000c', 'zz-test-incub-member-of-a@example.com'),
+  ('f0000000-0000-0000-0000-00000000000d', 'zz-test-incub-admin-of-a@example.com')
 on conflict (id) do nothing;
 
 insert into orgs (id, name, is_test) values
@@ -39,7 +46,9 @@ insert into orgs (id, name, is_test) values
   ('10000000-0000-0000-0000-00000000000b', 'zz-test-startup-b', true);
 insert into org_members (org_id, user_id, role) values
   ('10000000-0000-0000-0000-00000000000a', 'f0000000-0000-0000-0000-00000000000a', 'owner'),
-  ('10000000-0000-0000-0000-00000000000b', 'f0000000-0000-0000-0000-00000000000b', 'owner');
+  ('10000000-0000-0000-0000-00000000000b', 'f0000000-0000-0000-0000-00000000000b', 'owner'),
+  ('10000000-0000-0000-0000-00000000000a', 'f0000000-0000-0000-0000-00000000000c', 'member'),
+  ('10000000-0000-0000-0000-00000000000a', 'f0000000-0000-0000-0000-00000000000d', 'admin');
 
 insert into incubators (id, name, slug, kind, is_test) values
   ('20000000-0000-0000-0000-00000000000a', 'zz-test-incubadora-a', 'zz-test-incubadora-a', 'municipal', true),
@@ -48,21 +57,57 @@ insert into incubator_members (id, incubator_id, user_id, role, status, accepted
   ('30000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-00000000000a', 'e0000000-0000-0000-0000-00000000000a', 'owner', 'active', now()),
   ('30000000-0000-0000-0000-00000000000b', '20000000-0000-0000-0000-00000000000b', 'e0000000-0000-0000-0000-00000000000b', 'owner', 'active', now());
 
--- Invites of incubator A: 1 valid (for org A), 2 expired, 4 valid (for the
--- outsider's no-org check). Tokens hashed exactly as the app does.
+-- Invites: 1 valid (A → founder A), 2 expired (B → founder A — the expired
+-- check must pass the address check first; I-01b), 4 valid (A → the
+-- outsider's no-org check), 5 valid (B → a plain member of org A).
+-- Tokens hashed exactly as the app does.
 insert into incubator_invites (id, incubator_id, email, startup_name, invited_by, token_hash, token_expires_at) values
   ('40000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-00000000000a', 'zz-test-incub-founder-a@example.com', 'zz-test-startup-a',
    '30000000-0000-0000-0000-00000000000a', encode(sha256(convert_to('zz-test-incubator-token-0001-aaaaaaaaaaaaaaaa', 'UTF8')), 'hex'), now() + interval '30 days'),
-  ('40000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-00000000000a', 'zz-test-incub-founder-b@example.com', 'zz-test-startup-b',
-   '30000000-0000-0000-0000-00000000000a', encode(sha256(convert_to('zz-test-incubator-token-0002-bbbbbbbbbbbbbbbb', 'UTF8')), 'hex'), now() - interval '1 day'),
+  ('40000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-00000000000b', 'zz-test-incub-founder-a@example.com', 'zz-test-startup-a',
+   '30000000-0000-0000-0000-00000000000b', encode(sha256(convert_to('zz-test-incubator-token-0002-bbbbbbbbbbbbbbbb', 'UTF8')), 'hex'), now() - interval '1 day'),
   ('40000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-00000000000a', 'zz-test-incub-outsider@example.com', 'zz-test-nobody',
-   '30000000-0000-0000-0000-00000000000a', encode(sha256(convert_to('zz-test-incubator-token-0004-dddddddddddddddd', 'UTF8')), 'hex'), now() + interval '30 days');
+   '30000000-0000-0000-0000-00000000000a', encode(sha256(convert_to('zz-test-incubator-token-0004-dddddddddddddddd', 'UTF8')), 'hex'), now() + interval '30 days'),
+  ('40000000-0000-0000-0000-000000000005', '20000000-0000-0000-0000-00000000000b', 'zz-test-incub-member-of-a@example.com', 'zz-test-startup-a',
+   '30000000-0000-0000-0000-00000000000b', encode(sha256(convert_to('zz-test-incubator-token-0005-eeeeeeeeeeeeeeee', 'UTF8')), 'hex'), now() + interval '30 days');
+
+-- =========================================================================
+-- I-01b §A — a forwarded link: founder B (owner of an open org) holds the
+-- token of the invite sent to founder A. Refused before any write.
+-- =========================================================================
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"f0000000-0000-0000-0000-00000000000b","role":"authenticated","email":"zz-test-incub-founder-b@example.com"}';
+do $$ declare r jsonb; begin
+  r := incubator_accept_invite('zz-test-incubator-token-0001-aaaaaaaaaaaaaaaa');
+  perform pg_temp.rec(100, 'another address with a valid token → invite_email_mismatch (masked)',
+    r->>'error' = 'invite_email_mismatch' and r->>'invited_email_masked' = 'zz…@example.com', r::text);
+  r := incubator_decline_invite('zz-test-incubator-token-0001-aaaaaaaaaaaaaaaa');
+  perform pg_temp.rec(101, 'another address cannot decline either', r->>'error' = 'invite_email_mismatch', r::text);
+end $$;
+reset role;
+do $$ begin
+  perform pg_temp.rec(102, 'nothing written by the refused attempts: invite still pending, no relationship',
+    (select status from incubator_invites where id = '40000000-0000-0000-0000-000000000001') = 'invited'
+    and (select count(*) from incubator_relationships) = 0, null);
+end $$;
+
+-- A plain member of org A, holding an invite sent to their own address:
+-- the address matches, the role does not (I-01b §B).
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"f0000000-0000-0000-0000-00000000000c","role":"authenticated","email":"zz-test-incub-member-of-a@example.com"}';
+do $$ declare r jsonb; begin
+  r := incubator_accept_invite('zz-test-incubator-token-0005-eeeeeeeeeeeeeeee');
+  perform pg_temp.rec(103, 'org member (not owner/admin) cannot accept', r->>'error' = 'not_allowed', r::text);
+  r := incubator_decline_invite('zz-test-incubator-token-0005-eeeeeeeeeeeeeeee');
+  perform pg_temp.rec(104, 'org member (not owner/admin) cannot decline for the org', r->>'error' = 'not_allowed', r::text);
+end $$;
+reset role;
 
 -- =========================================================================
 -- Founder A accepts (A.8). Level 1, badge on, idempotent.
 -- =========================================================================
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"f0000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"f0000000-0000-0000-0000-00000000000a","role":"authenticated","email":"zz-test-incub-founder-a@example.com"}';
 do $$ declare r jsonb; r2 jsonb; v record; begin
   r := incubator_accept_invite('zz-test-incubator-token-0001-aaaaaaaaaaaaaaaa');
   perform pg_temp.rec(1, 'founder A accepts invite', (r->>'ok')::boolean and not (r->>'already')::boolean, r::text);
@@ -87,7 +132,7 @@ end $$;
 -- Member of incubator A: sees its own things, nothing of the founder.
 -- =========================================================================
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"e0000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"e0000000-0000-0000-0000-00000000000a","role":"authenticated","email":"zz-test-incub-member-a@example.com"}';
 do $$ declare n int; r jsonb; rel uuid; begin
   perform pg_temp.rec(10, 'member A has the incubator signal', has_active_incubator_membership(), null);
   perform pg_temp.rec(11, 'member A reads its relationship', (select count(*) from incubator_relationships) = 1, null);
@@ -138,7 +183,7 @@ end $$;
 -- Member of incubator B: sees nothing of A.
 reset role;
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"e0000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"e0000000-0000-0000-0000-00000000000b","role":"authenticated","email":"zz-test-incub-member-b@example.com"}';
 do $$ declare r jsonb; begin
   perform pg_temp.rec(30, 'member B sees no relationship of A', (select count(*) from incubator_relationships) = 0, null);
   perform pg_temp.rec(31, 'member B gets an empty portfolio for A', (select count(*) from incubator_portfolio('20000000-0000-0000-0000-00000000000a')) = 0, null);
@@ -151,7 +196,7 @@ end $$;
 -- Founder B: sees nothing of A.
 reset role;
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"f0000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"f0000000-0000-0000-0000-00000000000b","role":"authenticated","email":"zz-test-incub-founder-b@example.com"}';
 do $$ begin
   perform pg_temp.rec(40, 'founder B sees no relationship', (select count(*) from incubator_relationships) = 0, null);
   perform pg_temp.rec(41, 'founder B sees no access log', (select count(*) from founder_incubator_access_log()) = 0 and (select count(*) from incubator_access_log) = 0, null);
@@ -161,7 +206,7 @@ end $$;
 -- Outsider with no org cannot accept.
 reset role;
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"d0000000-0000-0000-0000-000000000001","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"d0000000-0000-0000-0000-000000000001","role":"authenticated","email":"zz-test-incub-outsider@example.com"}';
 do $$ declare r jsonb; begin
   r := incubator_accept_invite('zz-test-incubator-token-0004-dddddddddddddddd');
   perform pg_temp.rec(43, 'user without an org cannot accept', r->>'error' = 'no_open_org', r::text);
@@ -172,7 +217,7 @@ end $$;
 -- =========================================================================
 reset role;
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"f0000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"f0000000-0000-0000-0000-00000000000a","role":"authenticated","email":"zz-test-incub-founder-a@example.com"}';
 do $$ declare r jsonb; rel uuid; begin
   select id into rel from incubator_relationships limit 1;
   r := incubator_set_sharing_level(rel, 3::smallint);
@@ -194,10 +239,36 @@ do $$ declare r jsonb; rel uuid; begin
   exception when insufficient_privilege then perform pg_temp.rec(57, 'founder cannot write the relationship directly', true, sqlerrm); end;
 end $$;
 
+-- I-01b §B on the live relationship: a member of org A can read but not
+-- change; an admin of org A can.
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"f0000000-0000-0000-0000-00000000000c","role":"authenticated","email":"zz-test-incub-member-of-a@example.com"}';
+do $$ declare r jsonb; rel uuid; begin
+  select id into rel from incubator_relationships limit 1;
+  perform pg_temp.rec(105, 'org member still READS the relationship (Programmes read-only)', rel is not null and (select count(*) from founder_incubator_relationships()) = 1, null);
+  r := incubator_set_sharing_level(rel, 1::smallint);
+  perform pg_temp.rec(106, 'org member cannot change the level', r->>'error' = 'not_allowed', r::text);
+  r := incubator_set_public_badge(rel, true);
+  perform pg_temp.rec(107, 'org member cannot change the badge', r->>'error' = 'not_allowed', r::text);
+  r := incubator_end_relationship(rel, 'x');
+  perform pg_temp.rec(108, 'org member cannot end the relationship', r->>'error' = 'not_allowed', r::text);
+end $$;
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"f0000000-0000-0000-0000-00000000000d","role":"authenticated","email":"zz-test-incub-admin-of-a@example.com"}';
+do $$ declare r jsonb; rel uuid; begin
+  select id into rel from incubator_relationships limit 1;
+  r := incubator_set_public_badge(rel, true);
+  perform pg_temp.rec(109, 'org admin can change the badge', (r->>'ok')::boolean, r::text);
+  r := incubator_set_sharing_level(rel, 2::smallint);
+  perform pg_temp.rec(110, 'org admin can change the level', (r->>'ok')::boolean, r::text);
+end $$;
+
 -- Incubator A: pause cuts access at once; resume restores it; graduating drops to 1.
 reset role;
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"e0000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"e0000000-0000-0000-0000-00000000000a","role":"authenticated","email":"zz-test-incub-member-a@example.com"}';
 do $$ declare r jsonb; rel uuid; begin
   select id into rel from incubator_relationships limit 1;
   perform pg_temp.rec(60, 'level 2 now visible to member A', incubator_can_view('10000000-0000-0000-0000-00000000000a', 2::smallint), null);
@@ -219,7 +290,7 @@ end $$;
 -- Founder raises it again after graduation, then ends: the cut is immediate.
 reset role;
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"f0000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"f0000000-0000-0000-0000-00000000000a","role":"authenticated","email":"zz-test-incub-founder-a@example.com"}';
 do $$ declare r jsonb; rel uuid; begin
   select id into rel from incubator_relationships limit 1;
   r := incubator_set_sharing_level(rel, 2::smallint);
@@ -231,7 +302,7 @@ do $$ declare r jsonb; rel uuid; begin
 end $$;
 reset role;
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"e0000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+set local request.jwt.claims = '{"sub":"e0000000-0000-0000-0000-00000000000a","role":"authenticated","email":"zz-test-incub-member-a@example.com"}';
 do $$ begin
   perform pg_temp.rec(73, 'ended → member A lost access in the same instant (D6)', not incubator_can_view('10000000-0000-0000-0000-00000000000a', 0::smallint), null);
   perform pg_temp.rec(74, 'ended → gone from the portfolio', (select count(*) from incubator_portfolio('20000000-0000-0000-0000-00000000000a')) = 0, null);
@@ -252,15 +323,18 @@ do $$ declare n int; begin
   exception when insufficient_privilege then perform pg_temp.rec(82, 'anon cannot call the role function', true, sqlerrm); end;
   begin perform incubator_accept_invite('zz-test-incubator-token-0004-dddddddddddddddd'); perform pg_temp.rec(83, 'anon cannot accept', false, 'call succeeded');
   exception when insufficient_privilege then perform pg_temp.rec(83, 'anon cannot accept', true, sqlerrm); end;
+  begin perform incubator_decline_invite('zz-test-incubator-token-0004-dddddddddddddddd'); perform pg_temp.rec(85, 'anon cannot decline', false, 'call succeeded');
+  exception when insufficient_privilege then perform pg_temp.rec(85, 'anon cannot decline', true, sqlerrm); end;
 end $$;
 
--- authenticated cannot call the service-role-only decline.
+-- I-01b §A — decline is a signed-in act now: the invitee with no org
+-- declines their own invite; nobody else can.
 reset role;
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"f0000000-0000-0000-0000-00000000000b","role":"authenticated"}';
-do $$ begin
-  begin perform incubator_decline_invite('zz-test-incubator-token-0004-dddddddddddddddd'); perform pg_temp.rec(84, 'authenticated cannot call decline directly', false, 'call succeeded');
-  exception when insufficient_privilege then perform pg_temp.rec(84, 'authenticated cannot call decline directly', true, sqlerrm); end;
+set local request.jwt.claims = '{"sub":"d0000000-0000-0000-0000-000000000001","role":"authenticated","email":"zz-test-incub-outsider@example.com"}';
+do $$ declare r jsonb; begin
+  r := incubator_decline_invite('zz-test-incubator-token-0004-dddddddddddddddd');
+  perform pg_temp.rec(84, 'the invited address (no org yet) declines its own invite', (r->>'ok')::boolean, r::text);
 end $$;
 
 -- =========================================================================
@@ -287,6 +361,12 @@ do $$ declare anon_n int; auth_list text; begin
   -- policies keep that column null (checked by the policy, not the grant).
   perform pg_temp.rec(92, 'no column grant lets authenticated set invite status/voucher/acceptance (token_hash insert only)',
     coalesce(auth_list, '') = 'incubator_cohorts.auto_promo_code_id:INSERT, incubator_invites.token_hash:INSERT', coalesce(auth_list, '(none)'));
+end $$;
+
+do $$ begin
+  perform pg_temp.rec(93, 'email_send_log.kind accepts the three incubator kinds',
+    pg_get_constraintdef((select oid from pg_constraint where conname = 'email_send_log_kind_check' and conrelid = 'public.email_send_log'::regclass))
+      like '%incubator_invite%incubator_member_invite%incubator_relationship_ended%', null);
 end $$;
 
 select json_agg(json_build_object('ord', ord, 'pass', pass, 'name', name, 'detail', detail) order by ord) as results,

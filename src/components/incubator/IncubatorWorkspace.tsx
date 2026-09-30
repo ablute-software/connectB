@@ -1,5 +1,6 @@
 'use client';
-// Prompt I-01 §C.3 — the incubator workspace: Portfolio, Equipa, Definições.
+// Prompt I-01 §C.3 — the incubator workspace: Portfolio, Team, Settings
+// (English since I-01b §C).
 // The other tabs of v4 §4 arrive with their own prompts; no dead entries here.
 // A separate shell (like InvestorWorkspaceShell), not the founder Shell: the
 // two audiences share no navigation. Everything reads /api/incubator/**,
@@ -51,7 +52,7 @@ function fmtDate(iso: string | null | undefined) {
 
 async function postJson(url: string, body?: unknown, method = 'POST') {
   const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
-  return res.json().catch(() => ({ ok: false, error: 'Resposta inválida do servidor.' }));
+  return res.json().catch(() => ({ ok: false, error: 'Invalid server response.' }));
 }
 
 const inputCls = 'w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm focus:border-[#0E7490] focus:outline-none';
@@ -72,8 +73,8 @@ function InviteForm({ cohorts, demo, onDone }: { cohorts: Cohort[]; demo: boolea
     setBusy(true); setMsg('');
     try {
       const r = await postJson('/api/incubator/invites', { email, startupName, sector, website, cohortId: cohortId || null });
-      if (!r.ok) { setMsg(r.error ?? 'Não foi possível criar o convite.'); return; }
-      setMsg(r.emailSent ? 'Convite enviado.' : `Convite criado, mas o e-mail não saiu${r.emailError ? ` (${r.emailError})` : ''}. Podes reenviar na lista abaixo.`);
+      if (!r.ok) { setMsg(r.error ?? 'Could not create the invite.'); return; }
+      setMsg(r.emailSent ? 'Invite sent.' : `Invite created, but the email did not go out${r.emailError ? ` (${r.emailError})` : ''}. You can resend it from the list below.`);
       setEmail(''); setStartupName(''); setSector(''); setWebsite('');
       onDone();
     } finally { setBusy(false); }
@@ -81,13 +82,13 @@ function InviteForm({ cohorts, demo, onDone }: { cohorts: Cohort[]; demo: boolea
 
   return (
     <div className="mt-3 grid gap-2 rounded-xl border border-gray-100 bg-gray-50/60 p-3 sm:grid-cols-2" data-testid="invite-form">
-      <label className="text-xs text-gray-600">E-mail do founder *<input className={inputCls} value={email} onChange={(e) => setEmail(e.target.value)} type="email" autoComplete="off" /></label>
-      <label className="text-xs text-gray-600">Nome da startup<input className={inputCls} value={startupName} onChange={(e) => setStartupName(e.target.value)} autoComplete="off" /></label>
+      <label className="text-xs text-gray-600">Founder email *<input className={inputCls} value={email} onChange={(e) => setEmail(e.target.value)} type="email" autoComplete="off" /></label>
+      <label className="text-xs text-gray-600">Startup name<input className={inputCls} value={startupName} onChange={(e) => setStartupName(e.target.value)} autoComplete="off" /></label>
       <label className="text-xs text-gray-600">Sector<input className={inputCls} value={sector} onChange={(e) => setSector(e.target.value)} autoComplete="off" /></label>
       <label className="text-xs text-gray-600">Website<input className={inputCls} value={website} onChange={(e) => setWebsite(e.target.value)} autoComplete="off" /></label>
-      <label className="text-xs text-gray-600">Turma
+      <label className="text-xs text-gray-600">Cohort
         <select className={inputCls} value={cohortId} onChange={(e) => setCohortId(e.target.value)}>
-          <option value="">Sem turma</option>
+          <option value="">No cohort</option>
           {cohorts.filter((c) => !c.archived_at).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
       </label>
@@ -95,12 +96,12 @@ function InviteForm({ cohorts, demo, onDone }: { cohorts: Cohort[]; demo: boolea
         {/* I-01: no promo code belongs to an incubator yet — never list the
             global ones here. The protocols arrive in I-02. */}
         <select className={inputCls} disabled value="">
-          <option value="">sem vouchers disponíveis — os protocolos chegam no I-02</option>
+          <option value="">no vouchers available — protocols arrive in I-02</option>
         </select>
       </label>
       <div className="flex items-center gap-3 sm:col-span-2">
-        <button className={btnPrimary} disabled={busy || demo || !email.trim()} onClick={submit}>{busy ? 'A enviar…' : 'Enviar convite'}</button>
-        {demo && <span className="text-xs text-amber-700">Modo demo — sem envio.</span>}
+        <button className={btnPrimary} disabled={busy || demo || !email.trim()} onClick={submit}>{busy ? 'Sending…' : 'Send invite'}</button>
+        {demo && <span className="text-xs text-amber-700">Demo mode — nothing is sent.</span>}
         {msg && <span className="text-xs text-gray-600">{msg}</span>}
       </div>
     </div>
@@ -116,9 +117,9 @@ function PortfolioPanel({ demo }: { demo: boolean }) {
   const load = useCallback(() => {
     if (demo) { setData(DEMO_PORTFOLIO as never); return; }
     fetch('/api/incubator/portfolio').then((r) => r.json()).then((d) => {
-      if (!d.ok) { setErr(d.error ?? 'Não foi possível carregar o portfolio.'); return; }
+      if (!d.ok) { setErr(d.error ?? 'Could not load the portfolio.'); return; }
       setData(d);
-    }).catch(() => setErr('Não foi possível carregar o portfolio.'));
+    }).catch(() => setErr('Could not load the portfolio.'));
   }, [demo]);
   useEffect(load, [load]);
 
@@ -126,15 +127,15 @@ function PortfolioPanel({ demo }: { demo: boolean }) {
     setBusy(key); setErr('');
     try {
       const r = await fn();
-      if (!r.ok) setErr(r.error ?? 'Não foi possível concluir.');
+      if (!r.ok) setErr(r.error ?? 'Could not complete that.');
       load();
     } finally { setBusy(null); }
   }
 
   function endRelationship(row: PortfolioRow) {
-    const reason = window.prompt(`Terminar a relação com ${row.startup_name}? A razão é obrigatória — o founder vai vê-la.`);
+    const reason = window.prompt(`End the relationship with ${row.startup_name}? A reason is required — the founder will see it.`);
     if (reason === null) return;
-    if (!reason.trim()) { setErr('Indica a razão — o founder vai vê-la.'); return; }
+    if (!reason.trim()) { setErr('Give a reason — the founder will see it.'); return; }
     act(`end-${row.relationship_id}`, () => postJson(`/api/incubator/relationships/${row.relationship_id}/end`, { reason }));
   }
 
@@ -143,22 +144,22 @@ function PortfolioPanel({ demo }: { demo: boolean }) {
 
   return (
     <div className="space-y-4">
-      <Card title="Portfolio" right={<button className={btnPrimary} onClick={() => setShowInvite((v) => !v)} data-testid="invite-startup-button">Convidar startup</button>}>
+      <Card title="Portfolio" right={<button className={btnPrimary} onClick={() => setShowInvite((v) => !v)} data-testid="invite-startup-button">Invite startup</button>}>
         {showInvite && <InviteForm cohorts={data?.cohorts ?? []} demo={demo} onDone={load} />}
         {err && <p className="mt-2 text-xs text-red-600">{err}</p>}
-        {!data ? <p className="mt-3 text-sm text-gray-400">A carregar…</p> : rows.length === 0 ? (
+        {!data ? <p className="mt-3 text-sm text-gray-400">Loading…</p> : rows.length === 0 ? (
           <div className="mt-3 rounded-xl border border-dashed border-gray-200 p-6 text-center">
-            <p className="text-sm text-gray-600">Ainda não há startups ligadas.</p>
-            <p className="mt-1 text-xs text-gray-400">Cada startup entra quando o founder aceita o convite.</p>
-            <button className={`${btnPrimary} mt-3`} onClick={() => setShowInvite(true)}>Convidar startup</button>
+            <p className="text-sm text-gray-600">No startups linked yet.</p>
+            <p className="mt-1 text-xs text-gray-400">Each startup joins when its founder accepts the invite.</p>
+            <button className={`${btnPrimary} mt-3`} onClick={() => setShowInvite(true)}>Invite startup</button>
           </div>
         ) : (
           <div className="mt-3 overflow-x-auto">
             <table className="w-full text-left text-sm" data-testid="portfolio-table">
               <thead>
                 <tr className="border-b border-gray-100 text-[11px] uppercase tracking-wide text-gray-400">
-                  <th className="py-2 pr-3">Startup</th><th className="pr-3">Sector</th><th className="pr-3">Fase</th><th className="pr-3">Turma</th>
-                  <th className="pr-3">Estado</th><th className="pr-3">Partilha</th><th className="pr-3">Gestor</th><th className="pr-3">Desde</th><th />
+                  <th className="py-2 pr-3">Startup</th><th className="pr-3">Sector</th><th className="pr-3">Stage</th><th className="pr-3">Cohort</th>
+                  <th className="pr-3">Status</th><th className="pr-3">Sharing</th><th className="pr-3">Manager</th><th className="pr-3">Since</th><th />
                 </tr>
               </thead>
               <tbody>
@@ -169,14 +170,14 @@ function PortfolioPanel({ demo }: { demo: boolean }) {
                     <td className="pr-3 text-gray-600">{r.stage ?? '—'}</td>
                     <td className="pr-3 text-gray-600">{r.cohort_name ?? '—'}</td>
                     <td className="pr-3"><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${r.status === 'active' ? 'bg-emerald-50 text-emerald-700' : r.status === 'graduated' ? 'bg-cyan-50 text-cyan-700' : 'bg-amber-50 text-amber-700'}`}>{RELATIONSHIP_STATUS_LABEL[r.status]}</span></td>
-                    <td className="pr-3 text-gray-600">{r.has_live_access ? sharingLevelName(r.sharing_level) : 'Sem acesso (pausada)'}</td>
+                    <td className="pr-3 text-gray-600">{r.has_live_access ? sharingLevelName(r.sharing_level) : 'No access (paused)'}</td>
                     <td className="pr-3 text-gray-600">{r.manager_name ?? '—'}</td>
                     <td className="pr-3 text-gray-600">{fmtDate(r.started_at)}</td>
                     <td className="whitespace-nowrap py-1.5 text-right">
-                      {incubatorCanSetStatus(r.status, 'paused') && <button className={btnGhost} disabled={demo || !!busy} onClick={() => act(`p-${r.relationship_id}`, () => postJson(`/api/incubator/relationships/${r.relationship_id}/status`, { status: 'paused' }))}>Pausar</button>}
-                      {incubatorCanSetStatus(r.status, 'active') && <button className={btnGhost} disabled={demo || !!busy} onClick={() => act(`a-${r.relationship_id}`, () => postJson(`/api/incubator/relationships/${r.relationship_id}/status`, { status: 'active' }))}>Retomar</button>}
-                      {incubatorCanSetStatus(r.status, 'graduated') && <button className={`${btnGhost} ml-1`} disabled={demo || !!busy} onClick={() => act(`g-${r.relationship_id}`, () => postJson(`/api/incubator/relationships/${r.relationship_id}/status`, { status: 'graduated' }))}>Graduar</button>}
-                      <button className={`${btnGhost} ml-1 text-red-700`} disabled={demo || !!busy} onClick={() => endRelationship(r)}>Terminar</button>
+                      {incubatorCanSetStatus(r.status, 'paused') && <button className={btnGhost} disabled={demo || !!busy} onClick={() => act(`p-${r.relationship_id}`, () => postJson(`/api/incubator/relationships/${r.relationship_id}/status`, { status: 'paused' }))}>Pause</button>}
+                      {incubatorCanSetStatus(r.status, 'active') && <button className={btnGhost} disabled={demo || !!busy} onClick={() => act(`a-${r.relationship_id}`, () => postJson(`/api/incubator/relationships/${r.relationship_id}/status`, { status: 'active' }))}>Resume</button>}
+                      {incubatorCanSetStatus(r.status, 'graduated') && <button className={`${btnGhost} ml-1`} disabled={demo || !!busy} onClick={() => act(`g-${r.relationship_id}`, () => postJson(`/api/incubator/relationships/${r.relationship_id}/status`, { status: 'graduated' }))}>Graduate</button>}
+                      <button className={`${btnGhost} ml-1 text-red-700`} disabled={demo || !!busy} onClick={() => endRelationship(r)}>End</button>
                     </td>
                   </tr>
                 ))}
@@ -186,19 +187,19 @@ function PortfolioPanel({ demo }: { demo: boolean }) {
         )}
       </Card>
 
-      <Card title="Convites pendentes">
-        {(data?.invites ?? []).length === 0 ? <p className="text-sm text-gray-400">Nenhum convite pendente.</p> : (
+      <Card title="Pending invites">
+        {(data?.invites ?? []).length === 0 ? <p className="text-sm text-gray-400">No pending invites.</p> : (
           <ul className="divide-y divide-gray-50" data-testid="pending-invites">
             {(data?.invites ?? []).map((i) => (
               <li key={i.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm">
                 <span className="font-medium text-gray-900">{i.startup_name ?? i.email}</span>
                 <span className="text-xs text-gray-500">{i.email}</span>
                 <span className="text-xs text-gray-400">{cohortName(i.cohort_id)}</span>
-                <span className="text-xs text-gray-400">Enviado em {fmtDate(i.last_sent_at ?? i.sent_at)}</span>
+                <span className="text-xs text-gray-400">Sent {fmtDate(i.last_sent_at ?? i.sent_at)}</span>
                 <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600">{INVITE_STATUS_LABEL[i.status]}</span>
                 <span className="ml-auto flex gap-1">
-                  <button className={btnGhost} disabled={demo || !!busy} onClick={() => act(`r-${i.id}`, () => postJson(`/api/incubator/invites/${i.id}/resend`))}>Reenviar</button>
-                  <button className={`${btnGhost} text-red-700`} disabled={demo || !!busy} onClick={() => act(`v-${i.id}`, () => postJson(`/api/incubator/invites/${i.id}/revoke`))}>Revogar</button>
+                  <button className={btnGhost} disabled={demo || !!busy} onClick={() => act(`r-${i.id}`, () => postJson(`/api/incubator/invites/${i.id}/resend`))}>Resend</button>
+                  <button className={`${btnGhost} text-red-700`} disabled={demo || !!busy} onClick={() => act(`v-${i.id}`, () => postJson(`/api/incubator/invites/${i.id}/revoke`))}>Revoke</button>
                 </span>
               </li>
             ))}
@@ -221,7 +222,7 @@ function TeamPanel({ demo, isOwner }: { demo: boolean; isOwner: boolean }) {
   const load = useCallback(() => {
     if (demo) { setRows(DEMO_TEAM as TeamRow[]); setMyId('demo-member-owner'); return; }
     fetch('/api/incubator/team').then((r) => r.json()).then((d) => {
-      if (d.ok) { setRows(d.members); setMyId(d.myMemberId); } else setMsg(d.error ?? 'Erro a carregar a equipa.');
+      if (d.ok) { setRows(d.members); setMyId(d.myMemberId); } else setMsg(d.error ?? 'Could not load the team.');
     });
   }, [demo]);
   useEffect(load, [load]);
@@ -230,31 +231,31 @@ function TeamPanel({ demo, isOwner }: { demo: boolean; isOwner: boolean }) {
     setBusy(true); setMsg('');
     try {
       const r = await postJson('/api/incubator/team', { email, fullName: name, role: 'manager' });
-      if (!r.ok) { setMsg(r.error ?? 'Não foi possível convidar.'); return; }
-      setMsg(r.emailSent ? 'Convite enviado.' : 'Convite criado, mas o e-mail não saiu.');
+      if (!r.ok) { setMsg(r.error ?? 'Could not send the invite.'); return; }
+      setMsg(r.emailSent ? 'Invite sent.' : 'Invite created, but the email did not go out.');
       setEmail(''); setName(''); load();
     } finally { setBusy(false); }
   }
   async function remove(id: string) {
-    if (!window.confirm('Remover este membro? Deixa de ter acesso ao workspace.')) return;
+    if (!window.confirm('Remove this member? They lose access to the workspace.')) return;
     const r = await fetch(`/api/incubator/team/${id}`, { method: 'DELETE' }).then((x) => x.json()).catch(() => ({ ok: false }));
-    if (!r.ok) setMsg(r.error ?? 'Não foi possível remover.');
+    if (!r.ok) setMsg(r.error ?? 'Could not remove.');
     load();
   }
 
   return (
-    <Card title="Equipa">
-      {!rows ? <p className="text-sm text-gray-400">A carregar…</p> : (
+    <Card title="Team">
+      {!rows ? <p className="text-sm text-gray-400">Loading…</p> : (
         <table className="w-full text-left text-sm" data-testid="team-table">
-          <thead><tr className="border-b border-gray-100 text-[11px] uppercase tracking-wide text-gray-400"><th className="py-2 pr-3">Nome</th><th className="pr-3">E-mail</th><th className="pr-3">Papel</th><th className="pr-3">Estado</th><th /></tr></thead>
+          <thead><tr className="border-b border-gray-100 text-[11px] uppercase tracking-wide text-gray-400"><th className="py-2 pr-3">Name</th><th className="pr-3">Email</th><th className="pr-3">Role</th><th className="pr-3">Status</th><th /></tr></thead>
           <tbody>
             {rows.map((m) => (
               <tr key={m.member_id} className="border-b border-gray-50">
                 <td className="py-2 pr-3 text-gray-900">{m.full_name ?? '—'}</td>
                 <td className="pr-3 text-gray-600">{m.email ?? '—'}</td>
-                <td className="pr-3 text-gray-600">{m.role === 'owner' ? 'Owner' : 'Gestor(a)'}</td>
-                <td className="pr-3 text-gray-600">{m.status === 'active' ? 'Activo' : 'Convidado'}</td>
-                <td className="py-1.5 text-right">{isOwner && m.member_id !== myId && <button className={`${btnGhost} text-red-700`} disabled={demo} onClick={() => remove(m.member_id)}>Remover</button>}</td>
+                <td className="pr-3 text-gray-600">{m.role === 'owner' ? 'Owner' : 'Manager'}</td>
+                <td className="pr-3 text-gray-600">{m.status === 'active' ? 'Active' : 'Invited'}</td>
+                <td className="py-1.5 text-right">{isOwner && m.member_id !== myId && <button className={`${btnGhost} text-red-700`} disabled={demo} onClick={() => remove(m.member_id)}>Remove</button>}</td>
               </tr>
             ))}
           </tbody>
@@ -262,9 +263,9 @@ function TeamPanel({ demo, isOwner }: { demo: boolean; isOwner: boolean }) {
       )}
       {isOwner && (
         <div className="mt-4 flex flex-wrap items-end gap-2">
-          <label className="text-xs text-gray-600">E-mail<input className={inputCls} value={email} onChange={(e) => setEmail(e.target.value)} type="email" autoComplete="off" /></label>
-          <label className="text-xs text-gray-600">Nome<input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" /></label>
-          <button className={btnPrimary} disabled={demo || busy || !email.trim()} onClick={add}>Adicionar gestor</button>
+          <label className="text-xs text-gray-600">Email<input className={inputCls} value={email} onChange={(e) => setEmail(e.target.value)} type="email" autoComplete="off" /></label>
+          <label className="text-xs text-gray-600">Name<input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" /></label>
+          <button className={btnPrimary} disabled={demo || busy || !email.trim()} onClick={add}>Add manager</button>
         </div>
       )}
       {msg && <p className="mt-2 text-xs text-gray-600">{msg}</p>}
@@ -290,12 +291,12 @@ function SettingsPanel({ me, demo, onSaved }: { me: MeResponse; demo: boolean; o
   async function save() {
     setMsg('');
     const r = await postJson('/api/incubator/profile', form, 'PATCH');
-    setMsg(r.ok ? 'Guardado.' : r.error ?? 'Não foi possível guardar.');
+    setMsg(r.ok ? 'Saved.' : r.error ?? 'Could not save.');
     if (r.ok) onSaved();
   }
   async function addCohort() {
     const r = await postJson('/api/incubator/cohorts', { name: cohortName });
-    if (!r.ok) { setMsg(r.error ?? 'Não foi possível criar a turma.'); return; }
+    if (!r.ok) { setMsg(r.error ?? 'Could not create the cohort.'); return; }
     setCohortName(''); loadCohorts();
   }
   async function archiveCohort(id: string, archived: boolean) {
@@ -311,47 +312,47 @@ function SettingsPanel({ me, demo, onSaved }: { me: MeResponse; demo: boolean; o
 
   return (
     <div className="space-y-4">
-      <Card title="Perfil da incubadora">
+      <Card title="Incubator profile">
         <div className="grid gap-2 sm:grid-cols-2">
-          {field('name', 'Nome')}
-          <label className="text-xs text-gray-600">Tipo
+          {field('name', 'Name')}
+          <label className="text-xs text-gray-600">Type
             <select className={inputCls} value={form.kind} disabled={!isOwner || demo} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
               {INCUBATOR_KINDS.map((k) => <option key={k.key} value={k.key}>{k.label}</option>)}
             </select>
           </label>
           {field('website', 'Website')}
-          {field('city', 'Cidade')}
-          {field('logo_url', 'Logótipo (URL)')}
-          <label className="text-xs text-gray-600 sm:col-span-2">Descrição
+          {field('city', 'City')}
+          {field('logo_url', 'Logo (URL)')}
+          <label className="text-xs text-gray-600 sm:col-span-2">Description
             <textarea className={inputCls} rows={3} value={form.description} disabled={!isOwner || demo} onChange={(e) => setForm({ ...form, description: e.target.value })} />
           </label>
         </div>
         {isOwner ? (
-          <div className="mt-3 flex items-center gap-3"><button className={btnPrimary} disabled={demo} onClick={save}>Guardar</button>{msg && <span className="text-xs text-gray-600">{msg}</span>}</div>
-        ) : <p className="mt-2 text-xs text-gray-400">Só o owner edita o perfil.</p>}
+          <div className="mt-3 flex items-center gap-3"><button className={btnPrimary} disabled={demo} onClick={save}>Save</button>{msg && <span className="text-xs text-gray-600">{msg}</span>}</div>
+        ) : <p className="mt-2 text-xs text-gray-400">Only the owner edits the profile.</p>}
       </Card>
 
-      <Card title="Organização investidora relacionada">
+      <Card title="Related investor organisation">
         {inc.alsoInvests ? (
-          <p className="text-sm text-gray-700">Esta casa tem uma organização investidora na Sherlock. Os founders vêem este aviso ao aceitar: <em>“{ALSO_INVESTS_NOTICE}”</em></p>
-        ) : <p className="text-sm text-gray-500">Nenhuma organização investidora ligada.</p>}
-        <p className="mt-2 text-xs text-gray-400">A ligação serve só para o aviso ao founder; a plataforma nunca cruza os dados dos dois lados. Só o backoffice a altera.</p>
+          <p className="text-sm text-gray-700">This house has an investor organisation on Sherlock. Founders see this notice when they accept: <em>“{ALSO_INVESTS_NOTICE}”</em></p>
+        ) : <p className="text-sm text-gray-500">No investor organisation linked.</p>}
+        <p className="mt-2 text-xs text-gray-400">The link exists only for the founder notice; the platform never joins data across the two sides. Only the back-office changes it.</p>
       </Card>
 
-      <Card title="Turmas">
+      <Card title="Cohorts">
         <ul className="divide-y divide-gray-50 text-sm">
           {cohorts.map((c) => (
             <li key={c.id} className="flex items-center gap-3 py-1.5">
               <span className={c.archived_at ? 'text-gray-400 line-through' : 'text-gray-900'}>{c.name}</span>
               <span className="text-xs text-gray-400">{c.starts_on ? fmtDate(c.starts_on) : ''}{c.ends_on ? ` → ${fmtDate(c.ends_on)}` : ''}</span>
-              <button className={`${btnGhost} ml-auto`} disabled={demo} onClick={() => archiveCohort(c.id, !c.archived_at)}>{c.archived_at ? 'Reactivar' : 'Arquivar'}</button>
+              <button className={`${btnGhost} ml-auto`} disabled={demo} onClick={() => archiveCohort(c.id, !c.archived_at)}>{c.archived_at ? 'Restore' : 'Archive'}</button>
             </li>
           ))}
-          {cohorts.length === 0 && <li className="py-1.5 text-gray-400">Ainda sem turmas.</li>}
+          {cohorts.length === 0 && <li className="py-1.5 text-gray-400">No cohorts yet.</li>}
         </ul>
         <div className="mt-3 flex items-end gap-2">
-          <label className="text-xs text-gray-600">Nova turma<input className={inputCls} value={cohortName} onChange={(e) => setCohortName(e.target.value)} placeholder="Turma 2026-A" autoComplete="off" /></label>
-          <button className={btnPrimary} disabled={demo || !cohortName.trim()} onClick={addCohort}>Criar</button>
+          <label className="text-xs text-gray-600">New cohort<input className={inputCls} value={cohortName} onChange={(e) => setCohortName(e.target.value)} placeholder="Cohort 2026-A" autoComplete="off" /></label>
+          <button className={btnPrimary} disabled={demo || !cohortName.trim()} onClick={addCohort}>Create</button>
         </div>
       </Card>
     </div>
@@ -380,20 +381,20 @@ export function IncubatorWorkspace() {
     } catch { /* ignore */ }
   }, [me]);
 
-  if (!me) return <div className="p-8 text-sm text-gray-400">A carregar…</div>;
+  if (!me) return <div className="p-8 text-sm text-gray-400">Loading…</div>;
   if (!me.ok || !me.incubator) {
     return (
       <div className="mx-auto mt-24 max-w-md rounded-2xl border border-gray-100 bg-white p-6 text-center shadow-sm">
-        <h1 className="text-lg font-bold text-gray-900">Sem acesso a um workspace de incubadora</h1>
-        <p className="mt-2 text-sm text-gray-600">Esta conta não é membro activo de nenhuma incubadora. Se recebeste um convite, abre o link do e-mail com esta conta.</p>
+        <h1 className="text-lg font-bold text-gray-900">No incubator workspace access</h1>
+        <p className="mt-2 text-sm text-gray-600">This account is not an active member of any incubator. If you received an invite, open the link in the email while signed in to this account.</p>
       </div>
     );
   }
   const demo = !!me.demo;
   const items: WorkspaceNavItem[] = ([
     { key: 'portfolio', label: 'Portfolio', icon: '▦' },
-    { key: 'team', label: 'Equipa', icon: '◉' },
-    { key: 'settings', label: 'Definições', icon: '⚙' },
+    { key: 'team', label: 'Team', icon: '◉' },
+    { key: 'settings', label: 'Settings', icon: '⚙' },
   ] as const).map((n) => ({ ...n, active: tab === n.key, onSelect: () => setTab(n.key) }));
 
   return (
@@ -405,7 +406,7 @@ export function IncubatorWorkspace() {
         afterItems={<HatSwitcher current="incubator" />}
         footer={
           <>
-            <div className="truncate text-[11px] text-gray-400">{me.member?.email ?? (demo ? 'modo demo' : '')}</div>
+            <div className="truncate text-[11px] text-gray-400">{me.member?.email ?? (demo ? 'demo mode' : '')}</div>
             <LogoutButton className="mt-2 w-full" />
           </>
         }
@@ -418,7 +419,7 @@ export function IncubatorWorkspace() {
         </div>
         <div className="mb-5">
           <h1 className="text-lg font-bold text-gray-900">{me.incubator.name}</h1>
-          <p className="text-xs text-gray-500">{incubatorKindLabel(me.incubator.kind)}{me.incubator.city ? ` · ${me.incubator.city}` : ''}{demo ? ' · modo demo' : ''}</p>
+          <p className="text-xs text-gray-500">{incubatorKindLabel(me.incubator.kind)}{me.incubator.city ? ` · ${me.incubator.city}` : ''}{demo ? ' · demo mode' : ''}</p>
         </div>
         {tab === 'portfolio' && <PortfolioPanel demo={demo} />}
         {tab === 'team' && <TeamPanel demo={demo} isOwner={me.member?.role === 'owner'} />}

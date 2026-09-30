@@ -28,7 +28,7 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({})) as { email?: string; fullName?: string; role?: string };
   const email = normalizeInviteEmail(body.email ?? '');
-  if (!looksLikeEmail(email)) return NextResponse.json({ ok: false, error: 'E-mail inválido.' }, { status: 400 });
+  if (!looksLikeEmail(email)) return NextResponse.json({ ok: false, error: 'Invalid email.' }, { status: 400 });
   const role = body.role === 'owner' ? 'owner' : 'manager';
 
   const token = generateRawToken();

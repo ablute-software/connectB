@@ -1,16 +1,20 @@
 'use client';
-// Prompt I-01 §C.4 — Founder › Definições › Programas. Every incubator
-// relationship of this org: incubator (name/logo/kind), cohort, state,
-// "partilhado desde", the level selector (0–2 active; 3–4 visible and
-// disabled), what each level includes (v4 §5.1, literal), the public-profile
-// switch (D4), "Terminar relação" (D6), the D3 notice, and "Quem consultou".
-// The founder decides; every write is a SQL function that checks the caller
-// is a member of this org.
+// Prompt I-01 §C.4 — Founder › Settings › Programmes. Every incubator
+// relationship of this org: incubator (name/logo/type), cohort, status,
+// "shared since", the level selector (0–2 active; 3–4 visible and disabled),
+// what each level includes (v4 §5.1), the public-profile switch (D4), "End
+// relationship" (D6), the D3 notice, and "Who viewed what".
+//
+// I-01b §B — changing anything is an owner/admin act (manage_programs);
+// managers and members see the same page read-only, with the note saying
+// why. The routes and the SQL functions enforce it again.
+// I-01b §C — English.
 import { useCallback, useEffect, useState } from 'react';
 import { Card, Toggle } from '@/components/ui';
+import { can, type OrgRole } from '@/lib/permissions';
 import {
-  ACCESS_LOG_SURFACE_LABEL, ALSO_INVESTS_NOTICE, LEVEL_COMING_SOON_TEXT, RELATIONSHIP_STATUS_LABEL, SHARING_LEVELS,
-  endRelationshipConfirmText, incubatorErrorText, incubatorKindLabel, type RelationshipStatus,
+  ACCESS_LOG_SURFACE_LABEL, ALSO_INVESTS_NOTICE, LEVEL_COMING_SOON_TEXT, PROGRAMS_READ_ONLY_NOTE, RELATIONSHIP_STATUS_LABEL,
+  SHARING_LEVELS, endRelationshipConfirmText, incubatorErrorText, incubatorKindLabel, type RelationshipStatus,
 } from '@/lib/incubators';
 import { DEMO_FOUNDER_PROGRAMS } from '@/lib/incubator-demo';
 
@@ -23,10 +27,10 @@ interface Rel {
 interface LogRow { id: string; relationship_id: string; incubator_name: string; member_name: string; surface: string; viewed_at: string }
 
 function fmt(iso: string | null) {
-  return iso ? new Date(iso).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
+  return iso ? new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 }
 function fmtTime(iso: string) {
-  return new Date(iso).toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 async function post(url: string, body: unknown) {
@@ -34,10 +38,11 @@ async function post(url: string, body: unknown) {
   return r.json().catch(() => ({ ok: false }));
 }
 
-function RelationshipCard({ rel, demo, onChanged }: { rel: Rel; demo: boolean; onChanged: () => void }) {
+function RelationshipCard({ rel, demo, canManage, onChanged }: { rel: Rel; demo: boolean; canManage: boolean; onChanged: () => void }) {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const ended = rel.status === 'ended';
+  const locked = busy || demo || !canManage;
 
   async function run(fn: () => Promise<{ ok: boolean; message?: string; error?: string }>) {
     setBusy(true); setMsg('');
@@ -49,8 +54,8 @@ function RelationshipCard({ rel, demo, onChanged }: { rel: Rel; demo: boolean; o
   }
 
   function end() {
-    if (!window.confirm(`Terminar a relação com a ${rel.incubator_name}?\n\n${endRelationshipConfirmText(rel.incubator_name)}`)) return;
-    const reason = window.prompt('Razão (opcional — a incubadora vê-a):') ?? '';
+    if (!window.confirm(`End the relationship with ${rel.incubator_name}?\n\n${endRelationshipConfirmText(rel.incubator_name)}`)) return;
+    const reason = window.prompt('Reason (optional — the incubator sees it):') ?? '';
     run(() => post(`/api/founder/incubator-programs/${rel.relationship_id}/end`, { reason }));
   }
 
@@ -69,28 +74,28 @@ function RelationshipCard({ rel, demo, onChanged }: { rel: Rel; demo: boolean; o
           {RELATIONSHIP_STATUS_LABEL[rel.status]}
         </span>
       </div>
-      <p className="mt-2 text-xs text-gray-500">Partilhado desde {fmt(rel.started_at)}{rel.graduated_at ? ` · graduada em ${fmt(rel.graduated_at)}` : ''}</p>
+      <p className="mt-2 text-xs text-gray-500">Shared since {fmt(rel.started_at)}{rel.graduated_at ? ` · graduated ${fmt(rel.graduated_at)}` : ''}</p>
       {rel.incubator_also_invests && !ended && (
         <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">{ALSO_INVESTS_NOTICE}</p>
       )}
 
       {ended ? (
         <p className="mt-3 text-sm text-gray-600">
-          Terminada em {fmt(rel.ended_at)} {rel.ended_by === 'founder' ? 'por ti' : rel.ended_by === 'incubator' ? 'pela incubadora' : 'pela plataforma'}
-          {rel.end_reason ? ` — “${rel.end_reason}”` : ''}. A incubadora já não tem acesso.
+          Ended {fmt(rel.ended_at)} {rel.ended_by === 'founder' ? 'by your team' : rel.ended_by === 'incubator' ? 'by the incubator' : 'by the platform'}
+          {rel.end_reason ? ` — “${rel.end_reason}”` : ''}. The incubator no longer has access.
         </p>
       ) : (
         <>
           <div className="mt-4">
-            <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400">O que a {rel.incubator_name} vê</div>
-            <div className="space-y-1.5" role="radiogroup" aria-label="Nível de partilha">
+            <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400">What {rel.incubator_name} sees</div>
+            <div className="space-y-1.5" role="radiogroup" aria-label="Sharing level">
               {SHARING_LEVELS.map((l) => {
                 const selected = rel.sharing_level === l.level;
                 return (
                   <label key={l.level}
-                    className={`flex items-start gap-2 rounded-xl border px-3 py-2 text-sm ${selected ? 'border-[#0E7490] bg-[#E8F4F8]' : 'border-gray-100'} ${l.enabled ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+                    className={`flex items-start gap-2 rounded-xl border px-3 py-2 text-sm ${selected ? 'border-[#0E7490] bg-[#E8F4F8]' : 'border-gray-100'} ${l.enabled && canManage ? 'cursor-pointer' : 'cursor-not-allowed'} ${l.enabled ? '' : 'opacity-60'}`}>
                     <input type="radio" name={`level-${rel.relationship_id}`} className="mt-1" checked={selected}
-                      disabled={!l.enabled || busy || demo}
+                      disabled={!l.enabled || locked}
                       onChange={() => run(() => post(`/api/founder/incubator-programs/${rel.relationship_id}/level`, { level: l.level }))} />
                     <span>
                       <span className="font-semibold text-gray-900">{l.label}</span>
@@ -103,10 +108,12 @@ function RelationshipCard({ rel, demo, onChanged }: { rel: Rel; demo: boolean; o
             </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-4">
-            <Toggle checked={rel.public_badge} label="Visível no meu perfil público"
-              onChange={(v) => { if (!demo) run(() => post(`/api/founder/incubator-programs/${rel.relationship_id}/badge`, { value: v })); }} />
+            <span className={canManage ? '' : 'pointer-events-none opacity-60'}>
+              <Toggle checked={rel.public_badge} label="Visible on my public profile"
+                onChange={(v) => { if (!locked) run(() => post(`/api/founder/incubator-programs/${rel.relationship_id}/badge`, { value: v })); }} />
+            </span>
             <button className="ml-auto rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-              disabled={busy || demo} onClick={end}>Terminar relação</button>
+              disabled={locked} onClick={end}>End relationship</button>
           </div>
         </>
       )}
@@ -117,6 +124,7 @@ function RelationshipCard({ rel, demo, onChanged }: { rel: Rel; demo: boolean; o
 
 export function ProgramsPanel() {
   const [data, setData] = useState<{ relationships: Rel[]; accessLog: LogRow[]; demo: boolean; available: boolean } | null>(null);
+  const [orgRole, setOrgRole] = useState<OrgRole | null | undefined>(undefined);
 
   const load = useCallback(() => {
     fetch('/api/founder/incubator-programs').then((r) => r.json()).then((d) => {
@@ -125,23 +133,29 @@ export function ProgramsPanel() {
     }).catch(() => setData({ relationships: [], accessLog: [], demo: false, available: false }));
   }, []);
   useEffect(load, [load]);
+  useEffect(() => {
+    fetch('/api/me').then((r) => r.json()).then((me) => setOrgRole((me?.orgRole as OrgRole | null) ?? null)).catch(() => setOrgRole(null));
+  }, []);
 
-  if (!data) return <p className="text-sm text-gray-400">A carregar…</p>;
+  if (!data) return <p className="text-sm text-gray-400">Loading…</p>;
+  // Demo mode has no org role; the controls are disabled there anyway.
+  const canManage = data.demo || can(orgRole ?? null, 'manage_programs');
   return (
     <div className="space-y-4" data-testid="programs-panel">
-      <Card title="Programas">
-        <p className="text-sm text-gray-600">As incubadoras e aceleradoras com que a tua startup está ligada. Tu decides o que cada uma vê, e podes terminar a relação a qualquer momento.</p>
-        {data.demo && <p className="mt-2 text-xs text-amber-700">Modo demo — dados de exemplo, sem gravação.</p>}
+      <Card title="Programmes">
+        <p className="text-sm text-gray-600">The incubators and accelerators your startup is linked to. You decide what each one sees, and you can end a relationship at any time.</p>
+        {!canManage && orgRole !== undefined && <p className="mt-2 text-xs text-gray-500" data-testid="programs-read-only">{PROGRAMS_READ_ONLY_NOTE}</p>}
+        {data.demo && <p className="mt-2 text-xs text-amber-700">Demo mode — sample data, nothing is saved.</p>}
       </Card>
       {data.relationships.length === 0 ? (
-        <Card><p className="text-sm text-gray-500">Ainda não estás ligado a nenhum programa. Quando uma incubadora te convidar, o convite chega por e-mail e só te liga se aceitares.</p></Card>
-      ) : data.relationships.map((r) => <RelationshipCard key={r.relationship_id} rel={r} demo={data.demo} onChanged={load} />)}
-      <Card title="Quem consultou">
+        <Card><p className="text-sm text-gray-500">You are not linked to any programme yet. When an incubator invites you, the invite arrives by email and only links you if you accept.</p></Card>
+      ) : data.relationships.map((r) => <RelationshipCard key={r.relationship_id} rel={r} demo={data.demo} canManage={canManage} onChanged={load} />)}
+      <Card title="Who viewed what">
         {data.accessLog.length === 0 ? (
-          <p className="text-sm text-gray-500">Ainda ninguém consultou o que partilhas. Cada consulta de uma incubadora (dossier, declarações, relatórios) aparece aqui, com o gestor, o quê e quando.</p>
+          <p className="text-sm text-gray-500">No one has viewed what you share yet. Every view by an incubator (dossier, monthly updates, reports) appears here, with the manager, what and when.</p>
         ) : (
           <table className="w-full text-left text-sm">
-            <thead><tr className="border-b border-gray-100 text-[11px] uppercase tracking-wide text-gray-400"><th className="py-2 pr-3">Quando</th><th className="pr-3">Incubadora</th><th className="pr-3">Gestor</th><th>O quê</th></tr></thead>
+            <thead><tr className="border-b border-gray-100 text-[11px] uppercase tracking-wide text-gray-400"><th className="py-2 pr-3">When</th><th className="pr-3">Incubator</th><th className="pr-3">Manager</th><th>What</th></tr></thead>
             <tbody>
               {data.accessLog.map((l) => (
                 <tr key={l.id} className="border-b border-gray-50">

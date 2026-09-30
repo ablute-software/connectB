@@ -32,6 +32,24 @@ describe('acceptIncubatorInvite', () => {
     expect(d.redeemVoucher).not.toHaveBeenCalled();
   });
 
+  it('e-mail diferente do convidado → invite_email_mismatch com o e-mail mascarado, nada mais (I-01b §A)', async () => {
+    const d = deps({ ok: false, error: 'invite_email_mismatch', invited_email_masked: 'nu…@startup.pt' });
+    const r = await acceptIncubatorInvite(TOKEN, d);
+    expect(r).toMatchObject({ ok: false, error: 'invite_email_mismatch', invitedEmailMasked: 'nu…@startup.pt' });
+    expect(r.relationshipId).toBeUndefined();
+    expect(d.redeemVoucher).not.toHaveBeenCalled();
+  });
+
+  it('o mesmo token com o e-mail certo → aceite', async () => {
+    const d = deps({ ok: true, relationship_id: 'rel-1', promo_code_id: null, org_id: 'org-1' });
+    expect((await acceptIncubatorInvite(TOKEN, d)).ok).toBe(true);
+  });
+
+  it('member/manager da org → not_allowed do SQL (I-01b §B)', async () => {
+    const r = await acceptIncubatorInvite(TOKEN, deps({ ok: false, error: 'not_allowed' }));
+    expect(r).toMatchObject({ ok: false, error: 'not_allowed' });
+  });
+
   it('sem voucher → relação criada, voucher null', async () => {
     const d = deps({ ok: true, relationship_id: 'rel-1', promo_code_id: null, org_id: 'org-1', already: false });
     const r = await acceptIncubatorInvite(TOKEN, d);

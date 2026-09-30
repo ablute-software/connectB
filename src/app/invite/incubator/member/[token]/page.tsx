@@ -40,7 +40,11 @@ export default function IncubatorMemberInvitePage({ params }: { params: { token:
       const sb = browserClient();
       const { data, error } = await sb.auth.signUp({ email: p.invitedEmail, password, options: { data: { password_set: true } } });
       if (error) { setMsg(error.message); return; }
-      if (!data.session) { setMsg('Conta criada. Confirma o e-mail, entra, e volta a abrir este link.'); return; }
+      if (!data.session) {
+        try { window.localStorage.setItem(INCUBATOR_MEMBER_INVITE_STORAGE_KEY, token); } catch { /* ignore */ }
+        setMsg('Account created. Confirm your email, sign in, and you will be brought back to this invite.');
+        return;
+      }
       await accept();
     } finally { setBusy(false); }
   }
@@ -50,31 +54,31 @@ export default function IncubatorMemberInvitePage({ params }: { params: { token:
       <div className="w-full max-w-md rounded-2xl border border-gray-100 bg-white p-6 shadow-xl">{c}</div>
     </div>
   );
-  if (!p || email === undefined) return box(<p className="text-sm text-gray-400">A carregar…</p>);
-  if (p.demo) return box(<p className="text-sm text-amber-800">Modo demo — os convites de equipa precisam de uma base de dados ligada.</p>);
+  if (!p || email === undefined) return box(<p className="text-sm text-gray-400">Loading…</p>);
+  if (p.demo) return box(<p className="text-sm text-amber-800">Demo mode — team invites need a connected database.</p>);
   if (!p.ok || !p.incubator) return box(<p className="text-sm text-gray-700">{incubatorErrorText(p.error ?? 'invite_not_found')}</p>);
   if (p.status !== 'invited') return box(<p className="text-sm text-gray-700">{incubatorErrorText(p.status === 'closed' ? 'incubator_closed' : `invite_${p.status}`)}</p>);
 
   const matches = !!email && email.toLowerCase() === p.invitedEmail?.toLowerCase();
   return box(
     <div>
-      <h1 className="text-lg font-bold text-gray-900">Equipa da {p.incubator.name}</h1>
-      <p className="mt-2 text-sm text-gray-600">Convite para {p.invitedEmail}, como {p.role === 'owner' ? 'owner' : 'gestor(a)'} do workspace da incubadora.</p>
+      <h1 className="text-lg font-bold text-gray-900">{p.incubator.name} team</h1>
+      <p className="mt-2 text-sm text-gray-600">Invite for {p.invitedEmail}, as {p.role === 'owner' ? 'an owner' : 'a programme manager'} of the incubator workspace.</p>
       {email && matches ? (
-        <button className="mt-4 rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={busy} onClick={accept}>Aceitar</button>
+        <button className="mt-4 rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={busy} onClick={accept}>Accept</button>
       ) : email ? (
-        <p className="mt-4 text-sm text-amber-800">Estás com a sessão de {email}. Sai e entra com {p.invitedEmail} para aceitar.</p>
+        <p className="mt-4 text-sm text-amber-800">You are signed in as {email}. Sign out and sign in with {p.invitedEmail} to accept.</p>
       ) : (
         <div className="mt-4 space-y-2">
           <Link href={`/login?next=${encodeURIComponent('/incubator')}`} className="text-sm text-[#0E7490] hover:underline"
             onClick={() => { try { window.localStorage.setItem(INCUBATOR_MEMBER_INVITE_STORAGE_KEY, token); } catch { /* ignore */ } }}>
-            Já tenho conta com este e-mail — entrar
+            I already have an account with this email — sign in
           </Link>
           <div className="flex items-end gap-2 pt-2">
-            <label className="flex-1 text-xs text-gray-600">Criar conta — palavra-passe
+            <label className="flex-1 text-xs text-gray-600">Create an account — password
               <input type="password" className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
             </label>
-            <button className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50" disabled={busy || password.length < 8} onClick={createAndAccept}>Criar e aceitar</button>
+            <button className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50" disabled={busy || password.length < 8} onClick={createAndAccept}>Create and accept</button>
           </div>
         </div>
       )}

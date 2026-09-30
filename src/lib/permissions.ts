@@ -27,7 +27,10 @@ export type Capability =
   | 'manage_billing'
   // Prompt 503 §2 — apagar uma entrada do histórico de Readiness
   // (ai_reviews / review_runs).
-  | 'delete_review_history';
+  | 'delete_review_history'
+  // Prompt I-01b §B — accept/decline an incubator invite, change what a
+  // programme sees, switch its public badge, end the relationship.
+  | 'manage_programs';
 
 const CAN: Record<Capability, OrgRole[]> = {
   view: ['owner', 'admin', 'manager', 'member'],
@@ -56,6 +59,11 @@ const CAN: Record<Capability, OrgRole[]> = {
   // em particular NÃO uma MatrixCapability configurável em Settings, que o
   // prompt pediu para não construir sem razão.
   delete_review_history: ['owner', 'admin'],
+  // Prompt I-01b §B — sharing the startup with a programme is a decision of
+  // the same nature as manage_org_settings: owner + admin. The same rule is
+  // enforced again in SQL (incubator_caller_org_can_manage), because the
+  // incubator functions are security definer and callable directly.
+  manage_programs: ['owner', 'admin'],
 };
 
 export function can(role: OrgRole | null | undefined, capability: Capability): boolean {

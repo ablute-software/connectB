@@ -249,8 +249,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F7F9FA] p-6">
         <div className="max-w-sm rounded-2xl border border-gray-100 bg-white p-6 text-center shadow-sm">
-          <p className="text-sm text-gray-700">Esta conta trabalha no workspace de uma incubadora.</p>
-          <Link href="/incubator" className="mt-3 inline-block rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-semibold text-white">Abrir o workspace da incubadora</Link>
+          <p className="text-sm text-gray-700">This account works in an incubator workspace.</p>
+          <Link href="/incubator" className="mt-3 inline-block rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-semibold text-white">Open the incubator workspace</Link>
         </div>
       </div>
     );
