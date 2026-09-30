@@ -122,14 +122,39 @@ end $$;
 -- Check 3c — firm B's investor CANNOT delete firm A's row (delete is
 -- allowed for this table, unlike deal_terms — see the migration's own
 -- comment — so this needs its own check, not just insert/select).
+--
+-- Fixed 30/09/2026, run for real against production in a rolled-back
+-- transaction: the original version verified "the row still exists" with
+-- a SELECT COUNT run AS THE SAME ROLE (firm B) that attempted the delete —
+-- but firm B can never SEE firm A's row via SELECT either (Check 2, above),
+-- so that count would read 0 regardless of whether the delete actually
+-- succeeded. The assertion could never distinguish "RLS blocked the
+-- delete" from "RLS blocked my own verification read" — it would fail its
+-- own assert even when the real security behavior is correct, which is
+-- exactly what happened on first real execution. Fixed by checking the
+-- DELETE's own row count directly (0 rows affected = nothing was deleted,
+-- a fact available regardless of who can SELECT the row afterward), then
+-- confirming the row's continued existence via service_role (bypasses
+-- RLS, so this read is trustworthy) rather than via firm B's own necessarily-
+-- blind vantage point.
 -- ---------------------------------------------------------------------
+do $$
+declare v_deleted int;
+begin
+  with d as (delete from investor_portfolio_companies where id = 'aaaaaaaa-0000-0000-0000-000000000001' returning 1)
+  select count(*) into v_deleted from d;
+  assert v_deleted = 0, 'FAIL: firm B investor''s delete actually removed firm A''s row';
+  raise notice 'PASS: firm B investor''s delete of firm A''s row affected ZERO rows (RLS-filtered, not an error)';
+end $$;
+
+reset role;
+set local role service_role;
 do $$
 declare v_count int;
 begin
-  delete from investor_portfolio_companies where id = 'aaaaaaaa-0000-0000-0000-000000000001';
   select count(*) into v_count from investor_portfolio_companies where id = 'aaaaaaaa-0000-0000-0000-000000000001';
-  assert v_count = 1, 'FAIL: firm B investor deleted (or the delete silently no-opped against) firm A''s row — it should still exist, untouched';
-  raise notice 'PASS: firm B investor''s delete of firm A''s row affected ZERO rows (RLS-filtered, not an error — DELETE with no matching visible row is a normal no-op)';
+  assert v_count = 1, 'FAIL: firm A''s row is actually gone after firm B''s blocked delete attempt';
+  raise notice 'PASS: firm A''s row still exists, confirmed via service_role (bypasses RLS, a trustworthy read)';
 end $$;
 
 -- ---------------------------------------------------------------------
