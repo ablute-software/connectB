@@ -11,9 +11,11 @@
 // (streamStorageObject, src/lib/document-proxy.ts) — the Storage URL never
 // reaches the browser. This script fails the moment a NEW
 // `createSignedUrl(` call on the `data-room` bucket appears anywhere under
-// `src/app/api/portal/**` or `src/app/api/guest/**`, the two trees that
-// serve investors and guests, so the mint-and-hand-to-the-browser pattern
-// can't quietly return in a future prompt.
+// `src/app/api/portal/**`, `src/app/api/guest/**`, or `src/lib/**` — the
+// two route trees that serve investors and guests directly, plus `src/lib`
+// because that is exactly where one of the two original leak sites lived
+// (dossier-fetch.ts, called BY those routes rather than living in them —
+// scanning only the route trees would have missed it a second time).
 //
 // ALLOWLIST, short and commented, exactly like this script's own convention
 // elsewhere (see check-migration-order.mjs's GRANDFATHERED_DATE_ONLY): a
@@ -34,6 +36,7 @@ const reportOnly = process.argv.includes('--report');
 const SCAN_ROOTS = [
   join(root, 'src', 'app', 'api', 'portal'),
   join(root, 'src', 'app', 'api', 'guest'),
+  join(root, 'src', 'lib'),
 ];
 
 // Path is relative to the repo root, forward slashes, exactly as `relative`
@@ -75,7 +78,7 @@ for (const file of files) {
   violations.push(relPath);
 }
 
-console.log(`files scanned under src/app/api/{portal,guest}: ${files.length}`);
+console.log(`files scanned under src/app/api/{portal,guest} + src/lib: ${files.length}`);
 console.log(`allowlisted (see this script's own header)     : ${[...ALLOWLIST.keys()].filter((p) => files.some((f) => relative(root, f).replace(/\\/g, '/') === p)).length}`);
 console.log(`VIOLATIONS                                      : ${violations.length}`);
 for (const v of violations) {

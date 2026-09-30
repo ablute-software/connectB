@@ -15,6 +15,15 @@
 // would be a functional regression (a level-0 investor's own dossier
 // legitimately shows those images today).
 //
+// Prompt 750, review fix (Nuno) — the FIRST version of this route called
+// getPipelineWaves for that "linked" check, the same ~20-query, WRITING
+// (reserve_pipeline_admissions) function the full dossier route pays for
+// once per page view. A gallery of 15 photos meant 15x that cost AND 15
+// admissions-reservation writes for something that never needed to touch
+// admissions at all. Fixed by resolveInvestorOrgEligibility
+// (investor-pipeline.ts) — the same Stage-1 eligibility union, extracted,
+// with none of Stage 2's card-building or its write.
+//
 // Known, accepted narrow gap, stated plainly rather than silently accepted:
 // a media row that backs a mini-pitch slide but is not itself categorized
 // 'team' is servable through this route at level 0 even though the
@@ -29,13 +38,11 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { closedOrgGuard } from '@/lib/org-closed';
-import { getPipelineWaves } from '@/lib/investor-pipeline';
-import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
+import { resolveInvestorOrgEligibility } from '@/lib/investor-pipeline';
 import { currentInterestLevel } from '@/lib/investor-interest-level';
 import { getInterestLevelRows } from '@/lib/investor-interest-level-db';
 import { interestLevelAvailable } from '@/lib/investor-interest-level-capability';
-import { shouldLogOpen, streamStorageObject } from '@/lib/document-proxy';
-import { recordInvestorSignalForEntity } from '@/lib/investor-signal-events-server';
+import { streamStorageObject } from '@/lib/document-proxy';
 
 export const runtime = 'nodejs';
 
@@ -73,19 +80,16 @@ export async function GET(req: Request, { params }: { params: { mediaId: string 
   if (closedBlock) return closedBlock;
 
   // Eligibility: the same "is this investor linked to this org at all"
-  // check /api/portal/startup/[orgId] itself gates the whole dossier on —
+  // union /api/portal/startup/[orgId] itself gates the whole dossier on —
   // an org this investor has no relationship with is indistinguishable
-  // from a media id that doesn't exist.
-  const result = await getPipelineWaves(sb, admin, user.id, email);
-  const card = result.linked ? result.waves.flatMap((w) => w.items).find((c) => c.orgId === orgId) : null;
-  if (!card) return refuse('not_found', 404);
+  // from a media id that doesn't exist. Lightweight and read-only — see
+  // this file's own header comment for why that matters here specifically.
+  const { eligible, decision, investorCatalogEntityId } = await resolveInvestorOrgEligibility(admin, user.id, email, orgId);
+  if (!eligible) return refuse('not_found', 404);
 
-  const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, user.id);
-  const decisionForLevel: 'interested' | 'passed' | null =
-    card.status === 'passed' ? 'passed' : card.status === 'interested' ? 'interested' : null;
   const levelRows = investorCatalogEntityId && await interestLevelAvailable()
     ? await getInterestLevelRows(admin, orgId, investorCatalogEntityId) : [];
-  const level = currentInterestLevel(decisionForLevel, levelRows);
+  const level = currentInterestLevel(decision, levelRows);
 
   // Team photos ride with the Team section's own level>=2 gate
   // (investor-interest-level.ts's projectDossier) — never a second,
@@ -103,21 +107,20 @@ export async function GET(req: Request, { params }: { params: { mediaId: string 
   }
   if (!media.storage_path) return refuse('unavailable', 404);
 
-  if (shouldLogOpen(req)) {
-    // Best-effort, mirrors the same signal document opens write — worth a
-    // failed insert, never a failed read.
-    if (investorCatalogEntityId) {
-      const dedupDay = new Date().toISOString().slice(0, 10);
-      try {
-        await recordInvestorSignalForEntity(admin, {
-          investorCatalogEntityId, orgId, actorUserId: user.id, level: 'envolvimento', kind: 'media_opened',
-          snapshot: { media_id: media.id, category: media.category, kind: media.kind },
-          dedupKey: `${investorCatalogEntityId}:${orgId}:media_opened:${media.id}:${user.id}:${dedupDay}`,
-        });
-      } catch { /* best-effort */ }
-    }
-  }
-
+  // Prompt 750, review fix (Nuno) — this route used to write an
+  // "media_opened" signal event here, gated on shouldLogOpen(req) the same
+  // way a document open is. That gate distinguishes "first request" from
+  // "later byte-range chunk of the SAME request" — it does not distinguish
+  // "a person looked at this" from "the browser's own <img>/<video> tag
+  // fetched it the instant the gallery rendered", which is what actually
+  // happens here: every photo in a dossier's gallery loads immediately on
+  // page render, with no click at all. Logging a signal per image load
+  // would fill the founder's signal feed with events nobody chose to
+  // generate. No equivalent WRITE belongs on a passive asset load; removed
+  // rather than built out further into something that only fires on a
+  // deliberate open (e.g. real user interaction with a video's play
+  // control) — that is a real, separate feature for a future prompt if the
+  // founder actually wants "photo viewed" as a signal.
   const filename = (media.storage_path as string).split('/').pop() || (media.caption as string) || media.id as string;
   return streamStorageObject({ admin, storagePath: media.storage_path as string, filename, req });
 }

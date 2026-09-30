@@ -15,6 +15,7 @@
 // signed-in investor vs. a guest token).
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { inlineKindFor } from '@/lib/document-inline-kinds';
 
 export interface ViewerDocItem {
   id: string;
@@ -68,8 +69,7 @@ export function DocumentViewerModal({
 
   if (typeof document === 'undefined' || !doc) return null;
 
-  const ext = (doc.name.match(/\.([a-z0-9]+)$/i)?.[1] ?? '').toLowerCase();
-  const isVideo = ext === 'mp4' || ext === 'webm';
+  const kind = inlineKindFor(doc.name);
   const src = openUrl(doc.id);
 
   return createPortal(
@@ -125,10 +125,24 @@ export function DocumentViewerModal({
           </button>
         </div>
         <div className="min-h-0 flex-1 bg-gray-50">
-          {isVideo ? (
+          {kind === 'video' ? (
             <video key={src} src={src} controls className="h-full w-full bg-black" />
-          ) : (
+          ) : kind === 'iframe' ? (
             <iframe key={src} src={src} title={doc.name} className="h-full w-full border-0" />
+          ) : (
+            // Prompt 750, review fix (Nuno) — Word/Excel/PowerPoint and
+            // every other non-inline-allowlisted type used to land here as
+            // a blank iframe: the proxy sets Content-Disposition: attachment
+            // for these, so the browser downloads them silently INSIDE the
+            // frame instead of showing anything. A named state with a real
+            // download action instead of a frame the investor has no way to
+            // interpret.
+            <div className="flex h-full w-full flex-col items-center justify-center gap-3 text-center">
+              <p className="text-sm text-gray-500">This file type can&apos;t be previewed here.</p>
+              <a href={src} className="rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white hover:bg-[#0c637b]">
+                Download {doc.name}
+              </a>
+            </div>
           )}
         </div>
       </div>

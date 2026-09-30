@@ -16,37 +16,11 @@
 // URL that ever reaches the browser is our own route.
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { INLINE_CONTENT_TYPE, extOf } from './document-inline-kinds';
 
 // Never sent to the browser — minted fresh on every request, used once,
 // server-side only, for the single internal fetch() below.
 const INTERNAL_SIGNED_URL_TTL_SECONDS = 60;
-
-// Prompt 750 §5 — deliberately narrower than upload-security.ts's EXT_KIND
-// (which also accepts docx/xlsx/pptx/doc/xls/ppt/csv/md as legitimate
-// VAULT UPLOADS — that allowlist governs what a founder may upload, not
-// what this app will render inline in a browser tab). Serving a file from
-// our own origin risks stored XSS if the browser is ever allowed to
-// execute it in place — an .html or .svg opened inline would run with
-// whatever session opened it. Everything not in this map (including every
-// Office format, csv, md, and anything unrecognised) is forced
-// application/octet-stream + Content-Disposition: attachment — inert
-// either way, and svg/html/xml/js are never in this map under any name.
-const INLINE_CONTENT_TYPE: Record<string, string> = {
-  pdf: 'application/pdf',
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  webp: 'image/webp',
-  gif: 'image/gif',
-  mp4: 'video/mp4',
-  webm: 'video/webm',
-  txt: 'text/plain; charset=utf-8',
-};
-
-function extOf(filename: string): string {
-  const m = /\.([a-z0-9]+)$/i.exec(filename);
-  return m ? m[1].toLowerCase() : '';
-}
 
 // Exported for unit testing — pure, no I/O. Every Office format, csv, md,
 // and anything unrecognised (including svg/html/xml/js by simple absence
@@ -68,16 +42,35 @@ const SECURITY_HEADERS: Record<string, string> = {
   'Cache-Control': 'private, no-store',
   'X-Robots-Tag': 'noindex, nofollow, noarchive',
   'X-Content-Type-Options': 'nosniff',
-  // Prompt 750 §5 — a document served from our own origin must never be
-  // able to run as a page: sandbox with no allowed origin blocks scripts,
-  // plugins, forms and top-level navigation. PDFs, images and video still
-  // render; nothing here executes.
-  'Content-Security-Policy': "sandbox; default-src 'none'",
 };
 
+// Prompt 750 §5 — a document served from our own origin must never be able
+// to run as a page: sandbox with no allowed origin blocks scripts, plugins,
+// forms and top-level navigation.
+//
+// Prompt 750, review fix (Nuno, live-tested) — this used to apply to EVERY
+// response, including the inline-allowlisted ones (pdf/png/jpg/webp/gif/
+// mp4/webm/txt). Chrome's own built-in PDF viewer, embedded via <iframe>,
+// can refuse to render a document served with a full CSP sandbox (no
+// allow-same-origin/allow-scripts token) — the exact failure mode: the
+// in-platform viewer's PDF pane renders blank, in Chrome specifically,
+// which this session's own scratch-route test never caught because it
+// pointed the iframe at a dummy non-PDF URL instead of a real PDF through
+// the real proxy. The allowlisted types are already inert on their own
+// (a PDF/image/video can't execute script regardless of CSP — that's what
+// the allowlist itself is for; sandbox was always redundant defense-in-
+// depth for exactly those types, never their only protection), so it is
+// only applied to the force-download path now (docx/xlsx/csv/svg/html/
+// anything unrecognised) — the one case where, if a browser or extension
+// ever chose to render the response instead of downloading it, CSP sandbox
+// is the thing stopping it from executing.
+const FORCE_DOWNLOAD_CSP = "sandbox; default-src 'none'";
+
 function refusalResponse(status: number): Response {
+  // A JSON refusal is never rendered as a document, so the PDF-viewer
+  // conflict above doesn't apply here — safe to keep sandbox on this path.
   return new Response(JSON.stringify({ ok: false, reason: 'unavailable' }), {
-    status, headers: { 'Content-Type': 'application/json', ...SECURITY_HEADERS },
+    status, headers: { 'Content-Type': 'application/json', 'Content-Security-Policy': FORCE_DOWNLOAD_CSP, ...SECURITY_HEADERS },
   });
 }
 
@@ -127,6 +120,11 @@ export async function streamStorageObject(opts: {
   headers.set('Content-Type', contentType);
   headers.set('Content-Disposition', contentDispositionValue(filename, inline));
   headers.set('Accept-Ranges', 'bytes');
+  // Only the force-download path gets CSP sandbox — see FORCE_DOWNLOAD_CSP's
+  // own comment for why the inline-allowlisted types (pdf/images/video)
+  // must NOT carry it: Chrome's built-in PDF viewer can render blank under
+  // a full sandbox CSP.
+  if (!inline) headers.set('Content-Security-Policy', FORCE_DOWNLOAD_CSP);
   const contentRange = upstream.headers.get('content-range');
   const contentLength = upstream.headers.get('content-length');
   if (contentRange) headers.set('Content-Range', contentRange);
