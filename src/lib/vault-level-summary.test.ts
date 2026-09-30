@@ -6,11 +6,19 @@ import {
 describe('countByVisibility', () => {
   it('counts all three levels', () => {
     const docs = [{ visibility: 'open' as const }, { visibility: 'open' as const }, { visibility: 'on_grant' as const }, { visibility: 'due_diligence' as const }];
-    expect(countByVisibility(docs)).toEqual({ open: 2, on_grant: 1, due_diligence: 1 });
+    expect(countByVisibility(docs)).toEqual({ open: 2, on_grant: 1, due_diligence: 1, private: 0 });
   });
 
   it('is all zeros for no documents', () => {
-    expect(countByVisibility([])).toEqual({ open: 0, on_grant: 0, due_diligence: 0 });
+    expect(countByVisibility([])).toEqual({ open: 0, on_grant: 0, due_diligence: 0, private: 0 });
+  });
+
+  // Deal-terms review fix A (2026-09-30) — 'private' is a real DocVisibility
+  // value now (a locked deal memo), so this function must count it like any
+  // other level rather than throwing on an unrecognized key.
+  it('counts private alongside the other three levels', () => {
+    const docs = [{ visibility: 'open' as const }, { visibility: 'private' as const }, { visibility: 'private' as const }];
+    expect(countByVisibility(docs)).toEqual({ open: 1, on_grant: 0, due_diligence: 0, private: 2 });
   });
 });
 
@@ -24,7 +32,7 @@ describe('levelCountsByFolder', () => {
 
   it('an empty folder counts all zeros', () => {
     const result = levelCountsByFolder(folders, []);
-    expect(result.get('empty')).toEqual({ open: 0, on_grant: 0, due_diligence: 0 });
+    expect(result.get('empty')).toEqual({ open: 0, on_grant: 0, due_diligence: 0, private: 0 });
   });
 
   it('includes documents in subfolders, not just direct children', () => {
@@ -35,28 +43,38 @@ describe('levelCountsByFolder', () => {
     ];
     const result = levelCountsByFolder(folders, docs);
     // root sees all three (its own + both descendants').
-    expect(result.get('root')).toEqual({ open: 1, on_grant: 1, due_diligence: 1 });
+    expect(result.get('root')).toEqual({ open: 1, on_grant: 1, due_diligence: 1, private: 0 });
     // child sees only its own + grandchild's, not root's.
-    expect(result.get('child')).toEqual({ open: 0, on_grant: 1, due_diligence: 1 });
+    expect(result.get('child')).toEqual({ open: 0, on_grant: 1, due_diligence: 1, private: 0 });
     // grandchild sees only its own.
-    expect(result.get('grandchild')).toEqual({ open: 0, on_grant: 0, due_diligence: 1 });
+    expect(result.get('grandchild')).toEqual({ open: 0, on_grant: 0, due_diligence: 1, private: 0 });
   });
 
   it('a document with no folder_id is never counted under any folder', () => {
     const docs = [{ id: 'd1', folder_id: undefined, visibility: 'open' as const }];
     const result = levelCountsByFolder(folders, docs);
-    for (const f of folders) expect(result.get(f.id)).toEqual({ open: 0, on_grant: 0, due_diligence: 0 });
+    for (const f of folders) expect(result.get(f.id)).toEqual({ open: 0, on_grant: 0, due_diligence: 0, private: 0 });
+  });
+
+  // Deal-terms review fix A — a locked deal memo's folder_id is always null
+  // (store-supabase.tsx/store-demo.tsx's lockDealTerms), so this is also the
+  // real-world shape for its visibility='private': counted nowhere in the
+  // per-folder map, same as any other folder_id-less document above.
+  it('a private (deal memo) document is also never counted under any folder', () => {
+    const docs = [{ id: 'memo1', folder_id: undefined, visibility: 'private' as const }];
+    const result = levelCountsByFolder(folders, docs);
+    for (const f of folders) expect(result.get(f.id)).toEqual({ open: 0, on_grant: 0, due_diligence: 0, private: 0 });
   });
 });
 
 describe('nonZeroLevels', () => {
   it('drops the zero levels, keeps the rest in a stable order', () => {
-    expect(nonZeroLevels({ open: 4, on_grant: 0, due_diligence: 1 }))
+    expect(nonZeroLevels({ open: 4, on_grant: 0, due_diligence: 1, private: 0 }))
       .toEqual([{ visibility: 'open', count: 4 }, { visibility: 'due_diligence', count: 1 }]);
   });
 
   it('is empty for an all-zero folder', () => {
-    expect(nonZeroLevels({ open: 0, on_grant: 0, due_diligence: 0 })).toEqual([]);
+    expect(nonZeroLevels({ open: 0, on_grant: 0, due_diligence: 0, private: 0 })).toEqual([]);
   });
 });
 

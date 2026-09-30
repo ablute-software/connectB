@@ -76,9 +76,14 @@ export async function GET(req: Request) {
 
   const docIds = [...new Set((items ?? []).flatMap((i) => [i.document_id, i.fulfilled_document_id]).filter(Boolean) as string[])];
   const { data: docs } = docIds.length
-    ? await admin.from('documents').select('id, name').in('id', docIds)
-    : { data: [] as { id: string; name: string }[] };
-  const docNameById = new Map((docs ?? []).map((d) => [d.id as string, d.name as string]));
+    ? await admin.from('documents').select('id, name, kind').in('id', docIds)
+    : { data: [] as { id: string; name: string; kind?: string | null }[] };
+  // Deal-terms review fix A (2026-09-30) — document_id/fulfilled_document_id
+  // on an access_request_item are not otherwise validated as "requestable"
+  // (documentId in the POST body below is client-controlled), so a deal
+  // memo excluded here falls back to the item's own generic label/"Document"
+  // fallback in the response map below, never its real name.
+  const docNameById = new Map((docs ?? []).filter((d) => d.kind !== 'deal_memo').map((d) => [d.id as string, d.name as string]));
 
   const itemsByRequest = new Map<string, typeof items>();
   for (const i of items ?? []) {

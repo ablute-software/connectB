@@ -103,11 +103,22 @@ export async function POST(req: Request) {
     const { data: docScoreRows } = await admin.from('investor_doc_scores').select('document_id, score, note')
       .eq('investor_member_id', member.id).eq('startup_org_id', orgId);
     if (docScoreRows && docScoreRows.length > 0) {
-      const { data: docs } = await admin.from('documents').select('id, name').in('id', docScoreRows.map((r) => r.document_id));
-      const nameById = new Map((docs ?? []).map((d) => [d.id as string, d.name as string]));
-      input.docScores = docScoreRows.map((r) => ({
-        documentName: nameById.get(r.document_id as string) ?? 'Document', score: r.score as number, note: r.note as string | null,
-      }));
+      // Deal-terms review fix A (2026-09-30) — this file's own header
+      // states the rule this must follow: "a prompt is a data flow — audit
+      // it like a select." documentName below goes straight into
+      // buildEvaluationSupportPrompt, whose output is returned directly to
+      // this investor. The POST handler for investor_doc_scores
+      // (/api/portal/doc-scores) now refuses to score a deal_memo document
+      // at all, so this should never actually find one; excluded here too
+      // (kind added to the select) so a score row written before that gate
+      // existed can't put the memo's real name in front of the model.
+      const { data: docs } = await admin.from('documents').select('id, name, kind').in('id', docScoreRows.map((r) => r.document_id));
+      const nameById = new Map((docs ?? []).filter((d) => d.kind !== 'deal_memo').map((d) => [d.id as string, d.name as string]));
+      input.docScores = docScoreRows
+        .filter((r) => nameById.has(r.document_id as string))
+        .map((r) => ({
+          documentName: nameById.get(r.document_id as string) as string, score: r.score as number, note: r.note as string | null,
+        }));
     }
   }
 

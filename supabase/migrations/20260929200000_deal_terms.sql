@@ -75,6 +75,21 @@ create index if not exists deal_terms_interaction_idx on public.deal_terms (inte
 
 alter table public.deal_terms enable row level security;
 
+-- Review fix B (2026-09-30) — "armed but inert" grant shape, the same class
+-- eliminated on sibling tables per the 25/09/2026 DECISIONS.md entry. With
+-- public-schema defaults, `anon`/`authenticated` both get DELETE, INSERT,
+-- REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE on any new table the moment
+-- it's created — confirmed by a rolled-back trial application of this exact
+-- migration against production. RLS already blocks in practice today (no
+-- policy grants `anon` anything, no delete policy exists for anyone below),
+-- but a grant that is only safe because no policy currently happens to use
+-- it is a landmine for the next policy change, not a real boundary.
+-- `service_role` needs nothing added: it bypasses RLS/grants everywhere in
+-- this schema already (rolbypassrls), same as every other table here.
+revoke all on public.deal_terms from public, anon;
+revoke delete, truncate, references, trigger on public.deal_terms from authenticated;
+grant select, insert, update on public.deal_terms to authenticated;
+
 -- Founder-privacy root rule (CLAUDE.md): ticket, valuation and negotiation
 -- state must NEVER be visible to the investor side, directly or via join.
 -- There is no investor branch in this policy at all, on purpose — an
@@ -83,10 +98,36 @@ alter table public.deal_terms enable row level security;
 -- outright rather than relying on a query that merely doesn't select them.
 create policy deal_terms_read on public.deal_terms for select
   using (is_org_member(org_id) or is_platform_admin());
+-- Review fix C (2026-09-30) — is_org_member(org_id) alone only proves the
+-- caller belongs to SOME org named `org_id`; it never checked that
+-- entity_id/interaction_id/person_id actually belong to THAT org. Both
+-- triggers on this table run security definer and write to
+-- entities.interest_eur (deal_terms_sync_interest above), so without this,
+-- an authenticated member of org A could insert a row naming org A as
+-- org_id but an entity_id/interaction_id/person_id belonging to org B, and
+-- the trigger would overwrite org B's own entities.interest_eur — a
+-- cross-tenant data-integrity hole, not merely a privacy one. Each of
+-- interaction_id/person_id is nullable (a term added via "+ Add term" has
+-- neither), so each check only applies when that column is not null on the
+-- row being written — same pattern as 0017_entity_aliases_org_scope.sql's
+-- own `entity_aliases.entity_id` cross-table check, qualified by table name
+-- to avoid the org_id column name colliding with the subquery's own alias
+-- (entities/interactions/people all carry their own org_id).
 create policy deal_terms_insert on public.deal_terms for insert
-  with check (is_org_member(org_id));
+  with check (
+    is_org_member(org_id)
+    and exists (select 1 from public.entities e where e.id = entity_id and e.org_id = deal_terms.org_id)
+    and (interaction_id is null or exists (select 1 from public.interactions i where i.id = interaction_id and i.org_id = deal_terms.org_id))
+    and (person_id is null or exists (select 1 from public.people p where p.id = person_id and p.org_id = deal_terms.org_id))
+  );
 create policy deal_terms_update on public.deal_terms for update
-  using (is_org_member(org_id)) with check (is_org_member(org_id));
+  using (is_org_member(org_id))
+  with check (
+    is_org_member(org_id)
+    and exists (select 1 from public.entities e where e.id = entity_id and e.org_id = deal_terms.org_id)
+    and (interaction_id is null or exists (select 1 from public.interactions i where i.id = interaction_id and i.org_id = deal_terms.org_id))
+    and (person_id is null or exists (select 1 from public.people p where p.id = person_id and p.org_id = deal_terms.org_id))
+  );
 -- No delete policy anywhere, for anyone (not even is_org_member) — a term
 -- row, once written, is history. "Undo" is superseding, never deleting.
 
@@ -200,12 +241,33 @@ comment on column public.entities.negotiation_locked_at is
 -- `deal_memo_payload` is the structured JSON snapshot ("para uso por
 -- máquina" — the prompt's own words) — the founder-readable summary lives
 -- in the existing `documents.notes` column, no new text column needed.
+--
+-- Review fix A (2026-09-30) — `documents.visibility` is NOT a plain text
+-- column: 0001_init.sql defines it as `doc_visibility`, a Postgres ENUM,
+-- originally ('private','on_grant','link_anyone'); migration 0100 later
+-- RENAMED 'private' to 'due_diligence' and 'link_anyone' to 'open' (a pure
+-- rename, no new values), so the enum today holds exactly
+-- ('due_diligence','on_grant','open') — no 'private' value exists in it at
+-- all. The original version of this migration (and this file's own §C
+-- comment just below, before this fix) assumed the archived deal memo would
+-- ship with visibility='due_diligence', which the review this fix responds
+-- to correctly flagged as still allowing a manual per-document grant
+-- through the People & Access matrix. The fix changes the app
+-- (store-supabase.tsx/store-demo.tsx's lockDealTerms) to write
+-- visibility='private' instead — which requires the enum to actually HAVE
+-- that value again, hence this statement. Postgres allows ADD VALUE inside
+-- a transaction as long as the new value is not USED in that same
+-- transaction (PG12+); nothing else in this migration file references
+-- 'private', so this is safe regardless of how the migration runner batches
+-- statements into transactions.
+alter type public.doc_visibility add value if not exists 'private';
+
 alter table public.documents add column if not exists kind text check (kind is null or kind in ('deal_memo'));
 alter table public.documents add column if not exists entity_id uuid references public.entities(id) on delete set null;
 alter table public.documents add column if not exists deal_memo_payload jsonb;
 
 comment on column public.documents.kind is
-  'Prompt 894 §C — null for every pre-existing document (untyped, as before). ''deal_memo'' is the one value this prompt introduces: an archived, code-generated snapshot of a closed negotiation, created by "Lock terms". No AI involved (out of scope — §F) and never shared with the investor by default (visibility defaults to due_diligence, same as any other document — see documents.visibility).';
+  'Prompt 894 §C — null for every pre-existing document (untyped, as before). ''deal_memo'' is the one value this prompt introduces: an archived, code-generated snapshot of a closed negotiation, created by "Lock terms". No AI involved (out of scope — §F) and never shared with the investor: visibility is ''private'' (review fix A, 2026-09-30 — not due_diligence, which still allows a manual per-document grant through the People & Access matrix), folder_id is null, and every investor-facing surface additionally excludes kind=''deal_memo'' as a hard, structural gate independent of visibility (see resolveDocumentAccess in data-room.ts).';
 comment on column public.documents.entity_id is
   'Prompt 894 §C — which pipeline entity (investor relationship) this document is specifically about. Null for every document that predates this column and for any document not tied to one specific entity (the normal case — most data-room documents are shared across investors via folders/grants, not scoped like this).';
 comment on column public.documents.deal_memo_payload is

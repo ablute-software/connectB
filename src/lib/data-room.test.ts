@@ -441,3 +441,74 @@ describe('dueDiligenceUnderFolders (204b: o aviso na criacao do grant)', () => {
     expect(dueDiligenceUnderFolders(ARVORE, DOCS, [])).toEqual([]);
   });
 });
+
+// Deal-terms review fix A (2026-09-30) — the hard, structural exclusion for
+// a locked deal memo (kind === 'deal_memo'), independent of visibility and
+// independent of any grant. This is the backstop the brief's own review
+// asked for: a due_diligence document's decorative lock (204a above) can
+// still be opened by a direct per-document grant — that is deliberate for
+// an ordinary document, but it is exactly the mistake a deal memo must be
+// safe against even when it happens (a manual grant created by mistake
+// through the People & Access matrix, a stale 'due_diligence' row from
+// before this fix). Every case below has a grant that WOULD otherwise open
+// the document — the point is that kind alone still wins.
+describe('resolveDocumentAccess (deal-terms review fix A: kind=deal_memo is never accessible)', () => {
+  const ARVORE = [{ id: 'raiz' }, { id: 'grants', parent_id: 'raiz' }];
+
+  it('a direct per-document grant does not open a deal memo', () => {
+    const grants = [{ document_id: 'memo1', nda_required: false }];
+    const docs = [{ id: 'memo1', folder_id: 'grants', visibility: 'on_grant', kind: 'deal_memo' }];
+    expect(resolveDocumentAccess(grants, docs, ARVORE)).toEqual({ visibleIds: [], pendingIds: [], pendingCount: 0 });
+  });
+
+  it('a folder-level grant covering its whole subtree does not open a deal memo', () => {
+    const grants = [{ folder_id: 'raiz', nda_required: false }];
+    const docs = [{ id: 'memo1', folder_id: 'grants', visibility: 'on_grant', kind: 'deal_memo' }];
+    expect(resolveDocumentAccess(grants, docs, ARVORE).visibleIds).toEqual([]);
+  });
+
+  it('a direct grant, visibility on_grant, AND a folder-level grant together still do not open it', () => {
+    const grants = [
+      { document_id: 'memo1', nda_required: false },
+      { folder_id: 'raiz', nda_required: false },
+    ];
+    const docs = [{ id: 'memo1', folder_id: 'grants', visibility: 'on_grant', kind: 'deal_memo' }];
+    const result = resolveDocumentAccess(grants, docs, ARVORE);
+    expect(result.visibleIds).toEqual([]);
+    expect(result.pendingIds).toEqual([]);
+    expect(result.pendingCount).toBe(0);
+  });
+
+  it('does not even count as NDA-pending — it is excluded before that check runs', () => {
+    const grants = [{ document_id: 'memo1', nda_required: true }];
+    const docs = [{ id: 'memo1', folder_id: 'grants', kind: 'deal_memo' }];
+    expect(resolveDocumentAccess(grants, docs, ARVORE)).toEqual({ visibleIds: [], pendingIds: [], pendingCount: 0 });
+  });
+
+  it('an accepted NDA on a direct grant still does not open a deal memo', () => {
+    const grants = [{ document_id: 'memo1', nda_required: true, nda_accepted_at: '2026-01-01T00:00:00Z' }];
+    const docs = [{ id: 'memo1', folder_id: 'grants', visibility: 'due_diligence', kind: 'deal_memo' }];
+    expect(resolveDocumentAccess(grants, docs, ARVORE).visibleIds).toEqual([]);
+  });
+
+  it('a document with no folder at all (folder_id null, the real shape lockDealTerms writes) is still excluded', () => {
+    const grants = [{ document_id: 'memo1', nda_required: false }];
+    const docs = [{ id: 'memo1', visibility: 'private', kind: 'deal_memo' }];
+    expect(resolveDocumentAccess(grants, docs, ARVORE).visibleIds).toEqual([]);
+  });
+
+  it('an ordinary document alongside a deal memo in the same response is unaffected', () => {
+    const grants = [{ folder_id: 'raiz', nda_required: false }];
+    const docs = [
+      { id: 'normal', folder_id: 'grants' },
+      { id: 'memo1', folder_id: 'grants', visibility: 'on_grant', kind: 'deal_memo' },
+    ];
+    expect(resolveDocumentAccess(grants, docs, ARVORE).visibleIds).toEqual(['normal']);
+  });
+
+  it('a document with kind undefined (every pre-894 row) is unaffected by the new check', () => {
+    const grants = [{ folder_id: 'raiz', nda_required: false }];
+    const docs = [{ id: 'normal', folder_id: 'grants', kind: undefined }];
+    expect(resolveDocumentAccess(grants, docs, ARVORE).visibleIds).toEqual(['normal']);
+  });
+});

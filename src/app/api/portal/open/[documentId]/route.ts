@@ -63,8 +63,10 @@ export async function GET(req: Request, { params }: { params: { documentId: stri
     global: { fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }) },
   });
 
+  // kind added (deal-terms review fix A, 2026-09-30) — feeds the hard
+  // deal_memo exclusion in resolveDocumentAccess below.
   const { data: doc } = await admin.from('documents')
-    .select('id, name, folder_id, visibility, storage_path, external_url, malware_scan_status, org_id')
+    .select('id, name, folder_id, visibility, storage_path, external_url, malware_scan_status, org_id, kind')
     .eq('id', params.documentId).maybeSingle();
   // A document that does not exist and one that is not shared with this
   // investor answer identically, on purpose.
@@ -105,7 +107,7 @@ export async function GET(req: Request, { params }: { params: { documentId: stri
   // here with the reason that names the real next step.
   const { visibleIds, pendingIds } = resolveDocumentAccess(
     grants,
-    [{ id: doc.id as string, folder_id: doc.folder_id as string | undefined, visibility: doc.visibility as string | undefined }],
+    [{ id: doc.id as string, folder_id: doc.folder_id as string | undefined, visibility: doc.visibility as string | undefined, kind: doc.kind as string | null }],
     folderTree,
   );
   if (pendingIds.includes(doc.id as string)) return refuse('nda_required', 403);

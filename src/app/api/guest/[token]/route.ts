@@ -121,12 +121,16 @@ export async function GET(req: Request, { params }: { params: { token: string } 
   const folderTree = (orgFolders ?? []).map((f) => ({ id: f.id as string, parent_id: (f.parent_id as string | undefined) ?? undefined }));
   const folderIds = descendantFolderIds(folderTree, grants.filter((g) => g.folder_id).map((g) => g.folder_id as string));
   const directDocIds = grants.filter((g) => g.document_id).map((g) => g.document_id as string);
+  // kind added to both selects (deal-terms review fix A, 2026-09-30) so
+  // resolveDocumentAccess's hard deal_memo exclusion below has data to act
+  // on — a guest link is the one surface here with NO login at all, so a
+  // leaked name here is the worst case, not a lesser one.
   const [{ data: docsInFolders }, { data: directDocs }] = await Promise.all([
-    folderIds.length ? admin.from('documents').select('id, name, folder_id, visibility').in('folder_id', folderIds) : Promise.resolve({ data: [] }),
-    directDocIds.length ? admin.from('documents').select('id, name, folder_id, visibility').in('id', directDocIds) : Promise.resolve({ data: [] }),
+    folderIds.length ? admin.from('documents').select('id, name, folder_id, visibility, kind').in('folder_id', folderIds) : Promise.resolve({ data: [] }),
+    directDocIds.length ? admin.from('documents').select('id, name, folder_id, visibility, kind').in('id', directDocIds) : Promise.resolve({ data: [] }),
   ]);
-  const docMap = new Map<string, { id: string; name: string; folder_id?: string; visibility?: string }>();
-  for (const d of [...(docsInFolders ?? []), ...(directDocs ?? [])]) docMap.set(d.id as string, d as { id: string; name: string; folder_id?: string; visibility?: string });
+  const docMap = new Map<string, { id: string; name: string; folder_id?: string; visibility?: string; kind?: string | null }>();
+  for (const d of [...(docsInFolders ?? []), ...(directDocs ?? [])]) docMap.set(d.id as string, d as { id: string; name: string; folder_id?: string; visibility?: string; kind?: string | null });
   const candidateDocs = [...docMap.values()];
 
   // Same visibility rule /api/portal/access-granted uses (document-level

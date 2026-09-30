@@ -74,8 +74,18 @@ export async function POST(req: Request) {
   // Confirms the document actually belongs to the org being scored, before
   // writing anything against it — the same "resolve, then check ownership
   // before writing" discipline the scorecard scores route uses.
-  const { data: doc } = await admin.from('documents').select('id').eq('id', body.documentId).eq('org_id', body.orgId).maybeSingle();
-  if (!doc) return NextResponse.json({ ok: false, error: 'Document not found.' }, { status: 404 });
+  //
+  // kind checked too (deal-terms review fix A, 2026-09-30): this existence
+  // check never verified the investor actually has a grant for the document
+  // being scored, only that it belongs to the right org — so without this,
+  // an investor who somehow learned a locked deal memo's id could score it,
+  // and /api/portal/watson/evaluation-support later feeds every scored
+  // document's real NAME into an AI prompt whose output is returned
+  // directly to that same investor (buildEvaluationSupportPrompt). Refusing
+  // the write here is the narrower, earlier fix; that route also excludes
+  // deal_memo defensively on the read side.
+  const { data: doc } = await admin.from('documents').select('id, kind').eq('id', body.documentId).eq('org_id', body.orgId).maybeSingle();
+  if (!doc || doc.kind === 'deal_memo') return NextResponse.json({ ok: false, error: 'Document not found.' }, { status: 404 });
 
   // Prompt 355 §A — every write targets the document's CURRENT version
   // (never an arbitrary/stale one the client might pass), so "rectify the

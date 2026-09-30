@@ -7,7 +7,12 @@ import { descendantFolderIds, type TreeDocument, type TreeFolder } from './data-
 
 export type VisibilityCounts = Record<DocVisibility, number>;
 
-const EMPTY_COUNTS: VisibilityCounts = { open: 0, on_grant: 0, due_diligence: 0 };
+// 'private' (review fix A, 2026-09-30) — only ever a locked deal memo, which
+// always carries folder_id null, so it can never appear in a per-folder
+// count (levelCountsByFolder filters folder_id != null before this runs);
+// it can still reach the org-wide pastille below via db.documents directly,
+// same as any other visibility level would.
+const EMPTY_COUNTS: VisibilityCounts = { open: 0, on_grant: 0, due_diligence: 0, private: 0 };
 
 export function countByVisibility(docs: { visibility: DocVisibility }[]): VisibilityCounts {
   const counts: VisibilityCounts = { ...EMPTY_COUNTS };

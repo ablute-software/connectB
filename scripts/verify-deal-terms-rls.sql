@@ -74,11 +74,28 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------
--- Check 3 — org B's founder CANNOT insert a deal_terms row against org A's
--- entity even while claiming org_id = B (the with-check clause must look
--- at org_id, and entity_id belonging to a different org is a pre-existing,
--- app-trusted assumption shared with every other org-scoped table here —
--- not re-litigated by this migration).
+-- Check 3 — org B's founder CANNOT insert a deal_terms row naming org_id=B
+-- (an org they ARE a member of) but entity_id belonging to org A. Review
+-- fix C (2026-09-30): this used to be "app-trusted, not re-litigated by
+-- this migration" — is_org_member(org_id) alone says nothing about which
+-- org entity_id belongs to. Both triggers on this table are security
+-- definer and write to entities.interest_eur, so without the fix this is a
+-- real cross-tenant write, not just a read leak: org B could overwrite org
+-- A's own entities.interest_eur. The with-check clauses now added
+-- explicitly verify entity_id (and interaction_id/person_id, when
+-- non-null) belong to the SAME org_id as the row being written.
+--
+-- Fixed 2026-09-30: the original version of this check had a real bug —
+-- `exception when insufficient_privilege or others` catches EVERY
+-- exception, including the `raise exception 'FAIL: ...'` raised a few
+-- lines below when the insert unexpectedly SUCCEEDS, so it printed
+-- "PASS (or acceptable no-op)" unconditionally regardless of outcome. It
+-- could never actually have reported a real RLS gap. Narrowed to the
+-- specific SQLSTATE an RLS with-check violation raises (insufficient_
+-- privilege, 42501) — the FAIL exception (default SQLSTATE P0001) is no
+-- longer caught by this handler, so an unexpectedly successful insert now
+-- propagates as a real, visible error and aborts the script, exactly as a
+-- failing `assert` does elsewhere in this file.
 -- ---------------------------------------------------------------------
 do $$
 begin
@@ -86,9 +103,27 @@ begin
     insert into deal_terms (org_id, entity_id, kind, side, formality, amount_eur)
     values ('22222222-2222-2222-2222-222222222222', 'aaaaaaaa-0000-0000-0000-000000000001', 'offer', 'theirs', 'mentioned', 1);
     raise exception 'FAIL: org B founder inserted a deal_terms row claiming org A''s entity';
-  exception when insufficient_privilege or others then
-    raise notice 'PASS (or acceptable no-op): insert blocked or errored as expected';
+  exception when insufficient_privilege then
+    raise notice 'PASS: insert rejected by RLS (entity_id belongs to a different org than org_id)';
   end;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- Check 3b — sanity check: org B's founder CAN still insert an ordinary,
+-- correctly-scoped row (org_id=B, entity_id=B's own entity). Fix C's new
+-- with-check clauses must not have made the policy reject legitimate
+-- inserts — this is the same shape as Check 3 but with entity_id/org_id
+-- actually matching, so it must succeed where Check 3 must fail.
+-- ---------------------------------------------------------------------
+do $$
+declare v_count int;
+begin
+  insert into deal_terms (org_id, entity_id, kind, side, formality, amount_eur)
+  values ('22222222-2222-2222-2222-222222222222', 'bbbbbbbb-0000-0000-0000-000000000001', 'offer', 'theirs', 'mentioned', 500000);
+  select count(*) into v_count from deal_terms
+    where org_id = '22222222-2222-2222-2222-222222222222' and entity_id = 'bbbbbbbb-0000-0000-0000-000000000001' and amount_eur = 500000;
+  assert v_count = 1, 'FAIL: a correctly-scoped insert (org_id and entity_id both org B) was rejected';
+  raise notice 'PASS: a correctly-scoped insert still succeeds after fix C';
 end $$;
 
 -- ---------------------------------------------------------------------

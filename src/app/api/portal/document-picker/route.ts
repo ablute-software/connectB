@@ -37,8 +37,15 @@ export async function GET(req: Request) {
   if (closedBlock) return closedBlock;
   const person = await resolvePerson(admin, email);
 
+  // kind added (deal-terms review fix A, 2026-09-30) — this route's whole
+  // job is announcing document NAMES to an investor with zero grants (this
+  // file's own header: "with zero grants EVERY on_grant/due_diligence
+  // document is locked to them"), which is exactly the leak a locked deal
+  // memo (visibility 'private', but defense-in-depth doesn't rely on that
+  // alone) must never reach — see the explicit kind check on `requestable`
+  // below, on top of the structural exclusion resolveDocumentAccess applies.
   const [{ data: docs }, { data: folders }] = await Promise.all([
-    admin.from('documents').select('id, name, folder_id, visibility').eq('org_id', orgId),
+    admin.from('documents').select('id, name, folder_id, visibility, kind').eq('org_id', orgId),
     admin.from('folders').select('id, parent_id').eq('org_id', orgId),
   ]);
 
@@ -47,8 +54,8 @@ export async function GET(req: Request) {
   const { data: grants } = await admin.from('access_grants').select('folder_id, document_id, nda_required, nda_accepted_at')
     .eq('org_id', orgId).is('revoked_at', null).or(orParts.join(','));
 
-  const docMetas: DocMeta[] = ((docs ?? []) as { id: string; folder_id: string | null; visibility: string | null }[])
-    .map((d) => ({ id: d.id, folder_id: d.folder_id ?? undefined, visibility: d.visibility ?? undefined }));
+  const docMetas: DocMeta[] = ((docs ?? []) as { id: string; folder_id: string | null; visibility: string | null; kind: string | null }[])
+    .map((d) => ({ id: d.id, folder_id: d.folder_id ?? undefined, visibility: d.visibility ?? undefined, kind: d.kind }));
   const treeFolders: TreeFolder[] = ((folders ?? []) as { id: string; parent_id: string | null }[])
     .map((f) => ({ id: f.id, parent_id: f.parent_id ?? undefined }));
   const { visibleIds } = resolveDocumentAccess(
@@ -58,8 +65,11 @@ export async function GET(req: Request) {
   );
   const visibleSet = new Set(visibleIds);
 
-  const requestable = ((docs ?? []) as { id: string; name: string; visibility: string | null }[])
-    .filter((d) => (d.visibility === 'on_grant' || d.visibility === 'due_diligence') && !visibleSet.has(d.id))
+  const requestable = ((docs ?? []) as { id: string; name: string; visibility: string | null; kind: string | null }[])
+    // Explicit kind check, not just the visibility filter that already
+    // excludes 'private' — this list must stay correct even if a deal
+    // memo's visibility were ever wrong (a stale row, a manual DB edit).
+    .filter((d) => (d.visibility === 'on_grant' || d.visibility === 'due_diligence') && d.kind !== 'deal_memo' && !visibleSet.has(d.id))
     .map((d) => ({ id: d.id, name: d.name, visibility: d.visibility }));
 
   return NextResponse.json({ documents: requestable });

@@ -61,7 +61,20 @@ export function unlockedGrants<T extends GrantLike>(grants: T[]): T[] {
 // Opcional para nao partir chamadores que ainda nao a passem, mas ver o
 // comentario do gate: ausente significa "sem restricao", que e o
 // comportamento anterior.
-export interface DocMeta { id: string; folder_id?: string; visibility?: string }
+//
+// `kind` (deal-terms review fix A, 2026-09-30) — same optional-for-
+// backward-compat shape, for the same reason. A caller that never learned
+// about `kind` (doesn't select it, doesn't pass it here) gets `undefined`,
+// which the gate below treats as "not a deal memo" — the pre-existing
+// behavior, unchanged. This is deliberately a STRUCTURAL exclusion,
+// independent of visibility/grants: it runs before either is even looked
+// at, so a document's visibility being wrong (a stale 'due_diligence' row,
+// a manual DB edit) or a grant existing by mistake can never resurrect a
+// deal memo here. See CLAUDE.md's founder-privacy root rule and the
+// 2026-08-16 SWOT incident it cites — this is the same class of leak
+// (metadata/name, not just content), just on the data-room's own gate
+// rather than an AI prompt.
+export interface DocMeta { id: string; folder_id?: string; visibility?: string; kind?: string | null }
 // Prompt 557 — `pendingIds` alongside `pendingCount`. The count alone was
 // all the guest page could ever show ("+2 documents available after NDA"),
 // which told an invited guest that something exists, not what it is or what
@@ -158,6 +171,15 @@ export function resolveDocumentAccess<T extends GrantLike>(
   const visibleIds: string[] = [];
   const pendingIds: string[] = [];
   for (const doc of documents) {
+    // Deal-terms review fix A (2026-09-30) — hard structural exclusion, BEFORE
+    // visibility or any grant lookup runs at all. A deal memo (kind ===
+    // 'deal_memo') never resolves as visible or pending here, no matter what
+    // its `visibility` column says or what grants exist against it — this is
+    // the backstop for exactly the case a `visibility` value alone cannot
+    // cover: a stale/mistaken 'due_diligence' row, or a direct per-document
+    // grant created by mistake through the People & Access matrix. See this
+    // file's DocMeta comment for the full reasoning.
+    if (doc.kind === 'deal_memo') continue;
     // Prompt 204(a) — 'due_diligence' so abre com grant ao PROPRIO documento.
     //
     // Ate aqui o campo era so um rotulo: a migracao 0100 di-lo por escrito

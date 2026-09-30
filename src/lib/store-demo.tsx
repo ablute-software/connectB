@@ -721,9 +721,17 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       const documentId = uid('doc');
       const now = new Date().toISOString();
       setDb((prev) => {
+        // Review fix A (2026-09-30) — matches store-supabase.tsx's own
+        // lockDealTerms: 'private' (never 'due_diligence', which still lets
+        // a manual per-document grant through), no folder, never
+        // downloadable/watermarked. Demo mode has no real API routes behind
+        // it, but keeping the two stores' documents identical is what "keep
+        // the two-mode behaviour" in CLAUDE.md means in practice — a
+        // browser-based dev:verify session must see the same fail-closed
+        // shape a real Supabase-backed one does.
         const documents: DocumentItem[] = [...prev.documents, {
           id: documentId, name: `Deal memo · ${payload.generatedAt.slice(0, 10)} · ${entity.name}`,
-          is_view_only: true, visibility: 'due_diligence' as DocVisibility, watermark: false, downloadable: true,
+          is_view_only: true, visibility: 'private' as DocVisibility, folder_id: undefined, watermark: false, downloadable: false,
           notes: summary, created_at: payload.generatedAt, kind: 'deal_memo', entity_id: entityId,
           deal_memo_payload: payload as unknown as Record<string, unknown>,
         }];

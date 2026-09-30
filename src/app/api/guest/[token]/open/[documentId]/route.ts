@@ -78,9 +78,11 @@ export async function GET(
   }));
   const kindByFolderId = new Map((orgFolders ?? []).map((f) => [f.id as string, f.kind as string | null]));
 
+  // kind added (deal-terms review fix A, 2026-09-30) — feeds the hard
+  // deal_memo exclusion in resolveDocumentAccess below.
   const { data: doc } = await admin
     .from('documents')
-    .select('id, name, folder_id, visibility, storage_path, external_url, malware_scan_status, org_id')
+    .select('id, name, folder_id, visibility, storage_path, external_url, malware_scan_status, org_id, kind')
     .eq('id', params.documentId).maybeSingle();
   // Cross-org is indistinguishable from "not shared with you", on purpose.
   if (!doc || doc.org_id !== orgId) return refuse('invalid', 403);
@@ -115,7 +117,7 @@ export async function GET(
   // longer mask an NDA refusal.
   const { visibleIds } = resolveDocumentAccess(
     grants,
-    [{ id: doc.id as string, folder_id: doc.folder_id as string | undefined, visibility: doc.visibility as string | undefined }],
+    [{ id: doc.id as string, folder_id: doc.folder_id as string | undefined, visibility: doc.visibility as string | undefined, kind: doc.kind as string | null }],
     folderTree,
   );
   if (!visibleIds.includes(doc.id as string)) return refuse('confirmation_required', 403);

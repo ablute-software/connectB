@@ -1373,9 +1373,19 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       const documentId = uuid();
       const now = new Date().toISOString();
 
+      // Review fix A (2026-09-30) — 'private', not 'due_diligence': the
+      // latter still lets a founder grant this document by mistake through
+      // the People & Access matrix (a due_diligence doc's own-grant path is
+      // exactly what resolveDocumentAccess treats as "can still open it
+      // directly"). folder_id stays null (never filed in the Vault tree),
+      // downloadable/watermark both false — this is an archived record, not
+      // a document that gets shared. The real backstop is the hard
+      // kind==='deal_memo' exclusion in resolveDocumentAccess/DocMeta, which
+      // makes even a mistaken manual grant a no-op; this value is the first
+      // line, not the only one.
       const { error: docError } = await sb.from('documents').insert({
         id: documentId, org_id: o, name: `Deal memo · ${payload.generatedAt.slice(0, 10)} · ${entity.name}`,
-        is_view_only: true, visibility: 'due_diligence', watermark: false, downloadable: true,
+        is_view_only: true, visibility: 'private', folder_id: null, watermark: false, downloadable: false,
         notes: summary, kind: 'deal_memo', entity_id: entityId, deal_memo_payload: payload,
       });
       if (docError) return { error: docError.message };
@@ -1398,7 +1408,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       const cur = dbRef.current;
       const documents: DocumentItem[] = [...cur.documents, {
         id: documentId, name: `Deal memo · ${payload.generatedAt.slice(0, 10)} · ${entity.name}`,
-        is_view_only: true, visibility: 'due_diligence', watermark: false, downloadable: true,
+        is_view_only: true, visibility: 'private', folder_id: undefined, watermark: false, downloadable: false,
         notes: summary, created_at: payload.generatedAt, kind: 'deal_memo', entity_id: entityId,
         deal_memo_payload: payload as unknown as Record<string, unknown>,
       }];

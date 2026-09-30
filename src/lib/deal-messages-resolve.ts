@@ -18,10 +18,25 @@ function idsOf(messages: DealMessage[]): string[] {
   return [...new Set(messages.flatMap((m) => m.documentIds))];
 }
 
-async function namesFor(admin: SupabaseClient, orgId: string, ids: string[]): Promise<Map<string, string>> {
+// `excludeDealMemos` (deal-terms review fix A, 2026-09-30) — defaults to
+// false so resolveFounderMessageDocs below keeps its existing behavior
+// unchanged (a founder attaching their own document to their own reply is
+// not a leak; it's their Vault). resolveInvestorMessageDocs passes true:
+// withDocumentInfo (deal-messages.ts) shows a NAME for every attached id
+// regardless of `accessible`, on purpose ("the message never lies about
+// what was sent") — which means a founder mistakenly attaching a locked
+// deal memo to a reply would otherwise leak its name to the investor even
+// though `accessible` correctly comes back false. Excluding it here, before
+// the name map is even built, makes it fall back to the same "Document no
+// longer available" wording an actually-deleted attachment gets — the
+// investor can't tell "deleted" from "never yours" apart, which is exactly
+// the property CLAUDE.md's founder-privacy root rule asks for.
+async function namesFor(admin: SupabaseClient, orgId: string, ids: string[], excludeDealMemos = false): Promise<Map<string, string>> {
   if (ids.length === 0) return new Map();
-  const { data } = await admin.from('documents').select('id, name').in('id', ids).eq('org_id', orgId);
-  return new Map((data ?? []).map((d) => [d.id as string, d.name as string]));
+  const { data } = await admin.from('documents').select('id, name, kind').in('id', ids).eq('org_id', orgId);
+  return new Map((data ?? [])
+    .filter((d) => !excludeDealMemos || d.kind !== 'deal_memo')
+    .map((d) => [d.id as string, d.name as string]));
 }
 
 // Lado do founder: dono da Vault. Um documento que exista na org dele é
@@ -45,7 +60,7 @@ export async function resolveInvestorMessageDocs(
   const ids = idsOf(messages);
   if (ids.length === 0) return withDocumentInfo(messages, new Map(), new Set());
 
-  const names = await namesFor(admin, orgId, ids);
+  const names = await namesFor(admin, orgId, ids, true);
 
   // Prompt 278 §4 — the kill switch: a message attachment is never a
   // channel around it. Same shape as "no active grant" below — the
@@ -59,8 +74,10 @@ export async function resolveInvestorMessageDocs(
     expires_at?: string | null; invited_email?: string | null; confirmed_at?: string | null;
   })[]).filter((g) => (!g.expires_at || new Date(g.expires_at) > now) && (!g.invited_email || g.confirmed_at));
 
+  // kind added (deal-terms review fix A) — feeds resolveDocumentAccess's
+  // hard deal_memo exclusion, same as the `names` map above.
   const [{ data: docs }, { data: folders }] = await Promise.all([
-    admin.from('documents').select('id, folder_id, visibility').in('id', ids).eq('org_id', orgId),
+    admin.from('documents').select('id, folder_id, visibility, kind').in('id', ids).eq('org_id', orgId),
     admin.from('folders').select('id, parent_id').eq('org_id', orgId),
   ]);
   const folderTree = (folders ?? []).map((f) => ({
@@ -77,6 +94,7 @@ export async function resolveInvestorMessageDocs(
       id: d.id as string,
       folder_id: (d.folder_id as string | undefined) ?? undefined,
       visibility: d.visibility as string | undefined,
+      kind: d.kind as string | null | undefined,
     })),
     folderTree,
   );

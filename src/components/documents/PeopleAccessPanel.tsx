@@ -205,6 +205,25 @@ export function PeopleAccessPanel({ onShareByEmail }: {
     ? db.entities.find((e) => `entity:${e.id}` === selectedKey) ?? null
     : null;
 
+  // Deal-terms review fix A.3 (2026-09-30) — a locked deal memo's own
+  // folder_id is always null (store-supabase.tsx/store-demo.tsx's
+  // lockDealTerms), so it never appears via docsIn()/folderBlock() below —
+  // that alone already means no grant checkbox is ever offered for it. But
+  // the brief also asks that it be VISIBLE here, explicitly labeled
+  // non-shareable, rather than silently absent (a founder scanning this
+  // matrix for "what could this investor see" should be told a private
+  // record exists, not left to wonder why the memo they just locked isn't
+  // in the list anywhere). Scoped to the currently selected entity — a deal
+  // memo is always about one specific investor (entity_id), never the org
+  // at large.
+  const selectedEntityIdForMemos = selected?.entityId ?? selectedPipelineEntity?.id ?? null;
+  const dealMemoDocsForSelection = useMemo(
+    () => selectedEntityIdForMemos
+      ? db.documents.filter((d) => d.kind === 'deal_memo' && d.entity_id === selectedEntityIdForMemos)
+      : [],
+    [db.documents, selectedEntityIdForMemos],
+  );
+
   // Who a NEW grant in this relationship goes to. For an existing
   // relationship that is the recipients it already has — adding documents
   // must not quietly widen access to colleagues who never had any. Only an
@@ -850,6 +869,27 @@ export function PeopleAccessPanel({ onShareByEmail }: {
                     <button onClick={() => setGrantTargets([])} className="text-xs text-gray-400 hover:underline">Cancel</button>
                   </div>
                   <p className="mt-1.5 text-[10px] text-cyan-800">Keep clicking “Can’t view” badges to add more before granting. The recipient gets one email, not one per file.</p>
+                </div>
+              )}
+
+              {/* Deal-terms review fix A.3 — never a checkbox, never a grant
+                  target: these rows are not part of `sections`/folderBlock
+                  at all (folder_id is null), so they get their own small
+                  block instead of a fake folder. */}
+              {dealMemoDocsForSelection.length > 0 && (
+                <div className="rounded-lg border border-gray-100 bg-gray-50 p-2">
+                  <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400">Deal memos</div>
+                  <ul className="space-y-1">
+                    {dealMemoDocsForSelection.map((d) => (
+                      <li key={d.id} className="flex items-center justify-between gap-2 text-xs">
+                        <span className="min-w-0 truncate text-gray-500">{d.name}</span>
+                        <span className="shrink-0 rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500"
+                          title="Deal memos are archived, founder-only snapshots — they can never be shared with an investor, from this matrix or anywhere else.">
+                          Private deal memo — never shareable
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
 

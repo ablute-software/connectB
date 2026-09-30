@@ -37,10 +37,18 @@ export async function GET() {
   const docIds = [...new Set((views ?? []).map((v) => v.document_id as string))];
   const [{ data: orgs }, { data: docs }] = await Promise.all([
     orgIds.length ? admin.from('orgs').select('id, name').in('id', orgIds) : Promise.resolve({ data: [] as { id: string; name: string }[] }),
-    docIds.length ? admin.from('documents').select('id, name').in('id', docIds) : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+    docIds.length ? admin.from('documents').select('id, name, kind').in('id', docIds) : Promise.resolve({ data: [] as { id: string; name: string; kind?: string | null }[] }),
   ]);
   const orgNameById = new Map((orgs ?? []).map((o) => [o.id as string, o.name as string]));
-  const docNameById = new Map((docs ?? []).map((d) => [d.id as string, d.name as string]));
+  // Deal-terms review fix A (2026-09-30) — this is this investor's own
+  // record of documents THEY opened, so a document_views row for a deal
+  // memo should never exist once /api/portal/open and /api/portal/view both
+  // refuse it (see this file's own header: both are the two routes that
+  // ever write to document_views). Excluded here too, belt-and-suspenders,
+  // so a pre-existing row from before those gates existed falls back to the
+  // same "(document no longer exists)" wording used below for a genuinely
+  // deleted document, rather than showing the memo's real name.
+  const docNameById = new Map((docs ?? []).filter((d) => d.kind !== 'deal_memo').map((d) => [d.id as string, d.name as string]));
 
   return NextResponse.json({
     ok: true, available: true,

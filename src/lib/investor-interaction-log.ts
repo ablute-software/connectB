@@ -96,8 +96,13 @@ export async function getInteractionTimeline(
 
   const documentIds = [...new Set(manual.map((m) => m.document_id ?? null).filter((v): v is string => !!v))];
   const { data: docs } = documentIds.length
-    ? await admin.from('documents').select('id, name').in('id', documentIds) : { data: [] as { id: string; name: string }[] };
-  const docById = new Map((docs ?? []).map((d) => [d.id as string, d.name as string]));
+    ? await admin.from('documents').select('id, name, kind').in('id', documentIds) : { data: [] as { id: string; name: string; kind?: string | null }[] };
+  // Deal-terms review fix A (2026-09-30) — belt-and-suspenders: the write
+  // path (createManualInteractionEntry, gated by visibleDocumentsForFirm in
+  // data-room-server.ts) already refuses a deal_memo id, so this should
+  // never actually find one; excluded here too so a row written before that
+  // gate existed (or by any future bug in it) can't surface the name.
+  const docById = new Map((docs ?? []).filter((d) => d.kind !== 'deal_memo').map((d) => [d.id as string, d.name as string]));
 
   for (const m of manual) {
     const personId = m.person_id ?? null;

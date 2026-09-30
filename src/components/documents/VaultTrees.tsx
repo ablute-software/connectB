@@ -28,13 +28,18 @@ import { nonZeroLevels, type VisibilityCounts } from '@/lib/vault-level-summary'
 // Prompt 741 §A.2 — same three colors as the page's visibility pills, kept
 // as its own small map rather than importing page.tsx's (which also carries
 // background classes meant for a pill, not a bare dot).
+// 'private' (review fix A) never appears via the per-folder path (a deal
+// memo's folder_id is always null — see vault-level-summary.ts), only
+// potentially in the org-wide pastille; entries kept here only to satisfy
+// Record<DocVisibility, …>'s exhaustiveness.
 const LEVEL_DOT_CLASS: Record<DocVisibility, string> = {
   open: 'text-green-600',
   on_grant: 'text-amber-600',
   due_diligence: 'text-[#B00000]',
+  private: 'text-gray-500',
 };
 const LEVEL_LABEL: Record<DocVisibility, string> = {
-  open: 'open', on_grant: 'on request', due_diligence: 'due diligence',
+  open: 'open', on_grant: 'on request', due_diligence: 'due diligence', private: 'private',
 };
 
 export function TriStateBox({ state, onClick }: { state: GrantState; onClick: () => void }) {

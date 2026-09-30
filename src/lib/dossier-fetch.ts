@@ -194,8 +194,18 @@ export async function fetchDossierRawData(
     // hidden: skipped entirely while frozen, same "not fetched below its
     // level" discipline this function applies everywhere else.
     if (!(await vaultFrozenForOrg(admin, orgId))) {
-      const { data: docs } = await admin.from('documents').select('id, name').eq('org_id', orgId);
-      documentTitles = (docs ?? []).map((d) => ({ id: d.id as string, name: d.name as string }));
+      // Deal-terms review fix A (2026-09-30) — this teaser bypasses
+      // access_grants/resolveDocumentAccess entirely by design (this
+      // block's own header comment), which means the usual gate never runs
+      // for it at all. A locked deal memo's own visibility ('private') and
+      // kind ('deal_memo') are the ONLY things standing between it and this
+      // list, so the kind check has to happen here explicitly — the same
+      // hard, structural exclusion resolveDocumentAccess applies elsewhere,
+      // reproduced here because this path never calls that function.
+      const { data: docs } = await admin.from('documents').select('id, name, kind').eq('org_id', orgId);
+      documentTitles = (docs ?? [])
+        .filter((d) => d.kind !== 'deal_memo')
+        .map((d) => ({ id: d.id as string, name: d.name as string }));
     }
   }
 

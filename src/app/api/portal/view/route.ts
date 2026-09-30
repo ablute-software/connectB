@@ -29,8 +29,18 @@ export async function POST(req: NextRequest) {
   if (viewerBlock) return viewerBlock;
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const { data: doc, error: docErr } = await admin.from('documents').select('org_id, folder_id, visibility').eq('id', documentId).single();
+  const { data: doc, error: docErr } = await admin.from('documents').select('org_id, folder_id, visibility, kind').eq('id', documentId).single();
   if (docErr || !doc) return NextResponse.json({ ok: false, error: docErr?.message ?? 'document not found' }, { status: 404 });
+  // Deal-terms review fix A (2026-09-30) — this route has no access check at
+  // all beyond resolving a grant_id for provenance (it logs a view, it
+  // doesn't gate one — the actual open happens through /api/portal/open or
+  // the signed URL the Documents tab already has). A locked deal memo must
+  // never get a document_views row at all: the founder's own "who opened
+  // what" list joins this table, and a fabricated entry for a document no
+  // investor could actually open would be a false read on it. Same refusal
+  // shape as documentId not found — an investor probing this route can't
+  // learn the id exists from the response either way.
+  if (doc.kind === 'deal_memo') return NextResponse.json({ ok: false, error: 'document not found' }, { status: 404 });
 
   // Prompt 124 C3 — grant_id was never populated here (confirmed: rows
   // existed in document_views all along, just with grant_id always null),

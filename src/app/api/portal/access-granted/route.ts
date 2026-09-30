@@ -165,7 +165,9 @@ export async function GET() {
       // SCOPE, not the NDA lock — isDocLocked (below) is the single place
       // that decides locked vs open, so the two decisions can never disagree.
       activeGrants.map((g) => ({ ...g, nda_required: false, nda_accepted_at: g.nda_accepted_at ?? undefined })),
-      candidateDocs.map((d) => ({ id: d.id as string, folder_id: (d.folder_id as string | undefined) ?? undefined, visibility: d.visibility as string | undefined })),
+      // kind carried through (deal-terms review fix A, 2026-09-30) — docsInFolders/
+      // directDocs above are `select('*')`, so it's already on each row.
+      candidateDocs.map((d) => ({ id: d.id as string, folder_id: (d.folder_id as string | undefined) ?? undefined, visibility: d.visibility as string | undefined, kind: d.kind as string | null | undefined })),
       folderTree,
     );
     const inScopeDocs = candidateDocs.filter((d) => inScopeIds.includes(d.id as string));

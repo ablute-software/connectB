@@ -272,11 +272,14 @@ export async function GET(req: Request) {
   for (const d of [...(docsInFolders ?? []), ...(directDocs ?? [])]) docMap.set(d.id as string, d);
   const candidateDocs = [...docMap.values()];
 
+  // kind carried through (deal-terms review fix A, 2026-09-30) — docsInFolders/
+  // directDocs above are `select('*')`, so it's already on each row; this
+  // is what feeds resolveDocumentAccess's hard deal_memo exclusion.
   const { visibleIds, pendingIds, pendingCount: docPendingCount } = resolveDocumentAccess(
     orgGrants,
     candidateDocs.map((d) => ({
       id: d.id as string, folder_id: (d.folder_id as string | undefined) ?? undefined,
-      visibility: d.visibility as string | undefined,
+      visibility: d.visibility as string | undefined, kind: d.kind as string | null | undefined,
     })),
     folderTree,
   );

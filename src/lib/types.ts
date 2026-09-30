@@ -51,7 +51,23 @@ export type SubmissionChannelType = 'email' | 'form' | 'none' | 'unknown';
 export type FolderKind = 'data_room' | 'materials';
 // P103 Bloco 3 / P104 #3 — was 'private' | 'on_grant' | 'link_anyone';
 // renamed (migration 0100) to match the new lock-icon scheme.
-export type DocVisibility = 'due_diligence' | 'on_grant' | 'open';
+//
+// Deal-terms review fix A (2026-09-30) — 'private' reintroduced, but as a
+// DIFFERENT thing from the pre-0100 value of the same name: it is not a
+// fourth founder-selectable level (VISIBILITY_OPTIONS in documents/page.tsx
+// deliberately does not list it) and it is not merely "stricter than
+// due_diligence" — due_diligence still allows a manual per-document grant
+// through the People & Access matrix (see resolveDocumentAccess in
+// data-room.ts), which is exactly the mistake this value exists to make
+// impossible. 'private' means "outside the grant system entirely": no
+// document-level grant, no folder-level grant, ever resolves it as visible
+// — see the hard `kind==='deal_memo'` exclusion in resolveDocumentAccess,
+// which is the actual backstop (this value alone would still let a
+// misinformed founder try to grant it; the kind check is what makes that a
+// no-op). Set only by lockDealTerms's two call sites in store-supabase.tsx/
+// store-demo.tsx, on the archived deal-memo document — never chosen by a
+// founder, never shown as an option in the Vault's own visibility picker.
+export type DocVisibility = 'due_diligence' | 'on_grant' | 'open' | 'private';
 export type AutomationMode = 'draft_review' | 'full_auto';
 export type AutomationTrigger =
   | 'no_reply_14d' | 'followup_no_reply_14d' | 'inbound_meeting_request'
