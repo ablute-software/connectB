@@ -3,8 +3,8 @@
 // than the reference's DOM mutation), and every number comes from plans.ts —
 // the same module the in-app Plans page uses — so prices can never drift
 // between the marketing page and the product.
-import { useState } from 'react';
-import { PLANS } from '@/lib/plans';
+import { useEffect, useState } from 'react';
+import { PLANS, buildPlanSections } from '@/lib/plans';
 import type { PlanTier } from '@/lib/types';
 import s from '@/app/landing.module.css';
 import { PrivateDetectiveCard } from '@/components/plans/PrivateDetectiveCard';
@@ -16,50 +16,35 @@ function Check() {
     </svg>
   );
 }
-function Cross() {
-  return (
-    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M7 7l10 10M17 7L7 17" stroke="#c3d2d6" strokeWidth="2.2" strokeLinecap="round" />
-    </svg>
-  );
-}
 
-// Landing-only copy per tier (audience line, feature bullets, CTA label).
-const COPY: Record<PlanTier, { who: string; cta: string; features: { label: string; muted?: boolean }[] }> = {
-  idea: {
-    who: 'For your very first steps',
-    cta: 'Start free',
-    features: [
-      { label: 'Investor pipeline & agenda' },
-      { label: 'Company facts & consistency' },
-      { label: 'Basic data room' },
-      { label: 'AI drafting & review', muted: true },
-    ],
-  },
-  garage: {
-    who: 'For rounds already in motion',
-    cta: 'Choose this plan',
-    features: [
-      { label: 'Everything in the free plan' },
-      { label: 'AI drafts, triage & review' },
-      { label: 'NDA-protected sharing' },
-      { label: 'Reawakening' },
-    ],
-  },
-  motherfunding: {
-    who: 'For serious, multi-investor raises',
-    cta: 'Choose this plan',
-    features: [
-      { label: 'Everything in List of Suspects' },
-      { label: 'Advanced review & optimisation' },
-      { label: 'Investability reports' },
-      { label: 'Priority support' },
-    ],
-  },
+// Landing-only copy per tier (audience line, CTA label) — the feature list
+// itself is no longer hand-maintained here (Prompt 749: "single source, no
+// drift"). This used to have its own short bullets that didn't derive from
+// plans.ts's own PLANS data at all — including "Priority support", which
+// matched nothing in the actual product. Editorial call, flagged in
+// DECISIONS.md: the compact teaser below is now the first 4 section TITLES
+// of the exact same buildPlanSections() the in-app Plans page renders in
+// full (seats, AI credits, curated pipeline, MatchDeal) — same numbers,
+// same wording, guaranteed not to drift, at the cost of losing the
+// previously hand-picked marketing phrasing. The old muted/crossed-out
+// "coming soon" treatment is dropped along with it: every tier's AI-credits
+// section is now a real, present feature (just a smaller number on idea),
+// so there's nothing left to show crossed out.
+const COPY: Record<PlanTier, { who: string; cta: string }> = {
+  idea: { who: 'For your very first steps', cta: 'Start free' },
+  garage: { who: 'For rounds already in motion', cta: 'Choose this plan' },
+  motherfunding: { who: 'For serious, multi-investor raises', cta: 'Choose this plan' },
 };
 
 export function PricingSection() {
   const [annual, setAnnual] = useState(false);
+  // Prompt 749 — live from the backoffice, same public /api/plan-credits
+  // read PlansPanel.tsx uses; no fallback to a guessed number on failure.
+  const [aiCredits, setAiCredits] = useState<Partial<Record<PlanTier, number>>>({});
+  useEffect(() => {
+    fetch('/api/plan-credits', { cache: 'no-store' }).then((r) => r.json())
+      .then((body) => { if (body.ok) setAiCredits(body.credits ?? {}); }).catch(() => {});
+  }, []);
 
   return (
     <section className={`${s.sec} ${s.pricingSec}`} id="pricing">
@@ -92,6 +77,7 @@ export function PricingSection() {
         <div className={`${s.plans} ${s.plansInvestor}`}>
           {PLANS.map((p, i) => {
             const copy = COPY[p.tier];
+            const features = buildPlanSections(p.tier, aiCredits[p.tier] ?? null).slice(0, 4).map((sec) => sec.title);
             // Prompt 128 — was 'garage' ("Most popular"); the landing's own
             // popular/highlighted-card flag is unrelated to the in-app Plans
             // page's "Best value" badge (PlansPanel.tsx computes that one
@@ -118,10 +104,8 @@ export function PricingSection() {
                 </div>
                 <p className={s.perYear}>{billing}</p>
                 <ul>
-                  {copy.features.map((f) => (
-                    <li key={f.label} className={f.muted ? s.mut : undefined}>
-                      {f.muted ? <Cross /> : <Check />}{f.label}
-                    </li>
+                  {features.map((f) => (
+                    <li key={f}><Check />{f}</li>
                   ))}
                 </ul>
                 <a className={`${s.btn} ${popular ? s.btnTeal : s.btnGhostLight}`} href="/signup">{copy.cta}</a>

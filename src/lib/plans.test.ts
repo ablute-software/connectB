@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   PLANS, PLAN_TIERS, normalizePlan, planIsPaid, planName, planEntitlements,
-  planPriceLabel, planRow, encodePlanRequest, parsePlanRequest,
+  planPriceLabel, planRow, encodePlanRequest, parsePlanRequest, buildPlanSections,
 } from './plans';
+import type { PlanCardSection } from '@/components/plans/types';
 
 describe('normalizePlan (legacy mapping)', () => {
   it('maps legacy free -> idea', () => {
@@ -99,68 +100,99 @@ describe('planPriceLabel (Monthly/Annual toggle mapping)', () => {
   });
 });
 
-// Prompt 123 §B.1 replaced the 3 cards' copy in full, per "Correção Cards
-// Planos.md" — the old strict "garage bullets = idea bullets + new ones, in
-// the same order" invariant (Prompt 113 §4 step 6) no longer holds by
-// design: several lines are TIER-SPECIFIC REPLACEMENTS, not pure additions
-// (seats: 1/2/5 users; Investor Pipeline's own numbers; Preset vs
-// Customizable Vault). What still has to hold: the features that genuinely
-// don't change per tier keep appearing verbatim at every tier above their
-// introduction.
-describe('plan bullets — shared features persist across tiers (Prompt 123 §B.1)', () => {
+// Prompt 749 replaced the 3 cards' copy in full — each tier's card now
+// states its own COMPLETE, independent feature list via buildPlanSections()
+// rather than a cumulative bullets array. What still has to hold: the
+// features that genuinely don't change per tier keep appearing verbatim at
+// every tier, and each tier's own numbers (seats, MatchDeal, AI credits)
+// are its own.
+describe('buildPlanSections — shared features persist across tiers (Prompt 749)', () => {
   const CARRIED_FORWARD = [
     'Smart Calendar',
+    'Vault Data Room with access control',
     'Protected Outreach (Linting, Volume Caps & Contact Locks)',
     'Actionable Review Queue',
     'Bulk Investor Import',
     'NDA-protected document sharing',
   ];
 
-  it('every unchanging feature bullet appears in all three tiers', () => {
+  function titles(tier: (typeof PLAN_TIERS)[number]): string[] {
+    return buildPlanSections(tier, null).map((s) => s.title);
+  }
+
+  it('every unchanging feature line appears in all three tiers', () => {
     for (const tier of PLAN_TIERS) {
-      const bullets = planRow(tier).bullets;
-      for (const line of CARRIED_FORWARD) expect(bullets).toContain(line);
+      const t = titles(tier);
+      for (const line of CARRIED_FORWARD) expect(t).toContain(line);
     }
   });
 
   it('each tier states its own seat count', () => {
-    expect(planRow('idea').bullets).toContain('1 User (Owner)');
-    expect(planRow('garage').bullets).toContain('2 users');
-    expect(planRow('motherfunding').bullets).toContain('5 users');
+    expect(titles('idea')).toContain('1 user');
+    expect(titles('garage')).toContain('2 users');
+    expect(titles('motherfunding')).toContain('5 users');
   });
 
-  it('each tier has its own Investor Pipeline bullet with its own numbers', () => {
+  it('each tier has its own MatchDeal line with its own numbers', () => {
+    expect(titles('idea').find((t) => t.startsWith('MatchDeal'))).toBe('MatchDeal: 3 new investors per week · 1 Swipe Right per week');
+    expect(titles('garage').find((t) => t.startsWith('MatchDeal'))).toBe('MatchDeal: 10 new investors per week · 5 Swipe Rights per week · 2 Reconsiderations per week');
+    expect(titles('motherfunding').find((t) => t.startsWith('MatchDeal'))).toBe('MatchDeal: 20 new investors per week · 10 Swipe Rights per week · Unlimited Reconsiderations until you use the 10 weekly Swipe Rights');
+  });
+
+  it('the AI-credits number is live, not hardcoded — null renders no number, a real number is interpolated', () => {
+    expect(titles('garage')).toContain('AI credits included');
+    expect(buildPlanSections('garage', 90).map((s) => s.title)).toContain('90 AI credits / month');
+  });
+
+  it('every tier advertises a curated-pipeline section with its own monthly-addition number', () => {
+    const pipelineItems = (tier: (typeof PLAN_TIERS)[number]) =>
+      buildPlanSections(tier, null).find((s) => s.title === 'Curated pipeline*')?.items.map((i) => i.text) ?? [];
+    expect(pipelineItems('idea')).toContain('Up to 10 new curated investors / month*');
+    expect(pipelineItems('garage')).toContain('Up to 25 new curated investors / month*');
+    expect(pipelineItems('motherfunding')).toContain('Up to 50 new curated investors / month*');
+  });
+
+  // Prompt 749 — exact per-tier AI-action item count, per the prompt's own
+  // spec: idea=3 (Pitch Blueprint assistant, Company & team research, Market
+  // & document intelligence), garage=6 (+AI outreach drafts, Advanced Review
+  // & Optimization, Investability reports), motherfunding=8 (+Market data
+  // research, Find contradictions across documents).
+  it('AI section lists exactly 3/6/8 items for idea/garage/motherfunding', () => {
+    const aiItemCount = (tier: (typeof PLAN_TIERS)[number]) =>
+      buildPlanSections(tier, null).find((s) => s.enforcedBy === 'ai-credits-wallet')?.items.length ?? -1;
+    expect(aiItemCount('idea')).toBe(3);
+    expect(aiItemCount('garage')).toBe(6);
+    expect(aiItemCount('motherfunding')).toBe(8);
+  });
+
+  // Prompt 749 audit — six lines removed because no code backs them at all
+  // (see plans.ts's own header comment on buildPlanSections for the full
+  // per-line account): no more cumulative "Everything in X, plus" framing,
+  // no fake reprioritization/follow-up/re-engagement/fundraising-round
+  // claims, and no dead WATSON_DRAFT_QUOTA-derived bullet.
+  it('never claims a capability with no code behind it', () => {
+    const FORBIDDEN = [
+      'Everything in',
+      'reprioritization',
+      'follow-up for up to',
+      'fundraising round',
+      're-engagement',
+      'AI-personalized outreach drafts and reviews per month',
+    ];
     for (const tier of PLAN_TIERS) {
-      expect(planRow(tier).bullets.some((b) => b.startsWith('Investor Pipeline'))).toBe(true);
+      const allText = buildPlanSections(tier, 100)
+        .flatMap((s: PlanCardSection) => [s.title, s.note ?? '', ...s.items.map((i) => i.text)])
+        .join(' | ');
+      for (const phrase of FORBIDDEN) expect(allText).not.toContain(phrase);
     }
-    expect(planRow('idea').bullets.find((b) => b.startsWith('Investor Pipeline'))).toContain('5 investors');
-    expect(planRow('garage').bullets.find((b) => b.startsWith('Investor Pipeline'))).toContain('10 investors');
-    expect(planRow('motherfunding').bullets.find((b) => b.startsWith('Investor Pipeline'))).toContain('25 investors');
   });
 
-  // Flagged discrepancy (see plans.ts's own comment on the idea tier): the
-  // doc's Elementary card has no MatchDeal line at all, while List of
-  // Suspects introduces "Access to MatchDeal" as something NEW — even
-  // though idea-tier orgs already have real MATCHDEAL_WEEKLY.idea access at
-  // the entitlement layer. This test pins the CARD COPY as currently
-  // authored, not a claim that the underlying access matches.
-  it('only garage and motherfunding advertise a MatchDeal bullet in copy', () => {
-    expect(planRow('idea').bullets.some((b) => b.startsWith('Access to MatchDeal'))).toBe(false);
-    expect(planRow('garage').bullets.some((b) => b.startsWith('Access to MatchDeal'))).toBe(true);
-    expect(planRow('motherfunding').bullets.some((b) => b.startsWith('Access to MatchDeal'))).toBe(true);
-  });
-
-  // Prompt 158 — promoted out of `comingSoon` into real bullets on both
-  // paid tiers (Nuno confirmed 10/08 they'll be ready by launch). Prompt
-  // 160 (same day) opened the underlying entitlement to match — see the
-  // 'planEntitlements' describe block above for that behavior; this test
-  // only pins the card copy.
-  it('Review & Optimization and Investability Reports are live bullets, not comingSoon, on paid tiers', () => {
-    for (const tier of ['garage', 'motherfunding'] as const) {
-      const row = planRow(tier);
-      expect(row.bullets).toContain('Advanced Review & Optimization');
-      expect(row.bullets).toContain('Investability reports');
-      expect(row.comingSoon ?? []).toEqual([]);
+  it('every section and item declares enforcedBy (required field — this is also a compile-time check)', () => {
+    for (const tier of PLAN_TIERS) {
+      for (const s of buildPlanSections(tier, 100)) {
+        expect(s.enforcedBy).toBeTruthy();
+        for (const item of s.items) expect(item.enforcedBy).toBeTruthy();
+      }
     }
   });
 });

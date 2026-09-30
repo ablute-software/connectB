@@ -3,7 +3,7 @@
 // charge. Modal convention (backdrop + stopPropagation card) matches
 // AddInvestorModal.tsx, the existing pattern elsewhere in the app.
 import type { PlanCardData } from './types';
-import { newBulletsSince } from './types';
+import { newItemsSince } from './types';
 
 export function UpgradeConfirmModal({
   fromPlan,
@@ -20,7 +20,7 @@ export function UpgradeConfirmModal({
   busy?: boolean;
   confirmLabel: string;
 }) {
-  const gained = [...newBulletsSince(toPlan, fromPlan)];
+  const gained = [...newItemsSince(toPlan, fromPlan)];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onCancel}>
