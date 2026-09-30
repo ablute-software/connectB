@@ -9141,3 +9141,15 @@ Verificação no browser não feita nesta sessão (disco demasiado apertado para
 **Merge:** `git push origin claude/log-team-selector-guide:main` (fast-forward confirmado, `ca685f7c..bb864cd1`), autorizado explicitamente por Nuno em 29/09/2026 junto com esta decisão sobre o §D. Verificação de deploy por buildId (antes/depois, com cache-busting) registada à parte, quando confirmada.
 
 **Deploy confirmado ao vivo, 29/09/2026:** buildId antes do push `_WaAjuoJtj0uvClJ2QdAN` (capturado imediatamente antes do `git push`); depois, com cache-busting (`?cb=$RANDOM`) e `Age: 0` / `X-Vercel-Cache: MISS` confirmados (não é uma resposta cacheada) — `UJSOS66SCfNDGI3-e2BAw`. buildId diferente, resposta fresca: o 896 está realmente em produção em `www.sherlockdeal.com`, pronto para o teste do Nuno na DOMiNO.
+
+---
+
+## 30/09/2026 — Prompt 897 §A.3: numeração do Nuno vs numeração desta sessão
+
+Nota para não voltar a acontecer: o "Prompt 851" citado no enunciado do 896 (e a que a entrada acima já tinha respondido "não existe, grep confirmou zero ocorrências") **existe sim, só que com outro número.** Na numeração do Nuno, "851" corresponde aos **Prompts 879/880 desta sessão** (04/09/2026) — a mesma decisão de produto sobre o banner Sherlock Insight que a entrada do 896 já cita como "Prompt 880". Regra a aplicar daqui para a frente: quando um prompt citar um número que não bate certo com o ledger desta sessão, procurar pela data e pelo assunto descritos antes de declarar "não existe" — os dois lados numeram por sistemas diferentes, e uma referência a um número "inexistente" pode só estar a apontar para o mesmo trabalho com outro rótulo.
+
+## 30/09/2026 — Prompt 897 §B: uma pasta por repositório, nunca mais `connectB-NNN`
+
+**O que aconteceu, para registo.** `C:\Users\nunom\Documents\projetos Code` tinha 58 pastas, 50 delas `connectB-527` … `connectB-895` — uma cópia completa do repositório por prompt, cada uma com `node_modules` (~700MB) e `.next` (~785MB) próprios. Isto, não as caches em `AppData\Local` (~8GB), é que enchia os 237GB do disco. A 29-30/09/2026 o Nuno e uma sessão anterior retiraram `node_modules`/`.next` de 46 cópias antigas (nenhum ficheiro de código ou de git tocado) e apagaram ~3,9GB de caches em `AppData\Local`. Cinco cópias continuam em uso: `ConnectB`, `connectB-737`, `connectB-893`, `connectB-894`, `connectB-895`.
+
+**Regra nova, efectiva a partir deste prompt: uma só pasta por repositório.** Um prompt é uma branch, nunca uma cópia da pasta inteira. Quando for mesmo preciso isolamento entre sessões concorrentes (a razão original destas cópias — ver `two_sessions_one_working_tree` na memória), usa-se `git worktree` dentro de `.claude/worktrees/` (o padrão que este próprio repositório já usa para os agentes desta sessão), com o worktree removido (`git worktree remove`) no fim do prompt que o criou — nunca deixado para trás indefinidamente. Espelhada também no `CLAUDE.md`, secção "Run locally", para sobreviver a sessões futuras que não leiam este ficheiro até ao fim.

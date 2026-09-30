@@ -26,6 +26,18 @@ npm run build    # must pass before pushing
 ```
 Without Supabase env vars the app runs in **demo mode** (localStorage only, auth disabled).
 
+**One folder per repository — never `connectB-NNN` copies (Prompt 897, 30/09/2026).** Fifty
+past sessions each cloned this repo into its own `connectB-NNN` folder under
+`C:\Users\nunom\Documents\projetos Code` instead of using a worktree, and each clone's own
+`node_modules` (~700MB) plus `.next` (~785MB) is what actually filled a 237GB disk — not the
+handful of GB sitting in package-manager caches. A prompt is a branch, never a copy of the
+whole working directory. When two sessions genuinely need to work concurrently without
+stepping on each other (the original reason for these copies — a plain branch checkout does
+NOT isolate parallel sessions here, only a separate working tree does), use `git worktree`
+under `.claude/worktrees/` — the pattern this repo's own sessions already use for delegated
+agents — and remove it (`git worktree remove`) when the prompt that created it is done, rather
+than leaving it behind indefinitely.
+
 ## Verifying a change in the browser — never against production (Prompt 250)
 
 Three test-data writes reached the same real production entity (`c8ff10dd-…`,
