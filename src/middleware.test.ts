@@ -35,6 +35,9 @@ beforeAll(async () => {
 function post(path: string) {
   return new NextRequest(new URL(path, 'https://www.sherlockdeal.com'), { method: 'POST' });
 }
+function get(path: string) {
+  return new NextRequest(new URL(path, 'https://www.sherlockdeal.com'), { method: 'GET' });
+}
 
 describe('middleware — unauthenticated API access', () => {
   it('lets POST /api/provision-org through instead of redirecting it to /login', async () => {
@@ -63,5 +66,18 @@ describe('middleware — unauthenticated API access', () => {
     const res = await middleware(post('/api/provision-org-something-else'));
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toContain('/login');
+  });
+
+  // Prompt 749/750 merge — found live in production, the same class of bug
+  // this file's own header describes: /api/plan-credits was built
+  // specifically so the anonymous landing page could read live AI-credit
+  // numbers (PricingSection.tsx), but was never added here. An anonymous
+  // GET 307'd to /login instead of returning JSON, so the landing page's
+  // fetch silently failed and always rendered the no-live-number fallback
+  // — never wrong data, just never the live number the prompt asked for.
+  it('lets GET /api/plan-credits through unauthenticated (the anonymous landing page reads it)', async () => {
+    const res = await middleware(get('/api/plan-credits'));
+    expect(res.status).not.toBe(307);
+    expect(res.headers.get('location')).toBeNull();
   });
 });

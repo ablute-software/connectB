@@ -63,7 +63,19 @@ const PUBLIC = ['/', '/investors', '/login', '/signup', '/auth', '/portal', '/ap
   // email-invite link) is a recipient who has no session yet at all. The
   // connect-link page also needs to load logged-out so it can redirect an
   // unauthenticated opener into /signup itself, client-side.
-  '/network/invite', '/api/network/invite-link', '/network/connect'];
+  '/network/invite', '/api/network/invite-link', '/network/connect',
+  // Prompt 749 — the exact same "unauthenticated landing page needs live
+  // data" case as /investors above, for the live AI-credit numbers on the
+  // founder landing page's pricing section (PricingSection.tsx). Found
+  // missing here only after merge, by probing the live route: an anonymous
+  // request was 307ing to /login instead of returning JSON, so
+  // PricingSection's fetch silently failed (its own .catch) and every
+  // anonymous visitor's landing page rendered "AI credits included" with
+  // no number — never wrong data, just never the LIVE number the prompt
+  // asked for. The route itself has no write capability and only ever
+  // reads the three built-in plans' public price-list numbers (no
+  // fallback to a guessed constant either — see that route's own header).
+  '/api/plan-credits'];
 
 // Where a signed-in user belongs. '/' is the public landing now, so the app
 // home is the pipeline.
