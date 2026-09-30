@@ -262,7 +262,7 @@ export async function GET() {
   try {
     if (await investorNotifyDigestAvailable()) {
       investorNotifyDigestSweep = await runInvestorNotifyDigestSweep(admin, new Date(now));
-      console.log(`[automations] investor notify digest: ${investorNotifyDigestSweep.membersEligible} eligible, ${investorNotifyDigestSweep.emailsSent} sent, ${investorNotifyDigestSweep.emailsFailed} failed`);
+      console.log(`[automations] investor notify digest: ${investorNotifyDigestSweep.membersEligible} eligible, ${investorNotifyDigestSweep.emailsSent} sent, ${investorNotifyDigestSweep.emailsFailed} failed, ${investorNotifyDigestSweep.orgsSkippedNotVisible} orgs skipped (not visible)`);
     }
   } catch (e) {
     console.error('[automations] investor notify digest sweep failed:', e);

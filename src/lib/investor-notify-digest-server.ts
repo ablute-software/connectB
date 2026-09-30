@@ -12,12 +12,26 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { decideNotifyDigestForMember, type NewPipelineAdmission } from './investor-notify-digest';
 import { sendTransactionalEmail, transactionalTemplate } from './resend';
 import { isFirmTestOrInternal } from './investor-signal-events';
+import { eligiblePipelineOrgIds } from './portal-access';
 import { BRAND_NAME, APP_URL } from './brand';
 
 export interface NotifyDigestSweepResult {
   membersEligible: number;
   emailsSent: number;
   emailsFailed: number;
+  // The gap this closes: an admission can be genuinely `presented_at`-stamped
+  // and still no longer belong in front of an investor by the time the 9am
+  // digest runs — the org may have closed, been suspended (owner, platform,
+  // or back-office), or been excluded from discovery outright since. Counted
+  // here (a running total across every member this sweep run touches) rather
+  // than silently dropped, so a spike is visible in the same log line/JSON
+  // every other sweep counter already reports through. See
+  // eligiblePipelineOrgIds (portal-access.ts) / filterEligibleOrgs
+  // (pipeline-eligibility.ts) for the one shared "still visible today"
+  // predicate this reuses — never a hand-rolled subset of its conditions
+  // (that is exactly the Estojo incident pipeline-eligibility.ts's own header
+  // describes).
+  orgsSkippedNotVisible: number;
 }
 
 interface EligibleMemberRow {
@@ -73,13 +87,14 @@ export async function runInvestorNotifyDigestSweep(admin: SupabaseClient, now: D
     .eq('status', 'active').eq('notify_new_eligible_startup', true);
   if (membersError) {
     console.error('[investor-notify-digest] failed to load eligible members:', membersError.message);
-    return { membersEligible: 0, emailsSent: 0, emailsFailed: 0 };
+    return { membersEligible: 0, emailsSent: 0, emailsFailed: 0, orgsSkippedNotVisible: 0 };
   }
   const eligible = (members ?? []) as EligibleMemberRow[];
-  if (eligible.length === 0) return { membersEligible: 0, emailsSent: 0, emailsFailed: 0 };
+  if (eligible.length === 0) return { membersEligible: 0, emailsSent: 0, emailsFailed: 0, orgsSkippedNotVisible: 0 };
 
   let emailsSent = 0;
   let emailsFailed = 0;
+  let orgsSkippedNotVisible = 0;
 
   for (const member of eligible) {
     try {
@@ -119,7 +134,7 @@ export async function runInvestorNotifyDigestSweep(admin: SupabaseClient, now: D
       // Oldest-new-first — a stable, chronological reading order for "what
       // you missed," not the DB's own arbitrary return order.
       const sortedAdmissions = [...admissions].sort((a, b) => a.presented_at.localeCompare(b.presented_at));
-      const newAdmissions: NewPipelineAdmission[] = sortedAdmissions.map((a) => {
+      const allAdmissions: NewPipelineAdmission[] = sortedAdmissions.map((a) => {
         const org = orgById.get(a.org_id);
         return {
           orgId: a.org_id,
@@ -130,8 +145,52 @@ export async function runInvestorNotifyDigestSweep(admin: SupabaseClient, now: D
         };
       });
 
+      // Prompt 747's own explicit call: send to test/internal firms too (the
+      // recipient is the team member's OWN inbox, never founder-visible).
+      // isTestOrInternal is per-FIRM (keyed on catalog_entity_id, which
+      // varies member to member), so it's computed once here per member and
+      // reused for both the eligibility check below and the observability
+      // log line further down — never a second, divergent computation of the
+      // same thing. It is NOT persisted: email_send_log (migration
+      // 20260902170702) has no is_test_or_internal column — that concept
+      // lives only on investor_signal_events / investor_opportunity_episodes
+      // / investor_reevaluation_conditions today. Adding it to email_send_log
+      // would be a schema change beyond this prompt's one authorized
+      // migration (the watermark column) and Nuno's own sign-off scope, so
+      // this is flagged here rather than silently done or silently skipped.
+      const isTestOrInternal = await isFirmTestOrInternal(admin, member.catalog_entity_id);
+
+      // The bug this closes: `presented_at` being set only means the admission
+      // WAS shown once — it says nothing about whether the org is still
+      // visible today. Between presentation and this 9am sweep the startup
+      // may have closed its account, been suspended (owner, platform, or
+      // back-office), or been excluded from discovery outright. Reusing
+      // eligiblePipelineOrgIds (portal-access.ts) — which itself reuses
+      // filterEligibleOrgs, the one shared "still eligible" predicate — is
+      // deliberate: a hand-rolled subset of these conditions here is exactly
+      // the Estojo incident (pipeline-eligibility.ts's own header) repeating
+      // itself at a new call site.
+      const eligibleOrgIdSet = new Set(await eligiblePipelineOrgIds(admin, isTestOrInternal));
+      const newAdmissions = allAdmissions.filter((a) => eligibleOrgIdSet.has(a.orgId));
+      orgsSkippedNotVisible += allAdmissions.length - newAdmissions.length;
+
       const decision = decideNotifyDigestForMember({ notifyEnabled: true, newAdmissions });
-      if (!decision.send) continue; // Preference is already true here (query filtered on it) — this is the zero-admissions guard, already handled above, kept for safety if that ever changes.
+      if (!decision.send) {
+        // Two ways to land here: nothing was ever new (already handled by the
+        // admissions.length===0 guard above, so unreachable in practice), or
+        // — the case this branch actually exists for — every admission since
+        // the watermark turned out to be no-longer-visible. Either way the
+        // presentation already happened and has now been examined, so the
+        // watermark still advances (same "processed" semantics as a
+        // successful send below); what must not happen is a name that's no
+        // longer real/visible leaking into an email. Never an empty digest.
+        const { error: watermarkError } = await admin.from('matchdeal_investor_members')
+          .update({ notify_new_eligible_last_sent_at: now.toISOString() }).eq('id', member.id);
+        if (watermarkError) {
+          console.error(`[investor-notify-digest] watermark advance failed (all admissions filtered as not-visible) for member=${member.id}:`, watermarkError.message);
+        }
+        continue;
+      }
 
       const { data: userResult, error: userError } = await admin.auth.admin.getUserById(member.user_id);
       const email = userResult?.user?.email;
@@ -141,18 +200,6 @@ export async function runInvestorNotifyDigestSweep(admin: SupabaseClient, now: D
         continue;
       }
 
-      // Prompt 747's own explicit call: send to test/internal firms too (the
-      // recipient is the team member's OWN inbox, never founder-visible) —
-      // isTestOrInternal is only computed here for the console log line
-      // below, for the same observability parity investor_signal_events'
-      // callers have. It is NOT persisted: email_send_log (migration
-      // 20260902170702) has no is_test_or_internal column — that concept
-      // lives only on investor_signal_events / investor_opportunity_episodes
-      // / investor_reevaluation_conditions today. Adding it to email_send_log
-      // would be a schema change beyond this prompt's one authorized
-      // migration (the watermark column) and Nuno's own sign-off scope, so
-      // this is flagged here rather than silently done or silently skipped.
-      const isTestOrInternal = await isFirmTestOrInternal(admin, member.catalog_entity_id);
       const { html, text } = buildDigestEmail(decision.lines, decision.overflowText);
       const result = await sendTransactionalEmail({
         to: email, subject: decision.subject, html, text,
@@ -183,5 +230,5 @@ export async function runInvestorNotifyDigestSweep(admin: SupabaseClient, now: D
     }
   }
 
-  return { membersEligible: eligible.length, emailsSent, emailsFailed };
+  return { membersEligible: eligible.length, emailsSent, emailsFailed, orgsSkippedNotVisible };
 }
