@@ -6,15 +6,23 @@
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { logAdminAction } from '@/lib/audit';
+import { sortPlansForDisplay } from '@/lib/ai-plans-order';
 
 export async function GET() {
   const auth = await requirePlatformAdmin();
   if ('error' in auth) return auth.error;
   const { admin } = auth;
 
-  const { data, error } = await admin.from('plans').select('*').order('is_custom').order('key');
+  const { data, error } = await admin.from('plans').select('*');
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, plans: data });
+  // Prompt 748 §A — was `.order('is_custom').order('key')`, alphabetical by
+  // the internal key (garage, idea, motherfunding — not the price order
+  // idea/garage/motherfunding), which is how a real edit landed on the
+  // wrong row twice in production. Sorted here in the API so every
+  // consumer (this screen, and any future one) gets the same order for
+  // free — see sortPlansForDisplay's own header for why PLANS is the
+  // source of truth instead of a new order column.
+  return NextResponse.json({ ok: true, plans: sortPlansForDisplay(data ?? []) });
 }
 
 export async function POST(req: Request) {
@@ -41,6 +49,11 @@ export async function POST(req: Request) {
     if (error.code === '23505') return NextResponse.json({ ok: false, error: `A plan with key "${key}" already exists.` }, { status: 409 });
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
-  await logAdminAction(admin, { adminUserId: userId, action: 'ai_plan_create', subjectType: 'plans', subjectId: key, detail: { label, monthlyAiCredits } });
-  return NextResponse.json({ ok: true, plan: data });
+  // Prompt 748 §C — subjectId: null, not the plan's key: admin_audit_log.
+  // subject_id is uuid-typed and a plan key ('idea', a custom slug) never
+  // is, so every ai_plan_* audit insert from this file was silently
+  // rejected by Postgres before this fix. The key travels in `detail`
+  // instead, where a natural-key subject belongs.
+  const auditResult = await logAdminAction(admin, { adminUserId: userId, action: 'ai_plan_create', subjectType: 'plans', subjectId: null, detail: { planKey: key, planLabel: label, monthlyAiCredits } });
+  return NextResponse.json({ ok: true, plan: data, auditWarning: !auditResult.ok });
 }

@@ -11,6 +11,16 @@ export async function PATCH(req: Request, { params }: { params: { key: string } 
   if ('error' in auth) return auth.error;
   const { admin, userId } = auth;
 
+  // Prompt 748 §C — same root cause found and fixed on the sibling
+  // ai-plans routes on this same screen: admin_audit_log.subject_id is
+  // uuid-typed, and this route always passed the action's natural-string
+  // key, so its audit insert has been silently rejected the same way,
+  // since the route was written. Fetched before the update so the audit
+  // entry can carry {from, to} instead of only the new value.
+  const { data: existing, error: existingErr } = await admin.from('ai_actions').select('*').eq('key', params.key).maybeSingle();
+  if (existingErr) return NextResponse.json({ ok: false, error: existingErr.message }, { status: 500 });
+  if (!existing) return NextResponse.json({ ok: false, error: 'Action not found.' }, { status: 404 });
+
   const body = await req.json().catch(() => ({})) as {
     label?: string; creditCost?: number; needsConfirmation?: boolean; enabled?: boolean;
   };
@@ -31,6 +41,13 @@ export async function PATCH(req: Request, { params }: { params: { key: string } 
   const { data, error } = await admin.from('ai_actions').update(update).eq('key', params.key).select('*').maybeSingle();
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ ok: false, error: 'Action not found.' }, { status: 404 });
-  await logAdminAction(admin, { adminUserId: userId, action: 'ai_action_update', subjectType: 'ai_actions', subjectId: params.key, detail: update });
-  return NextResponse.json({ ok: true, action: data });
+  const auditResult = await logAdminAction(admin, {
+    adminUserId: userId, action: 'ai_action_update', subjectType: 'ai_actions', subjectId: null,
+    detail: {
+      actionKey: params.key, actionLabel: data.label,
+      from: { label: existing.label, creditCost: existing.credit_cost, needsConfirmation: existing.needs_confirmation, enabled: existing.enabled },
+      to: { label: data.label, creditCost: data.credit_cost, needsConfirmation: data.needs_confirmation, enabled: data.enabled },
+    },
+  });
+  return NextResponse.json({ ok: true, action: data, auditWarning: !auditResult.ok });
 }
