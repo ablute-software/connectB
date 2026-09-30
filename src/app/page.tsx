@@ -13,6 +13,7 @@ import { redirect } from 'next/navigation';
 import { Fraunces, Inter } from 'next/font/google';
 import { serverClient, authEnabled, resolveRole } from '@/lib/supabase-server';
 import { landingDestination } from '@/lib/landing-redirect';
+import { hasPendingIncubatorMemberInvite } from '@/lib/incubator-pending-server';
 import { BRAND_NAME, APP_URL } from '@/lib/brand';
 import { LogoLockup } from '@/components/Logo';
 import { LandingEffects } from '@/components/landing/LandingEffects';
@@ -165,7 +166,12 @@ export default async function LandingPage() {
       // Prompt 515 — a null destination means this session has no home of
       // its own (role 'none'): it stays on the public landing instead of
       // being pushed into the founder app. See landing-redirect.ts.
-      const dest = landingDestination(role);
+      // Prompt I-01c §A.3 — a pending ecosystem-team invite outranks the
+      // public page for an account with no home yet.
+      const dest = landingDestination(role, {
+        pendingIncubatorMemberInvite: role === 'none' ? await hasPendingIncubatorMemberInvite(user) : false,
+        signupIntent: (user.user_metadata?.signup_intent as string | undefined) ?? null,
+      });
       if (dest) redirect(dest);
     }
   }

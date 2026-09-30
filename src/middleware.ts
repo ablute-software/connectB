@@ -152,7 +152,7 @@ export async function middleware(req: NextRequest) {
     if (loginAdmin || isOpenFounder) {
       home.pathname = APP_HOME;
     } else if (incubatorSignal && !incubatorSignal.error && incubatorSignal.data === true) {
-      home.pathname = '/incubator';
+      home.pathname = '/ecosystem';
     } else {
       // Prompt 587 — investor_entity_claims joins the same lightweight
       // precedence resolveRole() itself now uses (supabase-server.ts's

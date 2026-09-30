@@ -500,7 +500,7 @@ function SettingsInner() {
     { key: 'matchdeal', label: 'MatchDeal' },
     // Prompt I-01 §C.4 — incubator/accelerator relationships: sharing level,
     // public badge, end, and who consulted what.
-    { key: 'programs', label: 'Programmes' },
+    { key: 'programs', label: 'Programmes & organisations' },
   ];
 
   // Old bookmarks/links to ?tab=needs-review (its former top-level slot)

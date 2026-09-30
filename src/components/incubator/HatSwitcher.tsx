@@ -11,7 +11,7 @@ type Hat = keyof Hats;
 
 const TARGETS: Record<Hat, { href: string; label: string }> = {
   founder: { href: '/pipeline', label: 'Founder workspace' },
-  incubator: { href: '/incubator', label: 'Incubator workspace' },
+  incubator: { href: '/ecosystem', label: 'Ecosystem workspace' },
   investor: { href: '/portal', label: 'Investor portal' },
 };
 

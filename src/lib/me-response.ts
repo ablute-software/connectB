@@ -90,6 +90,9 @@ export interface AuthenticatedMeResponse {
   role: Role;
   // Prompt I-01 §B.4 — every workspace this account can open (hat switcher).
   hats: Hats;
+  // Prompt I-01c §A.3 — landing signals for an account with no home yet.
+  pendingIncubatorMemberInvite?: boolean;
+  signupIntent?: string | null;
   orgRole: OrgMemberRole | null;
   plan: PlanTier;
   entitlements: Entitlements;

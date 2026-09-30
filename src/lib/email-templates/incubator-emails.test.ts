@@ -20,7 +20,7 @@ describe('incubator e-mails', () => {
     expect(e.text).toContain('the Garage plan for 12 months');
   });
   it('member invite', () => {
-    expect(memberInviteEmail({ incubatorName: 'Inc', role: 'manager', url: 'u' }).subject).toBe('Join the Inc team on Sherlock Deal');
+    expect(memberInviteEmail({ incubatorName: 'Inc', role: 'manager', url: 'u' }).subject).toBe("Join Inc's team on Sherlock Deal");
   });
   it('ended by the incubator carries its reason to the founder', () => {
     expect(relationshipEndedByIncubatorEmail({ incubatorName: 'Inc', reason: 'Programme closed', url: 'u' }).text).toContain('Reason given: Programme closed');

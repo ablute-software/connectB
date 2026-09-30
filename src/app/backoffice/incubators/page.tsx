@@ -163,7 +163,7 @@ function IncubatorRow({ inc, onChanged }: { inc: Incubator; onChanged: () => voi
                 </div>
               )}
             </div>
-            {!inc.closed_at ? <button className={`${ghost} text-red-700`} onClick={close}>Close incubator…</button>
+            {!inc.closed_at ? <button className={`${ghost} text-red-700`} onClick={close}>Close organisation…</button>
               : <p className="text-xs text-gray-500">Closed: {inc.closed_reason}</p>}
             {msg && <p className="text-xs text-gray-600">{msg}</p>}
           </div>
@@ -188,19 +188,19 @@ export default function BackofficeIncubatorsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-bold">Incubators</h1>
-        <p className="text-sm text-gray-500">Incubation/acceleration organisations and their teams. An incubator is never a startup org, and its managers never get access_grants.</p>
+        <h1 className="text-xl font-bold">Ecosystem organisations</h1>
+        <p className="text-sm text-gray-500">Incubators, accelerators, public agencies, associations and tech-transfer offices, with their teams. An ecosystem organisation is never a startup org, and its members never get access_grants. (&ldquo;incubator&rdquo; is the technical name of the class.)</p>
       </div>
       {err && <p className="text-xs text-red-600">{err === 'not configured' ? 'Demo mode — the back-office needs a connected database.' : err}</p>}
-      <Card title="New incubator" right={<button className={ghost} onClick={() => setCreating((v) => !v)}>{creating ? 'Close' : 'Create'}</button>}>
-        {creating && <IncubatorForm initial={EMPTY} submitLabel="Create incubator" onSubmit={async (f) => {
+      <Card title="New organisation" right={<button className={ghost} onClick={() => setCreating((v) => !v)}>{creating ? 'Close' : 'Create'}</button>}>
+        {creating && <IncubatorForm initial={EMPTY} submitLabel="Create organisation" onSubmit={async (f) => {
           const r = await send('/api/backoffice/incubators', 'POST', f);
           if (r.ok) { setCreating(false); load(); return null; }
           return r.error ?? 'Error.';
         }} />}
       </Card>
-      <Card title="All incubators">
-        {!list ? <p className="text-sm text-gray-400">Loading…</p> : list.length === 0 ? <p className="text-sm text-gray-400">No incubators yet.</p> : (
+      <Card title="All organisations">
+        {!list ? <p className="text-sm text-gray-400">Loading…</p> : list.length === 0 ? <p className="text-sm text-gray-400">No organisations yet.</p> : (
           <table className="w-full text-left text-sm" data-testid="incubators-table">
             <thead><tr className="border-b border-gray-100 text-[11px] uppercase tracking-wide text-gray-400">
               <th className="py-2 pr-3">Name</th><th className="pr-3">Type</th><th className="pr-3">Country</th><th className="pr-3">Members</th><th className="pr-3">Active relationships</th><th className="pr-3">is_test</th><th />

@@ -24,13 +24,30 @@ import type { Role } from './supabase';
 // of the founder shell: /claim/pending explains what's happening and what's
 // still needed, instead of either the marketing page or /portal's own
 // no-access dead end.
-export function landingDestination(role: Role): '/portal' | '/pipeline' | '/incubator' | '/claim/pending' | null {
+// Prompt I-01c §A.3 — someone with no startup org of their own who was
+// invited to an ecosystem organisation's team (a pending invite for their
+// confirmed address, or an account created from that invite) lands on the
+// page that accepts it — never on "finish your startup account".
+export const PENDING_MEMBER_INVITE_PATH = '/invite/incubator/member/pending';
+
+export interface LandingSignals {
+  pendingIncubatorMemberInvite?: boolean;
+  signupIntent?: string | null;
+}
+
+export function goesToPendingMemberInvite(role: Role, signals: LandingSignals = {}): boolean {
+  return role === 'none' && (!!signals.pendingIncubatorMemberInvite || signals.signupIntent === 'incubator_member');
+}
+
+export function landingDestination(role: Role, signals: LandingSignals = {}): '/portal' | '/pipeline' | '/ecosystem' | '/claim/pending' | typeof PENDING_MEMBER_INVITE_PATH | null {
+  if (goesToPendingMemberInvite(role, signals)) return PENDING_MEMBER_INVITE_PATH;
   switch (role) {
-    // Prompt I-01 — the incubator workspace. A founder who is also an
-    // incubator member resolves as 'founder' and lands on /pipeline; the
-    // hat switcher in both shells takes them across.
+    // Prompt I-01 — the ecosystem-organisation workspace (/ecosystem since
+    // I-01c; /incubator redirects there). A founder who is also a member
+    // resolves as 'founder' and lands on /pipeline; the hat switcher in both
+    // shells takes them across.
     case 'incubator':
-      return '/incubator';
+      return '/ecosystem';
     case 'investor':
       return '/portal';
     case 'founder':
