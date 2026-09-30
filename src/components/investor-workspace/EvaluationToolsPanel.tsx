@@ -35,9 +35,10 @@ import { ComparisonView } from './ComparisonView';
 import { ScorecardWeightsEditor } from './ScorecardWeightsEditor';
 import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
 import {
-  EVALUATION_STATE_LABEL, evaluationCardState, filterCardsByName, highestFitCandidate, partitionEvaluationCards,
+  EVALUATION_STATE_LABEL, evaluationCardState, filterAvailableCards, filterCardsByName, highestFitCandidate, partitionEvaluationCards,
   type EvaluationPipelineCard as PipelineCard,
 } from '@/lib/evaluation-startup-discovery';
+import { isUnavailableCard } from '@/lib/closed-org-card';
 import { EVALUATION_TOOLS_INTRO_CONTENT, shouldShowEvaluationToolsIntro, type EvaluationToolsIntroEntry } from '@/lib/evaluation-tools-intro';
 import { applyCapTableDilution, toCapTableSlices } from '@/lib/cap-table';
 import { CapTableChart } from '@/components/CapTableChart';
@@ -1267,7 +1268,9 @@ export function EvaluationToolsPanel({ initialOrgId }: {
     // sibling caller (the shell's useInvestorActions, or the Pipeline tab
     // itself) that happens to mount within the same short window.
     fetchPipelineShared<PipelineResponse>().then((d) => {
-      setCards((d.waves ?? []).flatMap((w) => w.items));
+      // Prompt 744 Causa 1 — drop any closed/suspended card before it ever
+      // reaches the picker; see filterAvailableCards's own header.
+      setCards(filterAvailableCards((d.waves ?? []).flatMap((w) => w.items)));
     }).catch(() => {});
   }, []);
 
@@ -1301,7 +1304,13 @@ export function EvaluationToolsPanel({ initialOrgId }: {
     if (!initialOrgId) return;
     setSelectedOrgId(initialOrgId); setTool('calculator');
     fetch(`/api/portal/startup/${initialOrgId}`).then((r) => (r.ok ? r.json() : null)).then((d) => {
-      if (!d?.card) return;
+      // Prompt 744 Causa 1 — a direct link to an org that's since become
+      // unavailable (closed/suspended) must not re-add it to the picker;
+      // /api/portal/startup/[orgId] itself now 410s for this case (see that
+      // route's own isUnavailableCard guard), so `!d?.card` already covers
+      // it in practice — kept as an explicit check here too so this call
+      // site never silently regresses if that route's contract changes.
+      if (!d?.card || isUnavailableCard(d.card)) return;
       // Prompt 419 — widened to the full PipelineCard shape: /api/portal/
       // startup/[orgId] returns the exact same card object getPipelineWaves
       // builds for the main Pipeline fetch (route.ts's own `{ card, ... }`,
