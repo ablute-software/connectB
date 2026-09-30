@@ -59,6 +59,35 @@ three; corrected when the fourth was added):
    Supabase, for actual feature work) is unaffected. Confirmed empirically: with
    real credentials present and untouched in `.env.local`, `curl localhost:PORT/api/me`
    under `dev:verify` returns `authEnabled: false`.
+
+   **Port + identity check (added 2026-09-30 after two independent sessions
+   each verified against the WRONG checkout's code without realizing it):**
+   `dev:verify` no longer starts `next dev` with no port and hopes for the
+   best — it probes for a real free port starting at 3000 (an actual
+   bind-and-release check, not an assumption) and, before a human could
+   plausibly start clicking, prints exactly one line: `[dev:verify] URL
+   http://localhost:<port> · cwd <absolute path> · HEAD <short sha>`. Before
+   the first click of ANY verification session: `GET /api/me` at the URL
+   that line actually announced — never `localhost:3000` out of habit, the
+   announced URL is authoritative, not a default — and abort the
+   verification if `verifyIdentity.cwd` doesn't match this session's own
+   working directory, or `verifyIdentity.sha` doesn't match `git rev-parse
+   --short HEAD` run in this session's own cwd. `verifyIdentity` is only
+   ever present on the demo-mode (`authEnabled: false`) response; its
+   absence on a real, authenticated response is by construction, not an
+   accident of which env vars happen to be set (see
+   `src/lib/me-response.ts`).
+
+   Root cause, stated plainly: with no `-p` flag, Next silently falls back
+   to 3001+ whenever port 3000 is already occupied — and it was occupied
+   because a PREVIOUS session's `dev:verify` process, left running in a
+   DIFFERENT folder/worktree that nobody stopped, was still holding it. The
+   verifying session kept clicking `localhost:3000` out of habit and tested
+   someone else's checkout while believing it was testing its own. The real
+   fix is procedural, not only this check: stop the script (Ctrl+C, or kill
+   the spawned process) at the END OF EVERY verification session, not only
+   at the end of a whole prompt — leaving it running "for next time" is
+   exactly what causes the next session's collision.
 2. **Only ever use the `Claude_Browser` MCP tools (`mcp__Claude_Browser__*`) for
    verification clicks in this project — never `claude-in-chrome`.**
    `claude-in-chrome` drives the user's REAL Chrome, with real logged-in
