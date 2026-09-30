@@ -205,7 +205,7 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
         // Prompt 894 §A — "ask_amount_eur mantém-se na interacção; ao
         // guardar uma interacção com esse valor, cria-se também uma linha
         // deal_terms(kind='ask')." In Supabase mode this is a DB trigger
-        // (interactions_create_ask_term, migration 20260929200000) so it
+        // (interactions_create_ask_term, migration 20260930105448) so it
         // fires for every insert path; demo mode has no triggers at all, so
         // it's replicated here — the one place demo mode's logInteraction
         // already builds the same interaction row the trigger would see.

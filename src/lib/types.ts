@@ -449,7 +449,7 @@ export interface Entity {
   // Prompt 894 §A — DERIVED, not editable: the amount_eur of this entity's
   // latest non-superseded deal_terms row of kind='commitment' (see
   // src/lib/deal-terms.ts's deriveInterestEur, and the DB trigger
-  // deal_terms_sync_interest in migration 20260929200000). No code path
+  // deal_terms_sync_interest in migration 20260930105448). No code path
   // writes this directly any more except PreviousFundingCard.tsx's
   // "Pipeline cleanup" (clearing a legacy stale value that predates
   // deal_terms entirely) — see that file's own comment on the tradeoff.
@@ -895,7 +895,7 @@ export interface DocumentItem {
   // founder-specific file, not a lesser one — see upload-security.ts's header.
   malware_scan_status?: 'not_scanned' | 'pending' | 'clean' | 'local_only' | 'flagged';
   malware_scan_provider?: string | null;
-  // Prompt 894 §C — migration 20260929200000. Null/undefined for every
+  // Prompt 894 §C — migration 20260930105448. Null/undefined for every
   // document that predates this and for any document not typed at all
   // (most of the data room). 'deal_memo' is the one value this prompt
   // introduces — see DealTerm below and TermsOnTheTable.tsx's "Lock terms".
@@ -933,7 +933,7 @@ export interface DocumentVersion {
 // never overwritten (an edit or a bare status change creates a NEW row with
 // supersedes_id pointing at the one it replaces). See src/lib/deal-terms.ts
 // for the pure supersession/lock/memo logic and migration
-// 20260929200000_deal_terms.sql for the schema + RLS + the two triggers
+// 20260930105448_deal_terms.sql for the schema + RLS + the two triggers
 // (entities.interest_eur derivation; ask_amount_eur -> kind='ask' term).
 // Founder-privacy root rule (CLAUDE.md): never read on any investor-facing
 // surface, directly, via join, or via an AI prompt — see
@@ -1375,7 +1375,7 @@ export interface Db {
   startupInvestorDecisions: StartupInvestorDecision[];
   // Prompt 894 §A — see DealTerm above. Missing-table-safe like every other
   // capability-gated array here (store-supabase.tsx's loadAll falls back to
-  // [] if migration 20260929200000 isn't applied yet).
+  // [] if migration 20260930105448 isn't applied yet).
   dealTerms: DealTerm[];
 }
 

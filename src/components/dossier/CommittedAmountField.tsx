@@ -7,7 +7,7 @@
 // longer a free-standing editable value. entities.interest_eur is now
 // DERIVED (a DB trigger sets it from the latest non-superseded
 // deal_terms row of kind='commitment' — see src/lib/deal-terms.ts and
-// migration 20260929200000_deal_terms.sql), so editing it directly here
+// migration 20260930105448_deal_terms.sql), so editing it directly here
 // would just get silently overwritten the next time a commitment term is
 // written. The real editing surface is Terms on the table's own
 // "+ Add term -> Commitment", rendered right below this field in both

@@ -12,7 +12,7 @@ import type { DealTerm, Entity, Interaction, Person } from './types';
 // same entity (one per topic — a valuation chain, a ticket_range chain, a
 // commitment chain, etc.) — this is kind-agnostic on purpose, mirroring the
 // migration's own trigger logic exactly (deal_terms_sync_interest in
-// 20260929200000_deal_terms.sql picks the latest non-superseded
+// 20260930105448_deal_terms.sql picks the latest non-superseded
 // kind='commitment' row the same way).
 export function currentTermsForEntity(terms: DealTerm[], entityId: string): DealTerm[] {
   const all = terms.filter((t) => t.entity_id === entityId);

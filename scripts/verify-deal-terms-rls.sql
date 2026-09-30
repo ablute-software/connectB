@@ -1,33 +1,41 @@
 -- Prompt 894 §E — manual RLS verification for deal_terms, deal_terms_sync_
 -- interest_trigger, and interactions_create_ask_term_trg.
 --
--- NOT run by this session against any database, live or branched — the
--- session had no writable Supabase branch available and CLAUDE.md forbids
--- applying this prompt's migration to any database from this session. This
--- file is the concrete script for whoever next has one, following this
--- repo's own established pattern (see the user's memory note
--- "migration_verification_via_rollback_transaction" and Prompt 737's
--- 0A.5/0A.6 claim-simulation): run the whole thing as ONE transaction and
--- ROLLBACK at the end, so nothing here ever lands in real data regardless
--- of outcome.
+-- RUN FOR REAL against production in a rolled-back transaction, 30/09/2026
+-- (this session had a writable connection via the Supabase MCP and Nuno's
+-- explicit go-ahead to apply the corrected migration — see DECISIONS.md).
+-- Every check below passed, including the two fixture/assertion fixes this
+-- same run required (entities' website column, and Check 4's exception
+-- handling) — both applied here so the NEXT run of this file doesn't hit
+-- the same two snags. Follows this repo's own established pattern (see the
+-- user's memory note "migration_verification_via_rollback_transaction" and
+-- Prompt 737's own 0A.5/0A.6 claim-simulation): run the whole thing as ONE
+-- transaction and ROLLBACK at the end, so nothing here ever lands in real
+-- data regardless of outcome.
 --
--- Usage: apply migration 20260929200000_deal_terms.sql on a throwaway
--- branch first, then run this file's statements in order inside a single
--- `psql` session (or the Supabase SQL editor) against that branch.
+-- Usage: apply migration 20260930105448_deal_terms.sql (and its follow-up,
+-- 20260930111044_deal_terms_revoke_execute_definer_functions.sql) on a
+-- throwaway branch first, then run this file's statements in order inside
+-- a single `psql` session (or the Supabase SQL editor) against that branch.
 
 begin;
 
 -- ---------------------------------------------------------------------
 -- Fixture: two orgs, one entity each, one person each, as service_role
 -- (bypasses RLS for setup only — the actual checks below run `set role`).
+-- `website` is required: production's `entities_has_identity_evidence`
+-- check constraint (not present when this script was first drafted) needs
+-- at least one of website/email_domain/phone/address/source_url/
+-- unverified_stub_at — confirmed by running this script for real and
+-- hitting the constraint before this fix existed.
 -- ---------------------------------------------------------------------
 insert into orgs (id, name) values
   ('11111111-1111-1111-1111-111111111111', 'zz-test-org-a'),
   ('22222222-2222-2222-2222-222222222222', 'zz-test-org-b');
 
-insert into entities (id, org_id, name, type, status) values
-  ('aaaaaaaa-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'zz-test-entity-a', 'vc', 'in_conversation'),
-  ('bbbbbbbb-0000-0000-0000-000000000001', '22222222-2222-2222-2222-222222222222', 'zz-test-entity-b', 'vc', 'in_conversation');
+insert into entities (id, org_id, name, type, status, website) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'zz-test-entity-a', 'vc', 'in_conversation', 'https://zz-test-entity-a.example.com'),
+  ('bbbbbbbb-0000-0000-0000-000000000001', '22222222-2222-2222-2222-222222222222', 'zz-test-entity-b', 'vc', 'in_conversation', 'https://zz-test-entity-b.example.com');
 
 -- Two real auth.users, one per org, each a member of only their own org.
 insert into auth.users (id, email) values
@@ -129,15 +137,32 @@ end $$;
 -- ---------------------------------------------------------------------
 -- Check 4 — anon has NO access at all (belt-and-braces; anon should never
 -- reach this table through any path).
+--
+-- Fixed 30/09/2026, run for real against production in a rolled-back
+-- transaction: after review fix B's `revoke all on deal_terms from public,
+-- anon`, anon no longer has a SELECT grant on this table at all — the
+-- query fails at the privilege check with `permission denied for table
+-- deal_terms` (42501/insufficient_privilege) BEFORE RLS ever runs, not a
+-- silent empty result the way it would for a table anon has SELECT on but
+-- RLS filters to zero rows. The original version of this check assumed the
+-- latter and would have failed its own `assert v_count = 0` with an
+-- unhandled permission-denied error instead of ever reaching that
+-- assertion — accepting either outcome as PASS, since a hard permission
+-- denial is a STRONGER guarantee than an RLS-filtered empty result, not a
+-- weaker one.
 -- ---------------------------------------------------------------------
 reset role;
 set local role anon;
 do $$
 declare v_count int;
 begin
-  select count(*) into v_count from deal_terms;
-  assert v_count = 0, 'FAIL: anon could read deal_terms rows';
-  raise notice 'PASS: anon reads ZERO deal_terms rows';
+  begin
+    select count(*) into v_count from deal_terms;
+    assert v_count = 0, 'FAIL: anon could read deal_terms rows';
+    raise notice 'PASS: anon reads ZERO deal_terms rows';
+  exception when insufficient_privilege then
+    raise notice 'PASS (stronger than expected): anon has no SELECT grant on deal_terms at all post-fix-B — permission denied before RLS even runs';
+  end;
 end $$;
 
 -- ---------------------------------------------------------------------

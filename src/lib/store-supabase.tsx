@@ -168,7 +168,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     // safe pattern as company_facts/ndas above. RLS is is_org_member, so the
     // browser client reads its own org's rows and nothing else.
     sb.from('startup_investor_decisions').select('*').eq('org_id', orgId),
-    // Prompt 894 §A — deal_terms (migration 20260929200000). Same missing-
+    // Prompt 894 §A — deal_terms (migration 20260930105448). Same missing-
     // table-safe pattern as company_facts/ndas above: this org's browser
     // client reads only its own rows (RLS is_org_member), and a query
     // against a not-yet-applied migration resolves here with an error
@@ -614,7 +614,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
 
       // Prompt 894 §A — the real row is written server-side by the
       // interactions_create_ask_term DB trigger (migration
-      // 20260929200000), which fires for this insert regardless of write
+      // 20260930105448), which fires for this insert regardless of write
       // path; this optimistic client-side copy only keeps `db.dealTerms`
       // (and the derived `interest_eur`, unaffected here since kind='ask'
       // is never a commitment) from looking stale until the next
