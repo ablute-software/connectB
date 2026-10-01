@@ -12,6 +12,13 @@
 // what wires an actual invite, magic-link association, and verified
 // linking (linked_org_id/link_status, reserved on the table already).
 // Nothing on this page ever calls an invite/email endpoint.
+//
+// Prompt 753 — the Nuno review that followed: (1) the import can misread a
+// PT-formatted file in silence, fixed in portfolio-import.ts, surfaced here
+// as a per-row warning the investor can inspect and fix cell-by-cell before
+// committing; (2) nothing could be corrected after import without deleting
+// the row and retyping it — this file now has an Edit form (PATCH) next to
+// Remove, and Remove asks once before it actually deletes anything.
 import { useEffect, useState } from 'react';
 import { Card, Tabs, type TabItem } from '@/components/ui';
 import { EmptyState } from '@/components/workspace-shell/EmptyState';
@@ -19,8 +26,9 @@ import { SectorPicker, type SectorValue } from '@/components/company/SectorPicke
 import { useTabParam } from '@/lib/use-tab';
 import { formatTicketEur } from '@/lib/ticket-range';
 import {
-  autoMapColumns, buildPortfolioImportPlan, parsePortfolioCsvRows, parsePortfolioXlsxRows, portfolioImportTemplateCsv,
-  PORTFOLIO_IMPORT_FIELDS, type ColumnMapping, type PortfolioImportField, type PortfolioImportPlan,
+  autoMapColumns, buildPortfolioImportPlan, detectDuplicates, parsePortfolioCsvRows, parsePortfolioFields, parsePortfolioXlsxRows,
+  portfolioImportTemplateCsv, formatDateDisplay, formatTicketDisplay,
+  PORTFOLIO_IMPORT_FIELDS, type ColumnMapping, type PortfolioImportField, type PortfolioImportPlan, type PortfolioImportPlanItem,
 } from '@/lib/portfolio-import';
 
 type PortfolioStatus = 'current' | 'past';
@@ -51,6 +59,9 @@ export function PortfolioPanel() {
   const [companies, setCompanies] = useState<PortfolioCompany[] | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
 
   function load() {
     fetch('/api/portal/investor-profile/portfolio').then((r) => r.json()).then((d) => {
@@ -64,8 +75,12 @@ export function PortfolioPanel() {
   const rows = (companies ?? []).filter((c) => c.status === status);
 
   async function remove(id: string) {
-    await fetch(`/api/portal/investor-profile/portfolio?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
-    load();
+    setRemoveBusy(true);
+    try {
+      await fetch(`/api/portal/investor-profile/portfolio?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      setConfirmRemoveId(null);
+      load();
+    } finally { setRemoveBusy(false); }
   }
 
   if (linked === false) {
@@ -76,6 +91,8 @@ export function PortfolioPanel() {
       />
     );
   }
+
+  const editingCompany = editingId ? (companies ?? []).find((c) => c.id === editingId) ?? null : null;
 
   return (
     <div className="space-y-4">
@@ -88,21 +105,33 @@ export function PortfolioPanel() {
       <Tabs items={VIEW_TABS} active={view} onChange={setView} />
 
       <div className="flex flex-wrap gap-2">
-        <button onClick={() => { setShowAddForm((v) => !v); setShowImport(false); }}
+        <button onClick={() => { setShowAddForm((v) => !v); setShowImport(false); setEditingId(null); }}
           className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white">
           {showAddForm ? 'Cancel' : 'Add manually'}
         </button>
-        <button onClick={() => { setShowImport((v) => !v); setShowAddForm(false); }}
+        <button onClick={() => { setShowImport((v) => !v); setShowAddForm(false); setEditingId(null); }}
           className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
           {showImport ? 'Cancel' : 'Import CSV/Excel'}
         </button>
       </div>
 
       {showAddForm && (
-        <AddManuallyForm status={status} onAdded={() => { setShowAddForm(false); load(); }} />
+        <PortfolioCompanyForm
+          status={status}
+          onSaved={() => { setShowAddForm(false); load(); }}
+          onCancel={() => setShowAddForm(false)}
+        />
       )}
       {showImport && (
         <ImportFlow existing={companies ?? []} onImported={() => { setShowImport(false); load(); }} />
+      )}
+      {editingCompany && (
+        <PortfolioCompanyForm
+          status={editingCompany.status}
+          initial={editingCompany}
+          onSaved={() => { setEditingId(null); load(); }}
+          onCancel={() => setEditingId(null)}
+        />
       )}
 
       {companies === null ? (
@@ -122,6 +151,7 @@ export function PortfolioPanel() {
                 <th className="px-3 py-2 font-medium">Instrument</th>
                 <th className="px-3 py-2 font-medium">Contact</th>
                 {status === 'past' && <th className="px-3 py-2 font-medium">Exit</th>}
+                <th className="px-3 py-2 font-medium" />
                 <th className="px-3 py-2 font-medium" />
                 <th className="px-3 py-2 font-medium" />
               </tr>
@@ -161,7 +191,23 @@ export function PortfolioPanel() {
                     </button>
                   </td>
                   <td className="px-3 py-2 text-right">
-                    <button onClick={() => remove(c.id)} className="text-gray-400 hover:text-[#B00000]">Remove</button>
+                    <button onClick={() => { setEditingId(c.id); setShowAddForm(false); setShowImport(false); }}
+                      className="text-gray-400 hover:text-[#0E7490]">
+                      Edit
+                    </button>
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {confirmRemoveId === c.id ? (
+                      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                        <span className="text-gray-500">Remove {c.company_name}?</span>
+                        <button onClick={() => remove(c.id)} disabled={removeBusy} className="font-medium text-[#B00000] hover:underline disabled:opacity-40">
+                          {removeBusy ? '…' : 'Yes'}
+                        </button>
+                        <button onClick={() => setConfirmRemoveId(null)} className="text-gray-400 hover:underline">No</button>
+                      </span>
+                    ) : (
+                      <button onClick={() => setConfirmRemoveId(c.id)} className="text-gray-400 hover:text-[#B00000]">Remove</button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -173,48 +219,80 @@ export function PortfolioPanel() {
   );
 }
 
-function AddManuallyForm({ status, onAdded }: { status: PortfolioStatus; onAdded: () => void }) {
-  const [companyName, setCompanyName] = useState('');
-  const [website, setWebsite] = useState('');
-  const [country, setCountry] = useState('');
-  const [stageAtEntry, setStageAtEntry] = useState('');
-  const [sectorValue, setSectorValue] = useState<SectorValue>({ sectors: [], other: null });
-  const [ticketEur, setTicketEur] = useState('');
-  const [instrument, setInstrument] = useState('');
-  const [investedAt, setInvestedAt] = useState('');
-  const [exitAt, setExitAt] = useState('');
-  const [exitType, setExitType] = useState('');
-  const [contactName, setContactName] = useState('');
-  const [contactEmail, setContactEmail] = useState('');
+function PortfolioCompanyForm({ status: initialStatus, initial, onSaved, onCancel }: {
+  status: PortfolioStatus;
+  initial?: PortfolioCompany;
+  onSaved: () => void;
+  onCancel: () => void;
+}) {
+  const [formStatus, setFormStatus] = useState<PortfolioStatus>(initial?.status ?? initialStatus);
+  const [companyName, setCompanyName] = useState(initial?.company_name ?? '');
+  const [website, setWebsite] = useState(initial?.website ?? '');
+  const [country, setCountry] = useState(initial?.country ?? '');
+  const [stageAtEntry, setStageAtEntry] = useState(initial?.stage_at_entry ?? '');
+  const [sectorValue, setSectorValue] = useState<SectorValue>({ sectors: initial?.sectors ?? [], other: null });
+  const [ticketEur, setTicketEur] = useState(initial?.ticket_eur != null ? String(initial.ticket_eur) : '');
+  const [instrument, setInstrument] = useState(initial?.instrument ?? '');
+  const [investedAt, setInvestedAt] = useState(initial?.invested_at?.slice(0, 10) ?? '');
+  const [exitAt, setExitAt] = useState(initial?.exit_at?.slice(0, 10) ?? '');
+  const [exitType, setExitType] = useState(initial?.exit_type ?? '');
+  const [contactName, setContactName] = useState(initial?.contact_name ?? '');
+  const [contactEmail, setContactEmail] = useState(initial?.contact_email ?? '');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  // Prompt 753 §F — "ao passar para Current, exit_at e exit_type são
+  // limpos, com aviso antes de gravar". Only relevant when editing an
+  // EXISTING past company that actually had exit data — a fresh "Add
+  // manually" row never hits this (nothing to lose yet).
+  const [confirmClearExit, setConfirmClearExit] = useState(false);
 
-  async function submit() {
+  function buildPayload() {
+    return {
+      status: formStatus, companyName: companyName.trim(), website: website.trim() || undefined,
+      country: country.trim() || undefined, stageAtEntry: stageAtEntry || undefined,
+      sectors: sectorValue.sectors, ticketEur: ticketEur.trim() || undefined,
+      instrument: instrument || undefined, investedAt: investedAt || undefined,
+      exitAt: formStatus === 'past' ? (exitAt || undefined) : undefined,
+      exitType: formStatus === 'past' ? (exitType || undefined) : undefined,
+      contactName: contactName.trim() || undefined, contactEmail: contactEmail.trim() || undefined,
+    };
+  }
+
+  async function doSave() {
     if (!companyName.trim()) { setErr('Company name is required.'); return; }
     setBusy(true); setErr('');
     try {
-      const res = await fetch('/api/portal/investor-profile/portfolio', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          status, companyName: companyName.trim(), website: website.trim() || undefined,
-          country: country.trim() || undefined, stageAtEntry: stageAtEntry || undefined,
-          sectors: sectorValue.sectors, ticketEur: ticketEur.trim() || undefined,
-          instrument: instrument || undefined, investedAt: investedAt || undefined,
-          exitAt: status === 'past' ? (exitAt || undefined) : undefined,
-          exitType: status === 'past' ? (exitType || undefined) : undefined,
-          contactName: contactName.trim() || undefined, contactEmail: contactEmail.trim() || undefined,
-        }),
+      const url = initial
+        ? `/api/portal/investor-profile/portfolio?id=${encodeURIComponent(initial.id)}`
+        : '/api/portal/investor-profile/portfolio';
+      const res = await fetch(url, {
+        method: initial ? 'PATCH' : 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(buildPayload()),
       });
       const body = await res.json().catch(() => ({}));
       if (!body.ok) { setErr(body.error ?? 'Could not save.'); return; }
-      onAdded();
+      onSaved();
     } catch {
       setErr('Network error — please try again.');
     } finally { setBusy(false); }
   }
 
+  function submit() {
+    // Editing a Past company down to Current while it still has exit_at/
+    // exit_type on file would silently drop them — ask once, explicitly,
+    // before that happens. A fresh row, or one that was never Past, has
+    // nothing to lose and skips straight to saving.
+    const wasPastWithExitData = initial?.status === 'past' && (initial.exit_at || initial.exit_type);
+    if (formStatus === 'current' && wasPastWithExitData && !confirmClearExit) {
+      setConfirmClearExit(true);
+      return;
+    }
+    void doSave();
+  }
+
   return (
-    <Card title={`Add a ${status === 'past' ? 'past' : 'current'} portfolio company`}>
+    <Card title={initial ? `Edit ${initial.company_name}` : `Add a ${initialStatus === 'past' ? 'past' : 'current'} portfolio company`}>
       <div className="grid grid-cols-2 gap-2 text-xs">
         {/* Prompt 553 — autoComplete="off" throughout this form: every field
             here is data ABOUT A PORTFOLIO COMPANY, never the signed-in
@@ -222,6 +300,13 @@ function AddManuallyForm({ status, onAdded }: { status: PortfolioStatus; onAdded
             for the "genuinely the user's own" exception that rule carves
             out. Same reasoning SectorPicker.tsx's own header gives for its
             search box. */}
+        {initial && (
+          <select value={formStatus} onChange={(e) => { setFormStatus(e.target.value as PortfolioStatus); setConfirmClearExit(false); }}
+            className="col-span-2 rounded-lg border border-gray-300 px-2.5 py-1.5">
+            <option value="current">Current</option>
+            <option value="past">Past</option>
+          </select>
+        )}
         <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Company name *"
           autoComplete="off" name="portfolio-company-name" data-1p-ignore data-lpignore="true"
           className="col-span-2 rounded-lg border border-gray-300 px-2.5 py-1.5" />
@@ -247,7 +332,7 @@ function AddManuallyForm({ status, onAdded }: { status: PortfolioStatus; onAdded
           <input type="date" value={investedAt} onChange={(e) => setInvestedAt(e.target.value)} autoComplete="off"
             className="flex-1 rounded-lg border border-gray-300 px-2.5 py-1.5" />
         </label>
-        {status === 'past' && (
+        {formStatus === 'past' && (
           <>
             <label className="flex items-center gap-1.5 text-[11px] text-gray-500">
               Exit
@@ -271,10 +356,30 @@ function AddManuallyForm({ status, onAdded }: { status: PortfolioStatus; onAdded
         <SectorPicker value={sectorValue} onChange={setSectorValue} allowOther={false} />
       </div>
       {err && <p className="mt-1.5 text-[11px] text-[#B00000]">{err}</p>}
-      <button onClick={submit} disabled={busy}
-        className="mt-3 rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
-        {busy ? 'Adding…' : 'Add company'}
-      </button>
+      {confirmClearExit && (
+        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-800">
+          Switching to Current will clear the exit date/type on file for this company.
+          <div className="mt-1.5 flex gap-2">
+            <button onClick={() => void doSave()} disabled={busy} className="font-semibold text-amber-900 hover:underline disabled:opacity-40">
+              {busy ? 'Saving…' : 'Yes, clear and save'}
+            </button>
+            <button onClick={() => setConfirmClearExit(false)} className="text-amber-700 hover:underline">Cancel</button>
+          </div>
+        </div>
+      )}
+      {!confirmClearExit && (
+        <div className="mt-3 flex gap-2">
+          <button onClick={submit} disabled={busy}
+            className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+            {busy ? 'Saving…' : initial ? 'Save changes' : 'Add company'}
+          </button>
+          {initial && (
+            <button onClick={onCancel} className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
+              Cancel
+            </button>
+          )}
+        </div>
+      )}
     </Card>
   );
 }
@@ -287,6 +392,7 @@ function ImportFlow({ existing, onImported }: { existing: PortfolioCompany[]; on
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [result, setResult] = useState<{ created: number; skippedDuplicate: number; skippedInvalid: number } | null>(null);
+  const [editingRow, setEditingRow] = useState<number | null>(null);
 
   function downloadTemplate() {
     const blob = new Blob([portfolioImportTemplateCsv()], { type: 'text/csv' });
@@ -312,7 +418,7 @@ function ImportFlow({ existing, onImported }: { existing: PortfolioCompany[]; on
   }
 
   async function onFile(file: File) {
-    setErr(''); setResult(null); setPlan(null); setFileRows(null);
+    setErr(''); setResult(null); setPlan(null); setFileRows(null); setEditingRow(null);
     setFileName(file.name);
     try {
       let rows: string[][];
@@ -342,6 +448,41 @@ function ImportFlow({ existing, onImported }: { existing: PortfolioCompany[]; on
   function toggleInclude(row: number) {
     if (!plan) return;
     setPlan({ ...plan, items: plan.items.map((it) => (it.row === row ? { ...it, include: !it.include } : it)) });
+  }
+
+  // Prompt 753 §E — "revalidam-se ao editar": re-runs the SAME per-field
+  // parser the initial file parse used (parsePortfolioFields), on the
+  // edited raw text for just this one row, and replaces that row's
+  // data/errors/warnings/raw in place. Duplicate status is recomputed too
+  // (an edited company name/domain can newly collide, or newly stop
+  // colliding, with another row).
+  function saveRowEdit(rowNum: number, editedRaw: Partial<Record<PortfolioImportField, string>>) {
+    if (!plan) return;
+    const { data, errors, warnings } = parsePortfolioFields(editedRaw);
+    const existingForDedupe = existing.map((c) => ({ companyName: c.company_name, domain: c.domain }));
+    const otherRows = plan.items
+      .filter((it): it is PortfolioImportPlanItem & { data: NonNullable<PortfolioImportPlanItem['data']> } => it.row !== rowNum && it.data !== null)
+      .map((it) => ({ companyName: it.data.companyName, domain: it.data.domain }));
+    let duplicate: PortfolioImportPlanItem['duplicate'] = null;
+    if (data) {
+      // Re-run the same batch dedupe the initial plan used, scoped to just
+      // this row against everyone else (existing DB rows + every other row
+      // still in this file) — a one-row "batch" is all detectDuplicates needs.
+      const dup = detectDuplicates([{ row: 1, companyName: data.companyName, domain: data.domain }], [...existingForDedupe, ...otherRows]);
+      duplicate = dup.get(1) ?? null;
+    }
+    setPlan({
+      ...plan,
+      items: plan.items.map((it) => (it.row === rowNum
+        ? { ...it, data, errors, warnings, raw: editedRaw, duplicate, include: data !== null && errors.length === 0 && warnings.length === 0 && duplicate === null }
+        : it)),
+    });
+    setEditingRow(null);
+  }
+
+  function importAnyway(rowNum: number) {
+    if (!plan) return;
+    setPlan({ ...plan, items: plan.items.map((it) => (it.row === rowNum ? { ...it, include: true } : it)) });
   }
 
   async function commit() {
@@ -402,10 +543,10 @@ function ImportFlow({ existing, onImported }: { existing: PortfolioCompany[]; on
           <h4 className="text-xs font-semibold text-gray-700">
             Preview ({plan.items.filter((it) => it.include).length}/{plan.items.length} rows will be imported)
           </h4>
-          <ul className="mt-1 max-h-72 space-y-1 overflow-y-auto text-xs">
+          <ul className="mt-1 max-h-96 space-y-1 overflow-y-auto text-xs">
             {plan.items.map((it) => (
               <li key={it.row}
-                className={`rounded-lg border px-2.5 py-1.5 ${it.errors.length ? 'border-red-100 bg-red-50/50' : it.duplicate ? 'border-amber-100 bg-amber-50/50' : 'border-gray-100 bg-gray-50'}`}>
+                className={`rounded-lg border px-2.5 py-1.5 ${it.errors.length ? 'border-red-100 bg-red-50/50' : it.warnings.length ? 'border-amber-100 bg-amber-50/50' : it.duplicate ? 'border-amber-100 bg-amber-50/50' : 'border-gray-100 bg-gray-50'}`}>
                 <div className="flex flex-wrap items-center gap-2">
                   <input type="checkbox" checked={it.include} disabled={it.data === null || it.errors.length > 0}
                     onChange={() => toggleInclude(it.row)} />
@@ -416,11 +557,40 @@ function ImportFlow({ existing, onImported }: { existing: PortfolioCompany[]; on
                       duplicate ({it.duplicate.reason}, {it.duplicate.against === 'existing' ? 'already in your portfolio' : 'repeated in this file'})
                     </span>
                   )}
+                  {it.warnings.length > 0 && !it.include && (
+                    <button onClick={() => importAnyway(it.row)} className="ml-auto rounded-full border border-amber-300 px-2 py-0.5 text-[10px] font-semibold text-amber-800 hover:bg-amber-100">
+                      Import anyway
+                    </button>
+                  )}
+                  {(it.errors.length > 0 || it.warnings.length > 0) && (
+                    <button onClick={() => setEditingRow(editingRow === it.row ? null : it.row)}
+                      className="rounded-full border border-gray-300 px-2 py-0.5 text-[10px] font-medium text-gray-600 hover:bg-gray-100">
+                      {editingRow === it.row ? 'Close' : 'Fix this row'}
+                    </button>
+                  )}
                 </div>
                 {it.errors.length > 0 && (
                   <ul className="ml-6 mt-0.5 list-disc text-[11px] text-[#B00000]">
                     {it.errors.map((e, i) => <li key={i}>{e.field ? `${e.field}: ` : ''}{e.message}</li>)}
                   </ul>
+                )}
+                {it.warnings.length > 0 && (
+                  <ul className="ml-6 mt-0.5 list-disc text-[11px] text-amber-700">
+                    {it.warnings.map((w, i) => <li key={i}>{w.field ? `${w.field}: ` : ''}{w.message}</li>)}
+                  </ul>
+                )}
+                {/* "Cada célula ... mostra o original e o lido" (Prompt 753
+                    §E) — every field the parser actually transformed, for a
+                    row worth a second look. */}
+                {(it.errors.length > 0 || it.warnings.length > 0) && editingRow !== it.row && (
+                  <ReadAsSummary raw={it.raw} data={it.data} />
+                )}
+                {editingRow === it.row && (
+                  <RowEditor
+                    fields={it.raw}
+                    onSave={(edited) => saveRowEdit(it.row, edited)}
+                    onCancel={() => setEditingRow(null)}
+                  />
                 )}
               </li>
             ))}
@@ -439,5 +609,59 @@ function ImportFlow({ existing, onImported }: { existing: PortfolioCompany[]; on
         </p>
       )}
     </Card>
+  );
+}
+
+// "O original e o lido" — shown read-only next to the field name for the
+// two fields the parser most often transforms in a way worth double-
+// checking (ticket amount, dates); other fields' original text is already
+// visible in the row editor once opened.
+function ReadAsSummary({ raw, data }: { raw: Partial<Record<PortfolioImportField, string>>; data: ReturnType<typeof parsePortfolioFields>['data'] }) {
+  const lines: string[] = [];
+  if (raw.ticket_eur && data?.ticketEur != null) lines.push(`ticket_eur: "${raw.ticket_eur}" → ${formatTicketDisplay(data.ticketEur)}`);
+  if (raw.invested_at && data?.investedAt) lines.push(`invested_at: "${raw.invested_at}" → ${formatDateDisplay(data.investedAt)}`);
+  if (raw.exit_at && data?.exitAt) lines.push(`exit_at: "${raw.exit_at}" → ${formatDateDisplay(data.exitAt)}`);
+  if (lines.length === 0) return null;
+  return (
+    <ul className="ml-6 mt-0.5 space-y-0.5 text-[11px] text-gray-500">
+      {lines.map((l) => <li key={l}>{l}</li>)}
+    </ul>
+  );
+}
+
+// The per-row correction form — every mapped field, pre-filled with the
+// ORIGINAL cell text (not the parsed value), so fixing a typo means editing
+// exactly what the file said rather than reverse-engineering the parsed
+// reading. Re-validates on Save via the same parsePortfolioFields the
+// initial import used (see saveRowEdit above) — "revalidam-se ao editar".
+function RowEditor({ fields, onSave, onCancel }: {
+  fields: Partial<Record<PortfolioImportField, string>>;
+  onSave: (edited: Partial<Record<PortfolioImportField, string>>) => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState<Partial<Record<PortfolioImportField, string>>>(fields);
+  const mappedFields = PORTFOLIO_IMPORT_FIELDS.filter((f) => fields[f] !== undefined);
+
+  return (
+    <div className="ml-6 mt-1.5 rounded-lg border border-gray-200 bg-white p-2">
+      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+        {mappedFields.map((field) => (
+          <label key={field} className="text-[11px] text-gray-500">
+            {field}
+            <input value={draft[field] ?? ''} onChange={(e) => setDraft({ ...draft, [field]: e.target.value })}
+              autoComplete="off"
+              className="mt-0.5 block w-full rounded border border-gray-300 px-1.5 py-1 text-[11px]" />
+          </label>
+        ))}
+      </div>
+      <div className="mt-2 flex gap-2">
+        <button onClick={() => onSave(draft)} className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-[11px] font-medium text-white">
+          Save row
+        </button>
+        <button onClick={onCancel} className="rounded-lg border border-gray-300 px-2.5 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50">
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }
