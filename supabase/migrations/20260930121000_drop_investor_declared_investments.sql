@@ -1,0 +1,18 @@
+-- Prompt 746 Phase 1 — investor_declared_investments (migration 0266) is
+-- superseded by investor_portfolio_companies (see the companion migration
+-- 20260930120000, applied immediately before this one). Confirmed before
+-- writing this migration: the table has 0 rows in production, and its only
+-- reader — declaredInvestmentToReopenRecord in src/lib/reopen-signals.ts —
+-- is imported solely by its own test (grep across src/ turned up no other
+-- import). Dropped outright rather than left "deprecated in place": CLAUDE.md
+-- and this prompt's own instruction are explicit that dead schema doesn't
+-- get kept "just in case" once its replacement exists.
+--
+-- The app-level code (ImportTab.tsx, the declared-investments API route,
+-- declaredInvestmentToReopenRecord and its test) is removed in this same
+-- branch, not left pointing at a dropped table.
+--
+-- NOT applied to any live database by this session — file only, same
+-- rule as the companion migration. No Supabase MCP apply_migration call
+-- was made to produce this file.
+drop table if exists public.investor_declared_investments;

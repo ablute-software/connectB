@@ -430,7 +430,14 @@ function PortalPageInner() {
   // load, and its own comment explains why re-reading it live breaks Strict
   // Mode. Different problem, different answer.
   const searchParams = useSearchParams();
-  const initialTab: Tab = (searchParams.get('tab') === 'evaluation' ? 'evaluation' : 'pipeline') as Tab;
+  // Prompt 746 Phase 1 — 'portfolio' joins 'evaluation' as a real deep-link
+  // target: InvestorProfilePanel's own useTabParam('company') redirects a
+  // stale `?tab=import` bookmark here (the About > Import sub-tab no longer
+  // exists — see that file), which only works if the shell recognizes
+  // `?tab=portfolio` as a real top-level tab rather than falling through to
+  // the 'pipeline' default.
+  const rawTab = searchParams.get('tab');
+  const initialTab: Tab = (rawTab === 'evaluation' ? 'evaluation' : rawTab === 'portfolio' ? 'portfolio' : 'pipeline') as Tab;
   const initialEvaluationOrgId = searchParams.get('orgId');
 
   useEffect(() => {

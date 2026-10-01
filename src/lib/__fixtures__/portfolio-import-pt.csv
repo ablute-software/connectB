@@ -1,0 +1,3 @@
+company_name;website;country;stage_at_entry;sectors;ticket_eur;instrument;invested_at;status;exit_at;exit_type;contact_name;contact_email
+Acme Saude;https://acmesaude.pt;Portugal;Série A;digital health,diagnostics;350.000,00;Nota convertível;15.03.2022;Passado;01.09.2023;Aquisição;Joana Silva;joana@acmesaude.pt
+Beta Robotics;https://betarobotics.example;Spain;Seed;robotics;1,5M;SAFE;15/03/2022;Atual;;;John Roe;john@betarobotics.example

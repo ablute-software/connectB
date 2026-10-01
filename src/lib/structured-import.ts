@@ -26,12 +26,22 @@ export function looksLikePersonName(name: string, hasWebsite: boolean, hasEmailD
 
 // ---------- CSV parsing (RFC4180-ish: quoted fields, doubled-quote escape) ----------
 
-export function parseCsv(text: string): string[][] {
+// Prompt 753 — `delimiter` is optional and defaults to ',', so every
+// existing caller (the founder-side entities/people/interactions importer
+// this function was originally written for) is byte-for-byte unchanged.
+// portfolio-import.ts's own parsePortfolioCsvRows is the one caller that
+// passes a detected delimiter (a PT-locale Excel export uses ';' — see that
+// file's own detectCsvDelimiter). Also strips a leading UTF-8 BOM (Excel
+// always writes one) and now treats a lone '\r' the same as '\r\n'/'\n' —
+// Phase 1 only normalized '\r\n', so a file with classic Mac-style line
+// endings read as one giant row.
+export function parseCsv(text: string, delimiter: string = ','): string[][] {
+  const withoutBom = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  const src = withoutBom.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   const rows: string[][] = [];
   let row: string[] = [];
   let field = '';
   let inQuotes = false;
-  const src = text.replace(/\r\n/g, '\n');
   for (let i = 0; i < src.length; i++) {
     const c = src[i];
     if (inQuotes) {
@@ -40,7 +50,7 @@ export function parseCsv(text: string): string[][] {
       } else field += c;
     } else if (c === '"') {
       inQuotes = true;
-    } else if (c === ',') {
+    } else if (c === delimiter) {
       row.push(field); field = '';
     } else if (c === '\n') {
       row.push(field); rows.push(row); row = []; field = '';
