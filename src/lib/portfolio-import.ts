@@ -728,20 +728,53 @@ export function buildPortfolioImportPlan(
 
 // ---------- XLSX ----------
 
-function xlsxCellToString(c: unknown): string {
-  if (c == null) return '';
-  if (c instanceof Date) {
-    // cellDates:true (see parsePortfolioXlsxRows) anchors a date-formatted
-    // cell's Date object at UTC midnight for the stored calendar date —
-    // read the UTC fields, never local ones, or a negative-UTC-offset
-    // environment shifts the day by one. Formatted straight to ISO, never
-    // through a locale-dependent toLocaleDateString, so no text-parsing
-    // ambiguity is even possible for a cell Excel itself already typed as a
-    // date (Prompt 753 §C's real fix — see this function's own header).
-    const y = c.getUTCFullYear(), m = c.getUTCMonth() + 1, d = c.getUTCDate();
-    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+// Excel's epoch: day 0 is 1899-12-30 (the famous off-by-two "1900 leap year
+// bug" baked into the format itself — not ours to fix, just to match).
+const XLSX_EPOCH_UTC_MS = Date.UTC(1899, 11, 30);
+
+// Prompt AL756 (review of Prompt 753) — this file used to read date cells
+// via `cellDates: true`, on the strength of a comment claiming the
+// resulting Date was "anchored at UTC midnight". It is not: SheetJS 0.18.5
+// builds that Date using the LOCAL time zone of whoever is running the
+// parsing code — which, for this feature, is the INVESTOR'S OWN BROWSER
+// (PortfolioPanel.tsx calls this client-side). Confirmed two ways before
+// writing this fix, not assumed from the bug report alone: (1) the fixture
+// committed under Prompt 753 stores the serial as `44634.99947916667` (one
+// day MINUS 45 seconds), not a clean integer — itself a symptom of this
+// same local-time dependency, at the WRITE side, in the script that
+// generated it; (2) reading that fixture with `TZ=UTC` reproduces exactly
+// the Nuno-visible bug: `2022-03-15` comes back as `2022-03-14`, which
+// means CI (UTC) would have failed every run from here on.
+//
+// The fix removes `Date` construction from the serial→calendar-date path
+// entirely. `cellNF: true` (instead of `cellDates`) asks SheetJS to keep
+// each numeric cell's own format string on `cell.z`; `XLSX.SSF.is_date`
+// (the same date-format detector SheetJS itself uses internally) decides
+// whether that format means "this number is a date". A date cell converts
+// by pure day-count arithmetic — `Math.floor` first, since a date-only
+// field never needs the sub-day fraction a cell can carry (typically
+// floating-point noise from how it was written, as in the Prompt 753
+// fixture above) — then a single `Date.UTC(...)` call, whose result is an
+// absolute instant independent of the host's time zone by construction;
+// `.toISOString()` always reads it back as UTC. No step anywhere in this
+// path depends on which time zone is running the code. Verified directly
+// against `TZ=UTC`, `Europe/Paris`, `Asia/Tokyo`, `America/Los_Angeles`
+// (and the committed CI matrix in portfolio-import.test.ts) before relying
+// on it.
+//
+// A numeric cell whose format is NOT a date (money, a bare year, …) is
+// read as a plain number, same as before — `parseTicketAmount`/
+// `parsePortfolioDate` handle the string form of either shape already. A
+// text cell is read as-is; a date Excel did NOT tag as a date (a bare
+// serial pasted in as plain text) still falls through to
+// parsePortfolioDate's own Excel-serial fallback on the way in.
+function xlsxCellToString(cell: XLSX.CellObject | undefined): string {
+  if (!cell || cell.v == null) return '';
+  if (cell.t === 'n' && typeof cell.z === 'string' && XLSX.SSF.is_date(cell.z)) {
+    const days = Math.floor(cell.v as number);
+    return new Date(XLSX_EPOCH_UTC_MS + days * 86400000).toISOString().slice(0, 10);
   }
-  return String(c);
+  return String(cell.v);
 }
 
 /**
@@ -750,21 +783,30 @@ function xlsxCellToString(c: unknown): string {
  * SheetJS to TEXT-FORMAT every cell, and its date formatting does not
  * reliably follow the cell's own custom number-format string (confirmed:
  * a cell explicitly formatted dd/mm/yyyy still came back month-first).
- * `cellDates: true` + `raw: true` instead hands back a real JS Date object
- * for any cell Excel itself typed as a date, and a plain number for a
- * money cell — both converted here with no text-parsing step in between,
- * so there is nothing left for a locale mismatch to get wrong. A date cell
- * Excel did NOT tag as a date (a bare serial number pasted in) still comes
- * through as a plain numeric string, which parsePortfolioDate's own Excel-
- * serial fallback (see that function) catches on the way in.
+ * Prompt AL756 — `cellDates: true` (Prompt 753's own fix for that) turned
+ * out to have the SAME class of problem one level deeper: see
+ * xlsxCellToString's own header for the full account. `cellNF: true` plus
+ * manual cell-by-cell arithmetic (this function walks `!ref`'s range
+ * directly rather than `sheet_to_json`, which under `cellNF` would hand
+ * back formatted display text, not the raw value this needs) replaces it.
  */
 export function parsePortfolioXlsxRows(data: ArrayBuffer): string[][] {
-  const wb = XLSX.read(new Uint8Array(data), { type: 'array', cellDates: true });
+  const wb = XLSX.read(new Uint8Array(data), { type: 'array', cellNF: true });
   const sheetName = wb.SheetNames[0];
   if (!sheetName) return [];
   const sheet = wb.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true, defval: '' });
-  return rows.map((r) => r.map(xlsxCellToString));
+  const ref = sheet['!ref'];
+  if (!ref) return [];
+  const range = XLSX.utils.decode_range(ref);
+  const rows: string[][] = [];
+  for (let r = range.s.r; r <= range.e.r; r++) {
+    const row: string[] = [];
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      row.push(xlsxCellToString(sheet[XLSX.utils.encode_cell({ r, c })]));
+    }
+    rows.push(row);
+  }
+  return rows;
 }
 
 /** Detects , / ; / tab (Prompt 753 §C — a PT Excel export uses ;) before parsing. The founder-side importer's own parseCsv(text) call is untouched — it never passes a delimiter, so its default (',') is unchanged. */
@@ -796,6 +838,17 @@ export interface ManualPortfolioInputRow {
 export function validateManualPortfolioInput(body: Record<string, unknown>): { error: string } | { row: ManualPortfolioInputRow } {
   const companyName = typeof body.companyName === 'string' ? body.companyName.trim() : '';
   if (!companyName) return { error: 'Company name is required.' };
+  // Prompt AL756 — this used to be `body.status === 'past' ? 'past' :
+  // 'current'`: harmless for the UI's own <select> (only ever sends one of
+  // the two literal values), but a real gap for the PATCH route, which any
+  // client can call directly — a typo'd or malicious status silently
+  // became 'current' with no error at all, the exact failure class Prompt
+  // 753 was built to close everywhere else. Missing entirely still
+  // defaults to 'current' (same as before); PRESENT and not one of the two
+  // real values is now a 400, never a silent substitution.
+  if (body.status !== undefined && body.status !== 'current' && body.status !== 'past') {
+    return { error: `Unrecognized status "${body.status}" — expected "current" or "past".` };
+  }
   const status: PortfolioStatus = body.status === 'past' ? 'past' : 'current';
 
   const website = typeof body.website === 'string' && body.website.trim() ? body.website.trim() : null;

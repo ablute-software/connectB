@@ -580,11 +580,15 @@ function ImportFlow({ existing, onImported }: { existing: PortfolioCompany[]; on
                   </ul>
                 )}
                 {/* "Cada célula ... mostra o original e o lido" (Prompt 753
-                    §E) — every field the parser actually transformed, for a
-                    row worth a second look. */}
-                {(it.errors.length > 0 || it.warnings.length > 0) && editingRow !== it.row && (
-                  <ReadAsSummary raw={it.raw} data={it.data} />
-                )}
+                    §E) — EVERY row a transformed date/ticket, not just an
+                    errored/warned one. Prompt AL756's own review caught
+                    this: a confidently-read "03/04/2022" (day <= 12, where
+                    dd/mm vs. mm/dd is genuinely ambiguous to a human even
+                    though this parser never reads it as mm/dd) used to show
+                    no "read as" line at all unless the row also happened to
+                    have an unrelated warning — exactly the case a human
+                    most wants to double-check. */}
+                {editingRow !== it.row && <ReadAsSummary raw={it.raw} data={it.data} />}
                 {editingRow === it.row && (
                   <RowEditor
                     fields={it.raw}

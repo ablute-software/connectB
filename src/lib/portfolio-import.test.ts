@@ -1,12 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as XLSX from 'xlsx';
 import {
   autoMapColumns, buildPortfolioImportPlan, detectDuplicateForEdit, detectDuplicates, formatDateDisplay,
   formatTicketDisplay, parsePortfolioCsvRows, parsePortfolioDate, parsePortfolioExitType, parsePortfolioFields,
   parsePortfolioInstrument, parsePortfolioRows, parsePortfolioSectors, parsePortfolioStage, parsePortfolioStatus,
-  parsePortfolioXlsxRows, parseTicketAmount, portfolioImportTemplateCsv, detectCsvDelimiter,
+  parsePortfolioXlsxRows, parseTicketAmount, portfolioImportTemplateCsv, detectCsvDelimiter, validateManualPortfolioInput,
 } from './portfolio-import';
 
 const FIXTURES = join(__dirname, '__fixtures__');
@@ -607,10 +607,19 @@ describe('XLSX parsing — Prompt 746 Phase 1 + Prompt 753 §C', () => {
   });
 
   it('reads a genuine Excel DATE cell (not text) as the correct calendar date, not shifted by a day or read month-first', () => {
+    // Prompt AL756 — the cell is built from a plain INTEGER serial written
+    // directly, never a JS Date object through aoa_to_sheet. That path is
+    // itself time-zone dependent (confirmed: under TZ=Asia/Tokyo or
+    // TZ=Europe/Paris, aoa_to_sheet([...], [new Date(Date.UTC(2022,2,15))])
+    // produces the serial 44634.99947916667 — one day minus 45 seconds —
+    // not the clean 44635 a real Excel file has) and would have made this
+    // very test flaky by the exact mechanism this prompt fixes. 44635 =
+    // 15 March 2022, days since the Excel epoch (1899-12-30), computed by
+    // hand against that epoch, not derived from a Date.
     const wb = XLSX.utils.book_new();
     const sheet = XLSX.utils.aoa_to_sheet([
       ['company_name', 'invested_at'],
-      ['Acme Health', new Date(Date.UTC(2022, 2, 15))],
+      ['Acme Health', 44635],
     ]);
     sheet.B2.z = 'dd/mm/yyyy';
     XLSX.utils.book_append_sheet(wb, sheet, 'Sheet1');
@@ -619,6 +628,45 @@ describe('XLSX parsing — Prompt 746 Phase 1 + Prompt 753 §C', () => {
     expect(rows[1][1]).toBe('2022-03-15');
     const [result] = parsePortfolioRows(rows);
     expect(result.data?.investedAt).toBe('2022-03-15');
+  });
+
+  // Prompt AL756 — the regression guard for the bug itself: Prompt 753's
+  // `cellDates: true` built the cell's Date object in the LOCAL time zone
+  // of whoever ran the parser (the investor's own browser, in production),
+  // not an immovable UTC anchor as that code's own comment claimed.
+  // Reproduced directly before fixing (not assumed from the bug report):
+  // TZ=UTC read 44635 back as 2022-03-14. xlsxCellToString now does the
+  // serial->calendar-date conversion by pure day-count arithmetic
+  // (Date.UTC + a fixed day offset, never a locally-resolved Date) — this
+  // matrix is what actually proves that: the SAME four values come back
+  // identically whichever TZ the test process is stubbed to, including
+  // the UTC value that used to be wrong.
+  describe('time-zone independence (Prompt AL756)', () => {
+    const TIMEZONES = ['UTC', 'Europe/Paris', 'Asia/Tokyo', 'America/Los_Angeles'];
+
+    afterEach(() => { vi.unstubAllEnvs(); });
+
+    it.each(TIMEZONES)('TZ=%s: serial 44635 reads as 2022-03-15, serial 44743 as 2022-07-01', (tz) => {
+      vi.stubEnv('TZ', tz);
+      const wb = XLSX.utils.book_new();
+      const sheet = XLSX.utils.aoa_to_sheet([
+        ['invested_at', 'exit_at', 'ticket_eur', 'year_not_a_date'],
+        [44635, 44743, 350000, 2019],
+      ]);
+      sheet.A2.z = 'dd/mm/yyyy';
+      sheet.B2.z = 'dd/mm/yyyy';
+      sheet.C2.z = '€ #,##0.00';
+      // D2 deliberately has NO date format — proves the date/not-date
+      // decision comes from the cell's own number format, never from the
+      // numeric value happening to look year-shaped.
+      XLSX.utils.book_append_sheet(wb, sheet, 'Sheet1');
+      const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+      const rows = parsePortfolioXlsxRows(buf);
+      expect(rows[1][0]).toBe('2022-03-15');
+      expect(rows[1][1]).toBe('2022-07-01');
+      expect(rows[1][2]).toBe('350000');
+      expect(rows[1][3]).toBe('2019');
+    });
   });
 
   it('returns an empty array for a sheet with no rows at all', () => {
@@ -687,5 +735,40 @@ describe('lone \\r line endings — Prompt 753 §C', () => {
     expect(rows).toHaveLength(3);
     expect(rows[1][0]).toBe('Acme Health');
     expect(rows[2][0]).toBe('Beta Robotics');
+  });
+});
+
+describe('validateManualPortfolioInput — Prompt 746 Phase 1 + Prompt AL756', () => {
+  it('accepts a minimal valid row, status omitted defaults to current', () => {
+    const result = validateManualPortfolioInput({ companyName: 'Acme Health' });
+    expect('row' in result).toBe(true);
+    if ('row' in result) expect(result.row.status).toBe('current');
+  });
+
+  it('accepts an explicit "past" status', () => {
+    const result = validateManualPortfolioInput({ companyName: 'Acme Health', status: 'past' });
+    expect('row' in result && result.row.status).toBe('past');
+  });
+
+  // Prompt AL756 — the bug itself: `body.status === 'past' ? 'past' :
+  // 'current'` silently turned any garbage value into 'current'. Harmless
+  // from the UI's own <select> (never sends anything else), but a real gap
+  // for PATCH, callable directly. A present, unrecognized status is now a
+  // 400, same "never silently substitute" rule as every parser in this file.
+  it('rejects a present but unrecognized status instead of silently defaulting to current', () => {
+    const result = validateManualPortfolioInput({ companyName: 'Acme Health', status: 'archived' });
+    expect('error' in result).toBe(true);
+    if ('error' in result) expect(result.error).toContain('archived');
+  });
+
+  it('rejects a missing company name', () => {
+    const result = validateManualPortfolioInput({});
+    expect('error' in result).toBe(true);
+  });
+
+  it('rejects an ambiguous ticket amount outright — no soft "warning" landing on this path', () => {
+    const result = validateManualPortfolioInput({ companyName: 'Acme Health', ticketEur: '1.500' });
+    expect('error' in result).toBe(true);
+    if ('error' in result) expect(result.error).toContain('ambiguous');
   });
 });
