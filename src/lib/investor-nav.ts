@@ -23,8 +23,9 @@ export interface InvestorNavItem {
   key: Tab;
   label: string;
   icon: string;
-  // 1: About alone · 2: Data room/Pipeline · 3: Dashboard/Evaluation tools ·
-  // 4: Actions required/Agenda · 5: My Network/Messages · 6: Plans/Support.
+  // 1: "your firm" — About/Portfolio · 2: Data room/Pipeline ·
+  // 3: Dashboard/Evaluation tools · 4: Actions required/Agenda ·
+  // 5: My Network/Messages · 6: Plans/Support.
   // MatchDeal is deliberately NOT a nav item — it only ever lives in the
   // QR-pairing header affordance, per Nuno's explicit decision. 'archive'
   // is gone as a tab; see PipelinePanel's own "Archived" filter.
@@ -33,6 +34,13 @@ export interface InvestorNavItem {
 
 export const INVESTOR_NAV: readonly InvestorNavItem[] = [
   { key: 'about', label: 'About your firm', icon: '⋯', group: 1 },
+  // Prompt 746 Phase 1 — Nuno's own decision (30/09): Portfolio is a main
+  // sidebar tab, not a sub-tab of About, because it will grow (invites,
+  // verified association, vouchers — Phases 2/3). Stays in group 1 ("your
+  // firm") right below About, same group as before the split. Replaces the
+  // unused About > Import sub-tab (investor_declared_investments, 0 rows in
+  // production, no real reader — see PortfolioPanel.tsx's own header).
+  { key: 'portfolio', label: 'Portfolio', icon: '◫', group: 1 },
   // Prompt 337/338 — renamed from "Access granted": grows into the full
   // read-only mirror of the founder's own Vault Data Room in Prompt 338.
   { key: 'access', label: 'Data room', icon: '⚿', group: 2 },

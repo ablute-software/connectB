@@ -57,6 +57,11 @@ export const PREVIEW_COPY: Record<string, PreviewCopy> = {
     message: 'Tell Sherlock your thesis once — every startup you see is scored against it.',
     source: 'about_preview',
   },
+  portfolio: {
+    title: 'Portfolio',
+    message: 'Your portfolio, in one place — add it once, invite it to Sherlock Deal later.',
+    source: 'portfolio_preview',
+  },
   dashboard: {
     title: 'Dashboard',
     message: 'Your deals, your pace, your follow-ons — in one view, never a feed.',
