@@ -44,6 +44,7 @@ function interaction(over: Partial<Interaction> & Pick<Interaction, 'id' | 'enti
 function db(entities: Entity[], interactions: Interaction[]): Db {
   return {
     catalog: [], packs: [], unlocks: [], submissions: [], org: org(), entities, people: [],
+    catalogPeopleLinkedIn: {},
     personAffiliations: [], interactions, tasks: [], relationshipState: [], overrides: [], folders: [],
     documents: [], grants: [], views: [], templates: [], automations: [], runs: [], aiReviews: [],
     companyFacts: [], companyPeople: [], tractionMetrics: [], ndas: [], documentVersions: [],

@@ -40,6 +40,7 @@ import { CompetitorInvestmentCard } from '@/components/CompetitorInvestmentCard'
 import { PathfinderCard } from '@/components/PathfinderCard';
 import { EntityClassificationEditor } from '@/components/EntityClassificationEditor';
 import { TicketSignalCard } from '@/components/TicketSignalCard';
+import { personLinkedInUrl, resolvedLinkedInAsPerson } from '@/lib/person-linkedin';
 import { ThreadDrawer } from '@/components/ThreadDrawer';
 import { ReportFraudModal } from '@/components/ReportFraudModal';
 import { FilesTab } from '@/components/dossier/FilesTab';
@@ -248,7 +249,15 @@ export function EntityDossierPanel({ entityId, onClose }: {
   const mode = effectiveMode(db, entity.id);
   const interlocutor = recommendInterlocutor(db, entity.id);
   const recommendedPerson = interlocutor.person;
-  const recommendedChannel = recommendChannel(recommendedPerson, entity);
+  // Prompt 901 — recommendChannel reads linkedin_url/linkedin_verified
+  // straight off the Person it's given; the catalog's value (when this
+  // person is linked and the catalog has one) must win here too, same as
+  // every display surface below, so the "LinkedIn verified for this
+  // person" reason text this produces is never built on a stale link.
+  const recommendedPersonForChannel = recommendedPerson
+    ? resolvedLinkedInAsPerson(recommendedPerson, recommendedPerson.catalog_person_id ? db.catalogPeopleLinkedIn[recommendedPerson.catalog_person_id] : undefined)
+    : recommendedPerson;
+  const recommendedChannel = recommendChannel(recommendedPersonForChannel, entity);
   const lastInboundInteraction = [...db.interactions].filter((i) => i.entity_id === entity.id && i.direction === 'in')
     .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))[0];
   const lastOutboundInteraction = [...db.interactions].filter((i) => i.entity_id === entity.id && i.direction === 'out')
@@ -516,7 +525,9 @@ export function EntityDossierPanel({ entityId, onClose }: {
             <Card title="People — one at a time, senior first">
               <p className="mb-2 text-xs text-gray-500">Approach one person per firm at a time, starting with the most senior.</p>
               <ul className="divide-y divide-gray-100">
-                {people.map((p) => (
+                {people.map((p) => {
+                  const pLinkedIn = personLinkedInUrl(p, p.catalog_person_id ? db.catalogPeopleLinkedIn[p.catalog_person_id] : undefined);
+                  return (
                   <li key={p.id} className={`flex items-center gap-3 py-2 ${justAddedPersonId === p.id ? 'person-added-highlight' : ''}`}>
                     <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-600">{p.seniority_rank}</span>
                     <div className="min-w-0 flex-1">
@@ -524,14 +535,14 @@ export function EntityDossierPanel({ entityId, onClose }: {
                       <span className="ml-2 text-xs text-gray-500">{p.role}</span>
                       {p.do_not_contact && <span className="ml-2 rounded bg-red-100 px-1.5 text-[10px] font-bold text-red-700">DO NOT CONTACT</span>}
                       <div className="mt-0.5 flex flex-wrap items-center gap-3">
-                        <VerBadge state={p.linkedin_verified ? 'verified' : 'missing'} label={p.linkedin_verified ? 'LinkedIn ✓' : 'LinkedIn ?'} />
+                        <VerBadge state={pLinkedIn.verified ? 'verified' : 'missing'} label={pLinkedIn.verified ? 'LinkedIn ✓' : 'LinkedIn ?'} />
                         <VerBadge state={p.bounce_count > 0 ? 'bounced' : p.email_verified ? 'verified' : p.email_guess ? 'guessed' : 'missing'}
                           label={p.bounce_count > 0 ? `Email bounced ×${p.bounce_count}` : p.email_verified ? 'Email ✓' : p.email_guess ? 'Email guessed' : 'No email'} />
                         {/* Prompt 893 §E — "Prepare meeting →" per person, in
                             both dossier surfaces; "LinkedIn ↗" alongside it
                             when a URL is on file. */}
-                        {p.linkedin_url && !p.do_not_contact && (
-                          <a href={p.linkedin_url} target="_blank" rel="noreferrer" className="text-xs text-[#0E7490] hover:underline">LinkedIn ↗</a>
+                        {pLinkedIn.url && !p.do_not_contact && (
+                          <a href={pLinkedIn.url} target="_blank" rel="noreferrer" className="text-xs text-[#0E7490] hover:underline">LinkedIn ↗</a>
                         )}
                         {!p.do_not_contact && (
                           <Link href={`/people/${p.id}/prep`} className="text-xs text-cyan-700 hover:underline">Prepare meeting →</Link>
@@ -539,7 +550,8 @@ export function EntityDossierPanel({ entityId, onClose }: {
                       </div>
                     </div>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
               {people.length === 0 && relSummary.stage === 'not_contacted' && (
                 <p className="mt-3 border-t border-gray-100 pt-3 text-xs text-gray-500">Nobody on file yet — add the person you want to approach before reaching out.</p>

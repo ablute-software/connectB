@@ -1338,6 +1338,17 @@ export interface Db {
   org: Org;
   entities: Entity[];
   people: Person[];
+  // Prompt 901 — the catalog's own linkedin_url/linkedin_verified for every
+  // person in `people` that has a catalog_person_id, keyed by that id.
+  // `people` itself is left untouched (the raw, as-stored record); this is
+  // sibling data a display-time helper (personLinkedInUrl, person-
+  // linkedin.ts) combines with it, same pattern as personCompleteness's own
+  // catalogSide parameter — never written back to `people.linkedin_url`,
+  // same "overlay at read time, never write" rule Prompt 871 §E already
+  // established for this exact table. Empty in demo mode (store-demo.tsx):
+  // demo has no catalog_people depth at all, so every lookup here misses
+  // and personLinkedInUrl degrades to the person's own value, unchanged.
+  catalogPeopleLinkedIn: Record<string, { linkedin_url: string | null; linkedin_verified: boolean }>;
   personAffiliations: PersonAffiliation[];
   interactions: Interaction[];
   tasks: TaskItem[];

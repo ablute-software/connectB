@@ -25,6 +25,7 @@ import { AI_COMPOSER_LOCKED_COPY } from '@/lib/plans';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { uploadAndVerifyFile } from '@/lib/vault-upload-client';
 import { FirstContactGuideCard } from '@/components/dossier/FirstContactGuideCard';
+import { resolvedLinkedInAsPerson } from '@/lib/person-linkedin';
 import { PitchAndAskFields } from '@/components/dossier/PitchAndAskFields';
 import { FormAssistModal } from '@/components/FormAssistModal';
 import { QuickCreatePerson } from '@/components/QuickCreatePerson';
@@ -476,6 +477,13 @@ export function RailLogForm({
   }, [channelNonce]);
 
   const person = people.find((p) => p.id === personId);
+  // Prompt 901 — feeds both recommendChannel calls below and the
+  // FirstContactGuideCard prop: the catalog's LinkedIn wins over the org's
+  // own (possibly stale) value, same rule as every other display surface.
+  // A single resolved object, not three separate lookups.
+  const personForLinkedIn = person
+    ? resolvedLinkedInAsPerson(person, person.catalog_person_id ? db.catalogPeopleLinkedIn[person.catalog_person_id] : undefined)
+    : person;
 
   // Prompt 893 §B — "the selected person has never been contacted". Scoped
   // to OUTBOUND only: logging a historical INBOUND reply for a person with
@@ -513,11 +521,11 @@ export function RailLogForm({
   useEffect(() => {
     if (defaultChannel) return;
     if (!neverContactedSelection) return;
-    setChannel(recommendChannel(person, entity).value ?? '');
+    setChannel(recommendChannel(personForLinkedIn, entity).value ?? '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [personId, noSpecificPerson]);
 
-  const channelRec = useMemo(() => recommendChannel(person, entity), [person, entity]);
+  const channelRec = useMemo(() => recommendChannel(personForLinkedIn, entity), [personForLinkedIn, entity]);
   // Fase 1 (measure only) — org-wide, no entityType/seniority slice yet;
   // see channel-learning.ts's own header for why Fase 2's tie-break logic
   // is deliberately not built here.
@@ -663,7 +671,7 @@ export function RailLogForm({
           are unchanged and still the real inputs. */}
       {showGuideCard && (
         <FirstContactGuideCard
-          person={person} noSpecificPerson={noSpecificPerson}
+          person={personForLinkedIn} noSpecificPerson={noSpecificPerson}
           personDone={!!person || noSpecificPerson} channel={channelRec} channelDone={!!channel}
           messageDone={content.trim().length > 0} outcomesSummary={outcomesSummary}
           showFormAssist={entity.submission_channel_type === 'form' && !!entity.submission_channel}

@@ -33,7 +33,7 @@ type SB = ReturnType<typeof browserClient>;
 
 const EMPTY_ORG: Org = { id: '', name: '', plan: 'idea', daily_cap: 5, weekly_cap: 20 };
 const EMPTY_DB: Db = {
-  org: EMPTY_ORG, entities: [], people: [], personAffiliations: [], interactions: [], tasks: [], relationshipState: [], overrides: [],
+  org: EMPTY_ORG, entities: [], people: [], catalogPeopleLinkedIn: {}, personAffiliations: [], interactions: [], tasks: [], relationshipState: [], overrides: [],
   folders: [], documents: [], grants: [], views: [], templates: [], automations: [],
   runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [], companyFacts: [], companyPeople: [], ndas: [],
   documentVersions: [], reawakeningProposals: [], tractionMetrics: [], roadmapMilestones: [], fundingRounds: [], roadmapCategories: [],
@@ -179,6 +179,27 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
   if (orgRes.error) throw orgRes.error;
   const org = fromRow<Org>(orgRes.data as Record<string, unknown>);
 
+  // Prompt 901 — a sequential follow-up, not part of the batch above: it
+  // needs the just-loaded people's own catalog_person_id values, which
+  // don't exist until peopleRes resolves. Scoped to exactly the catalog
+  // people this org's own roster actually links to (never every
+  // catalog_people row this org's RLS would otherwise be allowed to read
+  // via catalog_deliveries, which would be strictly more rows than needed).
+  // `people` itself is never touched by this — see catalogPeopleLinkedIn's
+  // own comment on the Db type.
+  const peopleCatalogIds = [...new Set(
+    ((peopleRes.data ?? []) as { catalog_person_id?: string | null }[])
+      .map((p) => p.catalog_person_id).filter((id): id is string => !!id),
+  )];
+  const catalogPeopleLinkedIn: Db['catalogPeopleLinkedIn'] = {};
+  if (peopleCatalogIds.length > 0) {
+    const { data: catalogLinkedInRows } = await sb.from('catalog_people')
+      .select('id, linkedin_url, linkedin_verified').in('id', peopleCatalogIds);
+    for (const row of (catalogLinkedInRows ?? []) as { id: string; linkedin_url: string | null; linkedin_verified: boolean }[]) {
+      catalogPeopleLinkedIn[row.id] = { linkedin_url: row.linkedin_url, linkedin_verified: !!row.linkedin_verified };
+    }
+  }
+
   const catalogIdsByPack = new Map<string, string[]>();
   for (const pi of (packItemsRes.data ?? []) as { pack_id: string; catalog_id: string }[]) {
     const arr = catalogIdsByPack.get(pi.pack_id) ?? [];
@@ -212,6 +233,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     org,
     entities: ((entitiesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<Entity>(r)),
     people: ((peopleRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<Person>(r)),
+    catalogPeopleLinkedIn,
     personAffiliations: ((personAffiliationsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<PersonAffiliation>(r)),
     interactions: ((interactionsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<Interaction>(r)),
     tasks: ((tasksRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<TaskItem>(r)),

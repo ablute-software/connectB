@@ -31,7 +31,7 @@ function makeDb(overrides: Partial<ReopenSignalsDb> = {}): ReopenSignalsDb {
   return {
     catalog: [], packs: [], unlocks: [], submissions: [],
     org: { id: 'org-1', name: 'ablute_', plan: 'idea', daily_cap: 5, weekly_cap: 20 },
-    entities: [], people: [], personAffiliations: [], interactions: [],
+    entities: [], people: [], catalogPeopleLinkedIn: {}, personAffiliations: [], interactions: [],
     tasks: [], relationshipState: [], overrides: [], folders: [], documents: [],
     grants: [], views: [], templates: [], automations: [], runs: [], aiReviews: [], companyFacts: [], ndas: [], documentVersions: [],
     reawakeningProposals: [],

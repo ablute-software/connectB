@@ -230,7 +230,14 @@ export const seed: Db = {
     },
     {
       id: 'p-zanchi', entity_id: 'ent-nina', full_name: 'Dr. Marta G. Zanchi', role: 'Founder & Managing Partner',
-      seniority_rank: 1, based_in: 'Barcelona, ES', linkedin_url: 'https://www.linkedin.com/in/martagzanchi', linkedin_verified: true,
+      // Prompt 901 — this was the actual wrong URL (martagzanchi) that
+      // exposed the bug: the real profile is mgzanchi, confirmed by Nuno by
+      // hand (01/10/2026) and matching catalog_people in production. Demo
+      // mode has no separate catalog_people layer to overlay this from (see
+      // catalogPeopleLinkedIn's own comment above), so the seed value itself
+      // is corrected directly rather than left wrong — this is demo content,
+      // not a stand-in for the catalog-preference logic the real fix adds.
+      seniority_rank: 1, based_in: 'Barcelona, ES', linkedin_url: 'https://www.linkedin.com/in/mgzanchi', linkedin_verified: true,
       bounce_count: 0, linked_companies: [], linked_funds: ['Nina Capital'],
       background: 'PhD EE Stanford; Director of Biodesign for Digital Health, Stanford Byers. Fund III (~€50M) deploying.',
       hook: 'Biodesign thesis — “deep understanding of the NEED is the DNA of every great invention”; explicitly anti-hype.',
@@ -413,6 +420,11 @@ export const seed: Db = {
   overrides: [],
   relationshipState: [],
   personAffiliations: [],
+  // Prompt 901 — demo mode has no catalog_people depth at all (same reason
+  // store-demo.tsx's own ensureOrgPersonFromCatalog stub never populates a
+  // hook), so this stays empty; personLinkedInUrl degrades to each person's
+  // own seeded value, unchanged from before this prompt.
+  catalogPeopleLinkedIn: {},
 
   folders: [
     { id: 'f-materials', name: 'Materials', kind: 'materials', position: 0 },

@@ -35,6 +35,7 @@ import { QuickCreatePerson } from '@/components/QuickCreatePerson';
 import { CompetitorInvestmentCard } from '@/components/CompetitorInvestmentCard';
 import { PathfinderCard } from '@/components/PathfinderCard';
 import { entityCompleteness, qualifiesForContactEnrichment } from '@/lib/completeness';
+import { personLinkedInUrl } from '@/lib/person-linkedin';
 import { isPersonCandidate, isUnverifiedStub, relatedContacts, relationshipSummary } from '@/lib/relationship';
 import { vaultAccessAdviceFromDb } from '@/lib/vault-access-advice';
 import { SherlockInsightBanner } from '@/components/SherlockInsightBanner';
@@ -872,6 +873,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
             <ul className="divide-y divide-gray-100">
               {people.map((p) => {
                 const s = preflightSummary(preflight(db, p, null));
+                const pLinkedIn = personLinkedInUrl(p, p.catalog_person_id ? db.catalogPeopleLinkedIn[p.catalog_person_id] : undefined);
                 return (
                   <li key={p.id} ref={(el) => { personRowRefs.current[p.id] = el; }}
                     className={`flex items-center gap-3 py-2 ${justAddedPersonId === p.id ? 'person-added-highlight' : ''}`}>
@@ -881,15 +883,15 @@ export default function EntityPage({ params }: { params: { id: string } }) {
                       <span className="ml-2 text-xs text-gray-500">{p.role}</span>
                       {p.do_not_contact && <span className="ml-2 rounded bg-red-100 px-1.5 text-[10px] font-bold text-red-700">DO NOT CONTACT</span>}
                       <div className="mt-0.5 flex flex-wrap items-center gap-3">
-                        <VerBadge state={p.linkedin_verified ? 'verified' : 'missing'} label={p.linkedin_verified ? 'LinkedIn ✓' : 'LinkedIn ?'} />
+                        <VerBadge state={pLinkedIn.verified ? 'verified' : 'missing'} label={pLinkedIn.verified ? 'LinkedIn ✓' : 'LinkedIn ?'} />
                         <VerBadge state={p.bounce_count > 0 ? 'bounced' : p.email_verified ? 'verified' : p.email_guess ? 'guessed' : 'missing'}
                           label={p.bounce_count > 0 ? `Email bounced ×${p.bounce_count}` : p.email_verified ? 'Email ✓' : p.email_guess ? 'Email guessed' : 'No email'} />
                         {p.hook_status !== 'researched' && <span className="text-xs text-gray-400">no researched hook</span>}
                         {/* Prompt 893 §E — "Prepare meeting →" per person, in
                             both dossier surfaces; "LinkedIn ↗" alongside it
                             when a URL is on file. */}
-                        {p.linkedin_url && !p.do_not_contact && (
-                          <a href={p.linkedin_url} target="_blank" rel="noreferrer" className="text-xs text-[#0E7490] hover:underline">LinkedIn ↗</a>
+                        {pLinkedIn.url && !p.do_not_contact && (
+                          <a href={pLinkedIn.url} target="_blank" rel="noreferrer" className="text-xs text-[#0E7490] hover:underline">LinkedIn ↗</a>
                         )}
                         {!p.do_not_contact && (
                           <Link href={`/people/${p.id}/prep`} className="text-xs text-cyan-700 hover:underline">Prepare meeting →</Link>

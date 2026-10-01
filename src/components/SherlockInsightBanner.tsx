@@ -35,6 +35,7 @@ import { DECISION_NOTE_MAX, REOPEN_TRIGGER_MIN_LENGTH } from '@/lib/startup-inve
 import { useOrgCapability } from '@/lib/use-org-capability';
 import { useConfirm } from '@/lib/confirm';
 import { PreContactReadinessNudge } from './PreContactReadinessNudge';
+import { resolvedLinkedInAsPerson } from '@/lib/person-linkedin';
 
 // Prompt 410 §2.3 — how long the post-decision confirmation stays up. Short
 // on purpose ("toast", Nuno's own word) — this isn't an undo window (the
@@ -263,7 +264,12 @@ export function SherlockInsightBanner({
   // to <person> — <reason>", the same recommendation (and its documented
   // reason) the guided first-contact card shows once the founder actually
   // opens + Log — never a second, competing opinion about the channel.
-  const suggestedChannel = showFirstInteractionButton && nextContact ? recommendChannel(nextContact, entity) : undefined;
+  // Prompt 901 — same catalog-wins-over-stale-org-value rule every display
+  // surface applies, so this "Suggested: ... — LinkedIn verified for this
+  // person" reason text is never built on a stale link.
+  const suggestedChannel = showFirstInteractionButton && nextContact
+    ? recommendChannel(resolvedLinkedInAsPerson(nextContact, nextContact.catalog_person_id ? db.catalogPeopleLinkedIn[nextContact.catalog_person_id] : undefined), entity)
+    : undefined;
 
   // Prompt 893 §E — "Meeting on <date> with <person> — prepare →": an
   // Agenda item for THIS entity (kind 'meeting', not done, a specific

@@ -12,6 +12,7 @@ import { EnrichmentBadge } from '@/components/EnrichmentBadge';
 import { AffiliationsCard } from '@/components/AffiliationsCard';
 import { personCompleteness } from '@/lib/completeness';
 import { conversationDeepLink } from '@/lib/conversation-deep-link';
+import { personLinkedInUrl } from '@/lib/person-linkedin';
 
 export default function PersonPage({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -21,6 +22,10 @@ export default function PersonPage({ params }: { params: { id: string } }) {
   const person = db.people.find((p) => p.id === id);
   if (!person) return <div className="text-gray-500">Person not found.</div>;
   const completeness = personCompleteness(person);
+  // Prompt 901 — the catalog's own LinkedIn wins when this person is linked
+  // and the catalog has one, even over a non-empty org value (the Zanchi
+  // case: her org-side link was simply wrong).
+  const resolvedLinkedIn = personLinkedInUrl(person, person.catalog_person_id ? db.catalogPeopleLinkedIn[person.catalog_person_id] : undefined);
   const entity = db.entities.find((e) => e.id === person.entity_id);
   const checks = preflight(db, person, null);
   const history = db.interactions.filter((i) => i.person_id === person.id)
@@ -42,9 +47,9 @@ export default function PersonPage({ params }: { params: { id: string } }) {
             <span>{person.role}</span>
             {entity && <>· <EntityLink id={entity.id}>{entity.name}</EntityLink></>}
             {person.based_in && <span>· {person.based_in}</span>}
-            {person.linkedin_url && !person.do_not_contact && (
-              <a href={person.linkedin_url} target="_blank" className="inline-flex items-center gap-1 rounded border border-gray-300 px-2 py-0.5 text-xs hover:bg-gray-50">
-                LinkedIn <VerBadge state={person.linkedin_verified ? 'verified' : 'missing'} label={person.linkedin_verified ? '✓' : '?'} />
+            {resolvedLinkedIn.url && !person.do_not_contact && (
+              <a href={resolvedLinkedIn.url} target="_blank" className="inline-flex items-center gap-1 rounded border border-gray-300 px-2 py-0.5 text-xs hover:bg-gray-50">
+                LinkedIn <VerBadge state={resolvedLinkedIn.verified ? 'verified' : 'missing'} label={resolvedLinkedIn.verified ? '✓' : '?'} />
               </a>
             )}
           </div>
