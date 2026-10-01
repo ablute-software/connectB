@@ -20,7 +20,7 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { validateManualPortfolioInput, detectDuplicateForEdit } from '@/lib/portfolio-import';
 
 const SELECT_COLUMNS = 'id, status, company_name, website, domain, country, stage_at_entry, sectors, '
-  + 'ticket_eur, instrument, invested_at, exit_at, exit_type, contact_name, contact_email, '
+  + 'ticket_eur, instrument, invested_at, exit_at, exit_type, contact_name, contact_email, contact_phone, '
   + 'linked_org_id, link_status, source, created_at';
 
 export async function GET(req: Request) {

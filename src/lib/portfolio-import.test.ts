@@ -3,10 +3,11 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as XLSX from 'xlsx';
 import {
-  autoMapColumns, buildPortfolioImportPlan, detectDuplicateForEdit, detectDuplicates, formatDateDisplay,
-  formatTicketDisplay, parsePortfolioCsvRows, parsePortfolioDate, parsePortfolioExitType, parsePortfolioFields,
-  parsePortfolioInstrument, parsePortfolioRows, parsePortfolioSectors, parsePortfolioStage, parsePortfolioStatus,
-  parsePortfolioXlsxRows, parseTicketAmount, portfolioImportTemplateCsv, detectCsvDelimiter, validateManualPortfolioInput,
+  autoMapColumns, bucketImportItems, buildPortfolioImportPlan, detectDuplicateForEdit, detectDuplicates,
+  detectHeaderAndMapping, formatDateDisplay, formatTicketDisplay, parsePortfolioCsvRows, parsePortfolioDate,
+  parsePortfolioExitType, parsePortfolioFields, parsePortfolioInstrument, parsePortfolioRows, parsePortfolioSectors,
+  parsePortfolioStage, parsePortfolioStatus, parsePortfolioXlsxRows, parseTicketAmount, pickImportTargetStatus,
+  portfolioImportTemplateCsv, detectCsvDelimiter, stripEmptyRowsAndColumns, suggestSector, validateManualPortfolioInput,
 } from './portfolio-import';
 
 const FIXTURES = join(__dirname, '__fixtures__');
@@ -534,13 +535,15 @@ describe('buildPortfolioImportPlan — Prompt 746 Phase 1 + Prompt 753', () => {
     expect(plan.items[0].duplicate).toEqual({ against: 'existing', reason: 'domain' });
   });
 
-  it('excludes a row with only a WARNING by default, distinctly from an error (can still be opted in)', () => {
+  // Prompt AL757 §E — Nuno's own review of 753 found warning-only rows
+  // starting UNCHECKED, forcing a click on "Import anyway" for every one
+  // even though a warning (by definition) never blocks the import. Only an
+  // error, or an un-opted duplicate, excludes a row by default now.
+  it('includes a row with only a WARNING by default, distinctly from an error', () => {
     const plan = buildPortfolioImportPlan([HEADER, ['Acme Health', 'https://acmehealth.com', '1.500', 'current']], []);
     expect(plan.items[0].errors).toEqual([]);
     expect(plan.items[0].warnings.length).toBeGreaterThan(0);
-    expect(plan.items[0].include).toBe(false);
-    // Unlike an error row, a warning row's own data is still populated —
-    // "Import anyway" just flips `include`, it never needs to re-parse.
+    expect(plan.items[0].include).toBe(true);
     expect(plan.items[0].data).not.toBeNull();
   });
 
@@ -770,5 +773,461 @@ describe('validateManualPortfolioInput — Prompt 746 Phase 1 + Prompt AL756', (
     const result = validateManualPortfolioInput({ companyName: 'Acme Health', ticketEur: '1.500' });
     expect('error' in result).toBe(true);
     if ('error' in result) expect(result.error).toContain('ambiguous');
+  });
+
+  it('accepts a contact phone and trims it; absent stays null', () => {
+    const withPhone = validateManualPortfolioInput({ companyName: 'Acme Health', contactPhone: '  +351 912345678  ' });
+    expect('row' in withPhone && withPhone.row.contact_phone).toBe('+351 912345678');
+    const withoutPhone = validateManualPortfolioInput({ companyName: 'Acme Health' });
+    expect('row' in withoutPhone && withoutPhone.row.contact_phone).toBeNull();
+  });
+});
+
+describe('stripEmptyRowsAndColumns — Prompt AL757 §A', () => {
+  it('drops a fully blank row anywhere (top, middle) and renumbers nothing else', () => {
+    const grid = [
+      ['', '', ''],
+      ['company_name', 'ticket_eur', 'country'],
+      ['', '', ''],
+      ['Acme', '100', 'Portugal'],
+    ];
+    const { rows, originalRowNumbers } = stripEmptyRowsAndColumns(grid);
+    expect(rows).toEqual([
+      ['company_name', 'ticket_eur', 'country'],
+      ['Acme', '100', 'Portugal'],
+    ]);
+    // 1-based original file line numbers — row 1 (blank) and row 3 (blank)
+    // are gone; the header is file line 2, the data row is file line 4.
+    expect(originalRowNumbers).toEqual([2, 4]);
+  });
+
+  it('drops a fully blank column anywhere (left, middle, right)', () => {
+    const grid = [
+      ['', 'company_name', '', 'ticket_eur', ''],
+      ['', 'Acme', '', '100', ''],
+    ];
+    const { rows } = stripEmptyRowsAndColumns(grid);
+    expect(rows).toEqual([
+      ['company_name', 'ticket_eur'],
+      ['Acme', '100'],
+    ]);
+  });
+
+  it('leaves a grid with no blank rows/columns untouched, row numbers 1..n', () => {
+    const grid = [['company_name'], ['Acme'], ['Beta']];
+    const { rows, originalRowNumbers } = stripEmptyRowsAndColumns(grid);
+    expect(rows).toEqual(grid);
+    expect(originalRowNumbers).toEqual([1, 2, 3]);
+  });
+
+  it('returns an empty grid for an all-blank file', () => {
+    expect(stripEmptyRowsAndColumns([['', ''], ['', '']])).toEqual({ rows: [], originalRowNumbers: [] });
+  });
+});
+
+describe('detectHeaderAndMapping — Prompt AL757 §A/§B', () => {
+  it('finds the header on row 0 when it matches >= 2 aliases', () => {
+    const detection = detectHeaderAndMapping([['company_name', 'ticket_eur'], ['Acme', '100']]);
+    expect(detection.headerRowIndex).toBe(0);
+    expect(detection.mapping.company_name).toBe(0);
+    expect(detection.mapping.ticket_eur).toBe(1);
+  });
+
+  // "O cabeçalho é a primeira das primeiras 10 linhas não vazias com pelo
+  // menos 2 células que batem num alias" — four junk/title lines above the
+  // real header, each non-blank (so blank-row stripping alone can't skip
+  // them) but matching at most 1 alias each.
+  it('skips up to 4 junk/title lines above the real header, on line 5', () => {
+    const grid = [
+      ['Portfolio export'],
+      ['Generated 2026-10-01'],
+      [''],
+      ['Confidential'],
+      ['company_name', 'ticket_eur', 'country'],
+      ['Acme', '100', 'Portugal'],
+    ];
+    const { rows } = stripEmptyRowsAndColumns(grid);
+    const detection = detectHeaderAndMapping(rows);
+    expect(rows[detection.headerRowIndex]).toEqual(['company_name', 'ticket_eur', 'country']);
+    expect(detection.mapping.company_name).toBe(0);
+  });
+
+  // "Se nenhuma bater, usa a primeira linha não vazia e passa à detecção
+  // por conteúdo... tudo marcado guessed" — a file that is pure data, no
+  // header row recognizable at all. The first row is still treated as a
+  // header (a known, accepted trade-off stated in this function's own
+  // header comment) and every content-guessable field in the remaining
+  // rows is resolved by VALUE, not by any column name.
+  it('falls back to content-detection when no row matches >= 2 header aliases', () => {
+    const grid = [
+      ['jane@acmehealth.com', 'https://acmehealth.com', '350.000', '15/03/2022'],
+      ['john@oldrobotics.example', 'https://oldrobotics.example', '120.000', '01/06/2019'],
+    ];
+    const detection = detectHeaderAndMapping(grid);
+    expect(detection.headerRowIndex).toBe(0);
+    expect(detection.mapping.contact_email).toBe(0);
+    expect(detection.mapping.website).toBe(1);
+    expect(detection.mapping.ticket_eur).toBe(2);
+    expect(detection.mapping.invested_at).toBe(3);
+    expect(detection.guessedFields.sort()).toEqual(['contact_email', 'invested_at', 'ticket_eur', 'website']);
+  });
+
+  it('never guesses company_name by content — no pattern exists for it', () => {
+    // Every column here is content-guessable as something ELSE (or
+    // nothing); the "company name" column (plain text, no recognizable
+    // shape) stays unmapped rather than being guessed.
+    const grid = [
+      ['Acme Health', 'jane@acmehealth.com'],
+      ['Old Robotics', 'john@oldrobotics.example'],
+    ];
+    const detection = detectHeaderAndMapping(grid);
+    expect(detection.mapping.company_name).toBeUndefined();
+    expect(detection.mapping.contact_email).toBe(1);
+    expect(detection.unmappedColumns.map((c) => c.index)).toEqual([0]);
+  });
+
+  it('a money-shaped column needs a currency symbol, k/M suffix, or thousands grouping — a bare small number is never guessed as ticket_eur', () => {
+    const grid = [['5'], ['12'], ['7']];
+    const detection = detectHeaderAndMapping(grid);
+    expect(detection.mapping.ticket_eur).toBeUndefined();
+  });
+
+  it('lists unmapped header columns with their own header text, for "Not imported"', () => {
+    const detection = detectHeaderAndMapping([
+      ['company_name', 'ticket_eur', 'Notes'],
+      ['Acme', '100', 'met at a conference'],
+    ]);
+    expect(detection.unmappedColumns).toEqual([{ index: 2, header: 'Notes' }]);
+  });
+});
+
+// Prompt AL757 — the three files Nuno actually tried in production, each
+// reproduced here as a real fixture (not inlined) so a future regression
+// shows up exactly where it would in his own workflow. All three must
+// resolve the SAME five core fields, per the prompt's own requirement.
+describe('Nuno\'s three real files — Prompt AL757', () => {
+  function loadCsv(name: string): string[][] {
+    return parsePortfolioCsvRows(readFileSync(join(FIXTURES, name), 'utf8'));
+  }
+
+  function assertCoreFieldsMapped(mapping: ReturnType<typeof detectHeaderAndMapping>['mapping']) {
+    expect(mapping.company_name).toBeDefined();
+    expect(mapping.ticket_eur).toBeDefined();
+    expect(mapping.sectors).toBeDefined();
+    expect(mapping.country).toBeDefined();
+    expect(mapping.invested_at).toBeDefined();
+    expect(mapping.contact_email).toBeDefined();
+    expect(mapping.contact_phone).toBeDefined();
+  }
+
+  it('file 1 — plain EN header on row 1 — maps every field including Mail and Tel.', () => {
+    const rows = loadCsv('al757-file1-en-header.csv');
+    const { rows: stripped } = stripEmptyRowsAndColumns(rows);
+    const detection = detectHeaderAndMapping(stripped);
+    assertCoreFieldsMapped(detection.mapping);
+    expect(detection.unmappedColumns).toEqual([]);
+  });
+
+  it('file 2 — same header, blank row on top and blank column on the left', () => {
+    const rows = loadCsv('al757-file2-blank-row-col.csv');
+    const { rows: stripped } = stripEmptyRowsAndColumns(rows);
+    const detection = detectHeaderAndMapping(stripped);
+    assertCoreFieldsMapped(detection.mapping);
+    expect(detection.unmappedColumns).toEqual([]);
+  });
+
+  it('file 3 — Portuguese header, same blank row/column shape as file 2', () => {
+    const rows = loadCsv('al757-file3-pt-header-blank-row-col.csv');
+    const { rows: stripped } = stripEmptyRowsAndColumns(rows);
+    const detection = detectHeaderAndMapping(stripped);
+    assertCoreFieldsMapped(detection.mapping);
+    expect(detection.unmappedColumns).toEqual([]);
+  });
+
+  it('all three files import Test1/Test2 with zero errors, at the row numbers a human would see in their own spreadsheet', () => {
+    for (const [name, test1Row, test2Row] of [
+      ['al757-file1-en-header.csv', 2, 3],
+      ['al757-file2-blank-row-col.csv', 3, 4],
+      ['al757-file3-pt-header-blank-row-col.csv', 3, 4],
+    ] as const) {
+      const rows = loadCsv(name);
+      const parsed = parsePortfolioRows(rows);
+      expect(parsed.map((p) => p.row)).toEqual([test1Row, test2Row]);
+      for (const p of parsed) expect(p.errors).toEqual([]);
+      expect(parsed[0].data?.companyName).toBe('Test1');
+      expect(parsed[0].data?.ticketEur).toBe(100000);
+      expect(parsed[0].data?.contactPhone).toBe('+351 912345678');
+      expect(parsed[1].data?.companyName).toBe('Test2');
+    }
+  });
+
+  it('the XLSX variant with the table starting away from A1 resolves the same core fields', () => {
+    const buf = readFileSync(join(FIXTURES, 'al757-table-starts-at-c3.xlsx'));
+    const rows = parsePortfolioXlsxRows(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer);
+    const { rows: stripped } = stripEmptyRowsAndColumns(rows);
+    const detection = detectHeaderAndMapping(stripped);
+    expect(detection.mapping.company_name).toBeDefined();
+    expect(detection.mapping.ticket_eur).toBeDefined();
+    expect(detection.mapping.sectors).toBeDefined();
+    expect(detection.mapping.country).toBeDefined();
+    expect(detection.mapping.invested_at).toBeDefined();
+    const parsed = parsePortfolioRows(rows);
+    expect(parsed).toHaveLength(2);
+    for (const p of parsed) expect(p.errors).toEqual([]);
+    expect(parsed[0].data?.companyName).toBe('Test1');
+  });
+});
+
+describe('new PT/EN header aliases — Prompt AL757 §B', () => {
+  // Each alias tried with mixed case, accents, and stray punctuation, to
+  // prove normalizeHeader's own accent/punctuation stripping (not just an
+  // exact-string table entry) is what makes the match, same spirit as
+  // normalizeToken elsewhere in this file.
+  const CASES: { field: string; headers: string[] }[] = [
+    { field: 'company_name', headers: ['Nome', 'NOME', 'Empresa', 'Nome da Empresa', 'Participada'] },
+    { field: 'country', headers: ['País', 'PAÍS', 'Pais', 'Localização', 'localizacao', 'Geografia'] },
+    { field: 'sectors', headers: ['Setor', 'Área', 'área', 'Indústria', 'Mercado'] },
+    { field: 'ticket_eur', headers: ['Valor', 'Valor Investimento', 'Montante', 'Cheque'] },
+    { field: 'invested_at', headers: ['Quando', 'Data', 'Data de Investimento', 'Ano'] },
+    { field: 'stage_at_entry', headers: ['Fase', 'Ronda', 'Estágio', 'estagio'] },
+    { field: 'instrument', headers: ['Instrumento', 'Tipo de Investimento'] },
+    { field: 'status', headers: ['Estado', 'Situação', 'situacao'] },
+    { field: 'exit_at', headers: ['Data de Saída', 'data saida'] },
+    { field: 'exit_type', headers: ['Tipo de Saída'] },
+    { field: 'contact_name', headers: ['Contacto', 'Nome do Contacto', 'Fundador'] },
+    { field: 'contact_email', headers: ['Mail', 'MAIL', 'E-mail', 'Correio Eletrónico'] },
+    { field: 'website', headers: ['Site', 'Página', 'pagina', 'Web'] },
+    { field: 'contact_phone', headers: ['Tel.', 'tel', 'Telefone', 'Phone Number', 'Telemóvel'] },
+  ];
+
+  for (const { field, headers } of CASES) {
+    for (const header of headers) {
+      it(`"${header}" maps to ${field}`, () => {
+        const mapping = autoMapColumns([header]);
+        expect(mapping[field as keyof typeof mapping]).toBe(0);
+      });
+    }
+  }
+});
+
+describe('content-based column detection — Prompt AL757 §B', () => {
+  it('guesses contact_email, website, ticket_eur, invested_at and country from values, each marked "guessed"', () => {
+    const grid = [
+      ['x1', 'x2', 'x3', 'x4', 'x5'],
+      ['jane@acmehealth.com', 'https://acmehealth.com', '€350.000', '15/03/2022', 'Portugal'],
+      ['john@oldrobotics.example', 'https://oldrobotics.example', '1,5M', '2019', 'Spain'],
+    ];
+    const detection = detectHeaderAndMapping(grid);
+    expect(detection.mapping).toEqual({ contact_email: 0, website: 1, ticket_eur: 2, invested_at: 3, country: 4 });
+    expect(detection.guessedFields.sort()).toEqual(['contact_email', 'country', 'invested_at', 'ticket_eur', 'website']);
+  });
+
+  it('requires 80% of a column\'s values to match before guessing it', () => {
+    const grid = [
+      ['x1'],
+      ['jane@acmehealth.com'],
+      ['not an email'],
+      ['also not an email'],
+    ];
+    const detection = detectHeaderAndMapping(grid);
+    expect(detection.mapping.contact_email).toBeUndefined();
+  });
+});
+
+describe('past without an exit date — Prompt AL757 §D', () => {
+  it('a past company with no exit_at is valid, but now carries a warning', () => {
+    const { data, errors, warnings } = parsePortfolioFields({ company_name: 'Old Robotics', status: 'past' });
+    expect(errors).toEqual([]);
+    expect(data?.status).toBe('past');
+    expect(data?.exitAt).toBeUndefined();
+    expect(warnings.some((w) => w.field === 'exit_at' && /no exit date/i.test(w.message))).toBe(true);
+  });
+
+  it('a current company with no exit_at carries no such warning (the field does not apply)', () => {
+    const { warnings } = parsePortfolioFields({ company_name: 'Acme Health', status: 'current' });
+    expect(warnings.some((w) => w.field === 'exit_at')).toBe(false);
+  });
+});
+
+describe('default status for a file with no status column — Prompt AL757 §D', () => {
+  const NO_STATUS_HEADER = ['company_name', 'ticket_eur'];
+
+  it('falls back to the caller-supplied default (the active tab), not always current', () => {
+    const rows = [NO_STATUS_HEADER, ['Acme', '100'], ['Beta', '200']];
+    const asPast = parsePortfolioRows(rows, undefined, { defaultStatus: 'past' });
+    expect(asPast.map((r) => r.data?.status)).toEqual(['past', 'past']);
+    const asCurrent = parsePortfolioRows(rows, undefined, { defaultStatus: 'current' });
+    expect(asCurrent.map((r) => r.data?.status)).toEqual(['current', 'current']);
+  });
+
+  it('omitting the option keeps the old default (current)', () => {
+    const rows = [NO_STATUS_HEADER, ['Acme', '100']];
+    expect(parsePortfolioRows(rows)[0].data?.status).toBe('current');
+  });
+
+  it('a file that DOES map a status column ignores the default for a non-blank cell, and still defaults a blank cell to current (unchanged behavior)', () => {
+    const header = ['company_name', 'status'];
+    const rows = [header, ['Acme', 'past'], ['Beta', '']];
+    const parsed = parsePortfolioRows(rows, undefined, { defaultStatus: 'past' });
+    expect(parsed[0].data?.status).toBe('past');
+    // Beta's blank cell: parsePortfolioStatus's own rule (blank -> current)
+    // still applies — the "active tab" default is only for a MISSING
+    // column entirely, never a per-cell override of an existing one.
+    expect(parsed[1].data?.status).toBe('current');
+  });
+
+  it('buildPortfolioImportPlan threads the same default through to its items', () => {
+    const plan = buildPortfolioImportPlan([NO_STATUS_HEADER, ['Acme', '100']], [], undefined, { defaultStatus: 'past' });
+    expect(plan.items[0].data?.status).toBe('past');
+  });
+});
+
+describe('sector suggestion — Prompt AL757 §F', () => {
+  it('an unmatched token close to a known short alias gets a suggestion, not a silent match', () => {
+    expect(suggestSector('MedTec')).toBe('MedTech & Medical Devices');
+    const parsed = parsePortfolioSectors('MedTec');
+    expect(parsed.unmatched).toEqual(['MedTec']);
+  });
+
+  it('the warning carries the suggestion for the UI\'s one-click accept', () => {
+    const { warnings } = parsePortfolioFields({ company_name: 'Acme', sectors: 'MedTec' });
+    const w = warnings.find((x) => x.field === 'sectors');
+    expect(w?.suggestion).toEqual({ token: 'MedTec', canonical: 'MedTech & Medical Devices' });
+  });
+
+  it('a short industry nickname resolves outright, no suggestion needed', () => {
+    expect(parsePortfolioSectors('fintech').sectors).toEqual(['FinTech & InsurTech']);
+    expect(parsePortfolioSectors('healthtech').sectors).toEqual(['Digital Health']);
+    expect(parsePortfolioSectors('edtech').sectors).toEqual(['EdTech']);
+    expect(parsePortfolioSectors('agritech').sectors).toEqual(['AgriTech & FoodTech']);
+  });
+
+  it('a confident abbreviation (margin >= 2 chars) resolves by containment, no suggestion', () => {
+    expect(parsePortfolioSectors('roboti').sectors).toEqual(['Robotics & Automation']);
+  });
+
+  it('nothing close enough returns no suggestion at all', () => {
+    expect(suggestSector('completely unrelated gibberish xyz')).toBeUndefined();
+  });
+});
+
+describe('bucketImportItems — Prompt AL757 §C', () => {
+  const baseRow = { data: { companyName: 'Acme', domain: null, sectors: [], status: 'current' as const }, errors: [], duplicate: null };
+
+  it('an invalid row (null data) is skipped with its own reason', () => {
+    const { candidates, skipped } = bucketImportItems([
+      { row: 1, data: null, errors: [{ field: 'company_name', message: 'Company name is required.', severity: 'error' }], include: false, duplicate: null },
+    ]);
+    expect(candidates).toEqual([]);
+    expect(skipped).toEqual([{ row: 1, reason: 'Company name is required.' }]);
+  });
+
+  it('a row with an error is NEVER a candidate even when include is true', () => {
+    const { candidates, skipped } = bucketImportItems([
+      { ...baseRow, row: 1, errors: [{ field: 'ticket_eur', message: 'Could not parse ticket amount "abc".', severity: 'error' }], include: true },
+    ]);
+    expect(candidates).toEqual([]);
+    expect(skipped).toEqual([{ row: 1, reason: 'Could not parse ticket amount "abc".' }]);
+  });
+
+  it('a clean row left unchecked by the investor is skipped as "not selected"', () => {
+    const { candidates, skipped } = bucketImportItems([{ ...baseRow, row: 1, include: false }]);
+    expect(candidates).toEqual([]);
+    expect(skipped).toEqual([{ row: 1, reason: 'not selected' }]);
+  });
+
+  it('a clean, checked row becomes a candidate', () => {
+    const { candidates, skipped } = bucketImportItems([{ ...baseRow, row: 1, include: true }]);
+    expect(candidates).toEqual([{ row: 1, data: baseRow.data }]);
+    expect(skipped).toEqual([]);
+  });
+
+  it('an un-opted duplicate is skipped with the duplicate reason, from the client\'s own flag', () => {
+    const { candidates, skipped } = bucketImportItems([
+      { ...baseRow, row: 1, include: false, duplicate: { against: 'existing' as const, reason: 'domain' as const } },
+    ]);
+    expect(candidates).toEqual([]);
+    expect(skipped).toEqual([{ row: 1, reason: 'duplicate (same website as a company already in your portfolio)' }]);
+  });
+});
+
+// Prompt AL757 §C — "prova que, depois do import, a faixa de resultado
+// existe e o separador ativo corresponde ao das linhas importadas." No
+// React component-testing library exists in this repo (every other UI
+// verification in this codebase is done live, in-browser — see CLAUDE.md);
+// this is the equivalent INTEGRATION test the prompt itself offers as the
+// alternative ("ou de integração"): it drives the exact same three pure
+// functions PortfolioPanel/ImportFlow call in sequence (buildPortfolioImportPlan
+// -> bucketImportItems, mirroring the commit route -> pickImportTargetStatus,
+// exactly what commit() uses to tell the parent panel which tab to switch
+// to), end to end, over a real file. A live-browser click-through of this
+// same path is also done separately as part of this prompt's own
+// production verification.
+describe('import -> commit -> result banner -> tab switch, end to end — Prompt AL757 §C', () => {
+  it('a file with no status column, imported while the investor sits on Past, creates rows AND switches to Past', () => {
+    const rows = [
+      ['company_name', 'ticket_eur'],
+      ['Acme Health', '100000'],
+      ['Beta Robotics', '45000'],
+    ];
+    const plan = buildPortfolioImportPlan(rows, [], undefined, { defaultStatus: 'past' });
+    expect(plan.items.every((it) => it.include)).toBe(true);
+
+    // What the commit route does with the plan the client sends it.
+    const { candidates, skipped } = bucketImportItems(plan.items);
+    expect(candidates).toHaveLength(2);
+    expect(skipped).toEqual([]);
+    const created = candidates.length;
+
+    // What the result banner shows, and what tab it switches to — exactly
+    // ImportFlow's own commit() logic.
+    expect(created).toBeGreaterThan(0);
+    const targetStatus = pickImportTargetStatus(plan.items);
+    expect(targetStatus).toBe('past');
+  });
+
+  it('a file with a mixed status column switches to whichever status most of the imported rows actually landed on', () => {
+    const rows = [
+      ['company_name', 'ticket_eur', 'status'],
+      ['Acme Health', '100000', 'past'],
+      ['Beta Robotics', '45000', 'past'],
+      ['Gamma Analytics', '20000', 'current'],
+    ];
+    const plan = buildPortfolioImportPlan(rows, []);
+    const { candidates } = bucketImportItems(plan.items);
+    expect(candidates).toHaveLength(3);
+    expect(pickImportTargetStatus(plan.items)).toBe('past');
+  });
+
+  it('a file where everything is skipped (all duplicates) creates nothing and the banner has a reason for each row', () => {
+    const rows = [
+      ['company_name', 'ticket_eur'],
+      ['Acme Health', '100000'],
+    ];
+    const plan = buildPortfolioImportPlan(rows, [{ companyName: 'Acme Health', domain: null }]);
+    expect(plan.items[0].include).toBe(false);
+    const { candidates, skipped } = bucketImportItems(plan.items);
+    expect(candidates).toEqual([]);
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0].reason).toMatch(/duplicate/);
+  });
+});
+
+describe('pickImportTargetStatus — Prompt AL757 §C/§D', () => {
+  function item(status: 'current' | 'past', include = true) {
+    return { include, data: { companyName: 'x', domain: null, sectors: [], status } };
+  }
+
+  it('picks the status most of the included rows resolved to', () => {
+    expect(pickImportTargetStatus([item('past'), item('past'), item('current')])).toBe('past');
+  });
+
+  it('a tie, or nothing included, favors current', () => {
+    expect(pickImportTargetStatus([item('past'), item('current')])).toBe('current');
+    expect(pickImportTargetStatus([])).toBe('current');
+  });
+
+  it('ignores a row that is not included or has no data', () => {
+    expect(pickImportTargetStatus([item('past', false), item('current')])).toBe('current');
   });
 });

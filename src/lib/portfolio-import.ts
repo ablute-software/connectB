@@ -35,7 +35,7 @@ export type PortfolioStatus = 'current' | 'past';
 
 export const PORTFOLIO_IMPORT_FIELDS = [
   'company_name', 'website', 'country', 'stage_at_entry', 'sectors', 'ticket_eur',
-  'instrument', 'invested_at', 'status', 'exit_at', 'exit_type', 'contact_name', 'contact_email',
+  'instrument', 'invested_at', 'status', 'exit_at', 'exit_type', 'contact_name', 'contact_email', 'contact_phone',
 ] as const;
 
 export type PortfolioImportField = typeof PORTFOLIO_IMPORT_FIELDS[number];
@@ -49,24 +49,41 @@ export type ColumnMapping = Partial<Record<PortfolioImportField, number>>;
 // miss just leaves that field unmapped, which the mapping-step UI surfaces
 // for a manual pick, same as the founder-side importer's own "conflict"
 // tier defers to a human rather than guessing.
+//
+// Prompt AL757 — the aliases below are PT+EN now, not EN-only: Nuno's own
+// three test files used "Mail"/"Tel." (missing from contact_email/no field
+// at all) and, in Portuguese, "Nome"/"Valor investimento"/"Localização"/
+// "Quando" — none of which matched anything, so autoMapColumns found
+// NOTHING and the whole preview showed every field as unmapped even though
+// the file had a perfectly good header. normalizeHeader (below) now also
+// strips accents and punctuation, so "Tel." and "tel" — or "Localização"
+// and "localizacao" — are the same alias lookup.
 const HEADER_ALIASES: Record<PortfolioImportField, string[]> = {
-  company_name: ['company_name', 'company', 'name', 'startup', 'portfolio company'],
-  website: ['website', 'url', 'site'],
-  country: ['country', 'hq_country', 'location', 'geography'],
-  stage_at_entry: ['stage_at_entry', 'stage', 'stage at entry', 'round'],
-  sectors: ['sectors', 'sector', 'industry', 'industries', 'vertical'],
-  ticket_eur: ['ticket_eur', 'ticket', 'amount', 'amount_eur', 'investment', 'invested amount', 'check size'],
-  instrument: ['instrument', 'security', 'instrument_type', 'round type'],
-  invested_at: ['invested_at', 'investment_date', 'date', 'date invested', 'investment date'],
-  status: ['status'],
-  exit_at: ['exit_at', 'exit date', 'exit_date'],
-  exit_type: ['exit_type', 'exit', 'exit type'],
-  contact_name: ['contact_name', 'contact', 'founder', 'founder_name', 'founder name'],
-  contact_email: ['contact_email', 'email', 'founder_email', 'founder email'],
+  company_name: ['company_name', 'company', 'name', 'startup', 'portfolio company', 'nome', 'empresa', 'nome da empresa', 'companhia', 'participada'],
+  website: ['website', 'url', 'site', 'página', 'pagina', 'web'],
+  country: ['country', 'hq_country', 'location', 'geography', 'país', 'pais', 'localização', 'localizacao', 'local', 'geografia'],
+  stage_at_entry: ['stage_at_entry', 'stage', 'stage at entry', 'round', 'fase', 'ronda', 'estágio', 'estagio'],
+  sectors: ['sectors', 'sector', 'industry', 'industries', 'vertical', 'setor', 'área', 'area', 'indústria', 'industria', 'mercado'],
+  ticket_eur: ['ticket_eur', 'ticket', 'amount', 'amount_eur', 'investment', 'invested amount', 'check size', 'valor', 'valor investimento', 'valor investido', 'montante', 'investimento', 'cheque'],
+  instrument: ['instrument', 'security', 'instrument_type', 'round type', 'instrumento', 'tipo de investimento'],
+  invested_at: ['invested_at', 'investment_date', 'date', 'date invested', 'investment date', 'quando', 'data', 'data investimento', 'data de investimento', 'ano'],
+  status: ['status', 'estado', 'situação', 'situacao'],
+  exit_at: ['exit_at', 'exit date', 'exit_date', 'data de saída', 'data de saida', 'data saída', 'data saida'],
+  exit_type: ['exit_type', 'exit', 'exit type', 'tipo de saída', 'tipo de saida'],
+  contact_name: ['contact_name', 'contact', 'founder', 'founder_name', 'founder name', 'contacto', 'nome do contacto', 'fundador'],
+  contact_email: ['contact_email', 'email', 'founder_email', 'founder email', 'mail', 'e-mail', 'correio eletrónico', 'correio eletronico'],
+  contact_phone: ['contact_phone', 'phone', 'telephone', 'tel', 'tel.', 'telefone', 'phone number', 'contact phone', 'telemóvel', 'telemovel'],
 };
 
+// Accent- and punctuation-insensitive, same spirit as normalizeToken (used
+// by every alias table below) but kept separate since a header can carry
+// punctuation none of those tables need to worry about ("Tel." -> "tel").
 function normalizeHeader(h: string): string {
-  return h.trim().toLowerCase().replace(/[_\s-]+/g, ' ');
+  return h.trim().toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[.,;:!?'"()]/g, '')
+    .replace(/[_\s-]+/g, ' ')
+    .trim();
 }
 
 export function autoMapColumns(headerRow: string[]): ColumnMapping {
@@ -80,10 +97,178 @@ export function autoMapColumns(headerRow: string[]): ColumnMapping {
   return mapping;
 }
 
+// ---------- AL757: strip blank rows/columns, find the header, guess the rest ----------
+
+export interface StrippedGrid {
+  /** Blank rows and blank columns removed, in both directions, anywhere in the grid. */
+  rows: string[][];
+  /** Same length as `rows` — the 1-based line number EACH kept row had in the ORIGINAL file, so a row number shown to the investor still points at the right line in their own spreadsheet. */
+  originalRowNumbers: number[];
+}
+
+// "Ignora linhas totalmente vazias e colunas totalmente vazias (à esquerda,
+// à direita e no meio)... antes de qualquer mapeamento" (Prompt AL757 §A) —
+// what a spreadsheet exports when its real table doesn't start at A1 (a
+// title row above it, a spacer column to its left). Position-agnostic by
+// design: a column is dropped only if EVERY row leaves it blank, regardless
+// of where it sits, so a genuinely blank column in the middle of real data
+// is removed exactly like a leading one.
+export function stripEmptyRowsAndColumns(rawRows: string[][]): StrippedGrid {
+  const nonEmptyRowIdx: number[] = [];
+  rawRows.forEach((r, i) => { if (r.some((c) => c.trim() !== '')) nonEmptyRowIdx.push(i); });
+
+  const maxCols = rawRows.reduce((m, r) => Math.max(m, r.length), 0);
+  const nonEmptyColIdx: number[] = [];
+  for (let c = 0; c < maxCols; c++) {
+    if (nonEmptyRowIdx.some((ri) => (rawRows[ri][c] ?? '').trim() !== '')) nonEmptyColIdx.push(c);
+  }
+
+  const rows = nonEmptyRowIdx.map((ri) => nonEmptyColIdx.map((ci) => rawRows[ri][ci] ?? ''));
+  const originalRowNumbers = nonEmptyRowIdx.map((ri) => ri + 1);
+  return { rows, originalRowNumbers };
+}
+
+// Content-detection fields — "só para colunas que ficarem por mapear"
+// (Prompt AL757 §B). company_name is deliberately NOT one of these: there
+// is no reliable text pattern for "this looks like a company name" the way
+// there is for an email or a URL, so it is only ever assigned by a
+// recognized header alias, never guessed from values — which is also what
+// keeps this list from ever double-guessing company_name when a
+// nome/name header column was already found.
+const CONTENT_FIELD_ORDER = ['contact_email', 'website', 'ticket_eur', 'invested_at', 'country'] as const;
+type ContentField = typeof CONTENT_FIELD_ORDER[number];
+
+function cellLooksLikeEmail(s: string): boolean {
+  return EMAIL_RE.test(s);
+}
+function cellLooksLikeWebsite(s: string): boolean {
+  if (/^https?:\/\//i.test(s)) return true;
+  // A purely-numeric dotted string ("120.000", a thousands-grouped
+  // amount) otherwise satisfies the bare-domain shape below just as
+  // happily as a real hostname does — require at least one letter so a
+  // money- or date-shaped cell is never mistaken for a schemeless domain.
+  if (!/[a-z]/i.test(s)) return false;
+  return /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i.test(s);
+}
+// "Valores com k/M/€/milhares" — a currency symbol, a k/M suffix, or a
+// thousands-grouped number (350.000-shaped). A bare small integer ("5") is
+// deliberately NOT money-shaped — plenty of other columns (a count, a bare
+// year) look exactly like that, and parseTicketAmount would happily parse
+// any of them.
+function cellLooksLikeMoney(s: string): boolean {
+  const t = s.trim();
+  if (!t) return false;
+  if (/[€$£]/.test(t)) return parseTicketAmount(t) !== undefined;
+  if (/^[\d.,]+[kKmM]$/.test(t)) return parseTicketAmount(t) !== undefined;
+  if (!/[.,]/.test(t)) return false;
+  const parsed = parseTicketAmount(t);
+  return parsed !== undefined && parsed.value >= 1000;
+}
+// "Datas ou anos de 4 dígitos" — parsePortfolioDate already accepts both
+// (plus the Excel-serial-as-text fallback), so this is just a thin alias
+// rather than a second date-shape check that could drift from the real one.
+function cellLooksLikeDate(s: string): boolean {
+  return parsePortfolioDate(s) !== undefined;
+}
+// Heuristic only, for "does this column look like a country column" — NOT
+// a normalization map (confirmed in Prompt 753's own review: no PT->EN
+// country map exists anywhere in this repo, and country is stored exactly
+// as the investor typed it). EN + PT spellings for the countries this
+// product's own investors/startups are overwhelmingly based in, plus the
+// other large markets an EU-based firm's portfolio commonly spans.
+const CONTENT_COUNTRY_NAMES = [
+  'portugal', 'spain', 'espanha', 'france', 'frança', 'franca', 'germany', 'alemanha', 'italy', 'italia', 'itália',
+  'netherlands', 'holanda', 'países baixos', 'paises baixos', 'belgium', 'bélgica', 'belgica', 'ireland', 'irlanda',
+  'united kingdom', 'uk', 'reino unido', 'england', 'inglaterra', 'united states', 'usa', 'us', 'estados unidos',
+  'brazil', 'brasil', 'switzerland', 'suíça', 'suica', 'sweden', 'suécia', 'suecia', 'denmark', 'dinamarca',
+  'norway', 'noruega', 'finland', 'finlândia', 'finlandia', 'poland', 'polónia', 'polonia', 'austria', 'áustria',
+  'luxembourg', 'luxemburgo', 'greece', 'grécia', 'grecia', 'canada', 'canadá', 'mexico', 'méxico', 'india',
+  'china', 'japan', 'japão', 'japao', 'singapore', 'singapura', 'israel', 'estonia', 'estónia', 'angola',
+  'mozambique', 'moçambique', 'mocambique', 'cape verde', 'cabo verde',
+].map(normalizeToken);
+const CONTENT_COUNTRY_SET = new Set(CONTENT_COUNTRY_NAMES);
+function cellLooksLikeCountry(s: string): boolean {
+  return CONTENT_COUNTRY_SET.has(normalizeToken(s));
+}
+
+const CONTENT_TESTERS: Record<ContentField, (s: string) => boolean> = {
+  contact_email: cellLooksLikeEmail, website: cellLooksLikeWebsite, ticket_eur: cellLooksLikeMoney,
+  invested_at: cellLooksLikeDate, country: cellLooksLikeCountry,
+};
+
+// ≥80% of a column's non-blank values matching one pattern — "só quando ≥80%
+// das células não vazias batem". Tried in a fixed priority order so a value
+// that could plausibly match two testers (rare, but a dd/mm/yyyy-shaped
+// string with dots is never money-shaped and an email is never website-
+// shaped either, by construction) resolves the same way every time.
+function guessFieldFromContent(values: string[]): ContentField | undefined {
+  if (values.length === 0) return undefined;
+  for (const field of CONTENT_FIELD_ORDER) {
+    const tester = CONTENT_TESTERS[field];
+    const matches = values.filter(tester).length;
+    if (matches / values.length >= 0.8) return field;
+  }
+  return undefined;
+}
+
+export interface HeaderDetection {
+  /** Index within the STRIPPED grid (StrippedGrid.rows) of the row treated as the header. */
+  headerRowIndex: number;
+  mapping: ColumnMapping;
+  /** Fields resolved by guessing from the DATA, not from a recognized header alias — the mapping-step UI marks these "guessed from the values" for the investor to confirm. */
+  guessedFields: PortfolioImportField[];
+  /** Columns (by index into the header row, plus whatever header text they had) that matched no field at all, header or content. */
+  unmappedColumns: { index: number; header: string }[];
+}
+
+// "O cabeçalho é a primeira das primeiras 10 linhas não vazias com pelo
+// menos 2 células que batem num alias de campo. Se nenhuma bater, usa a
+// primeira linha não vazia e passa à detecção por conteúdo" (Prompt AL757
+// §A/§B) — runs on an ALREADY-stripped grid (stripEmptyRowsAndColumns), so
+// "first 10 non-empty rows" is just "first 10 rows" here; a title/junk row
+// above the real header (non-blank, so stripping doesn't remove it) simply
+// fails the ≥2-alias test and the loop moves on to the next row, same as a
+// genuinely blank row would have — this is also exactly the "no header
+// found, treat the first line as one anyway" fallback Nuno's own three
+// files never had to exercise, kept for a file that truly has no header row
+// to recognize (every remaining field falls to content-detection, or stays
+// unmapped for a human to pick manually).
+export function detectHeaderAndMapping(strippedRows: string[][]): HeaderDetection {
+  const candidateCount = Math.min(10, strippedRows.length);
+  let headerRowIndex = 0;
+  let mapping: ColumnMapping = {};
+  for (let i = 0; i < candidateCount; i++) {
+    const m = autoMapColumns(strippedRows[i]);
+    if (Object.keys(m).length >= 2) { headerRowIndex = i; mapping = { ...m }; break; }
+  }
+
+  const headerRow = strippedRows[headerRowIndex] ?? [];
+  const dataRows = strippedRows.slice(headerRowIndex + 1);
+  const mappedCols = new Set(Object.values(mapping));
+  const guessedFields: PortfolioImportField[] = [];
+
+  for (let c = 0; c < headerRow.length; c++) {
+    if (mappedCols.has(c)) continue;
+    const values = dataRows.map((r) => (r[c] ?? '').trim()).filter(Boolean);
+    const field = guessFieldFromContent(values);
+    if (field) {
+      mapping[field] = c;
+      mappedCols.add(c);
+      guessedFields.push(field);
+    }
+  }
+
+  const unmappedColumns = headerRow
+    .map((h, i) => ({ index: i, header: h }))
+    .filter(({ index }) => !mappedCols.has(index));
+
+  return { headerRowIndex, mapping, guessedFields, unmappedColumns };
+}
+
 export function portfolioImportTemplateCsv(): string {
   const header = PORTFOLIO_IMPORT_FIELDS.join(',');
-  const example1 = 'Acme Health,https://acmehealth.com,Portugal,seed,"digital health|diagnostics",350000,safe,15/03/2022,current,,,Jane Doe,jane@acmehealth.com';
-  const example2 = 'Old Robotics,https://oldrobotics.example,Spain,pre_seed,robotics,120000,convertible_note,2019-06-01,past,2023-09-01,acquisition,John Roe,john@oldrobotics.example';
+  const example1 = 'Acme Health,https://acmehealth.com,Portugal,seed,"digital health|diagnostics",350000,safe,15/03/2022,current,,,Jane Doe,jane@acmehealth.com,+351 912345678';
+  const example2 = 'Old Robotics,https://oldrobotics.example,Spain,pre_seed,robotics,120000,convertible_note,2019-06-01,past,2023-09-01,acquisition,John Roe,john@oldrobotics.example,';
   return `${header}\n${example1}\n${example2}\n`;
 }
 
@@ -205,6 +390,93 @@ export function parsePortfolioExitType(raw: string): string | undefined {
 
 const SECTOR_LOOKUP = new Map(ALL_SECTOR_NAMES.map((s) => [normalizeToken(s), s]));
 
+// Prompt AL757 §F — short industry nicknames investors actually type
+// ("MedTech", "healthtech", "fintech"...) that don't literally appear
+// inside the taxonomy's own longer names. Values below are copied verbatim
+// from sector-taxonomy.ts — confirmed there, not invented — so a lookup
+// miss here is a real taxonomy gap, never a typo in this table.
+const SECTOR_SHORT_ALIASES: Record<string, string> = {
+  medtech: 'MedTech & Medical Devices', healthtech: 'Digital Health', fintech: 'FinTech & InsurTech',
+  insurtech: 'FinTech & InsurTech', edtech: 'EdTech', agritech: 'AgriTech & FoodTech', foodtech: 'AgriTech & FoodTech',
+  cleantech: 'ClimateTech & CleanTech', climatetech: 'ClimateTech & CleanTech', proptech: 'PropTech',
+  legaltech: 'LegalTech & RegTech', regtech: 'LegalTech & RegTech', govtech: 'GovTech',
+  hrtech: 'HRTech & Future of Work', traveltech: 'TravelTech & Hospitality', agetech: 'Longevity, AgeTech & Wellness',
+  pettech: 'PetTech', watertech: 'WaterTech', bluetech: 'BlueTech & OceanTech', oceantech: 'BlueTech & OceanTech',
+  deeptech: 'DeepTech', spacetech: 'Aerospace & SpaceTech', femhealth: 'FemHealth',
+  biotech: 'Biotechnology & Life Sciences',
+};
+const SECTOR_SHORT_LOOKUP = new Map(Object.entries(SECTOR_SHORT_ALIASES).map(([k, v]) => [normalizeToken(k), v]));
+
+// A taxonomy name split into its own words/segments ("FinTech & InsurTech"
+// -> ["fintech", "insurtech"]) — what a short token is actually compared
+// against below, rather than the whole multi-word name at once (comparing
+// "MedTec" to the WHOLE string "medtech medical devices" would never read
+// as a close match by edit distance, even though it obviously should).
+function sectorSegments(name: string): string[] {
+  return name.split(/[\s,&]+/).map(normalizeToken).filter(Boolean);
+}
+
+function levenshtein(a: string, b: string): number {
+  const dp: number[][] = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i++) dp[i][0] = i;
+  for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[a.length][b.length];
+}
+
+// "Se mesmo assim não bater, aviso com a sugestão mais próxima" (Prompt
+// AL757 §F) — the closest taxonomy name by edit distance against any one
+// of its own segments, within a threshold scaled to the token's own
+// length (a short token needs a tight threshold or everything looks
+// "close"; "medtec" (6 chars) vs. "medtech" (distance 1) comfortably
+// clears it). Returns undefined rather than a far-fetched guess when
+// nothing is actually close.
+export function suggestSector(token: string): string | undefined {
+  const norm = normalizeToken(token);
+  if (!norm) return undefined;
+  let best: { name: string; dist: number } | undefined;
+  for (const name of ALL_SECTOR_NAMES) {
+    for (const seg of sectorSegments(name)) {
+      const dist = levenshtein(norm, seg);
+      if (!best || dist < best.dist) best = { name, dist };
+    }
+  }
+  if (!best) return undefined;
+  const threshold = Math.max(1, Math.ceil(norm.length * 0.34));
+  return best.dist <= threshold ? best.name : undefined;
+}
+
+// A token that's a substring of, or has as a substring, exactly ONE
+// taxonomy name — "início ou palavra contida quando só há um candidato".
+// Deliberately skipped for very short tokens (<3 chars) where almost
+// everything is "contained" in something and the match would be noise.
+// Compared against each taxonomy name's own SEGMENTS (same split
+// suggestSector uses), not the whole multi-word name — "software" should
+// match "Enterprise Software & SaaS" by its own word, not by accident
+// through an unrelated one. A margin of 2+ characters between the token
+// and the segment it's a prefix/suffix of is required: "roboti" (6) is a
+// confident abbreviation of "robotics" (8, margin 2), but "medtec" (6) is
+// NOT confidently an abbreviation of "medtech" (7, margin 1) — that is a
+// one-letter-short TYPO of a recognized short alias, which this repo's own
+// Prompt AL757 explicitly wants routed to the suggestion-and-confirm flow
+// (suggestSector) instead of a silent auto-match.
+function uniqueContainsMatch(token: string): string | undefined {
+  const norm = normalizeToken(token);
+  if (norm.length < 3) return undefined;
+  const candidates = ALL_SECTOR_NAMES.filter((name) => sectorSegments(name).some((seg) => {
+    const longer = seg.length >= norm.length ? seg : norm;
+    const shorter = seg.length >= norm.length ? norm : seg;
+    return longer.startsWith(shorter) && longer.length - shorter.length >= 2;
+  }));
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
+
 export interface ParsedSectors { sectors: string[]; unmatched: string[] }
 
 // "Separa por |, ;, , ou /. Confronta cada um com a taxonomia do
@@ -212,12 +484,20 @@ export interface ParsedSectors { sectors: string[]; unmatched: string[] }
 // (Prompt 753). A token that doesn't match the taxonomy is KEPT as typed
 // (never dropped) — the caller surfaces `unmatched` as a warning so the
 // investor can fix the spelling or accept the free text as-is.
+//
+// Prompt AL757 §F — before giving up on a token, tries (1) an exact match
+// ignoring accents/case (unchanged, above), (2) a short industry nickname
+// ("medtech" -> "MedTech & Medical Devices"), (3) a unique substring match.
+// Only once all three miss does it fall through to `unmatched`, where the
+// caller (parsePortfolioFields) attaches suggestSector's own closest-match
+// guess to the warning.
 export function parsePortfolioSectors(raw: string): ParsedSectors {
   const tokens = raw.split(/[|;,/]/).map((s) => s.trim()).filter(Boolean);
   const sectors: string[] = [];
   const unmatched: string[] = [];
   for (const tok of tokens) {
-    const canonical = SECTOR_LOOKUP.get(normalizeToken(tok));
+    const norm = normalizeToken(tok);
+    const canonical = SECTOR_LOOKUP.get(norm) ?? SECTOR_SHORT_LOOKUP.get(norm) ?? uniqueContainsMatch(tok);
     if (canonical) sectors.push(canonical);
     else { sectors.push(tok); unmatched.push(tok); }
   }
@@ -458,16 +738,29 @@ export interface PortfolioCompanyRow {
   exitType?: string;
   contactName?: string;
   contactEmail?: string;
+  contactPhone?: string;
   status: PortfolioStatus;
 }
 
 export type IssueSeverity = 'error' | 'warning';
-export interface RowIssue { field?: PortfolioImportField; message: string; severity: IssueSeverity }
+export interface RowIssue {
+  field?: PortfolioImportField;
+  message: string;
+  severity: IssueSeverity;
+  /** Only set on a sectors "doesn't match the taxonomy" warning that has a close-enough suggestion — the UI's one-click "Use «X»" accept button. */
+  suggestion?: { token: string; canonical: string };
+}
 /** @deprecated kept as an alias — `severity` is always present now, nothing else changed shape. */
 export type RowError = RowIssue;
 
 export interface ParsedPortfolioRow {
-  /** 1-based, header row excluded — what the preview UI shows next to each error. */
+  /**
+   * 1-based line number in the ORIGINAL uploaded file (Prompt AL757 §A) —
+   * not a sequential count of data rows. A blank line, a title row above
+   * the real header, or a stripped blank column never shift this number,
+   * so it always points at the same line the investor would find by
+   * opening the file themselves.
+   */
   row: number;
   /** null only when the row has no usable company name at all. */
   data: PortfolioCompanyRow | null;
@@ -521,7 +814,16 @@ export function parsePortfolioFields(fields: Partial<Record<PortfolioImportField
   if (sectorsRaw) {
     const parsed = parsePortfolioSectors(sectorsRaw);
     sectors = parsed.sectors;
-    for (const u of parsed.unmatched) warn('sectors', `Sector "${u}" doesn't match the taxonomy — kept as typed.`);
+    for (const u of parsed.unmatched) {
+      const suggestion = suggestSector(u);
+      warnings.push({
+        field: 'sectors', severity: 'warning',
+        message: suggestion
+          ? `Sector "${u}" doesn't match the taxonomy — did you mean "${suggestion}"?`
+          : `Sector "${u}" doesn't match the taxonomy — kept as typed.`,
+        suggestion: suggestion ? { token: u, canonical: suggestion } : undefined,
+      });
+    }
   }
 
   let ticketEur: number | undefined;
@@ -573,6 +875,12 @@ export function parsePortfolioFields(fields: Partial<Record<PortfolioImportField
         if (parsed.ambiguous) warn('exit_at', `Read "${exitAtRaw}" as ${formatDateDisplay(parsed.iso)} — check.`);
       }
     }
+  } else if (resolvedStatus === 'past') {
+    // Prompt AL757 §D — a Past company with no exit date on file is a real,
+    // valid state (not every exit is dated, or known yet) — allowed through,
+    // same as before, but now flagged rather than silently unremarkable:
+    // "deixa passar com aviso ('no exit date')".
+    warn('exit_at', 'No exit date on file for this past company.');
   }
 
   let exitType: string | undefined;
@@ -593,31 +901,63 @@ export function parsePortfolioFields(fields: Partial<Record<PortfolioImportField
   if (contactEmailRaw && !EMAIL_RE.test(contactEmailRaw)) {
     err('contact_email', `"${contactEmailRaw}" doesn't look like an email address.`);
   }
+  // Not validated — "Tel." in Nuno's own file carried an international
+  // number with a leading "+"; phone formats vary too much (country code,
+  // extensions, local conventions) to validate meaningfully here, same
+  // reasoning the prompt itself gave. Only trimmed, same as contact_name.
+  const contactPhone = get('contact_phone') || undefined;
 
   if (!companyName) return { data: null, errors, warnings };
 
   return {
     data: {
       companyName, website, domain, country, stageAtEntry, sectors, ticketEur, instrument,
-      investedAt, exitAt, exitType, contactName, contactEmail, status: resolvedStatus,
+      investedAt, exitAt, exitType, contactName, contactEmail, contactPhone, status: resolvedStatus,
     },
     errors, warnings,
   };
 }
 
+// Shared by parsePortfolioRows and buildPortfolioImportPlan so there is
+// exactly one place that strips blank rows/columns and finds the header —
+// never two copies that could disagree on which row is the header.
+function resolveHeaderAndMapping(rawRows: string[][], mapping?: ColumnMapping): {
+  stripped: string[][]; originalRowNumbers: number[]; headerRowIndex: number; mapping: ColumnMapping;
+} {
+  const { rows: stripped, originalRowNumbers } = stripEmptyRowsAndColumns(rawRows);
+  if (stripped.length === 0) return { stripped: [], originalRowNumbers: [], headerRowIndex: 0, mapping: mapping ?? {} };
+  const detection = detectHeaderAndMapping(stripped);
+  return { stripped, originalRowNumbers, headerRowIndex: detection.headerRowIndex, mapping: mapping ?? detection.mapping };
+}
+
 /**
- * Turns file rows (header + data, as produced by parseCsv or
- * parsePortfolioXlsxRows) into validated portfolio-company rows, per-row
- * errors/warnings, and a resolved column mapping. No DB access — duplicate
- * detection against EXISTING rows is a separate step (detectDuplicates),
- * since only the caller (an API route, under RLS) knows what already
- * exists for this firm.
+ * Turns file rows (as produced by parseCsv or parsePortfolioXlsxRows) into
+ * validated portfolio-company rows, per-row errors/warnings, and a resolved
+ * column mapping. No DB access — duplicate detection against EXISTING rows
+ * is a separate step (detectDuplicates), since only the caller (an API
+ * route, under RLS) knows what already exists for this firm.
+ *
+ * Prompt AL757 — `rawRows` no longer has to have its header on row 0: blank
+ * rows/columns are stripped first (stripEmptyRowsAndColumns) and the real
+ * header is found among the first 10 non-blank rows (detectHeaderAndMapping)
+ * whenever `mapping` isn't given explicitly. `opts.defaultStatus` is what a
+ * file with NO status column at all falls back to (Prompt AL757 §D — "o
+ * separador ativo", wired in by the caller) rather than always 'current';
+ * a file that DOES map a status column keeps today's per-cell-blank rule
+ * (parsePortfolioStatus's own empty-string -> 'current') untouched.
  */
-export function parsePortfolioRows(rows: string[][], mapping?: ColumnMapping): ParsedPortfolioRow[] {
-  if (rows.length === 0) return [];
-  const map = mapping ?? autoMapColumns(rows[0]);
-  const dataRows = rows.slice(1).filter((r) => r.some((c) => c.trim() !== ''));
+export function parsePortfolioRows(
+  rawRows: string[][],
+  mapping?: ColumnMapping,
+  opts?: { defaultStatus?: PortfolioStatus },
+): ParsedPortfolioRow[] {
+  const { stripped, originalRowNumbers, headerRowIndex, mapping: map } = resolveHeaderAndMapping(rawRows, mapping);
+  if (stripped.length === 0) return [];
+
+  const dataRows = stripped.slice(headerRowIndex + 1);
+  const dataRowNumbers = originalRowNumbers.slice(headerRowIndex + 1);
   const mappedFields = PORTFOLIO_IMPORT_FIELDS.filter((f) => map[f] != null);
+  const statusMapped = map.status != null;
 
   return dataRows.map((r, i) => {
     const fields: Partial<Record<PortfolioImportField, string>> = {};
@@ -628,8 +968,12 @@ export function parsePortfolioRows(rows: string[][], mapping?: ColumnMapping): P
       fields[field] = v;
       raw[field] = v;
     }
+    // Synthesized, not shown in `raw` — there is no real cell behind it, so
+    // the preview's "original vs. read" display has nothing to show for
+    // status on this row, same as any other field the file never had.
+    if (!statusMapped && opts?.defaultStatus) fields.status = opts.defaultStatus;
     const { data, errors, warnings } = parsePortfolioFields(fields);
-    return { row: i + 1, data, errors, warnings, raw };
+    return { row: dataRowNumbers[i] ?? i + 1, data, errors, warnings, raw };
   });
 }
 
@@ -705,9 +1049,10 @@ export function buildPortfolioImportPlan(
   rows: string[][],
   existing: ExistingPortfolioCompany[],
   mapping?: ColumnMapping,
+  opts?: { defaultStatus?: PortfolioStatus },
 ): PortfolioImportPlan {
-  const map = mapping ?? (rows.length ? autoMapColumns(rows[0]) : {});
-  const parsed = parsePortfolioRows(rows, map);
+  const { mapping: map } = resolveHeaderAndMapping(rows, mapping);
+  const parsed = parsePortfolioRows(rows, map, opts);
   const dupInput = parsed
     .filter((p): p is ParsedPortfolioRow & { data: PortfolioCompanyRow } => p.data !== null)
     .map((p) => ({ row: p.row, companyName: p.data.companyName, domain: p.data.domain }));
@@ -717,13 +1062,72 @@ export function buildPortfolioImportPlan(
     const duplicate = dups.get(p.row) ?? null;
     return {
       row: p.row, data: p.data, errors: p.errors, warnings: p.warnings, raw: p.raw, duplicate,
-      // A warning (ambiguous reading, unmatched sector, …) opts a row OUT
-      // by default too, same as a duplicate — "Import anyway" (Prompt 753
-      // §E) is what opts it back in; only an ERROR can never be opted in.
-      include: p.data !== null && p.errors.length === 0 && p.warnings.length === 0 && duplicate === null,
+      // Prompt AL757 §E — a WARNING (ambiguous reading, unmatched sector,
+      // no exit date, …) no longer opts a row out by default: only an
+      // error or a duplicate does. "Import anyway" (Prompt 753 §E) used to
+      // exist for both; now that warnings are pre-included, the only case
+      // left where it makes a difference is an un-opted duplicate — see
+      // this same rule mirrored in PortfolioPanel.tsx's own button.
+      include: p.data !== null && p.errors.length === 0 && duplicate === null,
     };
   });
   return { mapping: map, items };
+}
+
+// "A faixa diz porquê, linha a linha" (Prompt AL757 §C) — one human reason
+// per skipped row.
+export function duplicateReasonText(d: DuplicateMatch): string {
+  const what = d.reason === 'domain' ? 'same website' : 'same name';
+  const where = d.against === 'existing' ? 'as a company already in your portfolio' : 'as another row in this file';
+  return `duplicate (${what} ${where})`;
+}
+
+export interface ImportCommitBucket {
+  candidates: { row: number; data: PortfolioCompanyRow }[];
+  skipped: { row: number; reason: string }[];
+}
+
+/**
+ * The commit route's own bucketing rule, pulled out so it's unit-testable
+ * without a live database: every plan item ends up either a candidate for
+ * insert or `skipped` with a reason, never silently dropped. An item with
+ * an error is excluded regardless of `include` — the checkbox only ever
+ * opts a CLEAN row out, never opts a broken one in. `it.duplicate` here is
+ * the CLIENT's own (possibly stale) snapshot, used only to word the reason
+ * for a row that was never a candidate in the first place; the caller
+ * (the commit route) re-checks duplicates against the current database
+ * state for the rows THIS function returns as candidates, and must add any
+ * newly-detected duplicate to `skipped` itself.
+ */
+export function bucketImportItems(
+  items: { row: number; data: PortfolioCompanyRow | null; errors: RowIssue[]; include: boolean; duplicate: DuplicateMatch | null }[],
+): ImportCommitBucket {
+  const skipped: { row: number; reason: string }[] = [];
+  const candidates: { row: number; data: PortfolioCompanyRow }[] = [];
+  for (const it of items) {
+    if (it.data === null) { skipped.push({ row: it.row, reason: it.errors[0]?.message ?? 'company name missing' }); continue; }
+    if (it.errors.length > 0) { skipped.push({ row: it.row, reason: it.errors[0].message }); continue; }
+    if (!it.include) {
+      skipped.push({ row: it.row, reason: it.duplicate ? duplicateReasonText(it.duplicate) : 'not selected' });
+      continue;
+    }
+    candidates.push({ row: it.row, data: it.data });
+  }
+  return { candidates, skipped };
+}
+
+// "O separador muda para onde as linhas ficaram" (Prompt AL757 §C/§D) — the
+// status most of the rows actually being imported resolved to (a file can
+// mix current/past when it HAS a status column; a tie favors current,
+// matching this file's own documented default elsewhere).
+export function pickImportTargetStatus(items: { include: boolean; data: PortfolioCompanyRow | null }[]): PortfolioStatus {
+  let current = 0;
+  let past = 0;
+  for (const it of items) {
+    if (!it.include || !it.data) continue;
+    if (it.data.status === 'past') past++; else current++;
+  }
+  return past > current ? 'past' : 'current';
 }
 
 // ---------- XLSX ----------
@@ -820,7 +1224,7 @@ export interface ManualPortfolioInputRow {
   status: PortfolioStatus; company_name: string; website: string | null; domain: string | null;
   country: string | null; stage_at_entry: string | null; sectors: string[]; ticket_eur: number | null;
   instrument: string | null; invested_at: string | null; exit_at: string | null; exit_type: string | null;
-  contact_name: string | null; contact_email: string | null;
+  contact_name: string | null; contact_email: string | null; contact_phone: string | null;
 }
 
 // Shared by the "Add manually" API route (app/api/portal/investor-profile/
@@ -915,6 +1319,7 @@ export function validateManualPortfolioInput(body: Record<string, unknown>): { e
       invested_at: investedAt, exit_at: exitAt, exit_type: exitType,
       contact_name: typeof body.contactName === 'string' && body.contactName.trim() ? body.contactName.trim() : null,
       contact_email: typeof body.contactEmail === 'string' && body.contactEmail.trim() ? body.contactEmail.trim() : null,
+      contact_phone: typeof body.contactPhone === 'string' && body.contactPhone.trim() ? body.contactPhone.trim() : null,
     },
   };
 }
