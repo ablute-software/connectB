@@ -9745,3 +9745,9 @@ Nota de disciplina própria: a primeira corrida desta reescrita omitiu por engan
 **5 — Confirmação visual no browser, com uma conta de investidor real.** Esta sessão não tem credenciais de nenhuma conta de investidor em produção, nem acesso a email para completar um signup/magic-link novo. Perguntado directamente ao Nuno como proceder; respondeu que confirma ele próprio o passo final (menu esquerdo com Portfolio abaixo de About, Current/Past, e o antigo separador Import ausente). **Este passo específico não foi confirmado por esta sessão — fica à espera da confirmação do Nuno.**
 
 **Estado final:** `main` em `7323e6e8`, ao vivo em produção (buildId `hQTx7b32itQS5ET4w9nd2`), ambas as migrações do 746 aplicadas, RLS verificado a sério contra produção. Falta apenas a confirmação visual do Nuno no browser com a sua própria conta.
+
+---
+
+## 01/10/2026 — Prompt 901: merge feito, deploy confirmado
+
+`git push origin claude/901-linkedin-catalog-source:main` (fast-forward, `2a434234..d9042a02` — um merge commit próprio a reconciliar com o 746/753/756 que tinha aterrado entretanto, sem conflitos de código, só DECISIONS.md). Suite completa reverificada no resultado combinado antes do push: `tsc` EXIT=0, `vitest` EXIT=1 (**4485/4486**, mesma falha pré-existente), `eslint` EXIT=0 (259 problemas), `build` EXIT=0. buildId antes `hQTx7b32itQS5ET4w9nd2`, depois (confirmado estável em duas leituras, 15s à parte, `Age: 0`/`MISS` nas duas) `IM-Y2oTBCE29kTZl11uGy`. O backfill já estava em produção desde a corrida anterior desta mesma sessão; o código que o lê (`catalogPeopleLinkedIn`) está agora também ao vivo. Falta: a Zanchi real na Nina Capital em produção, para o Nuno confirmar com os seus próprios olhos antes da demo à Portugal Ventures.
