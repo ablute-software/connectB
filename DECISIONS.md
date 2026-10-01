@@ -9681,3 +9681,37 @@ Ambos com `TZ` real a nível de processo (não só `vi.stubEnv` dentro do teste)
 **Não feito, por instrução explícita do prompt:** merge, aplicar as migrações do 746 em produção, mexer no importador dos founders, alterar o que já tinha passado verificação (parser de dinheiro, estado, datas de texto, `PATCH`) fora dos três itens menores listados.
 
 Sem merge — aguarda "sim" explícito do Nuno, no mesmo branch `claude/portfolio-tab-phase1`, em cima do commit `62f8079c`.
+
+## 01/10/2026, ~15:34 UTC — Merge e deploy em produção do Portfolio tab (746 Fase 1 + 753 + AL756), aprovado explicitamente pelo Nuno
+
+Aprovação explícita recebida: "faz o merge do branch claude/portfolio-tab-phase1 (commit bf179bb) para main e põe-no em produção, incluindo as duas migrações do 746", com a ordem e os gates abaixo pedidos directamente.
+
+**1 — Migração `20260930120000_investor_portfolio_companies.sql` aplicada em produção primeiro**, via `apply_migration`, antes do merge. Confirmado a seguir: tabela criada, 0 linhas.
+
+**2 — Merge para `main`.** `git merge --no-ff origin/claude/portfolio-tab-phase1` (commit `bf179bbc`) → `7323e6e8`. Conflito em `DECISIONS.md` (ambos os lados só acrescentavam secções no fim do ficheiro) resolvido por concatenação pura, sem perder nenhum dos dois lados. `package.json`/`package-lock.json` (a dependência nova `xlsx`) e `InvestorWorkspaceShell.tsx` fundiram-se automaticamente sem conflito. Antes de fazer push: `npm install` (dependência `xlsx` nova), `npx tsc --noEmit` EXIT=0, `npx vitest run` (suite completa) **4476/4476 passed** (a falha intermitente de `controller.test.ts` já vista no AL756 passou normalmente nesta corrida — confirmado não-determinística, não um regressão real), `npm run build` EXIT=0. Push para `origin/main` confirmado (`43373349..7323e6e8`).
+
+**Deploy confirmado via buildId, cache-busting (`?cb=$RANDOM`), `Age: 0` em ambas as leituras — nunca contra uma página em cache:**
+- Antes do push: `vN8dx4tarQIAfRlSBVQmr`
+- Depois (confirmado automaticamente na primeira tentativa do polling): `hQTx7b32itQS5ET4w9nd2`
+
+**3 — Antes da segunda migração, contagem pedida da tabela antiga em produção:** `select count(*) from investor_declared_investments` → **0 linhas.** Por instrução explícita ("só a aplicas se estiver vazia ou se eu confirmar"), aplicada de imediato, sem precisar de confirmação adicional. Migração `20260930121000_drop_investor_declared_investments.sql` aplicada via `apply_migration` — sucesso.
+
+**4 — `scripts/verify-portfolio-companies-rls.sql` corrido a sério contra produção**, numa transacção `BEGIN...ROLLBACK`. A ferramenta de execução SQL desta sessão não devolve `RAISE NOTICE` como resultado visível — reescrito para gravar cada veredicto numa tabela temporária (`on commit drop`) e devolvê-la por `SELECT` final, mesma lógica do script original, sem alterar nenhuma das 11 verificações. **Resultado, colado tal como veio:**
+```
+1. firm A reads firm A row                              → PASS
+2. firm B cannot read firm A row                         → PASS
+3. firm B hostile insert blocked                         → PASS
+3b. firm B legit insert succeeds                         → PASS
+3c. firm B delete of firm A row affects 0 rows           → PASS
+3c-confirm. firm A row still exists (service_role)       → PASS
+4. firm A deletes own row                                → PASS
+5. platform admin reads other firm row                   → PASS
+6. anon access                                           → PASS (stronger: no SELECT grant)
+7. authenticated no membership reads 0                   → PASS
+8. current-with-exit_at rejected                         → PASS
+```
+Nota de disciplina própria: a primeira corrida desta reescrita omitiu por engano o `ROLLBACK` final explícito (ficou só o `SELECT`). Confirmado de imediato, antes de qualquer outro passo, que nada ficou em produção: `select count(*)` às cinco tabelas da fixture (`catalog_entities`, `auth.users`, `matchdeal_investor_members`, `platform_admins`, `investor_portfolio_companies`, todas filtradas por `zz-test-%`/os UUIDs da fixture) devolveu **0 em todas** — a ligação da ferramenta fecha sem `COMMIT` explícito, o que o Postgres trata como `ROLLBACK` implícito. Corrigido na escrita do registo: a confirmação ficou mais forte do que a verificação original pedia, não mais fraca.
+
+**5 — Confirmação visual no browser, com uma conta de investidor real.** Esta sessão não tem credenciais de nenhuma conta de investidor em produção, nem acesso a email para completar um signup/magic-link novo. Perguntado directamente ao Nuno como proceder; respondeu que confirma ele próprio o passo final (menu esquerdo com Portfolio abaixo de About, Current/Past, e o antigo separador Import ausente). **Este passo específico não foi confirmado por esta sessão — fica à espera da confirmação do Nuno.**
+
+**Estado final:** `main` em `7323e6e8`, ao vivo em produção (buildId `hQTx7b32itQS5ET4w9nd2`), ambas as migrações do 746 aplicadas, RLS verificado a sério contra produção. Falta apenas a confirmação visual do Nuno no browser com a sua própria conta.
