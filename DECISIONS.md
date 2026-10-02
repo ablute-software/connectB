@@ -9811,3 +9811,11 @@ Branch `claude/al758-portfolio-tables-pagination-templates`, a partir de `main` 
 **Não feito, por instrução do prompt:** ordenação por coluna, pesquisa, filtros, paginação no servidor, convites (Fase 2), mexer na pipeline ou nos seus 25 por página, apagar as linhas de teste existentes.
 
 Sem merge — aguarda "sim" explícito do Nuno, branch `claude/al758-portfolio-tables-pagination-templates`.
+
+## 02/10/2026 — Prompt AL758: merge e deploy em produção (aprovado pelo Nuno)
+
+`git merge --no-ff origin/claude/al758-portfolio-tables-pagination-templates` (`b7843f0a`) → `99ab10a3`. `main` não se tinha movido desde a base do branch (`8453bd50`), por isso a árvore fundida é **idêntica** à que foi verificada antes (`git diff --stat` do merge contra o branch: vazio) — `tsc` EXIT=0, `vitest` completo EXIT=0 (**4619/4619**), `TZ=UTC` e `TZ=Asia/Tokyo` **283/283**, `next build` EXIT=0 — e não foi preciso repetir as verificações. **Sem migração** (nenhuma coluna nova; o AL757 já tinha aplicado `contact_phone`). Push `8453bd50..99ab10a3`, confirmado por `git ls-remote`.
+
+buildId antes `a_ovGOyecpn3tnD_JNeEu`, depois `EcXJc43iNRkeEYnS0kWSw` (polling com cache-busting, mudou à 13.ª leitura, ~4 min; releitura 20s depois: igual, `Age: 0`). Nota: o buildId "antes" não é o `kZbYVA7C100unSKtPxLkP` registado no AL757 — o push do próprio registo do AL757 (`8453bd50`) gerou um deploy entretanto.
+
+**Por fazer: a verificação em produção com conta de investidor — fá-la o Nuno** (por instrução dele; esta sessão nunca teve credenciais de investidor). A verificar por ele, do prompt AL758: (1) Current e Past **sem nenhuma empresa** — cabeçalho completo e a linha de estado vazio; (2) descarregar os dois templates ("Download Current template"/"Download Past template"), preencher o de Past com instrumento, data de saída e tipo de saída, importar cada um no seu separador; (3) com 45 linhas de teste, navegar as 3 páginas (20/20/5) e depois apagá-las pela UI. Esta sessão **não criou nenhuma linha em produção** — a tabela `investor_portfolio_companies` tem as **3 linhas de teste pré-existentes** do Nuno (confirmado por contagem antes do deploy do AL757; nada foi inserido nem apagado desde então por esta sessão). Segue também por responder a pergunta do AL758 §B: um investidor com mais de 500 linhas é plausível, para paginar no servidor?
