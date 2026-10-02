@@ -11,11 +11,15 @@
 // page that is already the whole list, same rule the pipeline follows.
 import { pageCount } from '@/lib/queue-table-state';
 
-export function Pager({ page, total, pageSize, noun = 'companies', onChange }: {
-  page: number; total: number; pageSize: number; noun?: string; onChange: (page: number) => void;
+export function Pager({ page, total, of, pageSize, noun = 'companies', onChange }: {
+  page: number; total: number;
+  /** When a search/filter is active: how many there were before it, for "8 of 37 companies". */
+  of?: number;
+  pageSize: number; noun?: string; onChange: (page: number) => void;
 }) {
   const pages = pageCount(total, pageSize);
-  const label = `${total} ${total === 1 ? noun.replace(/ies$/, 'y') : noun}`;
+  const plural = (n: number) => (n === 1 ? noun.replace(/ies$/, 'y') : noun);
+  const label = of !== undefined && of !== total ? `${total} of ${of} ${plural(of)}` : `${total} ${plural(total)}`;
   if (total === 0) return null;
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 px-3 py-2 text-xs text-gray-500">
