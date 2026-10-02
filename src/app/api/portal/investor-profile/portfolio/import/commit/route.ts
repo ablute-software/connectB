@@ -26,7 +26,10 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 import { assertNotViewer } from '@/lib/developer-viewer';
-import { detectDuplicates, type PortfolioCompanyRow } from '@/lib/portfolio-import';
+import {
+  bucketImportItems, detectDuplicates, duplicateReasonText,
+  type DuplicateMatch, type PortfolioCompanyRow, type RowIssue,
+} from '@/lib/portfolio-import';
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -44,20 +47,23 @@ export async function POST(req: Request) {
   if (!member) return NextResponse.json({ ok: false, error: 'No linked investor entity yet.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as {
-    items?: { row: number; data: PortfolioCompanyRow | null; errors: unknown[]; include: boolean }[];
+    items?: { row: number; data: PortfolioCompanyRow | null; errors: RowIssue[]; include: boolean; duplicate: DuplicateMatch | null }[];
   };
   if (!Array.isArray(body.items) || body.items.length === 0) {
     return NextResponse.json({ ok: false, error: 'Nothing to import.' }, { status: 400 });
   }
 
-  // Only rows the client left checked, that parsed cleanly, with a company
-  // name. Anything with a validation error stays excluded regardless of
-  // `include` — the checkbox only ever opts a CLEAN row out, never opts a
-  // broken one in.
-  const candidates = body.items.filter(
-    (it): it is typeof it & { data: PortfolioCompanyRow } => it.include && it.data !== null && it.errors.length === 0,
-  );
-  if (candidates.length === 0) return NextResponse.json({ ok: true, created: 0, skippedDuplicate: 0, skippedInvalid: body.items.length });
+  // Prompt AL757 §C — "a faixa diz porquê, linha a linha": every item ends
+  // up either inserted or in `skipped` with a human reason, never just a
+  // bare count. bucketImportItems is the exact same rule the commit route
+  // used to have inlined, pulled into portfolio-import.ts so it's unit-
+  // tested directly (this route has no test of its own — it needs a live
+  // database). The actual insert decision below never trusts the client's
+  // own `duplicate` snapshot — only wording the skip reason does;
+  // duplicates against real candidates are re-checked server-side next.
+  const { candidates, skipped } = bucketImportItems(body.items);
+
+  if (candidates.length === 0) return NextResponse.json({ ok: true, created: 0, skipped });
 
   const { data: existing, error: existingErr } = await admin.from('investor_portfolio_companies')
     .select('company_name, domain').eq('investor_catalog_entity_id', member.catalog_entity_id);
@@ -69,11 +75,13 @@ export async function POST(req: Request) {
   );
 
   const toInsert = candidates.filter((c) => !dups.has(c.row));
-  const skippedDuplicate = candidates.length - toInsert.length;
-  const skippedInvalid = body.items.length - candidates.length;
+  for (const c of candidates) {
+    const d = dups.get(c.row);
+    if (d) skipped.push({ row: c.row, reason: duplicateReasonText(d) });
+  }
 
   if (toInsert.length === 0) {
-    return NextResponse.json({ ok: true, created: 0, skippedDuplicate, skippedInvalid });
+    return NextResponse.json({ ok: true, created: 0, skipped });
   }
 
   const rows = toInsert.map((c) => ({
@@ -94,11 +102,12 @@ export async function POST(req: Request) {
     exit_type: c.data.exitType ?? null,
     contact_name: c.data.contactName ?? null,
     contact_email: c.data.contactEmail ?? null,
+    contact_phone: c.data.contactPhone ?? null,
   }));
 
   const { error: insertErr, count } = await admin.from('investor_portfolio_companies')
     .insert(rows, { count: 'exact' });
   if (insertErr) return NextResponse.json({ ok: false, error: insertErr.message }, { status: 500 });
 
-  return NextResponse.json({ ok: true, created: count ?? rows.length, skippedDuplicate, skippedInvalid });
+  return NextResponse.json({ ok: true, created: count ?? rows.length, skipped });
 }
