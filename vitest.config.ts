@@ -21,6 +21,13 @@ export default defineConfig({
       '@': path.resolve(__dirname, 'src'),
     },
   },
+  // Prompt AL758 — tsconfig has "jsx": "preserve" (Next compiles JSX itself),
+  // which leaves JSX untouched under vitest and makes any .tsx module fail to
+  // load. The first test that renders a real component (PortfolioTable, via
+  // react-dom/server) needs the transform to compile it. Vitest 4 transforms
+  // with oxc (the esbuild option is ignored, with a warning). Only affects
+  // modules that contain JSX; every existing test is plain .ts.
+  oxc: { jsx: { runtime: 'automatic' } },
   test: {
     // 25/08/2026 — Claude Code's isolated-worktree agent runs check out
     // full repo copies under .claude/worktrees/*, INSIDE this project
