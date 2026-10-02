@@ -7,7 +7,8 @@ import {
   detectHeaderAndMapping, formatDateDisplay, formatTicketDisplay, parsePortfolioCsvRows, parsePortfolioDate,
   parsePortfolioExitType, parsePortfolioFields, parsePortfolioInstrument, parsePortfolioRows, parsePortfolioSectors,
   parsePortfolioStage, parsePortfolioStatus, parsePortfolioXlsxRows, parseTicketAmount, pickImportTargetStatus,
-  portfolioImportTemplateCsv, detectCsvDelimiter, stripEmptyRowsAndColumns, suggestSector, validateManualPortfolioInput,
+  portfolioImportTemplateCsv, portfolioTemplateFields, portfolioTemplateFilename, acceptedValuesHelp,
+  detectCsvDelimiter, stripEmptyRowsAndColumns, suggestSector, validateManualPortfolioInput,
 } from './portfolio-import';
 
 const FIXTURES = join(__dirname, '__fixtures__');
@@ -1229,5 +1230,121 @@ describe('pickImportTargetStatus — Prompt AL757 §C/§D', () => {
 
   it('ignores a row that is not included or has no data', () => {
     expect(pickImportTargetStatus([item('past', false), item('current')])).toBe('current');
+  });
+});
+
+// Prompt AL758 §C — one template per tab.
+describe('per-tab templates — Prompt AL758 §C', () => {
+  const csvRows = (tab: 'current' | 'past') => parsePortfolioCsvRows(portfolioImportTemplateCsv(tab));
+
+  it('are named portfolio-current-template.csv and portfolio-past-template.csv', () => {
+    expect(portfolioTemplateFilename('current')).toBe('portfolio-current-template.csv');
+    expect(portfolioTemplateFilename('past')).toBe('portfolio-past-template.csv');
+  });
+
+  it('Current: the exact columns, no status, no exit columns, two example rows', () => {
+    const rows = csvRows('current');
+    expect(rows[0]).toEqual([
+      'company_name', 'website', 'country', 'stage_at_entry', 'sectors', 'ticket_eur', 'instrument', 'invested_at',
+      'contact_name', 'contact_email', 'contact_phone',
+    ]);
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).not.toContain('status');
+    expect(rows[0]).not.toContain('exit_at');
+    expect(rows[0]).not.toContain('exit_type');
+  });
+
+  it('Past: the exact columns, exit_at and exit_type present, no status; examples carry an instrument and an exit type', () => {
+    const rows = csvRows('past');
+    expect(rows[0]).toEqual([
+      'company_name', 'website', 'country', 'stage_at_entry', 'sectors', 'ticket_eur', 'instrument', 'invested_at',
+      'exit_at', 'exit_type', 'contact_name', 'contact_email', 'contact_phone',
+    ]);
+    expect(rows[0]).not.toContain('status');
+    expect(rows).toHaveLength(3);
+    const idx = (h: string) => rows[0].indexOf(h);
+    expect(rows[1][idx('instrument')]).toBe('convertible_note');
+    expect(rows[1][idx('exit_type')]).toBe('acquisition');
+    expect(rows[1][idx('exit_at')]).not.toBe('');
+  });
+
+  for (const tab of ['current', 'past'] as const) {
+    it(`${tab}: auto-maps every column with no intervention, nothing left unmapped`, () => {
+      const { rows } = stripEmptyRowsAndColumns(csvRows(tab));
+      const det = detectHeaderAndMapping(rows);
+      expect(det.guessedFields).toEqual([]);
+      expect(det.unmappedColumns).toEqual([]);
+      const mapped = Object.entries(det.mapping).sort((a, b) => (a[1] as number) - (b[1] as number)).map(([k]) => k);
+      expect(mapped).toEqual(portfolioTemplateFields(tab));
+    });
+
+    it(`${tab}: imports from its own tab with no errors and no warnings at all`, () => {
+      const plan = buildPortfolioImportPlan(csvRows(tab), [], undefined, { defaultStatus: tab });
+      expect(plan.items).toHaveLength(2);
+      for (const it of plan.items) {
+        expect(it.errors).toEqual([]);
+        expect(it.warnings).toEqual([]);
+        expect(it.include).toBe(true);
+        expect(it.data?.status).toBe(tab);
+      }
+    });
+  }
+
+  it('the Past template carries its instrument, exit date and exit type through to the parsed rows', () => {
+    const plan = buildPortfolioImportPlan(csvRows('past'), [], undefined, { defaultStatus: 'past' });
+    const [first, second] = plan.items.map((i) => i.data);
+    expect(first?.instrument).toBe('convertible_note');
+    expect(first?.exitType).toBe('acquisition');
+    expect(first?.exitAt).toBe('2023-09-01');
+    expect(second?.instrument).toBe('equity');
+    expect(second?.exitType).toBe('ipo');
+    expect(second?.exitAt).toBe('2022-11-30');
+  });
+
+  it('accepted-values help lists instrument for both tabs and exit type only for Past, from the validator sets', () => {
+    const current = acceptedValuesHelp('current');
+    expect(current.map((h) => h.label)).toEqual(['Stage at entry', 'Instrument']);
+    expect(current[1].values).toBe('equity | safe | convertible_note | other');
+    const past = acceptedValuesHelp('past');
+    expect(past.map((h) => h.label)).toEqual(['Stage at entry', 'Instrument', 'Exit type']);
+    expect(past[2].values).toBe('acquisition | ipo | write_off | other');
+  });
+});
+
+describe('exit columns depend on the tab you import from — Prompt AL758 §C', () => {
+  const rows = [
+    ['company_name', 'exit_at', 'exit_type'],
+    ['Old Robotics', '2023-09-01', 'acquisition'],
+    ['Acme Health', '', ''],
+  ];
+
+  it('from Current, a row WITH an exit date/type is an error (per row), not silently ignored', () => {
+    const plan = buildPortfolioImportPlan(rows, [], undefined, { defaultStatus: 'current' });
+    const [withExit, withoutExit] = plan.items;
+    expect(withExit.errors.map((e) => e.field)).toEqual(['exit_at', 'exit_type']);
+    expect(withExit.errors[0].message).toMatch(/import it from the Past tab/);
+    expect(withExit.include).toBe(false);
+    // A row with blank exit cells is fine — only a VALUE is refused.
+    expect(withoutExit.errors).toEqual([]);
+    expect(withoutExit.include).toBe(true);
+  });
+
+  it('from Past, the same file is accepted, and a past row with no exit date carries a warning', () => {
+    const plan = buildPortfolioImportPlan(rows, [], undefined, { defaultStatus: 'past' });
+    const [withExit, withoutExit] = plan.items;
+    expect(withExit.errors).toEqual([]);
+    expect(withExit.data?.status).toBe('past');
+    expect(withExit.data?.exitAt).toBe('2023-09-01');
+    expect(withoutExit.errors).toEqual([]);
+    expect(withoutExit.warnings.some((w) => w.field === 'exit_at')).toBe(true);
+  });
+
+  it('the commit bucket never lets a Current-tab exit row in, even with include true', () => {
+    const plan = buildPortfolioImportPlan(rows, [], undefined, { defaultStatus: 'current' });
+    const forced = plan.items.map((it) => ({ ...it, include: true }));
+    const { candidates, skipped } = bucketImportItems(forced);
+    expect(candidates.map((c) => c.row)).toEqual([3]);
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0].reason).toMatch(/Past tab/);
   });
 });

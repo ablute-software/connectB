@@ -19,44 +19,50 @@
 // committing; (2) nothing could be corrected after import without deleting
 // the row and retyping it — this file now has an Edit form (PATCH) next to
 // Remove, and Remove asks once before it actually deletes anything.
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Card, Tabs, type TabItem } from '@/components/ui';
 import { EmptyState } from '@/components/workspace-shell/EmptyState';
 import { SectorPicker, type SectorValue } from '@/components/company/SectorPicker';
-import { useTabParam } from '@/lib/use-tab';
-import { formatTicketEur } from '@/lib/ticket-range';
 import {
   buildPortfolioImportPlan, detectDuplicates, detectHeaderAndMapping, parsePortfolioCsvRows, parsePortfolioFields,
-  parsePortfolioXlsxRows, pickImportTargetStatus, portfolioImportTemplateCsv, formatDateDisplay, formatTicketDisplay,
+  parsePortfolioXlsxRows, pickImportTargetStatus, portfolioImportTemplateCsv, portfolioTemplateFilename, acceptedValuesHelp, formatDateDisplay, formatTicketDisplay,
   stripEmptyRowsAndColumns,
   PORTFOLIO_IMPORT_FIELDS, type ColumnMapping, type PortfolioImportField, type PortfolioImportPlan, type PortfolioImportPlanItem,
 } from '@/lib/portfolio-import';
+import {
+  EXIT_TYPE_LABELS, INSTRUMENT_LABELS, STAGE_LABELS, clampPage, parsePageParam, viewAfter,
+  type PortfolioCompany, type PortfolioTab, type PortfolioViewState,
+} from '@/lib/portfolio-table';
+import { PortfolioTable } from './PortfolioTable';
 
-type PortfolioStatus = 'current' | 'past';
-
-interface PortfolioCompany {
-  id: string; status: PortfolioStatus; company_name: string; website: string | null; domain: string | null;
-  country: string | null; stage_at_entry: string | null; sectors: string[]; ticket_eur: number | null;
-  instrument: string | null; invested_at: string | null; exit_at: string | null; exit_type: string | null;
-  contact_name: string | null; contact_email: string | null; contact_phone: string | null;
-  source: 'manual' | 'import'; created_at: string;
-}
-
-const STAGE_LABELS: Record<string, string> = {
-  pre_seed: 'Pre-seed', seed: 'Seed', series_a: 'Series A', series_b: 'Series B',
-  series_c_plus: 'Series C+', later: 'Later', other: 'Other',
-};
-const INSTRUMENT_LABELS: Record<string, string> = {
-  equity: 'Equity', safe: 'SAFE', convertible_note: 'Convertible note', other: 'Other',
-};
-const EXIT_TYPE_LABELS: Record<string, string> = {
-  acquisition: 'Acquisition', ipo: 'IPO', write_off: 'Write-off', other: 'Other',
-};
+type PortfolioStatus = PortfolioTab;
 
 const VIEW_TABS: TabItem[] = [{ key: 'current', label: 'Current' }, { key: 'past', label: 'Past' }];
 
+// Prompt AL758 §B — the tab AND the page live in the URL (?view=past&page=2),
+// so a shared link opens the same view. useTabParam only knows one param and
+// would need two router.replace calls (a race) to change tab and page
+// together; this sets both in one go. Current and page 1 are the defaults
+// and stay out of the URL.
+function usePortfolioUrl(): { tab: PortfolioTab; page: number; go: (next: PortfolioViewState) => void } {
+  const router = useRouter();
+  const pathname = usePathname();
+  const sp = useSearchParams();
+  const tab: PortfolioTab = sp.get('view') === 'past' ? 'past' : 'current';
+  const page = parsePageParam(sp.get('page'));
+  const go = useCallback((next: PortfolioViewState) => {
+    const params = new URLSearchParams(sp.toString());
+    if (next.tab === 'current') params.delete('view'); else params.set('view', next.tab);
+    if (next.page <= 1) params.delete('page'); else params.set('page', String(next.page));
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [router, pathname, sp]);
+  return { tab, page, go };
+}
+
 export function PortfolioPanel() {
-  const [view, setView] = useTabParam('current', 'view');
+  const { tab: status, page: urlPage, go } = usePortfolioUrl();
   const [linked, setLinked] = useState<boolean | null>(null);
   const [companies, setCompanies] = useState<PortfolioCompany[] | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -73,8 +79,15 @@ export function PortfolioPanel() {
   }
   useEffect(load, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const status: PortfolioStatus = view === 'past' ? 'past' : 'current';
   const rows = (companies ?? []).filter((c) => c.status === status);
+  const page = clampPage(urlPage, rows.length);
+  const here: PortfolioViewState = { tab: status, page };
+
+  // A page that no longer exists (the last row of page 3 was removed, or a
+  // stale link says page=9) is corrected in the URL too, not only on screen.
+  useEffect(() => {
+    if (companies !== null && page !== urlPage) go({ tab: status, page });
+  }, [companies, page, urlPage, status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function remove(id: string) {
     setRemoveBusy(true);
@@ -104,7 +117,8 @@ export function PortfolioPanel() {
         </p>
       </Card>
 
-      <Tabs items={VIEW_TABS} active={view} onChange={setView} />
+      <Tabs items={VIEW_TABS} active={status}
+        onChange={(key) => go(viewAfter(here, { type: 'switch-tab', tab: key === 'past' ? 'past' : 'current' }))} />
 
       <div className="flex flex-wrap gap-2">
         <button onClick={() => { setShowAddForm((v) => !v); setShowImport(false); setEditingId(null); }}
@@ -120,7 +134,10 @@ export function PortfolioPanel() {
       {showAddForm && (
         <PortfolioCompanyForm
           status={status}
-          onSaved={() => { setShowAddForm(false); load(); }}
+          // Prompt AL758 §B — the list reloads and the investor lands on
+          // page 1 (newest first), where the new row is, so it is visible
+          // without F5 and never on a page that no longer exists.
+          onSaved={() => { setShowAddForm(false); load(); go(viewAfter(here, { type: 'added' })); }}
           onCancel={() => setShowAddForm(false)}
         />
       )}
@@ -134,99 +151,32 @@ export function PortfolioPanel() {
           // ever read it. The import section now stays open; the investor
           // closes it themselves (the same Cancel/toggle button that opened
           // it) once they're done reading the result.
-          onImported={(targetStatus) => { load(); if (targetStatus) setView(targetStatus); }}
+          // Prompt AL758 — rows landed in `landedIn`: reload and show them.
+          onImported={(landedIn) => { load(); if (landedIn) go(viewAfter(here, { type: 'imported', landedIn })); }}
         />
       )}
       {editingCompany && (
         <PortfolioCompanyForm
           status={editingCompany.status}
           initial={editingCompany}
-          onSaved={() => { setEditingId(null); load(); }}
+          onSaved={() => { setEditingId(null); load(); go(viewAfter(here, { type: 'edited' })); }}
           onCancel={() => setEditingId(null)}
         />
       )}
 
-      {companies === null ? (
-        <p className="text-xs text-gray-400">Loading…</p>
-      ) : rows.length === 0 ? (
-        <p className="text-xs text-gray-400">Nothing here yet.</p>
-      ) : (
-        <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
-          <table className="w-full text-left text-xs">
-            <thead className="border-b border-gray-100 text-gray-500">
-              <tr>
-                <th className="px-3 py-2 font-medium">Company</th>
-                <th className="px-3 py-2 font-medium">Geography</th>
-                <th className="px-3 py-2 font-medium">Stage at entry</th>
-                <th className="px-3 py-2 font-medium">Sectors</th>
-                <th className="px-3 py-2 font-medium">Ticket</th>
-                <th className="px-3 py-2 font-medium">Instrument</th>
-                <th className="px-3 py-2 font-medium">Contact</th>
-                {status === 'past' && <th className="px-3 py-2 font-medium">Exit</th>}
-                <th className="px-3 py-2 font-medium" />
-                <th className="px-3 py-2 font-medium" />
-                <th className="px-3 py-2 font-medium" />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((c) => (
-                <tr key={c.id} className="border-b border-gray-50 last:border-0">
-                  <td className="px-3 py-2 font-medium text-gray-900">
-                    {c.website
-                      ? <a href={c.website} target="_blank" rel="noreferrer" className="hover:underline">{c.company_name}</a>
-                      : c.company_name}
-                  </td>
-                  <td className="px-3 py-2 text-gray-600">{c.country ?? '—'}</td>
-                  <td className="px-3 py-2 text-gray-600">{c.stage_at_entry ? STAGE_LABELS[c.stage_at_entry] ?? c.stage_at_entry : '—'}</td>
-                  <td className="px-3 py-2 text-gray-600">{c.sectors.length ? c.sectors.join(', ') : '—'}</td>
-                  <td className="px-3 py-2 text-gray-600">{c.ticket_eur != null ? formatTicketEur(c.ticket_eur) : '—'}</td>
-                  <td className="px-3 py-2 text-gray-600">{c.instrument ? INSTRUMENT_LABELS[c.instrument] ?? c.instrument : '—'}</td>
-                  <td className="px-3 py-2 text-gray-600">
-                    {c.contact_name || c.contact_email || c.contact_phone
-                      ? [c.contact_name, c.contact_email, c.contact_phone].filter(Boolean).join(' · ')
-                      : '—'}
-                  </td>
-                  {status === 'past' && (
-                    <td className="px-3 py-2 text-gray-600">
-                      {c.exit_type ? EXIT_TYPE_LABELS[c.exit_type] ?? c.exit_type : '—'}
-                      {c.exit_at ? ` (${c.exit_at.slice(0, 10)})` : ''}
-                    </td>
-                  )}
-                  <td className="px-3 py-2">
-                    {/* Phase 2 wires this up for real — see this file's own
-                        header. Visibly present rather than absent, per
-                        Nuno's own instruction, so this reads as a boundary
-                        rather than a bug. */}
-                    <button disabled title="Coming soon"
-                      className="cursor-not-allowed whitespace-nowrap rounded-full border border-gray-200 px-2.5 py-1 text-[11px] text-gray-400">
-                      Invite to Sherlock Deal <span className="text-gray-300">(Coming soon)</span>
-                    </button>
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <button onClick={() => { setEditingId(c.id); setShowAddForm(false); setShowImport(false); }}
-                      className="text-gray-400 hover:text-[#0E7490]">
-                      Edit
-                    </button>
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {confirmRemoveId === c.id ? (
-                      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                        <span className="text-gray-500">Remove {c.company_name}?</span>
-                        <button onClick={() => remove(c.id)} disabled={removeBusy} className="font-medium text-[#B00000] hover:underline disabled:opacity-40">
-                          {removeBusy ? '…' : 'Yes'}
-                        </button>
-                        <button onClick={() => setConfirmRemoveId(null)} className="text-gray-400 hover:underline">No</button>
-                      </span>
-                    ) : (
-                      <button onClick={() => setConfirmRemoveId(c.id)} className="text-gray-400 hover:text-[#B00000]">Remove</button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <PortfolioTable
+        tab={status}
+        companies={rows}
+        page={page}
+        loading={companies === null}
+        confirmRemoveId={confirmRemoveId}
+        removeBusy={removeBusy}
+        onPageChange={(p) => go({ tab: status, page: p })}
+        onEdit={(id) => { setEditingId(id); setShowAddForm(false); setShowImport(false); }}
+        onAskRemove={setConfirmRemoveId}
+        onConfirmRemove={(id) => void remove(id)}
+        onCancelRemove={() => setConfirmRemoveId(null)}
+      />
     </div>
   );
 }
@@ -334,15 +284,19 @@ function PortfolioCompanyForm({ status: initialStatus, initial, onSaved, onCance
           <option value="">Stage at entry</option>
           {Object.entries(STAGE_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>
-        <select value={instrument} onChange={(e) => setInstrument(e.target.value)} className="rounded-lg border border-gray-300 px-2.5 py-1.5">
-          <option value="">Instrument</option>
-          {Object.entries(INSTRUMENT_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-        </select>
+        {/* Prompt AL758 §D — same order as the table's columns: Ticket,
+            Instrument (investment type), Invested on, then (Past) Exit
+            date and Exit type, then Contact. Both tabs have Instrument
+            and Invested on. */}
         <input type="text" inputMode="decimal" value={ticketEur} onChange={(e) => setTicketEur(e.target.value)}
           placeholder="Ticket, e.g. 350k or €1.2M" autoComplete="off" name="portfolio-ticket-eur"
           className="rounded-lg border border-gray-300 px-2.5 py-1.5" />
+        <select value={instrument} onChange={(e) => setInstrument(e.target.value)} className="rounded-lg border border-gray-300 px-2.5 py-1.5">
+          <option value="">Instrument (investment type)</option>
+          {Object.entries(INSTRUMENT_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </select>
         <label className="flex items-center gap-1.5 text-[11px] text-gray-500">
-          Invested
+          Invested on
           <input type="date" value={investedAt} onChange={(e) => setInvestedAt(e.target.value)} autoComplete="off"
             className="flex-1 rounded-lg border border-gray-300 px-2.5 py-1.5" />
         </label>
@@ -434,11 +388,13 @@ function ImportFlow({ existing, activeStatus, onImported }: {
   const [result, setResult] = useState<ImportResult | null>(null);
   const [editingRow, setEditingRow] = useState<number | null>(null);
 
+  // Prompt AL758 §C — the template is the active tab's own (Current has no
+  // exit columns; Past adds exit_at and exit_type), not one file for both.
   function downloadTemplate() {
-    const blob = new Blob([portfolioImportTemplateCsv()], { type: 'text/csv' });
+    const blob = new Blob([portfolioImportTemplateCsv(activeStatus)], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = 'portfolio-import-template.csv';
+    a.href = url; a.download = portfolioTemplateFilename(activeStatus);
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
   }
@@ -605,12 +561,17 @@ function ImportFlow({ existing, activeStatus, onImported }: {
       </p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <button onClick={downloadTemplate} className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
-          Download template
+          {activeStatus === 'past' ? 'Download Past template' : 'Download Current template'}
         </button>
         <input type="file" accept=".csv,.xlsx,.xls"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void onFile(f); }}
           className="text-xs" />
       </div>
+      <p className="mt-1 text-[11px] text-gray-400">
+        {acceptedValuesHelp(activeStatus).map((h, i) => (
+          <span key={h.label}>{i > 0 && ' · '}Accepted {h.label.toLowerCase()} values: {h.values}</span>
+        ))}
+      </p>
       {fileName && <p className="mt-1 text-[11px] text-gray-400">{fileName}</p>}
       {err && <p className="mt-1.5 text-[11px] text-[#B00000]">{err}</p>}
 
@@ -783,6 +744,10 @@ function ReadAsSummary({ raw, data }: { raw: Partial<Record<PortfolioImportField
   if (raw.ticket_eur && data?.ticketEur != null) lines.push(`ticket_eur: "${raw.ticket_eur}" → ${formatTicketDisplay(data.ticketEur)}`);
   if (raw.invested_at && data?.investedAt) lines.push(`invested_at: "${raw.invested_at}" → ${formatDateDisplay(data.investedAt)}`);
   if (raw.exit_at && data?.exitAt) lines.push(`exit_at: "${raw.exit_at}" → ${formatDateDisplay(data.exitAt)}`);
+  // Prompt AL758 §C — the preview shows the investment type and (Past) the
+  // exit type as read, with the same labels the table will use.
+  if (raw.instrument && data?.instrument) lines.push(`instrument: "${raw.instrument}" → ${INSTRUMENT_LABELS[data.instrument] ?? data.instrument}`);
+  if (raw.exit_type && data?.exitType) lines.push(`exit_type: "${raw.exit_type}" → ${EXIT_TYPE_LABELS[data.exitType] ?? data.exitType}`);
   if (lines.length === 0) return null;
   return (
     <ul className="ml-6 mt-0.5 space-y-0.5 text-[11px] text-gray-500">

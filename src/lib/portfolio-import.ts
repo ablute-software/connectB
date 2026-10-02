@@ -265,11 +265,87 @@ export function detectHeaderAndMapping(strippedRows: string[][]): HeaderDetectio
   return { headerRowIndex, mapping, guessedFields, unmappedColumns };
 }
 
-export function portfolioImportTemplateCsv(): string {
-  const header = PORTFOLIO_IMPORT_FIELDS.join(',');
-  const example1 = 'Acme Health,https://acmehealth.com,Portugal,seed,"digital health|diagnostics",350000,safe,15/03/2022,current,,,Jane Doe,jane@acmehealth.com,+351 912345678';
-  const example2 = 'Old Robotics,https://oldrobotics.example,Spain,pre_seed,robotics,120000,convertible_note,2019-06-01,past,2023-09-01,acquisition,John Roe,john@oldrobotics.example,';
-  return `${header}\n${example1}\n${example2}\n`;
+// Prompt AL758 §C — one template per tab. Neither has a `status` column: the
+// tab the investor imports FROM is the status (AL757 §D's default), so a
+// column for it would only invite a contradiction. Current has no exit
+// columns at all; Past adds exit_at and exit_type right after invested_at,
+// the same order as its table. The headers are the snake_case names the
+// AL757 auto-mapping recognizes with no effort (each is the first alias of
+// its field).
+export type PortfolioTemplateTab = 'current' | 'past';
+
+const CURRENT_TEMPLATE_FIELDS: PortfolioImportField[] = [
+  'company_name', 'website', 'country', 'stage_at_entry', 'sectors', 'ticket_eur', 'instrument', 'invested_at',
+  'contact_name', 'contact_email', 'contact_phone',
+];
+const PAST_TEMPLATE_FIELDS: PortfolioImportField[] = [
+  'company_name', 'website', 'country', 'stage_at_entry', 'sectors', 'ticket_eur', 'instrument', 'invested_at',
+  'exit_at', 'exit_type', 'contact_name', 'contact_email', 'contact_phone',
+];
+
+// Real taxonomy sector names, so a freshly downloaded template imports with
+// no warnings at all — not even the "doesn't match the taxonomy" kind.
+const TEMPLATE_EXAMPLES: Record<PortfolioTemplateTab, Partial<Record<PortfolioImportField, string>>[]> = {
+  current: [
+    {
+      company_name: 'Acme Health', website: 'https://acmehealth.com', country: 'Portugal', stage_at_entry: 'seed',
+      sectors: 'Digital Health|Diagnostics', ticket_eur: '350000', instrument: 'safe', invested_at: '15/03/2022',
+      contact_name: 'Jane Doe', contact_email: 'jane@acmehealth.com', contact_phone: '+351 912345678',
+    },
+    {
+      company_name: 'Beta Robotics', website: 'https://betarobotics.example', country: 'Spain', stage_at_entry: 'pre_seed',
+      sectors: 'Robotics & Automation', ticket_eur: '120k', instrument: 'equity', invested_at: '2024-06-01',
+      contact_name: 'John Roe', contact_email: 'john@betarobotics.example', contact_phone: '',
+    },
+  ],
+  past: [
+    {
+      company_name: 'Old Robotics', website: 'https://oldrobotics.example', country: 'Spain', stage_at_entry: 'pre_seed',
+      sectors: 'Robotics & Automation', ticket_eur: '120000', instrument: 'convertible_note', invested_at: '2019-06-01',
+      exit_at: '2023-09-01', exit_type: 'acquisition',
+      contact_name: 'John Roe', contact_email: 'john@oldrobotics.example', contact_phone: '+34 600 000 000',
+    },
+    {
+      company_name: 'Legacy Health', website: 'https://legacyhealth.example', country: 'Portugal', stage_at_entry: 'series_a',
+      sectors: 'MedTech & Medical Devices', ticket_eur: '1.5M', instrument: 'equity', invested_at: '12/04/2017',
+      exit_at: '30/11/2022', exit_type: 'ipo',
+      contact_name: '', contact_email: '', contact_phone: '',
+    },
+  ],
+};
+
+export function portfolioTemplateFields(tab: PortfolioTemplateTab): PortfolioImportField[] {
+  return tab === 'past' ? PAST_TEMPLATE_FIELDS : CURRENT_TEMPLATE_FIELDS;
+}
+
+export function portfolioTemplateFilename(tab: PortfolioTemplateTab): string {
+  return `portfolio-${tab}-template.csv`;
+}
+
+function csvCell(v: string): string {
+  return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+}
+
+export function portfolioImportTemplateCsv(tab: PortfolioTemplateTab = 'current'): string {
+  const fields = portfolioTemplateFields(tab);
+  const lines = [fields.join(',')];
+  for (const ex of TEMPLATE_EXAMPLES[tab]) lines.push(fields.map((f) => csvCell(ex[f] ?? '')).join(','));
+  return `${lines.join('\n')}\n`;
+}
+
+/**
+ * "Accepted instrument values: …" — shown as small text under the download
+ * button, NOT as a comment line inside the CSV (a second header-ish row
+ * would break the import). Built from the same sets the validators use, so
+ * the help can never list a value the import would reject.
+ */
+export function acceptedValuesHelp(tab: PortfolioTemplateTab): { label: string; values: string }[] {
+  const help = [
+    { label: 'Stage at entry', values: [...VALID_STAGES].join(' | ') },
+    { label: 'Instrument', values: [...VALID_INSTRUMENTS].join(' | ') },
+  ];
+  if (tab === 'past') help.push({ label: 'Exit type', values: [...VALID_EXIT_TYPES].join(' | ') });
+  return help;
 }
 
 // ---------- shared alias-matching helper ----------
@@ -866,7 +942,7 @@ export function parsePortfolioFields(fields: Partial<Record<PortfolioImportField
   const exitAtRaw = get('exit_at');
   if (exitAtRaw) {
     if (resolvedStatus !== 'past') {
-      err('exit_at', 'Exit date only applies to a Past company — set status to "past" or clear this column.');
+      err('exit_at', 'Exit date only applies to Past companies — import it from the Past tab (or set status to "past").');
     } else {
       const parsed = parsePortfolioDate(exitAtRaw);
       if (parsed === undefined) err('exit_at', `Could not parse date "${exitAtRaw}".`);
@@ -887,7 +963,7 @@ export function parsePortfolioFields(fields: Partial<Record<PortfolioImportField
   const exitTypeRaw = get('exit_type');
   if (exitTypeRaw) {
     if (resolvedStatus !== 'past') {
-      err('exit_type', 'Exit type only applies to a Past company — set status to "past" or clear this column.');
+      err('exit_type', 'Exit type only applies to Past companies — import it from the Past tab (or set status to "past").');
     } else {
       const s = parsePortfolioExitType(exitTypeRaw);
       if (s) exitType = s;
