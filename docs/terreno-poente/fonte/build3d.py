@@ -311,7 +311,7 @@ for k in range(0, 31):
 tri = Polygon([(-1.34 - 0.4, 41.20 - 0.3), (8.0 + 0.4, 41.20 - 0.3), (3.33, 41.20 + (3.33 + 1.34) * math.tan(math.radians(37)))])
 A.roof_tri = [[r3(a), r3(b)] for a, b in list(tri.exterior.coords)[:-1]]
 A.box(-1.0, -1.34, 36.72, 0.0, 8.0, 37.0, 'concrete', tag='A')                      # varanda poente
-A.box(-0.02, -1.0, 37.05, 0.02, 7.7, 44.0, 'glass_dark', tag='A_glass')
+A.box(-0.02, -1.0, 37.05, 0.02, 7.7, 41.15, 'glass_dark', tag='A_glass')
 
 # ============================================================================ vegetação
 rnd = random.Random(11)

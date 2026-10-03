@@ -1,0 +1,71 @@
+﻿TERRENO DE POENTE (ÁREA B), CARREÇO — MODELO SKETCHUP
+==================================================
+
+Duas casas T3 térreas — Casa do Pátio (lote B-norte) e Casa Comprida (lote B-sul) — com o terreno,
+os muros de granito, a vegetação e a casa da parcela A (só volumetria, para contexto).
+Gerado por fonte/skp.py a partir de fonte/out/spec.json: é a mesma geometria dos renders.
+
+FICHEIROS
+  construir_terreno_poente.rb   script Ruby que constrói o modelo nativo no SketchUp (recomendado)
+  terreno_poente.dae            o mesmo modelo em COLLADA (alternativa sem Ruby)
+  LEIA-ME.txt                   este ficheiro
+
+ABRIR COM O SCRIPT RUBY (SketchUp 2017 ou mais recente)
+  1. Criar a pasta C:\casa\ e copiar para lá o ficheiro construir_terreno_poente.rb.
+     Usar exatamente esta pasta: caminhos com espaços, ou sem o nome do ficheiro, falharam antes.
+  2. Abrir o SketchUp com um modelo novo ("Arquitetura — Metros").
+  3. Janela > Consola de Ruby (em inglês: Extensions > Developer > Ruby Console).
+  4. Escrever, tal e qual, e carregar em Enter:
+        load 'C:/casa/construir_terreno_poente.rb'
+  5. Esperar 20 s a 1 min. A consola diz o que foi construído. Gravar como .skp.
+  Correr só uma vez por modelo. Editar > Anular desfaz tudo de uma vez.
+
+ABRIR O COLLADA
+  Ficheiro > Importar…, tipo "COLLADA (*.dae)", escolher terreno_poente.dae.
+  Vem com os grupos e as cores, mas sem etiquetas, cenas, textos nem norte (isso só o script faz).
+
+COORDENADAS (metros)
+  x (eixo vermelho) = u, eixo local a 19,951° a norte do nascente (ENE) — o mesmo da casa de A
+  y (eixo verde)    = v, perpendicular, para NNO
+  z (eixo azul)     = cota − 33,00. A cota 33,00 fica em z = 0; cota absoluta = z + 33,00.
+  Origem (0, 0) = ETRS89 / PT-TM06 M = −60 409,15, P = 229 931,92 (canto SO da casa de A, estudo v4).
+     M = −60 409,15 + 0,93998·x − 0,34122·y
+     P = 229 931,92 + 0,34122·x + 0,93998·y
+  Norte geográfico: 19,951° à direita do eixo verde (sentido dos ponteiros). Há uma seta vermelha
+  no terreno, no campo a sul do lote B-sul. O script acerta o norte solar e o local (Carreço, 41,742 N,
+  8,874 W) para os estudos de sombras: Ver > Sombras. Para confirmar o norte, ligar
+  Ver > Barras de ferramentas > Norte solar > Mostrar norte: a linha do SketchUp deve ir na direção da seta vermelha.
+
+ETIQUETAS (para ligar e desligar)
+   01 Terreno
+   02 Muros e limites
+   03 Casa do Pátio (B-norte)
+   04 Casa Comprida (B-sul)
+   05 Coberturas
+   06 Mobiliário
+   07 Vegetação
+   08 Casa de A (volumetria)
+   09 Textos e norte
+  Cada casa é um grupo com a sua origem e rotação. Lá dentro há sub-grupos: Paredes, Caixilharia e vidros,
+  Portadas, Lajes e pavimentos, Coberturas (casa e alpendres), Alpendres e arrumos, Exteriores (deck,
+  terraço e piscina) e Mobiliário. As coberturas e o mobiliário têm etiqueta própria.
+
+CENAS
+   - Aérea
+   - Aérea sudoeste
+   - Pátio da Casa do Pátio
+   - Piscina da Casa Comprida
+   - Sala
+   - Vista da casa de A
+   - Da estrada
+   - Maquete
+   - Planta (vista de topo)
+
+O QUE É APROXIMADO
+  - Terreno: cotas tiradas das curvas de nível do levantamento (equidistância 0,20 m, cotas atribuídas a
+    partir das curvas mestras lidas na imagem), modeladas à volta das casas; malha de 1 m.
+    Não substitui o levantamento: o levantamento manda.
+  - Vegetação ilustrativa: posição e porte indicativos; a mata a norte e a poente segue a ortofoto.
+  - Casa da parcela A: só volumetria (embasamento, paredes, telhado de duas águas e empena envidraçada).
+  - Mobiliário e carros: indicativos, para dar escala.
+  - Fora do modelo: o mar e a paisagem distante que aparecem nos renders.
