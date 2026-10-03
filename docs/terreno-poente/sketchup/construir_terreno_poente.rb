@@ -4142,8 +4142,11 @@ module TerrenoPoente
     @defs = {}
     @falhas = 0
     t0 = Time.now
-    @model.start_operation("Terreno de poente (B), Carreço", true)
     puts "Terreno de poente: a construir o modelo..."
+    UI.messagebox("Terreno de Poente: o ficheiro foi lido.\n\nCarregue em OK para construir o modelo. " \
+                  "O SketchUp fica parado entre 1 e 5 minutos, sem mexer, enquanto constrói. " \
+                  "No fim aparece outra janela com o resumo.")
+    @model.start_operation("Terreno de poente (B), Carreço", true)
     TAGS.each { |t| layer(t) }
     ntri = build_terrain
     build_walls
@@ -4159,13 +4162,18 @@ module TerrenoPoente
                 :sebes => HEDGES.size, :arbustos => SHRUBS.size, :cenas => @model.pages.size, :falhas => @falhas }
     puts format("Terreno de poente: %d caixas e %d prismas nas casas, %d peças de muro, %d triângulos de terreno, %d árvores, %d troços de sebe, %d arbustos, %d cenas — %.1f s.",
                 nb, np, MUROS.size, ntri, TREES.size, HEDGES.size, SHRUBS.size, @model.pages.size, Time.now - t0)
-    puts(@falhas == 0 ? "Tudo construído sem falhas. Gravar como .skp." : "Atenção: #{@falhas} peça(s) não foram construídas (ver avisos acima); o resto está bem.")
+    fim = (@falhas == 0 ? "Tudo construído sem falhas. Gravar como .skp." : "Atenção: #{@falhas} peça(s) não foram construídas (ver avisos na consola); o resto está bem.")
+    puts fim
+    UI.messagebox(format("Terreno de Poente construído em %.0f s.\n\n%d peças nas casas, %d peças de muro, %d árvores, %d cenas.\n\n%s\n\nAs cenas estão nos separadores por cima do desenho (Aérea, Pátio, Sala…).",
+                         Time.now - t0, nb + np, MUROS.size, TREES.size, @model.pages.size, fim))
   rescue StandardError => err
     @model.abort_operation if @model
     puts "Erro a construir o terreno de poente: #{err.message}"
     puts err.backtrace.first(6).join("\n")
-    raise
+    UI.messagebox("Terreno de Poente: houve um erro e o modelo não foi construído.\n\n#{err.class}: #{err.message}\n\n" \
+                  "Copie este texto (ou a mensagem vermelha da consola) e envie-o.")
   end
 end
 
+puts "Terreno de poente: ficheiro lido (SketchUp #{Sketchup.version}, Ruby #{RUBY_VERSION})."
 TerrenoPoente.build

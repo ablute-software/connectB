@@ -125,6 +125,19 @@ end
 ORIGIN = Geom::Point3d.new(0, 0, 0)
 X_AXIS = Geom::Vector3d.new(1, 0, 0); Y_AXIS = Geom::Vector3d.new(0, 1, 0); Z_AXIS = Geom::Vector3d.new(0, 0, 1)
 
+module UI
+  MB_OK = 0
+  IDOK = 1
+  @janelas = []
+  class << self; attr_reader :janelas; end
+  # UI.messagebox(mensagem, tipo = MB_OK) → IDOK (a janela real é modal; aqui só regista e escreve)
+  def self.messagebox(msg, type = MB_OK)
+    @janelas << msg.to_s
+    puts "[janela] " + msg.to_s.gsub("\n", " | ")
+    IDOK
+  end
+end
+
 module Sketchup
   class Color
     attr_reader :red, :green, :blue, :alpha
