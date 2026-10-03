@@ -1,0 +1,22 @@
+CASA PLINTO — MODELO SKETCHUP (proposta B, parcela A, Carreço)
+
+Dois ficheiros com a mesma geometria das plantas, cortes, alçados e imagens:
+
+1) construir_casa_plinto.rb  (recomendado — SketchUp 2017 ou mais recente, Windows ou Mac)
+   - Abrir um modelo novo em metros.
+   - Janela > Consola de Ruby (Extensions > Developer > Ruby Console em inglês).
+   - Escrever:  load 'C:/caminho/para/construir_casa_plinto.rb'   e Enter.
+   - Em 10–30 s constrói: um grupo por etiqueta (18 etiquetas: terreno, muros, deck e piscina, cave, R/C,
+     caixilharia, escadas, cobertura, pala, mobiliário, vegetação, textos, norte), 53 materiais com cor,
+     etiquetas de área nos compartimentos e 8 cenas (aérea, deck, estrada, sala, pátio, maquete sem cobertura,
+     planta do R/C e planta da cave). Acerta o norte solar (19,95°) e a localização para estudos de sombras.
+   - Gravar como Casa_Plinto.skp.
+
+2) casa_plinto.dae  (alternativa sem Ruby — também serve no SketchUp para web)
+   - Ficheiro > Importar > COLLADA (.dae). Entra como um componente com um grupo por etiqueta e materiais com cor.
+
+Coordenadas: eixo vermelho ao longo da casa (ENE), verde para NNW, azul com o R/C a 0,00.
+Cota absoluta = z + 37,00 (cave 34,10 → −2,90; topo da platibanda 40,45 → +3,45).
+Origem no canto SW da implantação do estudo v4 (ETRS89/PT-TM06 x=-60409,15 y=229931,92).
+O terreno à volta é aproximado (cotas dos cantos e perfil da estrada); o levantamento manda.
+Gerado por fonte/skp.py a partir de pagina/spec.json.

@@ -201,8 +201,12 @@ def plan(level, path, variant='f1'):
     a, b = (T(7.16, st['v_top'] + 0.2), T(7.16, st['v_bot'] - 0.25)) if level == 'rc' else (T(7.16, st['v_bot'] - 0.2), T(7.16, st['v_top'] + 0.25))
     svg.add(f"<line x1='{fmt(a[0])}' y1='{fmt(a[1])}' x2='{fmt(b[0])}' y2='{fmt(b[1])}' stroke='{INK}' stroke-width='1' marker-end='url(#arr)'/>")
     svg.add(f"<defs><marker id='arr' markerWidth='8' markerHeight='8' refX='6' refY='4' orient='auto'><path d='M0,0 L8,4 L0,8 Z' fill='{INK}'/></marker></defs>")
-    lbl = 'desce à cave' if level == 'rc' else 'sobe ao R/C'
+    lbl = 'desce à cave' if level == 'rc' else 'sobe ao R/C · chega à entrada'
     sx, sy = T(7.16, 3.4); svg.add(text(lbl, sx, sy, 8.5, MID, rot=-90))
+    if level == 'rc':
+        tx, ty = T(7.16, 0.95); svg.add(text('topo da escada', tx, ty, 7.5, INK, weight=600))
+    else:
+        tx, ty = T(7.16, 5.85); svg.add(text('arranque', tx, ty, 7.5, INK, weight=600))
     if level == 'rc':
         a, b = T(7.69, st['v_top']), T(7.69, st['v_bot'])
         svg.add(f"<line x1='{fmt(a[0])}' y1='{fmt(a[1])}' x2='{fmt(b[0])}' y2='{fmt(b[1])}' stroke='#6a9aa3' stroke-width='1.6'/>")
