@@ -1,0 +1,1137 @@
+{
+ "base": "MQT v4.2 (casa de A), Norte de Portugal 2025/26, sem IVA",
+ "casas": [
+  {
+   "casa": "Casa do Pátio",
+   "key": "N",
+   "rows": [
+    {
+     "c": "Estaleiro e terras",
+     "i": "Estaleiro (vedação, instalações, energia e água de obra, PSS) — como o 01.01",
+     "q": 1,
+     "u": "vg",
+     "p": 4500,
+     "v": 4500
+    },
+    {
+     "c": "Estaleiro e terras",
+     "i": "Implantação topográfica em ETRS89 (01.02)",
+     "q": 1,
+     "u": "vg",
+     "p": 650,
+     "v": 650
+    },
+    {
+     "c": "Estaleiro e terras",
+     "i": "Decapagem da terra vegetal sob a casa, deck e acessos (guardada para o jardim) — 02.08",
+     "q": 1,
+     "u": "vg",
+     "p": 300,
+     "v": 300
+    },
+    {
+     "c": "Estaleiro e terras",
+     "i": "Escavação: fundações, piscina e rebaixo da sala (02.01)",
+     "q": 157.6,
+     "u": "m³",
+     "p": 7,
+     "v": 1103
+    },
+    {
+     "c": "Estaleiro e terras",
+     "i": "Reutilização das terras da obra nos aterros da casa, deck e acessos (02.03)",
+     "q": 31.9,
+     "u": "m³",
+     "p": 4,
+     "v": 128
+    },
+    {
+     "c": "Estaleiro e terras",
+     "i": "Aterro compactado sob lajes e deck (02.05)",
+     "q": 31.9,
+     "u": "m³",
+     "p": 6,
+     "v": 191
+    },
+    {
+     "c": "Estaleiro e terras",
+     "i": "Sobrante espalhado e modelado no próprio lote (02.04)",
+     "q": 102.1,
+     "u": "m³",
+     "p": 5,
+     "v": 510
+    },
+    {
+     "c": "Estaleiro e terras",
+     "i": "Modelação final do terreno e taludes 1:4 (02.04)",
+     "q": 220,
+     "u": "m²",
+     "p": 5,
+     "v": 1100
+    },
+    {
+     "c": "Estaleiro e terras",
+     "i": "Contingência para rocha (granito) — metade do 02.R1 (escavação pequena)",
+     "q": 1,
+     "u": "vg",
+     "p": 1365,
+     "v": 1365
+    },
+    {
+     "c": "Estrutura",
+     "i": "Betão de limpeza (03.01)",
+     "q": 6.3,
+     "u": "m³",
+     "p": 95,
+     "v": 600
+    },
+    {
+     "c": "Estrutura",
+     "i": "Sapatas contínuas 0,70 × 0,40 sob as paredes exteriores + isoladas dos alpendres (03.02)",
+     "q": 23.3,
+     "u": "m³",
+     "p": 190,
+     "v": 4423
+    },
+    {
+     "c": "Estrutura",
+     "i": "Laje térrea armada e=0,15 da ala e da caixa, em dois níveis (03.05)",
+     "q": 169.9,
+     "u": "m²",
+     "p": 39,
+     "v": 6627
+    },
+    {
+     "c": "Estrutura",
+     "i": "Lintel/muro de 0,51 entre a cozinha e a sala, em betão armado",
+     "q": 1.1,
+     "u": "m³",
+     "p": 460,
+     "v": 497
+    },
+    {
+     "c": "Estrutura",
+     "i": "Pilares, cintas e vigas (lintéis dos vãos grandes, viga de bordo da pala) — 03.06/03.08",
+     "q": 7.5,
+     "u": "m³",
+     "p": 445,
+     "v": 3338
+    },
+    {
+     "c": "Estrutura",
+     "i": "Laje aligeirada de cobertura h=0,25/0,30 (03.11)",
+     "q": 169.9,
+     "u": "m²",
+     "p": 48,
+     "v": 8156
+    },
+    {
+     "c": "Estrutura",
+     "i": "Pala de 0,90 m sobre a fachada dos quartos — laje maciça (03.09b)",
+     "q": 3.2,
+     "u": "m³",
+     "p": 480,
+     "v": 1555
+    },
+    {
+     "c": "Envolvente (paredes, cobertura, fachadas)",
+     "i": "Alvenaria exterior em tijolo 15 / bloco térmico, com vergas (04.01)",
+     "q": 185.3,
+     "u": "m²",
+     "p": 24,
+     "v": 4447
+    },
+    {
+     "c": "Envolvente (paredes, cobertura, fachadas)",
+     "i": "Divisórias em gesso cartonado (normal e hidrófugo nos WC) — 04.02/04.02b",
+     "q": 83.6,
+     "u": "m²",
+     "p": 28.5,
+     "v": 2382
+    },
+    {
+     "c": "Envolvente (paredes, cobertura, fachadas)",
+     "i": "Cápsula de serviço em contraplacado de carvalho sobre estrutura leve (WC social + lavandaria)",
+     "q": 13.2,
+     "u": "m²",
+     "p": 65,
+     "v": 858
+    },
+    {
+     "c": "Envolvente (paredes, cobertura, fachadas)",
+     "i": "Cobertura plana invertida: pendentes, impermeabilização, XPS 120, seixo, ralos, trop-plein (base Plinto)",
+     "q": 169.9,
+     "u": "m²",
+     "p": 52,
+     "v": 8836
+    },
+    {
+     "c": "Envolvente (paredes, cobertura, fachadas)",
+     "i": "Capeamento das platibandas e topo da pala em chapa quinada (05.04)",
+     "q": 80.2,
+     "u": "m",
+     "p": 38,
+     "v": 3048
+    },
+    {
+     "c": "Envolvente (paredes, cobertura, fachadas)",
+     "i": "Fachada ETICS EPS 80 mm com acabamento areado fino branco (cal) — 07.01",
+     "q": 194.4,
+     "u": "m²",
+     "p": 48,
+     "v": 9329
+    },
+    {
+     "c": "Envolvente (paredes, cobertura, fachadas)",
+     "i": "Embasamento: faixa de granito amaciado 0,30 na base das fachadas (estimativa)",
+     "q": 76.0,
+     "u": "m",
+     "p": 32,
+     "v": 2432
+    },
+    {
+     "c": "Envolvente (paredes, cobertura, fachadas)",
+     "i": "Isolamento XPS 60 sob a laje térrea + membrana anti-radão (06.04 + 06.R4)",
+     "q": 169.9,
+     "u": "m²",
+     "p": 14,
+     "v": 2379
+    },
+    {
+     "c": "Envolvente (paredes, cobertura, fachadas)",
+     "i": "Membrana anti-radão e despressurização passiva (06.R4)",
+     "q": 1,
+     "u": "vg",
+     "p": 600,
+     "v": 600
+    },
+    {
+     "c": "Caixilharia, vidros e serralharia",
+     "i": "Portas de correr em PVC foliado bronze, vidro duplo baixo-emissivo (08.02) — sala, jantar, quartos",
+     "q": 28.9,
+     "u": "m²",
+     "p": 290,
+     "v": 8377
+    },
+    {
+     "c": "Caixilharia, vidros e serralharia",
+     "i": "Sobrecusto de vidro de controlo solar nos vãos a sul e poente (08.02b)",
+     "q": 17.3,
+     "u": "m²",
+     "p": 35,
+     "v": 607
+    },
+    {
+     "c": "Caixilharia, vidros e serralharia",
+     "i": "Vãos fixos: clerestório da caixa e janelas altas da galeria (08.01)",
+     "q": 28.1,
+     "u": "m²",
+     "p": 150,
+     "v": 4219
+    },
+    {
+     "c": "Caixilharia, vidros e serralharia",
+     "i": "Janelas (WC e suite) em PVC foliado (08.04)",
+     "q": 8.1,
+     "u": "m²",
+     "p": 220,
+     "v": 1778
+    },
+    {
+     "c": "Caixilharia, vidros e serralharia",
+     "i": "Porta de entrada pivotante revestida a madeira, blindada (base Plinto)",
+     "q": 1,
+     "u": "vg",
+     "p": 1450,
+     "v": 1450
+    },
+    {
+     "c": "Caixilharia, vidros e serralharia",
+     "i": "Portadas de correr em ripado de pinho tratado nos 3 quartos: calhas e quadros em aço (ripado pelo dono de obra)",
+     "q": 3,
+     "u": "un",
+     "p": 520,
+     "v": 1560
+    },
+    {
+     "c": "Caixilharia, vidros e serralharia",
+     "i": "Estores/blackout interiores nos quartos",
+     "q": 3,
+     "u": "un",
+     "p": 90,
+     "v": 270
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Betonilha de regularização (09.00)",
+     "q": 142.7,
+     "u": "m²",
+     "p": 11,
+     "v": 1570
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Pavimento vinílico SPC aspeto carvalho — sala, cozinha, galeria (09.01b)",
+     "q": 81.8,
+     "u": "m²",
+     "p": 25,
+     "v": 2045
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Pavimento laminado AC4 aspeto carvalho — quartos (09.02)",
+     "q": 40.5,
+     "u": "m²",
+     "p": 13,
+     "v": 526
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Porcelânico antiderrapante nos WC e lavandaria + azulejo nos duches (09.04 + 09.04b)",
+     "q": 20.5,
+     "u": "m²",
+     "p": 52,
+     "v": 1065
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Estuque projetado nas paredes interiores (09.07)",
+     "q": 170.5,
+     "u": "m²",
+     "p": 11,
+     "v": 1875
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Tetos em estuque projetado direto na laje; teto falso hidrófugo nos WC (09.08)",
+     "q": 166.9,
+     "u": "m²",
+     "p": 13,
+     "v": 2170
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Degraus interiores (3 × 6,60 m) em betão afagado com focinho de madeira",
+     "q": 3,
+     "u": "un",
+     "p": 160,
+     "v": 480
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Portas interiores (7) — compra direta do dono de obra (10.01)",
+     "q": 7,
+     "u": "un",
+     "p": 165,
+     "v": 1155
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Cozinha: móveis, bancada em pedra e ilha (10.04, com ilha)",
+     "q": 1,
+     "u": "vg",
+     "p": 5500,
+     "v": 5500
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Loiças e torneiras: 3 WC e lava-loiça (cap. 11 do MQT)",
+     "q": 1,
+     "u": "vg",
+     "p": 2100,
+     "v": 2100
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Tintas e rodapés — compra do dono de obra (09.11/09.12)",
+     "q": 1,
+     "u": "vg",
+     "p": 650,
+     "v": 650
+    },
+    {
+     "c": "Instalações",
+     "i": "Águas e esgotos: ramal, rede interior (14 pontos), coletores enterrados, 2 caixas de visita (cap. 12)",
+     "q": 1,
+     "u": "vg",
+     "p": 6900,
+     "v": 6900
+    },
+    {
+     "c": "Instalações",
+     "i": "Estação elevatória de esgotos — CONTINGÊNCIA: só se a ligação à rede da estrada não for gravítica (12.08)",
+     "q": 1,
+     "u": "vg",
+     "p": 2100,
+     "v": 2100
+    },
+    {
+     "c": "Instalações",
+     "i": "Pluviais: 4 tubos de queda, rede enterrada, poço de infiltração no jardim (cap. 13)",
+     "q": 1,
+     "u": "vg",
+     "p": 3100,
+     "v": 3100
+    },
+    {
+     "c": "Instalações",
+     "i": "Eletricidade e ITED: ligação, quadro, ≈ 30 pontos de luz, ≈ 45 tomadas, exterior, terras, pré-FV e pré-carregador (cap. 14)",
+     "q": 1,
+     "u": "vg",
+     "p": 9600,
+     "v": 9600
+    },
+    {
+     "c": "Instalações",
+     "i": "AQS por bomba de calor 200 L; pré-instalação AC (4 un); extração contínua; grelhas (cap. 15)",
+     "q": 1,
+     "u": "vg",
+     "p": 4500,
+     "v": 4500
+    },
+    {
+     "c": "Exteriores (deck, alpendres, muros, acessos)",
+     "i": "Deck da piscina em lajes de granito amaciado sobre laje armada (base Plinto)",
+     "q": 47.8,
+     "u": "m²",
+     "p": 62,
+     "v": 2963
+    },
+    {
+     "c": "Exteriores (deck, alpendres, muros, acessos)",
+     "i": "Terraço dos quartos e degraus em granito (base Plinto, 16.05)",
+     "q": 22.8,
+     "u": "m²",
+     "p": 70,
+     "v": 1598
+    },
+    {
+     "c": "Exteriores (deck, alpendres, muros, acessos)",
+     "i": "Alpendre da piscina: laje maciça 0,25 + pilar metálico + muro de granito do fundo",
+     "q": 1,
+     "u": "vg",
+     "p": 4122,
+     "v": 4122
+    },
+    {
+     "c": "Exteriores (deck, alpendres, muros, acessos)",
+     "i": "Alpendre de estacionamento: laje maciça 0,25 sobre pilares metálicos + arrumos em bloco e ripado",
+     "q": 1,
+     "u": "vg",
+     "p": 7029,
+     "v": 7029
+    },
+    {
+     "c": "Exteriores (deck, alpendres, muros, acessos)",
+     "i": "Pavimento do alpendre, pátio de entrada e rampa em saibro estabilizado / grelha (16.02)",
+     "q": 106.5,
+     "u": "m²",
+     "p": 22,
+     "v": 2344
+    },
+    {
+     "c": "Exteriores (deck, alpendres, muros, acessos)",
+     "i": "Muro de meação em granito, h 1,80 (metade do muro, partilhado com o vizinho) — estimativa",
+     "q": 42.9,
+     "u": "m² face",
+     "p": 150,
+     "v": 6442
+    },
+    {
+     "c": "Exteriores (deck, alpendres, muros, acessos)",
+     "i": "Muro baixo de granito na frente da estrada, h 1,20, com portão pedonal (estimativa + 08.21)",
+     "q": 18.5,
+     "u": "m² face",
+     "p": 150,
+     "v": 2781
+    },
+    {
+     "c": "Exteriores (deck, alpendres, muros, acessos)",
+     "i": "Sebes nos restantes limites (loureiro/pitósporo, plantas e rega; plantação pelo dono de obra)",
+     "q": 75.0,
+     "u": "m",
+     "p": 22,
+     "v": 1650
+    },
+    {
+     "c": "Exteriores (deck, alpendres, muros, acessos)",
+     "i": "Pré-instalação do portão automóvel (tubo, caixa) — o portão fica para depois (08.22b)",
+     "q": 1,
+     "u": "vg",
+     "p": 80,
+     "v": 80
+    },
+    {
+     "c": "Piscina",
+     "i": "Piscina 9,00 × 3,50 × 1,40: bloco armado, liner armado, filtração salina, LED, capeamento em granito (base Plinto)",
+     "q": 1,
+     "u": "vg",
+     "p": 19250,
+     "v": 19250
+    },
+    {
+     "c": "Fase 2 — depois da licença de utilização",
+     "i": "Fechar o alpendre da piscina: 2 frentes de correr (≈ 20 m²), isolamento, pavimento, teto, duche/WC pequeno → escritório/estúdio",
+     "q": 1,
+     "u": "vg",
+     "p": 11800,
+     "v": 11800
+    },
+    {
+     "c": "Fase 2 — depois da licença de utilização",
+     "i": "Portão automóvel de correr 4 m em aço lacado (08.22)",
+     "q": 1,
+     "u": "vg",
+     "p": 2200,
+     "v": 2200
+    },
+    {
+     "c": "Fase 2 — depois da licença de utilização",
+     "i": "Jardim: terra vegetal, relvado nos pátios, árvores (oliveiras, medronheiros, carvalho), rega gota-a-gota (16.06)",
+     "q": 243,
+     "u": "m²",
+     "p": 9,
+     "v": 2187
+    },
+    {
+     "c": "Fase 2 — depois da licença de utilização",
+     "i": "Salamandra + chaminé em inox preto (05.06 + 10.05)",
+     "q": 1,
+     "u": "vg",
+     "p": 3000,
+     "v": 3000
+    }
+   ],
+   "chapters": {
+    "Estaleiro e terras": 9848,
+    "Estrutura": 25196,
+    "Envolvente (paredes, cobertura, fachadas)": 34310,
+    "Caixilharia, vidros e serralharia": 18259,
+    "Acabamentos, carpintarias e loiças": 19136,
+    "Instalações": 26200,
+    "Exteriores (deck, alpendres, muros, acessos)": 29009,
+    "Piscina": 19250,
+    "Fase 2 — depois da licença de utilização": 19187
+   },
+   "f1": 161959,
+   "pool": 19250,
+   "f2": 19187,
+   "total": 200396,
+   "q": {
+    "A_bar": 86.4,
+    "A_box": 83.5,
+    "A_fp": 169.9,
+    "vaos_correr": 28.9,
+    "vaos_janela": 8.1,
+    "vaos_fixos": 28.1,
+    "portas_entrada": 1,
+    "parede_ext_liq": 185.3,
+    "fachada": 194.4,
+    "perim": 76.0,
+    "divisorias": 83.6,
+    "capsula": 13.2,
+    "pav_wc": 20.5,
+    "pav_quartos": 40.5,
+    "pav_social": 81.8,
+    "util": 142.7,
+    "esc_piscina": 67.0,
+    "esc_fundacoes": 39.1,
+    "esc_corte": 51.5,
+    "aterro_casa": 7.8,
+    "aterro_deck": 3.0,
+    "aterro_acesso": 21.1,
+    "A_deck": 47.8,
+    "A_terraco": 22.8,
+    "A_alp": 17.6,
+    "A_car": 40.3,
+    "A_store": 6.7,
+    "A_acesso": 66.2,
+    "A_pala": 13.0,
+    "A_lote": 817.8,
+    "A_jardim": 442.2
+   },
+   "abc": 169.9,
+   "util": 142.7,
+   "eur_m2": 953,
+   "terras": {
+    "esc": 157.6,
+    "aterro": 31.9,
+    "reuso": 31.9,
+    "emprestimo": 0.0,
+    "sobrante": 102.1
+   }
+  },
+  {
+   "casa": "Casa Comprida",
+   "key": "S",
+   "rows": [
+    {
+     "c": "Estaleiro e terras",
+     "i": "Estaleiro (vedação, instalações, energia e água de obra, PSS) — como o 01.01",
+     "q": 1,
+     "u": "vg",
+     "p": 4500,
+     "v": 4500
+    },
+    {
+     "c": "Estaleiro e terras",
+     "i": "Implantação topográfica em ETRS89 (01.02)",
+     "q": 1,
+     "u": "vg",
+     "p": 650,
+     "v": 650
+    },
+    {
+     "c": "Estaleiro e terras",
+     "i": "Decapagem da terra vegetal sob a casa, deck e acessos (guardada para o jardim) — 02.08",
+     "q": 1,
+     "u": "vg",
+     "p": 300,
+     "v": 300
+    },
+    {
+     "c": "Estaleiro e terras",
+     "i": "Escavação: fundações, piscina (02.01)",
+     "q": 100.8,
+     "u": "m³",
+     "p": 7,
+     "v": 706
+    },
+    {
+     "c": "Estaleiro e terras",
+     "i": "Reutilização das terras da obra nos aterros da casa, deck e acessos (02.03)",
+     "q": 85.7,
+     "u": "m³",
+     "p": 4,
+     "v": 343
+    },
+    {
+     "c": "Estaleiro e terras",
+     "i": "Aterro compactado sob lajes e deck (02.05)",
+     "q": 96.1,
+     "u": "m³",
+     "p": 6,
+     "v": 577
+    },
+    {
+     "c": "Estaleiro e terras",
+     "i": "Terras de empréstimo para completar o aterro (02.06)",
+     "q": 10.4,
+     "u": "m³",
+     "p": 14,
+     "v": 146
+    },
+    {
+     "c": "Estaleiro e terras",
+     "i": "Modelação final do terreno e taludes 1:4 (02.04)",
+     "q": 220,
+     "u": "m²",
+     "p": 5,
+     "v": 1100
+    },
+    {
+     "c": "Estaleiro e terras",
+     "i": "Contingência para rocha (granito) — metade do 02.R1 (escavação pequena)",
+     "q": 1,
+     "u": "vg",
+     "p": 1365,
+     "v": 1365
+    },
+    {
+     "c": "Estrutura",
+     "i": "Betão de limpeza (03.01)",
+     "q": 6.3,
+     "u": "m³",
+     "p": 95,
+     "v": 600
+    },
+    {
+     "c": "Estrutura",
+     "i": "Sapatas contínuas 0,70 × 0,40 sob as paredes exteriores + isoladas dos alpendres (03.02)",
+     "q": 23.3,
+     "u": "m³",
+     "p": 190,
+     "v": 4423
+    },
+    {
+     "c": "Estrutura",
+     "i": "Laje térrea armada e=0,15 da ala e da caixa, em dois níveis (03.05)",
+     "q": 169.9,
+     "u": "m²",
+     "p": 39,
+     "v": 6627
+    },
+    {
+     "c": "Estrutura",
+     "i": "Lintel/muro de 0,51 entre a cozinha e a sala, em betão armado",
+     "q": 1.1,
+     "u": "m³",
+     "p": 460,
+     "v": 497
+    },
+    {
+     "c": "Estrutura",
+     "i": "Pilares, cintas e vigas (lintéis dos vãos grandes, viga de bordo da pala) — 03.06/03.08",
+     "q": 7.5,
+     "u": "m³",
+     "p": 445,
+     "v": 3338
+    },
+    {
+     "c": "Estrutura",
+     "i": "Laje aligeirada de cobertura h=0,25/0,30 (03.11)",
+     "q": 169.9,
+     "u": "m²",
+     "p": 48,
+     "v": 8156
+    },
+    {
+     "c": "Estrutura",
+     "i": "Pala de 0,90 m sobre a fachada dos quartos — laje maciça (03.09b)",
+     "q": 3.2,
+     "u": "m³",
+     "p": 480,
+     "v": 1555
+    },
+    {
+     "c": "Envolvente (paredes, cobertura, fachadas)",
+     "i": "Alvenaria exterior em tijolo 15 / bloco térmico, com vergas (04.01)",
+     "q": 183.9,
+     "u": "m²",
+     "p": 24,
+     "v": 4414
+    },
+    {
+     "c": "Envolvente (paredes, cobertura, fachadas)",
+     "i": "Divisórias em gesso cartonado (normal e hidrófugo nos WC) — 04.02/04.02b",
+     "q": 83.8,
+     "u": "m²",
+     "p": 28.5,
+     "v": 2389
+    },
+    {
+     "c": "Envolvente (paredes, cobertura, fachadas)",
+     "i": "Cápsula de serviço em contraplacado de carvalho sobre estrutura leve (WC social + lavandaria)",
+     "q": 18.5,
+     "u": "m²",
+     "p": 65,
+     "v": 1201
+    },
+    {
+     "c": "Envolvente (paredes, cobertura, fachadas)",
+     "i": "Cobertura plana invertida: pendentes, impermeabilização, XPS 120, seixo, ralos, trop-plein (base Plinto)",
+     "q": 169.9,
+     "u": "m²",
+     "p": 52,
+     "v": 8836
+    },
+    {
+     "c": "Envolvente (paredes, cobertura, fachadas)",
+     "i": "Capeamento das platibandas e topo da pala em chapa quinada (05.04)",
+     "q": 80.2,
+     "u": "m",
+     "p": 38,
+     "v": 3048
+    },
+    {
+     "c": "Envolvente (paredes, cobertura, fachadas)",
+     "i": "Fachada ETICS EPS 80 mm com acabamento areado fino branco (cal) — 07.01",
+     "q": 193.0,
+     "u": "m²",
+     "p": 48,
+     "v": 9264
+    },
+    {
+     "c": "Envolvente (paredes, cobertura, fachadas)",
+     "i": "Embasamento: faixa de granito amaciado 0,30 na base das fachadas (estimativa)",
+     "q": 76.0,
+     "u": "m",
+     "p": 32,
+     "v": 2432
+    },
+    {
+     "c": "Envolvente (paredes, cobertura, fachadas)",
+     "i": "Isolamento XPS 60 sob a laje térrea + membrana anti-radão (06.04 + 06.R4)",
+     "q": 169.9,
+     "u": "m²",
+     "p": 14,
+     "v": 2379
+    },
+    {
+     "c": "Envolvente (paredes, cobertura, fachadas)",
+     "i": "Membrana anti-radão e despressurização passiva (06.R4)",
+     "q": 1,
+     "u": "vg",
+     "p": 600,
+     "v": 600
+    },
+    {
+     "c": "Caixilharia, vidros e serralharia",
+     "i": "Portas de correr em PVC foliado bronze, vidro duplo baixo-emissivo (08.02) — sala, jantar, quartos",
+     "q": 53.8,
+     "u": "m²",
+     "p": 290,
+     "v": 15598
+    },
+    {
+     "c": "Caixilharia, vidros e serralharia",
+     "i": "Sobrecusto de vidro de controlo solar nos vãos a sul e poente (08.02b)",
+     "q": 32.3,
+     "u": "m²",
+     "p": 35,
+     "v": 1129
+    },
+    {
+     "c": "Caixilharia, vidros e serralharia",
+     "i": "Vãos fixos: clerestório da caixa e janelas altas da galeria (08.01)",
+     "q": 11.3,
+     "u": "m²",
+     "p": 150,
+     "v": 1700
+    },
+    {
+     "c": "Caixilharia, vidros e serralharia",
+     "i": "Janelas (WC e suite) em PVC foliado (08.04)",
+     "q": 1.3,
+     "u": "m²",
+     "p": 220,
+     "v": 293
+    },
+    {
+     "c": "Caixilharia, vidros e serralharia",
+     "i": "Porta de entrada pivotante revestida a madeira, blindada (base Plinto)",
+     "q": 1,
+     "u": "vg",
+     "p": 1450,
+     "v": 1450
+    },
+    {
+     "c": "Caixilharia, vidros e serralharia",
+     "i": "Portadas de correr em ripado de pinho tratado nos 3 quartos: calhas e quadros em aço (ripado pelo dono de obra)",
+     "q": 3,
+     "u": "un",
+     "p": 520,
+     "v": 1560
+    },
+    {
+     "c": "Caixilharia, vidros e serralharia",
+     "i": "Estores/blackout interiores nos quartos",
+     "q": 3,
+     "u": "un",
+     "p": 90,
+     "v": 270
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Betonilha de regularização (09.00)",
+     "q": 142.5,
+     "u": "m²",
+     "p": 11,
+     "v": 1568
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Pavimento vinílico SPC aspeto carvalho — sala, cozinha, galeria (09.01b)",
+     "q": 82.0,
+     "u": "m²",
+     "p": 25,
+     "v": 2049
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Pavimento laminado AC4 aspeto carvalho — quartos (09.02)",
+     "q": 40.5,
+     "u": "m²",
+     "p": 13,
+     "v": 526
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Porcelânico antiderrapante nos WC e lavandaria + azulejo nos duches (09.04 + 09.04b)",
+     "q": 20.1,
+     "u": "m²",
+     "p": 52,
+     "v": 1044
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Estuque projetado nas paredes interiores (09.07)",
+     "q": 169.2,
+     "u": "m²",
+     "p": 11,
+     "v": 1861
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Tetos em estuque projetado direto na laje; teto falso hidrófugo nos WC (09.08)",
+     "q": 166.9,
+     "u": "m²",
+     "p": 13,
+     "v": 2170
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Degraus interiores (3 × 6,60 m) em betão afagado com focinho de madeira",
+     "q": 3,
+     "u": "un",
+     "p": 160,
+     "v": 480
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Portas interiores (7) — compra direta do dono de obra (10.01)",
+     "q": 7,
+     "u": "un",
+     "p": 165,
+     "v": 1155
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Cozinha: móveis, bancada em pedra e ilha (10.04, com ilha)",
+     "q": 1,
+     "u": "vg",
+     "p": 5500,
+     "v": 5500
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Loiças e torneiras: 3 WC e lava-loiça (cap. 11 do MQT)",
+     "q": 1,
+     "u": "vg",
+     "p": 2100,
+     "v": 2100
+    },
+    {
+     "c": "Acabamentos, carpintarias e loiças",
+     "i": "Tintas e rodapés — compra do dono de obra (09.11/09.12)",
+     "q": 1,
+     "u": "vg",
+     "p": 650,
+     "v": 650
+    },
+    {
+     "c": "Instalações",
+     "i": "Águas e esgotos: ramal, rede interior (14 pontos), coletores enterrados, 2 caixas de visita (cap. 12)",
+     "q": 1,
+     "u": "vg",
+     "p": 6900,
+     "v": 6900
+    },
+    {
+     "c": "Instalações",
+     "i": "Estação elevatória de esgotos — CONTINGÊNCIA: só se a ligação à rede da estrada não for gravítica (12.08)",
+     "q": 1,
+     "u": "vg",
+     "p": 2100,
+     "v": 2100
+    },
+    {
+     "c": "Instalações",
+     "i": "Pluviais: 4 tubos de queda, rede enterrada, poço de infiltração no jardim (cap. 13)",
+     "q": 1,
+     "u": "vg",
+     "p": 3100,
+     "v": 3100
+    },
+    {
+     "c": "Instalações",
+     "i": "Eletricidade e ITED: ligação, quadro, ≈ 30 pontos de luz, ≈ 45 tomadas, exterior, terras, pré-FV e pré-carregador (cap. 14)",
+     "q": 1,
+     "u": "vg",
+     "p": 9600,
+     "v": 9600
+    },
+    {
+     "c": "Instalações",
+     "i": "AQS por bomba de calor 200 L; pré-instalação AC (4 un); extração contínua; grelhas (cap. 15)",
+     "q": 1,
+     "u": "vg",
+     "p": 4500,
+     "v": 4500
+    },
+    {
+     "c": "Exteriores (deck, alpendres, muros, acessos)",
+     "i": "Deck da piscina em lajes de granito amaciado sobre laje armada (base Plinto)",
+     "q": 23.3,
+     "u": "m²",
+     "p": 62,
+     "v": 1445
+    },
+    {
+     "c": "Exteriores (deck, alpendres, muros, acessos)",
+     "i": "Terraço dos quartos e degraus em granito (base Plinto, 16.05)",
+     "q": 26.1,
+     "u": "m²",
+     "p": 70,
+     "v": 1824
+    },
+    {
+     "c": "Exteriores (deck, alpendres, muros, acessos)",
+     "i": "Alpendre da piscina: laje maciça 0,25 + pilar metálico + muro de granito do fundo",
+     "q": 1,
+     "u": "vg",
+     "p": 4122,
+     "v": 4122
+    },
+    {
+     "c": "Exteriores (deck, alpendres, muros, acessos)",
+     "i": "Alpendre de estacionamento: laje maciça 0,25 sobre pilares metálicos + arrumos em bloco e ripado",
+     "q": 1,
+     "u": "vg",
+     "p": 7178,
+     "v": 7178
+    },
+    {
+     "c": "Exteriores (deck, alpendres, muros, acessos)",
+     "i": "Pavimento do alpendre, pátio de entrada e rampa em saibro estabilizado / grelha (16.02)",
+     "q": 56.4,
+     "u": "m²",
+     "p": 22,
+     "v": 1241
+    },
+    {
+     "c": "Exteriores (deck, alpendres, muros, acessos)",
+     "i": "Muro de meação em granito, h 1,80 (metade do muro, partilhado com o vizinho) — estimativa",
+     "q": 42.9,
+     "u": "m² face",
+     "p": 150,
+     "v": 6442
+    },
+    {
+     "c": "Exteriores (deck, alpendres, muros, acessos)",
+     "i": "Muro baixo de granito na frente da estrada, h 1,20, com portão pedonal (estimativa + 08.21)",
+     "q": 18.5,
+     "u": "m² face",
+     "p": 150,
+     "v": 2781
+    },
+    {
+     "c": "Exteriores (deck, alpendres, muros, acessos)",
+     "i": "Muro de granito no limite sul, só no troço da piscina e do jardim (≈ 30 m), h 1,80 — estimativa",
+     "q": 54.0,
+     "u": "m² face",
+     "p": 150,
+     "v": 8100
+    },
+    {
+     "c": "Exteriores (deck, alpendres, muros, acessos)",
+     "i": "Sebes nos restantes limites (loureiro/pitósporo, plantas e rega; plantação pelo dono de obra)",
+     "q": 44.0,
+     "u": "m",
+     "p": 22,
+     "v": 968
+    },
+    {
+     "c": "Exteriores (deck, alpendres, muros, acessos)",
+     "i": "Pré-instalação do portão automóvel (tubo, caixa) — o portão fica para depois (08.22b)",
+     "q": 1,
+     "u": "vg",
+     "p": 80,
+     "v": 80
+    },
+    {
+     "c": "Piscina",
+     "i": "Piscina 8,00 × 3,50 × 1,40: bloco armado, liner armado, filtração salina, LED, capeamento em granito (base Plinto)",
+     "q": 1,
+     "u": "vg",
+     "p": 17100,
+     "v": 17100
+    },
+    {
+     "c": "Fase 2 — depois da licença de utilização",
+     "i": "Fechar o alpendre da piscina: 2 frentes de correr (≈ 20 m²), isolamento, pavimento, teto, duche/WC pequeno → escritório/estúdio",
+     "q": 1,
+     "u": "vg",
+     "p": 11800,
+     "v": 11800
+    },
+    {
+     "c": "Fase 2 — depois da licença de utilização",
+     "i": "Portão automóvel de correr 4 m em aço lacado (08.22)",
+     "q": 1,
+     "u": "vg",
+     "p": 2200,
+     "v": 2200
+    },
+    {
+     "c": "Fase 2 — depois da licença de utilização",
+     "i": "Jardim: terra vegetal, relvado nos pátios, árvores (oliveiras, medronheiros, carvalho), rega gota-a-gota (16.06)",
+     "q": 279,
+     "u": "m²",
+     "p": 9,
+     "v": 2511
+    },
+    {
+     "c": "Fase 2 — depois da licença de utilização",
+     "i": "Salamandra + chaminé em inox preto (05.06 + 10.05)",
+     "q": 1,
+     "u": "vg",
+     "p": 3000,
+     "v": 3000
+    }
+   ],
+   "chapters": {
+    "Estaleiro e terras": 9686,
+    "Estrutura": 25196,
+    "Envolvente (paredes, cobertura, fachadas)": 34563,
+    "Caixilharia, vidros e serralharia": 21999,
+    "Acabamentos, carpintarias e loiças": 19103,
+    "Instalações": 26200,
+    "Exteriores (deck, alpendres, muros, acessos)": 34181,
+    "Piscina": 17100,
+    "Fase 2 — depois da licença de utilização": 19511
+   },
+   "f1": 170929,
+   "pool": 17100,
+   "f2": 19511,
+   "total": 207540,
+   "q": {
+    "A_bar": 86.4,
+    "A_box": 83.5,
+    "A_fp": 169.9,
+    "vaos_correr": 53.8,
+    "vaos_janela": 1.3,
+    "vaos_fixos": 11.3,
+    "portas_entrada": 1,
+    "parede_ext_liq": 183.9,
+    "fachada": 193.0,
+    "perim": 76.0,
+    "divisorias": 83.8,
+    "capsula": 18.5,
+    "pav_wc": 20.1,
+    "pav_quartos": 40.5,
+    "pav_social": 82.0,
+    "util": 142.5,
+    "esc_piscina": 59.6,
+    "esc_fundacoes": 39.1,
+    "esc_corte": 2.1,
+    "aterro_casa": 40.5,
+    "aterro_deck": 53.5,
+    "aterro_acesso": 2.1,
+    "A_deck": 23.3,
+    "A_terraco": 26.1,
+    "A_alp": 17.6,
+    "A_car": 40.8,
+    "A_store": 7.2,
+    "A_acesso": 15.6,
+    "A_pala": 13.0,
+    "A_lote": 817.8,
+    "A_jardim": 508.2
+   },
+   "abc": 169.9,
+   "util": 142.5,
+   "eur_m2": 1006,
+   "terras": {
+    "esc": 100.8,
+    "aterro": 96.1,
+    "reuso": 85.7,
+    "emprestimo": 10.4,
+    "sobrante": 0.0
+   }
+  }
+ ],
+ "v42": {
+  "total": 224600,
+  "area": 321
+ }
+}
