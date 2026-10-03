@@ -39,10 +39,10 @@
   {
    "c": "Estaleiro e terras",
    "i": "Aterro do deck, terraço norte e caminho com as terras da obra (sem empréstimo)",
-   "q": 180.1,
+   "q": 163.3,
    "u": "m³",
    "p": 10,
-   "v": 1801,
+   "v": 1633,
    "f": 1
   },
   {
@@ -146,20 +146,29 @@
   },
   {
    "c": "Estrutura",
-   "i": "Muros do embasamento (deck/estrada) e do pátio da garagem, bloco armado",
-   "q": 113.7,
+   "i": "Muro do deck (recuado, 2.º patamar) e muros do pátio da garagem, bloco armado",
+   "q": 69.7,
    "u": "m²",
    "p": 70,
-   "v": 7957,
+   "v": 4882,
    "f": 1
   },
   {
    "c": "Estrutura",
    "i": "Sapatas em L desses muros",
-   "q": 29.6,
+   "q": 18.1,
    "u": "m³",
    "p": 190,
-   "v": 5616,
+   "v": 3445,
+   "f": 1
+  },
+  {
+   "c": "Estrutura",
+   "i": "Muro à face da estrada (≤ 1,10 m), em degraus: betão ciclópico com granito da obra + capeamento",
+   "q": 32.3,
+   "u": "m²",
+   "p": 62,
+   "v": 2002,
    "f": 1
   },
   {
@@ -173,7 +182,7 @@
   },
   {
    "c": "Estrutura",
-   "i": "Degraus exteriores em granito (deck → caminho; pátio)",
+   "i": "Entrada pedonal (PIP): patamar do portão e 7 degraus em granito; 10 degraus do pátio",
    "q": 17,
    "u": "un",
    "p": 85,
@@ -181,30 +190,39 @@
    "f": 1
   },
   {
+   "c": "Estrutura",
+   "i": "Patamar do portão em granito (1,6 m²) e muro lateral da escada",
+   "q": 1,
+   "u": "vg",
+   "p": 450,
+   "v": 450,
+   "f": 1
+  },
+  {
    "c": "Envolvente",
    "i": "Alvenaria exterior em tijolo 15 (R/C + platibanda)",
-   "q": 93.7,
+   "q": 94.8,
    "u": "m²",
    "p": 24,
-   "v": 2249,
+   "v": 2276,
    "f": 1
   },
   {
    "c": "Envolvente",
    "i": "Divisórias do R/C em gesso cartonado (normal, hidrófugo, acústico)",
-   "q": 118.2,
+   "q": 125.7,
    "u": "m²",
    "p": 29,
-   "v": 3427,
+   "v": 3645,
    "f": 1
   },
   {
    "c": "Envolvente",
    "i": "Divisórias da cave em bloco 15",
-   "q": 82.5,
+   "q": 79.4,
    "u": "m²",
    "p": 24,
-   "v": 1981,
+   "v": 1906,
    "f": 1
   },
   {
@@ -228,10 +246,10 @@
   {
    "c": "Envolvente",
    "i": "Impermeabilização e drenagem dos muros enterrados (cave e muros exteriores)",
-   "q": 154.2,
+   "q": 127.8,
    "u": "m²",
    "p": 27,
-   "v": 4164,
+   "v": 3452,
    "f": 1
   },
   {
@@ -246,10 +264,10 @@
   {
    "c": "Envolvente",
    "i": "Fachada: ripado de pinho autoclave cl.4 carbonizado pelo dono de obra + subestrutura + lã mineral 60",
-   "q": 105.9,
+   "q": 107.0,
    "u": "m²",
    "p": 60,
-   "v": 6353,
+   "v": 6423,
    "f": 1
   },
   {
@@ -281,20 +299,20 @@
   },
   {
    "c": "Caixilharia, vidros e serralharia",
-   "i": "Portas de correr (V1, V2, V6, V15) em PVC foliado preto, vidro de controlo solar a poente e sul",
-   "q": 45.6,
+   "i": "Portas de correr (V1, V1b, V2, V6, V15) em PVC foliado preto, vidro de controlo solar a poente e sul",
+   "q": 44.9,
    "u": "m²",
    "p": 300,
-   "v": 13686,
+   "v": 13455,
    "f": 1
   },
   {
    "c": "Caixilharia, vidros e serralharia",
-   "i": "Janelas em PVC foliado preto (8 un.)",
-   "q": 15.9,
+   "i": "Janelas em PVC foliado preto (7 un.; sai a do WC da entrada)",
+   "q": 15.5,
    "u": "m²",
    "p": 220,
-   "v": 3490,
+   "v": 3406,
    "f": 1
   },
   {
@@ -326,20 +344,20 @@
   },
   {
    "c": "Caixilharia, vidros e serralharia",
-   "i": "Claraboias fixas (ilha e escada) + 2 tubos de luz (WC 1 e passagem)",
+   "i": "Claraboias fixas (ilha e escada) + 3 tubos de luz (WC 1, WC de serviço e passagem)",
    "q": 1,
    "u": "vg",
-   "p": 3100,
-   "v": 3100,
+   "p": 3450,
+   "v": 3450,
    "f": 1
   },
   {
    "c": "Caixilharia, vidros e serralharia",
-   "i": "Guardas em vidro laminado (varanda, deck poente, pátio, suite 1)",
-   "q": 19.7,
+   "i": "Guardas em vidro laminado (varanda, deck poente sobre o patamar, escada da entrada, pátio, suite 1)",
+   "q": 24.6,
    "u": "m",
    "p": 220,
-   "v": 4334,
+   "v": 5406,
    "f": 1
   },
   {
@@ -371,11 +389,11 @@
   },
   {
    "c": "Caixilharia, vidros e serralharia",
-   "i": "Portão pedonal + grelhas de ventilação da garagem",
+   "i": "Portão pedonal em aço (1,0 m) + grelhas de ventilação da garagem",
    "q": 1,
    "u": "vg",
-   "p": 485,
-   "v": 485,
+   "p": 585,
+   "v": 585,
    "f": 1
   },
   {
@@ -425,16 +443,16 @@
   },
   {
    "c": "Acabamentos, carpintarias e louças",
-   "i": "Portas interiores (13, compra direta) + porta EI30 da garagem + técnica",
+   "i": "Portas interiores (12, compra direta) + porta EI30 da garagem/átrio + técnica",
    "q": 1,
    "u": "vg",
-   "p": 2735,
-   "v": 2735,
+   "p": 2650,
+   "v": 2650,
    "f": 1
   },
   {
    "c": "Acabamentos, carpintarias e louças",
-   "i": "Cozinha: móveis, bancada em pedra e ilha de 2,80 m",
+   "i": "Cozinha: parede técnica (placa + colunas), ilha de 2,20 m com lava-loiça, bancada norte; pedra",
    "q": 1,
    "u": "vg",
    "p": 6000,
@@ -507,10 +525,10 @@
   {
    "c": "Arranjos exteriores",
    "i": "Deck e varanda: laje armada sobre aterro + porcelânico exterior R11",
-   "q": 68.7,
+   "q": 61.3,
    "u": "m²",
    "p": 62,
-   "v": 4261,
+   "v": 3803,
    "f": 1
   },
   {
@@ -533,11 +551,11 @@
   },
   {
    "c": "Fase 2",
-   "i": "Piscina 9,00 × 3,00 × 1,40: estrutura em bloco armado, liner armado, filtração salina, LED, capeamento em granito",
+   "i": "Piscina 7,70 × 3,00 × 1,40: estrutura em bloco armado, liner armado, filtração salina, LED, capeamento em granito",
    "q": 1,
    "u": "vg",
-   "p": 16500,
-   "v": 16500,
+   "p": 15200,
+   "v": 15200,
    "f": 2
   },
   {
@@ -560,11 +578,11 @@
   },
   {
    "c": "Fase 2",
-   "i": "Salamandra + chaminé em inox preto",
+   "i": "Salamandra + chaminé em inox preto + banco-lareira em betão afagado (3,0 m)",
    "q": 1,
    "u": "vg",
-   "p": 3000,
-   "v": 3000,
+   "p": 3500,
+   "v": 3500,
    "f": 2
   },
   {
@@ -578,47 +596,59 @@
   },
   {
    "c": "Fase 2",
-   "i": "Closets modulares, armário da entrada, bancada da lavandaria, degraus em carvalho",
+   "i": "Roupeiro da suite 1 (2,45 m), closet 2, armário da entrada, prateleiras da despensa, bancada da lavandaria, degraus em carvalho",
    "q": 1,
    "u": "vg",
-   "p": 3100,
-   "v": 3100,
+   "p": 3600,
+   "v": 3600,
+   "f": 2
+  },
+  {
+   "c": "Fase 2",
+   "i": "Plantação dos patamares junto à estrada (arbustos baixos e pendentes, rega)",
+   "q": 1,
+   "u": "vg",
+   "p": 400,
+   "v": 400,
    "f": 2
   }
  ],
- "f1": 222828,
- "f2": 33100,
- "total": 255928,
+ "f1": 220059,
+ "f2": 33200,
+ "total": 253259,
  "chapters": {
-  "Estaleiro e terras": 16426,
-  "Estrutura": 69249,
-  "Envolvente": 36615,
-  "Caixilharia, vidros e serralharia": 36174,
-  "Acabamentos, carpintarias e louças": 20703,
+  "Estaleiro e terras": 16258,
+  "Estrutura": 66456,
+  "Envolvente": 36143,
+  "Caixilharia, vidros e serralharia": 37381,
+  "Acabamentos, carpintarias e louças": 20618,
   "Instalações": 37200,
-  "Arranjos exteriores": 6461,
-  "Fase 2": 33100
+  "Arranjos exteriores": 6003,
+  "Fase 2": 33200
  },
  "q": {
   "exc": 258.9,
-  "fill": 180.1,
+  "fill": 163.3,
   "exc_cave": 187.6,
   "exc_patio": 46.8,
   "exc_gpatio": 24.4,
-  "fill_deck": 110.6,
-  "fill_north": 57.6,
+  "fill_deck": 97.8,
+  "fill_north": 53.6,
   "cave_wall_area": 150.8,
-  "rc_wall_net": 76.7,
-  "clad_area": 105.9,
-  "slide_area": 45.6,
-  "win_area": 15.9,
-  "int_walls_len": 73.8,
-  "deck_wall_area": 81.9,
+  "rc_wall_net": 77.8,
+  "clad_area": 107.0,
+  "slide_area": 44.9,
+  "win_area": 15.5,
+  "int_walls_len": 75.2,
+  "deck_wall_area": 40.9,
   "patio_wall_area": 34.2,
-  "gp_wall_area": 31.8
+  "gp_wall_area": 28.9,
+  "muro1_area": 32.3,
+  "muro2_area": 16.1,
+  "patamar": 6.0
  },
  "area_total": 257.1,
- "eur_m2_f1": 867,
+ "eur_m2_f1": 856,
  "v42": {
   "total": 224600,
   "area": 321,

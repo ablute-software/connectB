@@ -72,7 +72,7 @@ def m2(a): return f"{a:.1f}".replace('.', ',') + ' m²'
 # ============================================================================ PLANTAS
 def plan(level, path, variant='f1'):
     S = 46.0; mx, my = 120, 120
-    umin, umax, vmin, vmax = -4.8, 16.6, -9.6, 10.4
+    umin, umax, vmin, vmax = -5.6, 16.6, -10.4, 10.4
     W = int((umax - umin) * S + 2 * mx * 0.5); H = int((vmax - vmin) * S + my * 0.9)
     T = lambda u, v: (mx * 0.5 + (u - umin) * S, my * 0.45 + (vmax - v) * S)
     svg = SVG(W, H)
@@ -84,7 +84,7 @@ def plan(level, path, variant='f1'):
         svg.add(f"<path d='{poly_path(pool, T)}' fill='{WATER}' stroke='{INK}' stroke-width='1.1'/>")
         svg.add(f"<path d='{poly_path(pool.buffer(0.30, join_style=2).difference(pool), T)}' fill='#e2ddd2' stroke='{MID}' stroke-width='0.6'/>")
         px, py = T((G.POOL[0] + G.POOL[2]) / 2, (G.POOL[1] + G.POOL[3]) / 2)
-        svg.add(text('PISCINA 9,00 × 3,00', px, py - 2, 11, '#2f6f74', weight=600)); svg.add(text('água a 36,95 · prof. 1,40', px, py + 12, 9, '#2f6f74'))
+        svg.add(text('PISCINA 7,70 × 3,00', px, py - 2, 11, '#2f6f74', weight=600)); svg.add(text('água a 36,95 · prof. 1,40', px, py + 12, 9, '#2f6f74'))
         svg.add(f"<path d='{poly_path(sbox(*G.PATIO), T)}' fill='#e6e2da' stroke='{MID}' stroke-width='0.8' stroke-dasharray='5 3'/>")
         cx, cy = T(12.3, -3.2); svg.add(text('pátio afundado', cx, cy, 9.5, MID, italic=True)); svg.add(text('(cota 34,00)', cx, cy + 12, 9, MID, italic=True))
         svg.add(f"<path d='{poly_path(G.GPATIO_POLY, T)}' fill='#ecebe7' stroke='{MID}' stroke-width='0.8' stroke-dasharray='5 3'/>")
@@ -95,22 +95,43 @@ def plan(level, path, variant='f1'):
         # pala (projeção)
         svg.add(f"<path d='{poly_path(G.PALA_POLY, T)}' fill='none' stroke='{INK}' stroke-width='0.9' stroke-dasharray='9 4 2 4'/>")
         lx, ly = T(4.2, -3.05); svg.add(text('projeção da pala em consola (2,00 m)', lx, ly, 9, INK, italic=True))
-        # degraus
-        ds = G.DECK_STEPS
-        for i in range(ds['n']):
-            v = ds['v_top'] - i * (ds['v_top'] - ds['v_bot']) / (ds['n'] - 1)
-            a, b = T(ds['u0'], v), T(ds['u1'], v)
+        # patamar plantado entre o muro da estrada e o muro do deck
+        svg.add(f"<path d='{poly_path(G.PATAMAR, T)}' fill='{GREEN}' stroke='none'/>")
+        svg.add(f"<path d='{poly_path(G.ENTRY_WEDGE, T)}' fill='{GREEN}' stroke='none'/>")
+        # muro 1 (estrada), muro 2 (deck) e muros do pátio da garagem
+        for (va, vb, top) in G.MURO1_SEGS:
+            ls = LineString([(G.B_N(va) + 0.15, va), (G.B_N(vb) + 0.15, vb)])
+            svg.add(f"<path d='{poly_path(ls.buffer(0.15, cap_style=2), T)}' fill='#7d786f' stroke='none'/>")
+        mline = LineString(G.MURO2_LINE)
+        svg.add(f"<path d='{poly_path(mline.buffer(0.25, single_sided=True, join_style=2), T)}' fill='#7d786f' stroke='none'/>")
+        for (u0, v0, u1, v1, top) in G.COURT_WALLS:
+            svg.add(f"<path d='{poly_path(sbox(u0, v0, u1, v1), T)}' fill='#7d786f' stroke='none'/>")
+        # entrada pedonal: portão, patamar e escada que sobe para norte
+        svg.add(f"<path d='{poly_path(G.ENTRY_LANDING, T)}' fill='#e2ddd2' stroke='{MID}' stroke-width='0.6'/>")
+        es = G.ENTRY_STAIR
+        for i in range(es['n']):
+            v = es['v_bot'] + i * (es['v_top'] - es['v_bot']) / (es['n'] - 1)
+            a, b = T(es['u0'], v), T(es['u1'], v)
             svg.add(f"<line x1='{fmt(a[0])}' y1='{fmt(a[1])}' x2='{fmt(b[0])}' y2='{fmt(b[1])}' stroke='{MID}' stroke-width='0.7'/>")
-        sx, sy = T(8.6, -8.75); svg.add(text('↓ caminho do portão', sx + 4, sy + 10, 9, MID))
-        # guardas de vidro (deck poente)
-        wp = [(G.B_N(v) + 0.37, v) for v in (-4.75, -3.0, -1.887, -0.737, 0.5, 1.40)]
+        a, b = T(-0.5, es['v_bot'] + 0.1), T(-0.5, es['v_top'] - 0.1)
+        svg.add(f"<line x1='{fmt(a[0])}' y1='{fmt(a[1])}' x2='{fmt(b[0])}' y2='{fmt(b[1])}' stroke='{INK}' stroke-width='1' marker-end='url(#arr)'/>")
+        gu = G.B_N(sum(G.GATE_V) / 2)
+        a, b = T(gu + 0.15, G.GATE_V[0]), T(gu + 0.15, G.GATE_V[1])
+        svg.add(f"<line x1='{fmt(a[0])}' y1='{fmt(a[1])}' x2='{fmt(b[0])}' y2='{fmt(b[1])}' stroke='{INK}' stroke-width='2.4'/>")
+        gx, gy = T(-2.0, -9.0); svg.add(text('portão', gx, gy, 8.5, INK, weight=600, anchor='end')); svg.add(text('35,85', gx, gy + 11, 8, MID, anchor='end'))
+        sx, sy = T(-1.55, -7.3); svg.add(text('7 degraus · sobe a 37,00', sx, sy, 8, MID, rot=-90))
+        px_, py_ = T(-2.9, -2.4); svg.add(text('patamar plantado', px_, py_, 8, '#56663e', italic=True, rot=-71))
+        # guardas de vidro (deck poente, sobre o patamar, e sobre a escada)
+        wp = list(mline.parallel_offset(0.12, 'left', join_style=2).coords)
         svg.add("<polyline points='" + ' '.join(f'{fmt(T(*p)[0])},{fmt(T(*p)[1])}' for p in wp) + f"' fill='none' stroke='#6a9aa3' stroke-width='2'/>")
+        a, b = T(0.11, es['v_bot']), T(0.11, es['v_top'])
+        svg.add(f"<line x1='{fmt(a[0])}' y1='{fmt(a[1])}' x2='{fmt(b[0])}' y2='{fmt(b[1])}' stroke='#6a9aa3' stroke-width='2'/>")
         a, b = T(-1.2, 1.70), T(-1.2, 8.0)
         svg.add(f"<line x1='{fmt(a[0])}' y1='{fmt(a[1])}' x2='{fmt(b[0])}' y2='{fmt(b[1])}' stroke='#6a9aa3' stroke-width='2'/>")
         bx, by = T(-0.62, 4.9); svg.add(text('varanda poente', bx, by, 9, MID, rot=-90, italic=True))
         dx, dy = T(3.6, -4.25); svg.add(text('DECK 37,00', dx, dy, 10, MID, weight=600))
         # portadas (estacionadas)
-        for i, (va, vb) in enumerate([(4.78, 6.68), (5.40, 7.30), (6.02, 7.92)]):
+        for i, (va, vb) in enumerate([(2.45, 4.15), (2.95, 4.65), (3.20, 5.20)]):
             uu = -1.10 + i * 0.07; a, b = T(uu, va), T(uu, vb)
             svg.add(f"<line x1='{fmt(a[0])}' y1='{fmt(a[1])}' x2='{fmt(b[0])}' y2='{fmt(b[1])}' stroke='#5b4a3a' stroke-width='3'/>")
     else:
@@ -137,7 +158,7 @@ def plan(level, path, variant='f1'):
         nx, ny = T(12.3, 6.0); svg.add(text('terreno não escavado', nx, ny, 9.5, MID, italic=True))
         # piscina enterrada (projeção)
         svg.add(f"<path d='{poly_path(sbox(*G.POOL), T)}' fill='none' stroke='{LIGHT}' stroke-width='0.9' stroke-dasharray='6 4'/>")
-        px, py = T(3.5, -6.4); svg.add(text('piscina (por cima, no deck)', px, py, 9, LIGHT, italic=True))
+        px, py = T(4.9, -6.4); svg.add(text('piscina (por cima, no deck)', px, py, 9, LIGHT, italic=True))
     # ---- paredes cortadas (poché) com vãos
     walls = unary_union([sbox(*w[:4]) for w in G.WALLS[level]])
     ops = unary_union([sbox(*o['r']) for o in G.OPEN[level]])
@@ -201,40 +222,53 @@ def plan(level, path, variant='f1'):
     a, b = (T(7.16, st['v_top'] + 0.2), T(7.16, st['v_bot'] - 0.25)) if level == 'rc' else (T(7.16, st['v_bot'] - 0.2), T(7.16, st['v_top'] + 0.25))
     svg.add(f"<line x1='{fmt(a[0])}' y1='{fmt(a[1])}' x2='{fmt(b[0])}' y2='{fmt(b[1])}' stroke='{INK}' stroke-width='1' marker-end='url(#arr)'/>")
     svg.add(f"<defs><marker id='arr' markerWidth='8' markerHeight='8' refX='6' refY='4' orient='auto'><path d='M0,0 L8,4 L0,8 Z' fill='{INK}'/></marker></defs>")
-    lbl = 'desce à cave' if level == 'rc' else 'sobe ao R/C · chega à entrada'
+    lbl = 'desce à cave' if level == 'rc' else 'sobe ao R/C · chega à lavandaria/cozinha'
     sx, sy = T(7.16, 3.4); svg.add(text(lbl, sx, sy, 8.5, MID, rot=-90))
     if level == 'rc':
-        tx, ty = T(7.16, 0.95); svg.add(text('topo da escada', tx, ty, 7.5, INK, weight=600))
+        tx, ty = T(7.16, 6.40); svg.add(text('topo da escada', tx, ty, 7.5, INK, weight=600))
     else:
-        tx, ty = T(7.16, 5.85); svg.add(text('arranque', tx, ty, 7.5, INK, weight=600))
+        tx, ty = T(7.16, 1.55); svg.add(text('arranque', tx, ty, 7.5, INK, weight=600))
     if level == 'rc':
-        a, b = T(7.69, st['v_top']), T(7.69, st['v_bot'])
-        svg.add(f"<line x1='{fmt(a[0])}' y1='{fmt(a[1])}' x2='{fmt(b[0])}' y2='{fmt(b[1])}' stroke='#6a9aa3' stroke-width='1.6'/>")
+        for (u0, v0, u1, v1, h) in G.LOW_WALLS['rc']:
+            svg.add(f"<path d='{poly_path(sbox(u0, v0, u1, v1), T)}' fill='none' stroke='{INK}' stroke-width='1'/>")
     # ---- mobiliário
     furn = []
     if level == 'rc':
-        furn += [((0.60, 7.05, 4.70, 7.70), 'bancada'), ((5.94, 4.40, 6.54, 7.10), 'colunas'), ((1.80, 5.05, 4.60, 6.05), 'ilha'),
-                 ((2.40, 2.70, 4.80, 3.70), 'mesa'), ((2.20, -0.55, 3.05, 2.05), 'sofá'), ((1.05, 0.10, 1.85, 1.30), None),
-                 ((12.25, 1.44, 13.85, 3.44), 'cama'), ((12.25, 3.56, 13.85, 5.56), 'cama'),
-                 ((9.28, 1.15, 9.88, 2.88), None), ((9.28, 4.12, 9.88, 5.52), None), ((8.76, 1.52, 9.16, 2.88), None),
-                 ((8.56, 5.65, 9.16, 7.70), 'máquinas · tanque'), ((2.20, -2.95, 4.60, -2.05), 'mesa exterior'),
-                 ((3.0, -4.75, 3.7, -2.85), None), ((4.2, -4.75, 4.9, -2.85), None)]
-        # loiças (esquemático)
-        for (u, v, r) in [(10.95, 0.35, 0.22), (8.85, 0.2, 0.2), (10.95, 6.3, 0.22)]:
-            c = T(u, v); svg.add(f"<ellipse cx='{fmt(c[0])}' cy='{fmt(c[1])}' rx='{fmt(r * S)}' ry='{fmt(r * S * 1.3)}' fill='none' stroke='{MID}' stroke-width='0.7'/>")
-        for rect in [(9.35, -0.98, 10.25, 0.62), (9.35, 6.0, 10.25, 7.65)]:
+        furn += [((3.10, 7.05, 4.80, 7.70), 'bancada'), ((5.94, 4.90, 6.54, 6.50), 'colunas'), ((5.94, 3.70, 6.54, 4.90), 'placa'),
+                 ((3.90, 3.90, 4.90, 6.10), 'ilha · lava-loiça'), ((1.30, 5.00, 2.25, 7.20), 'mesa'), ((0.62, 5.25, 1.02, 7.05), None),
+                 ((0.50, 7.30, 2.80, 7.70), None), ((0.30, 2.40, 0.80, 5.20), None),
+                 ((3.45, 0.40, 4.35, 3.20), 'sofá'), ((2.60, 0.40, 3.45, 1.25), None), ((1.80, 1.45, 2.90, 2.75), None), ((0.75, -0.80, 1.55, 0.00), None),
+                 ((11.52, 0.40, 13.52, 2.00), 'cama'), ((12.25, 2.84, 14.70, 3.44), 'roupeiro'), ((12.50, 3.70, 14.10, 5.70), 'cama'),
+                 ((9.28, 4.12, 9.88, 5.52), None), ((6.66, 0.67, 7.66, 1.15), 'armário'),
+                 ((8.56, 5.65, 9.16, 7.70), 'máquinas'), ((8.70, 4.15, 9.16, 5.45), None), ((2.20, -2.95, 4.60, -2.05), 'mesa exterior'),
+                 ((-1.36, -3.83, -0.66, -1.93), None), ((-0.16, -3.83, 0.54, -1.93), None)]
+        for vv in (5.20, 5.85, 6.50):
+            furn.append(((2.55, vv, 2.98, vv + 0.45), None))
+        # loiças (esquemático): sanitas, lavatórios, bases de duche
+        for (u, v, r) in [(9.58, 0.42, 0.2), (9.58, 2.15, 0.2), (10.95, 6.3, 0.22)]:
+            c = T(u, v); svg.add(f"<ellipse cx='{fmt(c[0])}' cy='{fmt(c[1])}' rx='{fmt(r * S * 1.3)}' ry='{fmt(r * S)}' fill='none' stroke='{MID}' stroke-width='0.7'/>")
+        for rect in [(9.33, -0.98, 10.73, -0.13), (10.10, 0.82, 10.90, 1.22), (10.25, 1.42, 10.95, 1.80), (9.35, 6.0, 10.25, 7.65)]:
             furn.append((rect, None))
-        c = T(1.15, 4.15); svg.add(f"<circle cx='{fmt(c[0])}' cy='{fmt(c[1])}' r='{fmt(0.3 * S)}' fill='{INK}'/>")
-        svg.add(text('salamandra', c[0] + 2, c[1] + 22, 8, MID))
-        for (u, v) in [(2.0, 5.6), (3.2, 5.6), (4.4, 5.6)]:
-            pass
+        # salamandra e TV no pilar entre V1 e V1b
+        c = T(0.60, 2.85); svg.add(f"<circle cx='{fmt(c[0])}' cy='{fmt(c[1])}' r='{fmt(0.27 * S)}' fill='{INK}'/>")
+        svg.add(text('salamandra', c[0] + 30, c[1] + 3, 8, MID, anchor='start'))
+        a, b = T(0.36, 3.57), T(0.36, 5.03)
+        svg.add(f"<line x1='{fmt(a[0])}' y1='{fmt(a[1])}' x2='{fmt(b[0])}' y2='{fmt(b[1])}' stroke='{INK}' stroke-width='4'/>")
+        c = T(0.75, 4.3); svg.add(text('TV', c[0] + 6, c[1] + 3, 8, MID, anchor='start'))
+        # vistas convergentes a partir do sofá
+        eye = (3.75, 1.80)
+        for (tu, tv, lab, col) in [(-1.6, 0.6, 'mar', '#2f6f74'), (0.62, 2.85, 'lume', '#b0413e'), (0.40, 4.30, 'TV', '#5b4a3a')]:
+            a, b = T(*eye), T(tu, tv)
+            svg.add(f"<line x1='{fmt(a[0])}' y1='{fmt(a[1])}' x2='{fmt(b[0])}' y2='{fmt(b[1])}' stroke='{col}' stroke-width='1.1' stroke-dasharray='5 3'/>")
+        c = T(*eye); svg.add(f"<circle cx='{fmt(c[0])}' cy='{fmt(c[1])}' r='3.5' fill='{INK}'/>")
+        lx, ly = T(-1.75, 0.55); svg.add(text('mar', lx, ly - 4, 8.5, '#2f6f74', weight=600))
         # claraboias (projeção)
         for s in G.SKYLIGHTS:
             svg.add(f"<path d='{poly_path(sbox(*s), T)}' fill='none' stroke='#6a9aa3' stroke-width='0.8' stroke-dasharray='3 2'/>")
     else:
         furn += [((1.00, 2.30, 5.60, 4.15), 'carro'), ((1.00, 5.05, 5.60, 6.90), 'carro'),
                  ((0.40, -0.95, 3.0, -0.35), 'prateleiras · pranchas · bicicletas'), ((4.6, -0.95, 6.45, 0.2), 'filtro · bomba'),
-                 ((6.80, -0.95, 7.60, -0.15), 'AQS'), ((8.30, -0.95, 9.20, -0.55), 'quadro'),
+                 ((8.55, 6.95, 9.20, 7.62), 'AQS'), ((7.85, 3.72, 8.75, 4.05), 'quadro'), ((8.60, 4.30, 9.20, 5.40), 'PB1'),
                  ((9.40, 1.29, 9.95, 3.50), None)]
         if variant == 'f1':
             furn += [((12.0, 1.9, 14.3, 2.80), 'sofá'), ((11.3, -0.6, 12.4, 0.6), 'bicicleta est.')]
@@ -251,12 +285,12 @@ def plan(level, path, variant='f1'):
             svg.add(text(lab, c[0], c[1] + 3, 7.5, MID, rot=rot))
     # ---- etiquetas de compartimentos
     labelpos = {
-        ('rc', 'Sala · jantar · cozinha'): (4.75, 1.05), ('rc', 'Entrada'): (7.36, 0.2), ('rc', 'WC serviço'): (8.67, -0.55),
-        ('rc', 'Corredor'): (8.45, 4.5), ('rc', 'Escada'): None, ('rc', 'Lavandaria'): (7.55, 6.55), ('rc', 'WC 1'): (10.3, -0.4),
-        ('rc', 'Closet 1'): (10.6, 2.0), ('rc', 'Passagem'): (10.3, 3.5), ('rc', 'Closet 2'): (10.6, 4.8), ('rc', 'WC 2'): (10.3, 6.8),
-        ('rc', 'Suite 1'): (13.05, 0.25), ('rc', 'Suite 2'): (13.05, 6.6),
-        ('cave', 'Garagem (2 carros)'): (3.3, 4.6), ('cave', 'Arrumos · oficina · piscina'): (3.3, 0.55), ('cave', 'Técnica'): (7.95, 0.25),
-        ('cave', 'Escada'): None, ('cave', 'Átrio'): (8.5, 6.5), ('cave', 'Sala do Jardim'): (12.85, 0.9), ('cave', 'WC 3'): (10.16, -0.55),
+        ('rc', 'Sala · jantar · cozinha'): (5.20, -0.35), ('rc', 'Entrada'): (8.47, 0.55), ('rc', 'WC serviço'): (10.3, 2.35),
+        ('rc', 'Escada'): None, ('rc', 'Despensa'): (8.30, 4.42), ('rc', 'Lavandaria'): (8.15, 7.22), ('rc', 'WC 1'): (10.55, 0.1),
+        ('rc', 'Passagem'): (10.3, 3.5), ('rc', 'Closet 2'): (10.6, 4.8), ('rc', 'WC 2'): (10.3, 6.8),
+        ('rc', 'Suite 1'): (13.6, -0.5), ('rc', 'Suite 2'): (13.3, 6.6),
+        ('cave', 'Garagem (2 carros)'): (3.3, 4.6), ('cave', 'Arrumos · oficina · piscina'): (3.3, 0.55), ('cave', 'Técnica'): (8.55, 5.95),
+        ('cave', 'Escada'): None, ('cave', 'Átrio'): (8.25, -0.25), ('cave', 'Sala do Jardim'): (12.85, 0.9), ('cave', 'WC 3'): (10.16, -0.55),
         ('cave', 'Closet 3'): (10.4, 2.4),
     }
     for name, rect, _ in G.ROOMS[level]:
@@ -273,7 +307,7 @@ def plan(level, path, variant='f1'):
         svg.add(text(nm, x, y, 8.5 if small else 11, INK, weight=600))
         svg.add(text(m2(a), x, y + (10 if small else 13), 8 if small else 9.5, MID))
     if level == 'rc':
-        for (lab, u, v) in [('estar · vista mar', 1.6, -0.2), ('jantar', 3.6, 4.35), ('cozinha', 3.2, 6.55)]:
+        for (lab, u, v) in [('estar · lume, TV e mar no mesmo olhar', 2.6, -0.55), ('jantar', 1.78, 4.70), ('cozinha', 5.35, 6.95)]:
             x, y = T(u, v); svg.add(text(lab, x, y, 8.5, MID, italic=True))
     # ---- cotas
     dim_h(svg, T, 0.0, 15.0, G.FOOT[3], -42 if level == 'rc' else -40)
@@ -310,6 +344,14 @@ def site(path):
     svg.add(f"<path d='{poly_path(G.DECK_POLY, T)}' fill='{DECKC}' stroke='{INK}' stroke-width='0.7'/>")
     svg.add(f"<path d='{poly_path(sbox(*G.POOL), T)}' fill='{WATER}' stroke='{INK}' stroke-width='0.8'/>")
     svg.add(f"<path d='{poly_path(G.GPATIO_POLY, T)}' fill='#e4e2dd' stroke='{INK}' stroke-width='0.6'/>")
+    svg.add(f"<path d='{poly_path(G.PATAMAR.union(G.ENTRY_WEDGE), T)}' fill='{GREEN2}' stroke='none'/>")
+    for (va, vb, top) in G.MURO1_SEGS:
+        ls = LineString([(G.B_N(va) + 0.15, va), (G.B_N(vb) + 0.15, vb)])
+        svg.add(f"<path d='{poly_path(ls.buffer(0.15, cap_style=2), T)}' fill='#6d6a64' stroke='none'/>")
+    svg.add(f"<path d='{poly_path(LineString(G.MURO2_LINE).buffer(0.25, single_sided=True, join_style=2), T)}' fill='#6d6a64' stroke='none'/>")
+    svg.add(f"<path d='{poly_path(G.ENTRY_LANDING, T)}' fill='{PATH}' stroke='{INK}' stroke-width='0.4'/>")
+    es = G.ENTRY_STAIR
+    svg.add(f"<path d='{poly_path(sbox(es['u0'], es['v_bot'], es['u1'], es['v_top']), T)}' fill='#d8d2c4' stroke='{INK}' stroke-width='0.5'/>")
     # caminhos
     sp = LineString([(-0.6, -9.45), (3.0, -9.0), (8.6, -8.75), (11.5, -7.2), (14.7, -5.6)]).buffer(0.55)
     ep = LineString([(15.0, 9.0), (18.5, 7.0), (22.5, 4.5)]).buffer(0.45)
@@ -335,12 +377,12 @@ def site(path):
     # cotas / etiquetas
     labels = [
         ('R/C 37,00', 6.0, 3.0, '#ffffff', 11, 700), ('cobertura 40,45', 6.0, 1.6, '#d7d3cb', 9, 400),
-        ('deck 37,00', 3.6, -3.9, INK, 9, 600), ('piscina 9 × 3', 3.5, -6.4, '#2f6f74', 9, 600),
+        ('deck 37,00', 3.6, -3.9, INK, 9, 600), ('piscina 7,7 × 3', 4.9, -6.4, '#2f6f74', 9, 600),
         ('pátio 34,00', 12.3, -3.0, INK, 8.5, 600), ('garagem 34,20', -2.7, 4.6, INK, 8.5, 600),
         ('terraço norte 36,95', 7.0, 9.6, '#3e4d2c', 8.5, 600), ('miradouro · pinheiro-manso', 22.5, 2.0, '#3e4d2c', 8.5, 400),
-        ('ESTRADA NOVA (área cedida 172,5 m²)', -9.6, 4.0, MID, 9, 600), ('portão pedonal ≈35,90', -1.8, -11.2, INK, 8.5, 600),
+        ('ESTRADA NOVA (área cedida 172,5 m²)', -9.6, 4.0, MID, 9, 600), ('portão + escada (PIP) 35,85→37,00', -3.6, -11.0, INK, 8.5, 600),
         ('Trav. de João Pires', -6.0, -13.8, MID, 9, 400), ('PARCELA A · 685,22 m²', 27.0, 4.0, '#b0413e', 10, 700),
-        ('parcela B (rústica) · prado e pomar', -22.0, 4.0, '#6f7a55', 9, 400),
+        ('área resultante B (a poente)', -22.0, 4.0, '#6f7a55', 9, 400),
     ]
     for s, u, v, col, size, wt in labels:
         x, y = T(u, v)
@@ -353,7 +395,7 @@ def site(path):
     svg.add(f"<line x1='{fmt(a[0])}' y1='{fmt(a[1])}' x2='{fmt(b[0])}' y2='{fmt(b[1])}' stroke='#b0413e' stroke-width='1'/>")
     svg.add(text(f'{Point(0, -1.33).distance(p1):.2f} m'.replace('.', ','), (a[0] + b[0]) / 2 - 4, (a[1] + b[1]) / 2 - 8, 9, '#b0413e', weight=600))
     svg.add(text('IMPLANTAÇÃO E ARRANJOS EXTERIORES', 18, 24, 14, INK, anchor='start', weight=700))
-    svg.add(text('implantação 139,95 m² (≤ 140) · mesma posição e orientação do PIP', 18, 41, 10.5, MID, anchor='start'))
+    svg.add(text('implantação 139,95 m² (≤ 140) · mesma posição e orientação do PIP · muros da estrada em patamares (≤ 1,10 m à face da estrada)', 18, 41, 10.5, MID, anchor='start'))
     north_arrow(svg, Wd - 46, 50, 0)
     scale_bar(svg, Wd - 230, Hd - 22, S, 10)
     svg.save(path)
@@ -509,12 +551,14 @@ def elev_south(path):
     # pala (à frente)
     rect(-1.20, G.Z_CEIL, 9.40, G.Z_PALA_TOP, '#c9c4ba', INK, 0.8)
     # deck/piscina: muro sul (à frente) + guarda
-    rect(-1.30, 35.0, 9.40, 37.03, 'url(#board)', INK, 0.6)
-    rect(-1.30, 37.0, 9.40, 37.05, '#d8d3c9')
-    # degraus
+    rect(0.10, 35.0, 9.40, 37.03, 'url(#board)', INK, 0.6)
+    rect(0.10, 37.0, 9.40, 37.05, '#d8d3c9')
+    # entrada pedonal: escada que sobe para norte (vista de frente) e muro da estrada com o portão ao lado
     for i in range(7):
-        z = 37.0 - (i + 1) * (37.0 - 35.7) / 7
-        rect(8.15, z, 9.05, z + 0.02, INK)
+        z = 35.85 + (i + 1) * (37.0 - 35.85) / 7
+        rect(-1.10, z - 0.02, 0.10, z, INK)
+    rect(0.10, 37.0, 0.12, 37.95, '#cfe2e5', 'none', 0, "fill-opacity='0.35'")
+    rect(-1.55, 35.0, -1.10, 36.95, '#8d887f', INK, 0.6)
     # pátio: muro sul (à frente, até 36,00) — corta a vista da cave
     rect(9.10, 34.6, 14.20, 36.0, '#8d887f', INK, 0.6)
     rect(15.20, 34.6, 15.50, 36.0, '#8d887f', INK, 0.6)
@@ -559,11 +603,13 @@ def elev_west(path):
         svg.add(f"<ellipse cx='{fmt(X(v))}' cy='{fmt(Y(37.0 + h * 0.62))}' rx='{fmt(d / 2 * S)}' ry='{fmt(h * 0.3 * S)}' fill='{col}' fill-opacity='0.4'/>")
     # caixa de madeira
     rect(G.FOOT[1], G.Z_RC, G.FOOT[3], G.Z_ROOF_TOP, 'url(#bat2)')
-    rect(-0.83, G.Z_RC, 4.67, G.Z_CEIL, '#9fb8bf', '#1d1d1b', 2)
-    for v in (-0.83 + 5.5 / 3, -0.83 + 11 / 3):
+    rect(-0.83, G.Z_RC, 2.40, G.Z_CEIL, '#9fb8bf', '#1d1d1b', 2)
+    for v in (-0.83 + 3.23 / 3, -0.83 + 6.46 / 3):
         svg.add(f"<line x1='{fmt(X(v))}' y1='{fmt(Y(G.Z_RC))}' x2='{fmt(X(v))}' y2='{fmt(Y(G.Z_CEIL))}' stroke='#1d1d1b' stroke-width='2'/>")
-    # portadas estacionadas (à frente, na varanda)
-    for (va, vb) in [(4.78, 6.68), (5.40, 7.30), (6.02, 7.92)]:
+    rect(5.20, G.Z_RC, 7.20, G.Z_CEIL, '#9fb8bf', '#1d1d1b', 2)
+    svg.add(f"<line x1='{fmt(X(6.2))}' y1='{fmt(Y(G.Z_RC))}' x2='{fmt(X(6.2))}' y2='{fmt(Y(G.Z_CEIL))}' stroke='#1d1d1b' stroke-width='2'/>")
+    # portadas estacionadas à frente do pilar da lareira (entre V1 e V1b)
+    for (va, vb) in [(2.45, 4.15), (2.95, 4.65), (3.20, 5.20)]:
         rect(va, G.Z_RC + 0.02, vb, G.Z_CEIL - 0.02, 'url(#shut)', '#111', 0.6)
     # pala (L) — ponta poente
     rect(-3.33, G.Z_CEIL, 8.0, G.Z_PALA_TOP, '#c9c4ba', INK, 0.8)
@@ -575,10 +621,23 @@ def elev_west(path):
     rect(2.32, 34.1, 7.32, 36.40, '#8f8a81', INK, 0.8)
     for k in range(1, 5):
         z = 34.1 + k * 2.3 / 5; svg.add(f"<line x1='{fmt(X(7.32))}' y1='{fmt(Y(z))}' x2='{fmt(X(2.32))}' y2='{fmt(Y(z))}' stroke='#6f6a62' stroke-width='0.8'/>")
-    # muros do pátio da garagem (cortados no limite) e deck
-    rect(7.90, 33.8, 8.20, 37.95, '#6d6a64'); rect(1.40, 33.8, 1.70, 38.0, '#6d6a64')
-    rect(-8.20, 35.0, 1.40, 37.03, 'url(#board2)', INK, 0.6)
-    rect(-4.75, 37.0, 1.40, 38.05, '#cfe2e5', '#6a9aa3', 1, "fill-opacity='0.35'")
+    # muros do pátio da garagem e muro 2 (do deck), recuado 1 m da estrada, com guarda de vidro
+    rect(7.90, 33.8, 8.20, 36.20, '#6d6a64'); rect(1.45, 33.8, 1.70, 37.0, '#8f8a81'); rect(1.45, 33.8, 1.70, 35.60, '#6d6a64')
+    rect(-6.40, 35.6, 0.75, 37.03, 'url(#board2)', INK, 0.6)
+    rect(-6.40, 37.0, 0.75, 37.95, '#cfe2e5', '#6a9aa3', 1, "fill-opacity='0.35'")
+    # escada da entrada (de perfil: sobe para norte) e patamar do portão
+    es = G.ENTRY_STAIR
+    pts = [(es['v_bot'] - 0.3, 35.85)]
+    for i in range(es['n'] - 1):
+        v = es['v_bot'] + i * 0.30; z = 35.85 + (i + 1) * (37.0 - 35.85) / es['n']
+        pts += [(v, z), (v + 0.30, z)]
+    pts += [(es['v_top'], 37.0)]
+    svg.add("<polyline points='" + ' '.join(f'{fmt(X(v))},{fmt(Y(z))}' for v, z in pts) + f"' fill='none' stroke='{INK}' stroke-width='1.2'/>")
+    # muro 1 à face da estrada (≤ 1,10 acima dela), em degraus; portão
+    for (va, vb, top) in G.MURO1_SEGS:
+        rect(va, G.road_z(0, va) - 0.1, vb, top, '#8d887f', INK, 0.6)
+    rect(G.GATE_V[0], 35.85, G.GATE_V[1], 36.90, '#2a2a2a', INK, 0.6, "fill-opacity='0.55'")
+    svg.add(text('portão', X(sum(G.GATE_V) / 2), Y(37.15), 8.5, INK, weight=600))
     # estrada (à frente) — perfil
     pts = [(v, G.road_z(0, v)) for v in [vmin + i * 0.5 for i in range(int((vmax - vmin) / 0.5) + 1)]]
     svg.add("<path d='M" + ' L'.join(f'{fmt(X(v))},{fmt(Y(z))}' for v, z in pts) + f" L{fmt(X(vmax))},{fmt(Y(zmin))} L{fmt(X(vmin))},{fmt(Y(zmin))} Z' fill='#e2ded6' stroke='{INK}' stroke-width='1.2'/>")
@@ -589,7 +648,7 @@ def elev_west(path):
         svg.add(text(lab, X(vmax) + 4, Y(z) + 4, 9.5, INK, anchor='start', weight=600))
     svg.add(text('NORTE', X(vmax) + 10, Y(zmax) + 12, 10, MID, weight=700)); svg.add(text('SUL', X(vmin) - 14, Y(zmax) + 12, 10, MID, weight=700))
     svg.add(text('ALÇADO POENTE (frente da estrada, vista para o mar)', 18, 24, 14, INK, anchor='start', weight=700))
-    svg.add(text('portão da garagem à face do embasamento · varanda em consola · portadas de correr em ripado', 18, 41, 10.5, MID, anchor='start'))
+    svg.add(text('muro da estrada ≤ 1,10 m, patamar plantado e muro do deck recuado · lareira entre os dois vãos · portadas de correr em ripado', 18, 41, 10.5, MID, anchor='start'))
     svg.save(path)
 
 if __name__ == '__main__':

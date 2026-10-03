@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Exporta a Casa Plinto para SketchUp a partir de out/spec.json (a mesma geometria das plantas e renders):
-  out/construir_casa_plinto.rb  — script Ruby que constrói o modelo nativo no SketchUp (grupos, etiquetas, materiais, cenas)
-  out/casa_plinto.dae           — COLLADA para Ficheiro > Importar (alternativa sem Ruby)
+  out/construir_casa_plinto_v3.rb  — script Ruby que constrói o modelo nativo no SketchUp (grupos, etiquetas, materiais, cenas)
+  out/casa_plinto_v3.dae           — COLLADA para Ficheiro > Importar (alternativa sem Ruby)
 Coordenadas: x = u (ao longo da casa, ENE), y = v (NNW), z = cota − 37,00 (R/C = 0,00). Metros."""
 import json, math, base64, struct
 import numpy as np
@@ -33,7 +33,7 @@ MATS = {
     'furn_white': ('Móvel branco', (236, 235, 231), 1.0), 'furn_oak': ('Móvel carvalho', (185, 140, 92), 1.0),
     'furn_dark': ('Móvel escuro', (58, 55, 51), 1.0), 'stone_top': ('Bancada em pedra', (216, 211, 201), 1.0),
     'fabric': ('Tecido', (183, 174, 159), 1.0), 'fabric_out': ('Tecido exterior', (232, 226, 214), 1.0),
-    'linen': ('Linho', (239, 233, 222), 1.0), 'rug': ('Tapete', (167, 152, 138), 1.0), 'car': ('Carro', (106, 112, 118), 1.0),
+    'linen': ('Linho', (239, 233, 222), 1.0), 'screen': ('Ecrã', (12, 12, 14), 1.0), 'rug': ('Tapete', (167, 152, 138), 1.0), 'car': ('Carro', (106, 112, 118), 1.0),
     't_meadow': ('Prado', (111, 127, 69), 1.0), 't_lawn': ('Relva', (95, 138, 60), 1.0), 't_path': ('Saibro', (196, 174, 134), 1.0),
     't_paving': ('Lajes de granito', (186, 180, 169), 1.0), 't_bed': ('Canteiro', (93, 106, 58), 1.0), 't_road': ('Asfalto', (75, 75, 73), 1.0),
     't_field': ('Campo', (125, 138, 82), 1.0),
@@ -49,13 +49,14 @@ TAGS = ['01 Terreno', '02 Muros exteriores e pátios', '03 Deck e piscina', '04 
 T = {k: i for i, k in enumerate(TAGS)}
 
 def in_stair(a, b):
-    return 6.6 <= a[0] and b[0] <= 7.7 and 1.2 <= a[1] and b[1] <= 5.5
+    return 6.6 <= a[0] and b[0] <= 7.7 and 1.8 <= a[1] and b[1] <= 6.2
 
 def box_tag(bx):
     a, b, m, t = bx['a'], bx['b'], bx['m'], bx.get('t')
     rc = a[2] >= 36.88
     inside = a[0] >= -0.01 and b[0] <= 15.01 and a[1] >= -1.34 and b[1] <= 8.01
     if t == 'furn': return '14 Mobiliário'
+    if t == 'gate': return '02 Muros exteriores e pátios'
     if m == 'granite' or (m == 'oak' and in_stair(a, b)): return '11 Escadas'
     if m in ('water', 'liner', 'coping'): return '03 Deck e piscina'
     if m == 'glass' and a[2] > 40.0: return '12 Cobertura e claraboias'
@@ -71,7 +72,7 @@ def prism_tag(p):
             'roof': '12 Cobertura e claraboias', 'sky_frame': '12 Cobertura e claraboias', 'pala': '13 Pala',
             'deck_body': '03 Deck e piscina', 'deck_top': '03 Deck e piscina', 'patio': '02 Muros exteriores e pátios',
             'gpatio': '02 Muros exteriores e pátios', 'parapet': '02 Muros exteriores e pátios', 'glass': '10 R/C · caixilharia e vidros',
-            'reveal': '08 R/C · paredes'}.get(t) or ('09 R/C · pavimentos' if z0 >= 36.88 else '05 Cave · pavimentos')
+            'reveal': '08 R/C · paredes', 'entry': '02 Muros exteriores e pátios'}.get(t) or ('09 R/C · pavimentos' if z0 >= 36.88 else '05 Cave · pavimentos')
 
 FACE_KEYS = ['+u', '-u', '+v', '-v', 'top', 'bot']
 def r3(x): return round(x, 3)
@@ -142,13 +143,18 @@ L = []
 w = L.append
 w('# encoding: UTF-8')
 w('# Casa Plinto — Proposta B, parcela A, Trav. de João Pires, Carreço (Viana do Castelo).')
+w('# v3 (03/10/2026) — parte da "casa completa sketchup v2" do Nuno: escada virada (chega ao R/C junto à lavandaria e à cozinha),')
+w('#   sem WC na entrada, sem closet na suite sul; acrescenta WC de serviço pela passagem, WC da suite sul, nova cozinha,')
+w('#   sala com lareira, TV e mar no mesmo olhar, entrada pedonal do PIP (portão e degraus na estrada, a sul), piscina 7,70 × 3,00')
+w('#   2,1 m para nascente e muros da estrada em patamares (≤ 1,10 m à face da estrada).')
 w('# Constrói no SketchUp o modelo da proposta B (mesma geometria das plantas, cortes, alçados e renders).')
 w('# Gerado por skp.py a partir de out/spec.json — não editar à mão.')
 w('#')
 w('# COMO USAR (SketchUp 2017 ou mais recente, Windows ou Mac):')
 w('#   1. Abrir um modelo novo em metros (modelo "Arquitetura — Metros").')
 w('#   2. Janela > Consola de Ruby (Extensions > Developer > Ruby Console nas versões em inglês).')
-w("#   3. Escrever:  load 'C:/caminho/para/construir_casa_plinto.rb'   e Enter (no Mac: load '/Users/.../construir_casa_plinto.rb').")
+w("#   3. Copiar este ficheiro para C:\\casa e escrever:  load 'C:/casa/construir_casa_plinto_v3.rb'   e Enter.")
+w("#      (caminho com barras /, sem espaços, e com o nome do ficheiro no fim; no Mac: load '/Users/.../construir_casa_plinto_v3.rb')")
 w('#   4. Esperar ~10–30 s. Fica tudo num grupo por etiqueta (tag), com materiais e cenas. Gravar como .skp.')
 w('#')
 w('# Coordenadas: eixo vermelho (x) ao longo da casa (ENE), verde (y) para NNW, azul (z) com o R/C a 0,00.')
@@ -408,7 +414,7 @@ w(r'''
     # cenas: as vistas dos renders + duas plantas de topo
     begin
       view = model.active_view
-      names = { "aerial" => "Aérea de sudoeste", "hero" => "Deck ao fim da tarde", "road" => "Da estrada", "living" => "Sala", "patio" => "Pátio afundado", "cutaway" => "Maquete sem cobertura" }
+      names = { "aerial" => "Aérea de sudoeste", "hero" => "Deck ao fim da tarde", "road" => "Da estrada", "entrada" => "Entrada pela estrada (PIP)", "living" => "Cozinha e jantar", "sala" => "Sala: lume, TV e mar", "patio" => "Pátio afundado", "cutaway" => "Maquete sem cobertura" }
       hide_for = {
         "cutaway" => ["12", "13"],
         "Planta R/C (sem cobertura)" => ["12", "13", "15", "17"],
@@ -418,7 +424,7 @@ w(r'''
         hidden = (hide_for[key] || []).map { |p| ti(p) }
         TAGS.each_index { |i| layer(model, i).visible = !hidden.include?(i) }
       end
-      ["aerial", "hero", "road", "living", "patio", "cutaway"].each do |k|
+      ["aerial", "hero", "road", "entrada", "sala", "living", "patio", "cutaway"].each do |k|
         e, tgt, fov = CAMS[k]
         cam = Sketchup::Camera.new(p3(*e), p3(*tgt), Z_AXIS)
         cam.fov = fov
@@ -452,7 +458,7 @@ end
 
 CasaPlinto.build
 ''')
-open('out/construir_casa_plinto.rb', 'w', encoding='utf-8').write('\n'.join(L))
+open('out/construir_casa_plinto_v3.rb', 'w', encoding='utf-8').write('\n'.join(L))
 
 # ============================================================================= COLLADA
 def box_tris(a, b, faces, m):
@@ -568,9 +574,9 @@ for gid, tag, mks in nodes:
     X.append(f'<node id="n-{gid}" name="{esc(tag)}"><instance_geometry url="#{gid}"><bind_material><technique_common>'
              + ''.join(f'<instance_material symbol="m-{mk}" target="#mat-{mk}"/>' for mk in mks) + '</technique_common></bind_material></instance_geometry></node>')
 X.append('</visual_scene></library_visual_scenes><scene><instance_visual_scene url="#cena"/></scene></COLLADA>')
-open('out/casa_plinto.dae', 'w', encoding='utf-8').write('\n'.join(X))
+open('out/casa_plinto_v3.dae', 'w', encoding='utf-8').write('\n'.join(X))
 
 import os
 ntri = sum(len(tl) for g in geo.values() for tl in g.values())
-print('rb KB', os.path.getsize('out/construir_casa_plinto.rb') // 1024, '| dae KB', os.path.getsize('out/casa_plinto.dae') // 1024,
+print('rb KB', os.path.getsize('out/construir_casa_plinto_v3.rb') // 1024, '| dae KB', os.path.getsize('out/casa_plinto_v3.dae') // 1024,
       '| boxes', len(B), 'prisms', len(PR), 'terrain tris', sum(len(v) for v in tri.values()), '| dae tris', ntri)

@@ -126,6 +126,7 @@ export function buildScene(THREE, Sky, spec, opts = {}) {
     linen: std({ color: 0xefe9de, roughness: 1.0 }),
     rug: std({ color: 0xa7988a, roughness: 1.0 }),
     car: std({ color: 0x6a7076, roughness: 0.35, metalness: 0.6 }),
+    screen: std({ color: 0x0b0c0e, roughness: 0.15, metalness: 0.2 }),
   };
   M.stair = M.oak;
   const mat = (k) => M[k] || M.plaster;

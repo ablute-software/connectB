@@ -1,4 +1,4 @@
-# Imitação mínima da API do SketchUp para testar construir_casa_plinto.rb fora do SketchUp.
+# Imitação mínima da API do SketchUp para testar construir_casa_plinto_v3.rb fora do SketchUp.
 class Numeric; def m; self * 39.37007874; end; end
 module Geom
   class Point3d
@@ -112,7 +112,7 @@ module Sketchup
 end
 $model = Sketchup::Model.new; $pushpulls = 0; $mesh_polys = 0; $texts = 0; $page_vis = {}
 def require(n); n == 'sketchup.rb' ? true : super; end
-load File.expand_path('out/construir_casa_plinto.rb', __dir__)
+load File.expand_path('out/construir_casa_plinto_v3.rb', __dir__)
 m = $model
 puts "committed=#{$committed} pushpulls=#{$pushpulls} terrain/tree mesh polys=#{$mesh_polys} texts=#{$texts}"
 puts "top-level groups (etiquetas):"

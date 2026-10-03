@@ -1,19 +1,24 @@
-CASA PLINTO — MODELO SKETCHUP (proposta B, parcela A, Carreço)
+CASA PLINTO — MODELO SKETCHUP v3 (proposta B, parcela A, Carreço) · 03/10/2026
+
+A v3 parte da "casa completa sketchup v2" do Nuno (escada virada, entrada sem WC, suite sul sem closet) e acrescenta:
+WC de serviço pela passagem dos quartos, WC da suite sul, nova cozinha, sala com lume + TV + mar no mesmo olhar,
+janela nova do jantar (V1b), entrada pedonal do PIP (portão e 7 degraus na ponta sul), piscina 7,70 × 3,00 mais para
+nascente e muros da estrada em patamares (≤ 1,10 m à face da estrada).
 
 Dois ficheiros com a mesma geometria das plantas, cortes, alçados e imagens:
 
-1) construir_casa_plinto.rb  (recomendado — SketchUp 2017 ou mais recente, Windows ou Mac)
-   - Abrir um modelo novo em metros.
-   - Janela > Consola de Ruby (Extensions > Developer > Ruby Console em inglês).
-   - Escrever:  load 'C:/caminho/para/construir_casa_plinto.rb'   e Enter.
-   - Em 10–30 s constrói: um grupo por etiqueta (18 etiquetas: terreno, muros, deck e piscina, cave, R/C,
-     caixilharia, escadas, cobertura, pala, mobiliário, vegetação, textos, norte), 53 materiais com cor,
-     etiquetas de área nos compartimentos e 8 cenas (aérea, deck, estrada, sala, pátio, maquete sem cobertura,
-     planta do R/C e planta da cave). Acerta o norte solar (19,95°) e a localização para estudos de sombras.
-   - Gravar como Casa_Plinto.skp.
+1) construir_casa_plinto_v3.rb  (recomendado — SketchUp 2017 ou mais recente)
+   - Copiar o ficheiro para C:\casa  (caminho curto, sem espaços).
+   - Ficheiro > Novo (modelo em metros).
+   - Janela > Consola de Ruby e escrever:   load 'C:/casa/construir_casa_plinto_v3.rb'   e Enter.
+     (barras /, e o nome do ficheiro no fim — um caminho com espaços ou só a pasta não funciona)
+   - Em 10–30 s constrói: um grupo por etiqueta (18 etiquetas), 54 materiais, etiquetas de área e 10 cenas
+     (aérea, deck, estrada, entrada pela estrada, sala: lume TV e mar, cozinha e jantar, pátio, maquete sem cobertura,
+     planta do R/C e planta da cave). Acerta o norte solar (19,95°).
+   - Gravar:  Sketchup.active_model.save('C:/casa/Casa_Plinto_v3.skp')
 
-2) casa_plinto.dae  (alternativa sem Ruby — também serve no SketchUp para web)
-   - Ficheiro > Importar > COLLADA (.dae). Entra como um componente com um grupo por etiqueta e materiais com cor.
+2) casa_plinto_v3.dae  (alternativa sem Ruby)
+   - Ficheiro > Importar > COLLADA (.dae).
 
 Coordenadas: eixo vermelho ao longo da casa (ENE), verde para NNW, azul com o R/C a 0,00.
 Cota absoluta = z + 37,00 (cave 34,10 → −2,90; topo da platibanda 40,45 → +3,45).
