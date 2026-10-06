@@ -9907,3 +9907,19 @@ Seguem por tratar, fora do âmbito de investidores (mesma correcção de uma lin
 buildId antes `QNgx5nzpHaKW1taeFYyGR`, depois `XS-kAUVsYfPB1PCFntvw1` (polling com cache-busting, leituras vazias nunca contadas; mudou à 10.ª leitura, ~5 min; releitura 25 s depois: igual).
 
 **Por fazer: a confirmação no Vault real — fá-la o Nuno** (esta sessão não tem credenciais nem telemóvel): (1) o PIN que já tem continua a abrir o Vault (o campo mudou, a verificação não); (2) no telemóvel o teclado que aparece é o numérico (o código declara `inputMode="numeric"` nos dois estados do campo, escondido e visível, mas isso só se prova num telemóvel); (3) o olho mostra e esconde os dígitos; (4) o campo do código por membro em Settings (dono) também mascara. Se qualquer ponto falhar, é para me dizer.
+
+---
+
+## 29/09/2026 — Prompt 897: o hook do catálogo deixa de ser copiado para `people`
+
+Branch `claude/897-hook-never-copied`, a partir de `origin/main` (`54aee3b7`, já com o 896). Regra do Nuno, citada tal como dada (04/09, reiterada 29/09/2026): **"o hook não é algo pré-feito colado ao perfil da pessoa; é criado de acordo com a startup, o momento e o motivo do contacto, servindo-se de todo o conhecimento que exista sobre aquela pessoa no seu dossier."**
+
+`ensureOrgPersonFromCatalog` (`src/lib/catalog-materialize.ts`, Prompt 728 §2 — o único sítio onde uma pessoa do catálogo se torna uma linha `people` real) deixa de copiar `hook`/`hook_status` do catálogo mesmo quando `hook_source` está presente: passa a `hook: null, hook_status: 'to_research'` incondicionalmente. Nome, cargo (`role`), `seniority_rank`, `linkedin_url`/`linkedin_verified` e `catalog_person_id` mantêm-se exactamente como antes — só o hook muda. A query a `catalog_people` deixou de pedir `hook_status, hook_source, catalog_people_research(hook)`, que ficaram sem uso nenhum — remoção, não código morto deixado para trás.
+
+Verificado que nenhum outro caminho precisa de correcção: `store-demo.tsx`'s própria versão de `ensureOrgPersonFromCatalog` (modo demo, sem o schema rico do catálogo) já nunca copiava hook nenhum — só existe para a interface do store compilar, comentário próprio já dizia isto. `store-supabase.tsx` só delega para a função da lib, sem lógica de hook própria. `addPerson`'s hook (Prompt 724 §2) é um caminho completamente separado — é o hook que o próprio founder escreve ao criar uma pessoa à mão (`QuickCreatePerson`), não um copiado do catálogo — fora do âmbito deste prompt, correctamente intocado.
+
+`catalog-materialize.test.ts`: o teste que antes esperava o hook copiado (`'materializes seniority_rank, title, linkedin, and the hook (with source) from the catalog'`) foi reescrito para já não afirmar isso; o teste que já verificava "nunca copia sem source" foi generalizado para "nunca copia, mesmo com source real" — a fixture `LURDES` mantém `hook_source`/`catalog_people_research` propositadamente, precisamente para provar que ter uma fonte real do lado do catálogo já não muda nada aqui. 6/6 testes deste ficheiro passam.
+
+**Verificação.** `tsc --noEmit` EXIT=0. `vitest run` (suite completa) EXIT=1, **4172 passed | 1 failed (4173)** — mesma falha de locale ICU pré-existente e não relacionada; os 6 testes do ficheiro tocado passam isolados. `eslint --no-eslintrc --config .eslintrc.json --ext .js,.jsx,.ts,.tsx src` EXIT=0, 264 problemas (0 erros) — mesma contagem de antes, nenhum aviso novo. `npm run build` EXIT=0, tabela de rotas completa no tail do log. Disco: 29GB livres no início desta verificação (Nuno já tinha libertado espaço fora desta sessão; `npm cache clean --force` corrido à parte por pedido dele, confirmado `EXIT=0`).
+
+**Sem migração** — mudança de comportamento em código de aplicação, nenhuma alteração de esquema. **Estado:** push confirmado por `git ls-remote`. Sem merge — aguarda "sim" do Nuno.

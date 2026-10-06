@@ -4,8 +4,18 @@
 // instead once a catalog_person_id is involved, so "materialize this
 // catalog person" always means the same thing: same seniority_rank
 // (from the catalog affiliation, never max+1 — that numbering is for
-// hand-added contacts, not a catalog import), same hook-with-source
-// discipline, same idempotent-under-concurrency guarantee.
+// hand-added contacts, not a catalog import), same idempotent-under-
+// concurrency guarantee.
+//
+// Prompt 897 (Nuno, 04/09 + 29/09/2026) — the catalog's own researched
+// hook is NEVER copied here, even when hook_source is present: "o hook
+// não é algo pré-feito colado ao perfil da pessoa; é criado de acordo
+// com a startup, o momento e o motivo do contacto, servindo-se de todo o
+// conhecimento que exista sobre aquela pessoa no seu dossier." Every
+// materialized person starts hook: null / hook_status: 'to_research',
+// unconditionally — the founder writes their own hook later, grounded in
+// their own outreach, not in whatever the catalog's research happened to
+// find first.
 //
 // Generic over a minimal Supabase-shaped client (not the real
 // SupabaseClient type) so this is unit-testable with a hand-rolled fake
@@ -59,20 +69,13 @@ export async function ensureOrgPersonFromCatalog(
   if (existing) return { person: mapRow(existing), created: false, needsLinkReview: false };
 
   const { data: catalogPerson } = await client.from('catalog_people')
-    .select('id, full_name, linkedin_url, linkedin_verified, hook_status, hook_source, catalog_people_research(hook)')
+    .select('id, full_name, linkedin_url, linkedin_verified')
     .eq('id', catalogPersonId).maybeSingle();
   if (!catalogPerson) throw new Error('Catalog person not found.');
 
   const { data: affiliation } = await client.from('catalog_person_affiliations')
     .select('title, seniority_rank').eq('person_id', catalogPersonId).eq('current', true)
     .order('is_primary', { ascending: false }).limit(1).maybeSingle();
-
-  const researchRaw = catalogPerson.catalog_people_research as { hook: string | null } | { hook: string | null }[] | null;
-  const research = Array.isArray(researchRaw) ? researchRaw[0] : researchRaw;
-  // hook_status='researched' only when hook_source is ALSO present — a
-  // researched-but-sourceless status (shouldn't happen upstream, but never
-  // trusted blindly) still means "don't materialize a hook" here.
-  const hasSource = catalogPerson.hook_status === 'researched' && !!catalogPerson.hook_source;
 
   const { data: sameNameLocal } = await client.from('people').select('id')
     .eq('entity_id', entityId).is('catalog_person_id', null).ilike('full_name', catalogPerson.full_name as string).maybeSingle();
@@ -82,8 +85,9 @@ export async function ensureOrgPersonFromCatalog(
     role: affiliation?.title ?? null, seniority_rank: (affiliation?.seniority_rank as number | undefined) ?? 1,
     linkedin_url: catalogPerson.linkedin_url, linkedin_verified: !!catalogPerson.linkedin_verified,
     catalog_person_id: catalogPersonId,
-    hook: hasSource ? (research?.hook ?? null) : null,
-    hook_status: (hasSource ? 'researched' : 'to_research') as HookStatus,
+    // Prompt 897 — never copied from the catalog, unconditionally. See the
+    // header comment.
+    hook: null, hook_status: 'to_research' as HookStatus,
     data_source: 'Added from catalog',
   };
 
