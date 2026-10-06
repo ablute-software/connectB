@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient, authEnabled } from '@/lib/supabase-server';
 import { accessRequestItemsAvailable, documentRequestItemTypeAvailable } from '@/lib/document-request-capability';
 import { allItemsResolved } from '@/lib/document-request-logic';
+import { assertNotViewer, resolveViewedOrg, resolveViewedOrgId } from '@/lib/developer-viewer';
 
 // Prompt 426 §A — item_type is only ever selected via a dynamically-built
 // string (see itemsSelect below), so postgrest-js can't statically infer a
@@ -18,19 +19,24 @@ interface AccessRequestItemRow {
   item_type?: string | null;
 }
 
-async function resolveFounderOrgId(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
-  return (member?.org_id as string | undefined) ?? null;
-}
-
 export async function GET(req: Request) {
   if (!authEnabled) return NextResponse.json({ requests: [] });
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ requests: [] }, { status: 401 });
 
-  const orgId = await resolveFounderOrgId(sb, user.id);
+  // Prompt 902 — the org being VIEWED, not the caller's own membership: this
+  // used to answer with the developer's own org (ablute_) inside a Developer
+  // Viewer session over another one, so "Document requests" listed ablute_'s
+  // test requests under ABOUT FOOD.
+  const { orgId, viewer } = await resolveViewedOrg(sb, req, user.id);
   if (!orgId) return NextResponse.json({ requests: [] });
+  // ?unseen=1 is the popup's feed — the founder's own "you have not looked at
+  // this yet" state. A developer inside the viewer neither sees nor consumes
+  // it: the modal it drives could not be dismissed for good (POST below is
+  // read-only for a viewer), so it would re-open on every page and every poll.
+  // The requests themselves are still listed in full by the Documents panel.
+  if (viewer && new URL(req.url).searchParams.get('unseen') === '1') return NextResponse.json({ requests: [] });
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -112,7 +118,14 @@ export async function POST(req: Request) {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false }, { status: 401 });
 
-  const orgId = await resolveFounderOrgId(sb, user.id);
+  // Prompt 902 — "marked seen" is the founder's own state, written through
+  // service-role. A viewer session is read-only everywhere else; this was the
+  // one write here that wasn't, and with the caller-membership lookup it would
+  // have marked the DEVELOPER'S org's requests seen while viewing another.
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
+
+  const orgId = await resolveViewedOrgId(sb, req, user.id);
   if (!orgId) return NextResponse.json({ ok: false, error: 'No org.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as { requestId?: string };

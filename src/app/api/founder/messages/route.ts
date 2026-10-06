@@ -31,6 +31,7 @@ import {
   founderMessageEligibleFirms, resolveFounderEntityToEligibleFirm,
 } from '@/lib/deal-messages';
 import { notifyInvestorFirmOfFounderMessage } from '@/lib/deal-messages-founder-notify';
+import { assertNotViewer, resolveViewedOrg, resolveViewedOrgId } from '@/lib/developer-viewer';
 
 export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -43,9 +44,9 @@ export async function GET(req: Request) {
 
   if (!(await dealMessagesAvailable())) return NextResponse.json({ threads: [] });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ threads: [] });
-  const orgId = member.org_id as string;
+  // Prompt 902 — the viewed org in a Developer Viewer session, the caller's own otherwise.
+  const { orgId, viewer } = await resolveViewedOrg(sb, req, user.id);
+  if (!orgId) return NextResponse.json({ threads: [] });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
@@ -64,7 +65,8 @@ export async function GET(req: Request) {
     // Prompt 210 §A.4 — anexos resolvidos na leitura: nome + acesso, em vez
     // de um id nu que o cliente nao sabe desenhar.
     const messages = await resolveFounderMessageDocs(admin, orgId, raw);
-    await markThreadRead(admin, thread.id as string, 'founder');
+    // Prompt 902 — "read" is the founder's own state; a viewer session must not clear it.
+    if (!viewer) await markThreadRead(admin, thread.id as string, 'founder');
     return NextResponse.json({ canMessage: true, investorCatalogEntityId: firm.investorCatalogEntityId, investorName: firm.name, messages });
   }
 
@@ -106,11 +108,13 @@ export async function POST(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+  // Prompt 902 — this sends a message to an investor in the org's name; a viewer session is read-only.
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
   if (!(await dealMessagesAvailable())) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const orgId = await resolveViewedOrgId(sb, req, user.id);
+  if (!orgId) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as { investorCatalogEntityId?: string; body?: string; links?: unknown; documentIds?: string[] };
   if (!body.investorCatalogEntityId) return NextResponse.json({ ok: false, error: 'investorCatalogEntityId is required.' }, { status: 400 });

@@ -107,6 +107,58 @@ export async function readVerifiedViewerOrgId(
   return isDeveloper ? orgId : null;
 }
 
+// Prompt 902 — the single answer to "which org is this request about?" for a
+// founder-side route. In a verified Developer Viewer session it is the VIEWED
+// org, never the caller's own membership; otherwise it is the caller's org.
+//
+// The bug this closes: /api/founder/document-requests (and a dozen siblings)
+// each carried their own `org_members ... eq('user_id', user.id).maybeSingle()`
+// and so answered with the developer's OWN org (ablute_) while the page around
+// them — folders, documents, grants, which load through the store and read
+// /api/me's viewer.orgId — showed the viewed one (ABOUT FOOD). Two orgs on one
+// screen, and the wrong one for exactly the panels that went through a route.
+//
+// `viewer` tells the caller WHICH of the two it got, because a few routes must
+// behave differently inside a viewer session even though they read the right
+// org now (a notification feed the developer must neither see nor consume).
+export interface ViewedOrg { orgId: string | null; viewer: boolean }
+
+export async function resolveViewedOrg(
+  sb: SupabaseClient,
+  req: NextRequest | Request,
+  userId: string,
+): Promise<ViewedOrg> {
+  const viewed = await readVerifiedViewerOrgId(sb, req);
+  if (viewed) return { orgId: viewed, viewer: true };
+  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
+  return { orgId: (member?.org_id as string | undefined) ?? null, viewer: false };
+}
+
+export async function resolveViewedOrgId(
+  sb: SupabaseClient,
+  req: NextRequest | Request,
+  userId: string,
+): Promise<string | null> {
+  return (await resolveViewedOrg(sb, req, userId)).orgId;
+}
+
+// The same decision for a route whose client NAMES the org (?orgId=… / body):
+// inside a viewer session only the viewed org is readable — naming the
+// developer's own org, or any third org, is refused — and outside one the
+// caller must be a member of exactly the org they named. Never trusts the id
+// on its own.
+export async function authorizeViewedOrg(
+  sb: SupabaseClient,
+  req: NextRequest | Request,
+  userId: string,
+  orgId: string,
+): Promise<boolean> {
+  const viewed = await readVerifiedViewerOrgId(sb, req);
+  if (viewed) return viewed === orgId;
+  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', userId).eq('org_id', orgId).maybeSingle();
+  return !!member;
+}
+
 // Called at the top of every service-role mutating route (.insert/.update/
 // .delete/.upsert/a state-changing .rpc). Returns a 403 NextResponse to
 // return immediately if the caller is in an active viewer session; null if

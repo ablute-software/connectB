@@ -9,13 +9,9 @@ import { dealMessagesAvailable } from '@/lib/deal-messages-capability';
 import { getThreadMessages, postMessage, markThreadRead } from '@/lib/deal-messages';
 import { resolveFounderMessageDocs } from '@/lib/deal-messages-resolve';
 import { notifyInvestorFirmOfFounderMessage } from '@/lib/deal-messages-founder-notify';
+import { assertNotViewer, resolveViewedOrg, resolveViewedOrgId } from '@/lib/developer-viewer';
 
-async function resolveFounderOrgId(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
-  return (member?.org_id as string | undefined) ?? null;
-}
-
-export async function GET(_req: Request, { params }: { params: { threadId: string } }) {
+export async function GET(req: Request, { params }: { params: { threadId: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ messages: [] }, { status: 200 });
@@ -25,7 +21,8 @@ export async function GET(_req: Request, { params }: { params: { threadId: strin
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
   if (!(await dealMessagesAvailable())) return NextResponse.json({ messages: [] });
 
-  const orgId = await resolveFounderOrgId(sb, user.id);
+  // Prompt 902 — the viewed org in a Developer Viewer session, the caller's own otherwise.
+  const { orgId, viewer } = await resolveViewedOrg(sb, req, user.id);
   if (!orgId) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
@@ -34,7 +31,8 @@ export async function GET(_req: Request, { params }: { params: { threadId: strin
 
   const raw = await getThreadMessages(admin, params.threadId);
   const messages = await resolveFounderMessageDocs(admin, orgId, raw);
-  await markThreadRead(admin, params.threadId, 'founder');
+  // Prompt 902 — "read" is the founder's own state; a viewer session must not clear it.
+  if (!viewer) await markThreadRead(admin, params.threadId, 'founder');
   return NextResponse.json({ messages });
 }
 
@@ -46,9 +44,12 @@ export async function POST(req: Request, { params }: { params: { threadId: strin
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+  // Prompt 902 — this sends a message to an investor in the org's name; a viewer session is read-only.
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
   if (!(await dealMessagesAvailable())) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
 
-  const orgId = await resolveFounderOrgId(sb, user.id);
+  const orgId = await resolveViewedOrgId(sb, req, user.id);
   if (!orgId) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
 
   const body = await req.json().catch(() => ({})) as { body?: string; links?: unknown; documentIds?: string[] };

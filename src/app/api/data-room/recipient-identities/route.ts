@@ -34,6 +34,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
+import { resolveViewedOrgId } from '@/lib/developer-viewer';
 
 export interface RecipientIdentityRow {
   email: string;
@@ -43,7 +44,7 @@ export interface RecipientIdentityRow {
   pipelineEntityId: string | null;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: true, identities: [] });
@@ -51,9 +52,9 @@ export async function GET() {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  // Prompt 902 — the viewed org in a Developer Viewer session, the caller's own otherwise.
+  const orgId = await resolveViewedOrgId(sb, req, user.id);
+  if (!orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
 

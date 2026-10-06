@@ -21,8 +21,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
+import { resolveViewedOrgId } from '@/lib/developer-viewer';
 
-export async function GET() {
+export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ documents: [] });
@@ -31,9 +32,9 @@ export async function GET() {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ documents: [] });
-  const orgId = member.org_id as string;
+  // Prompt 902 — the viewed org in a Developer Viewer session, the caller's own otherwise.
+  const orgId = await resolveViewedOrgId(sb, req, user.id);
+  if (!orgId) return NextResponse.json({ documents: [] });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const [{ data: docs }, { data: folders }] = await Promise.all([

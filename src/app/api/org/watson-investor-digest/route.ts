@@ -7,12 +7,13 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
+import { resolveViewedOrg } from '@/lib/developer-viewer';
 import { canPublishDigest, computeScoreStats, buildFeedbackDigestPrompt, WATSON_FEEDBACK_DIGEST_SYSTEM } from '@/lib/watson-investor-feedback-digest';
 import { logAiCall } from '@/lib/ai-cost-log';
 
 const STALE_MS = 24 * 60 * 60 * 1000;
 
-export async function GET() {
+export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ available: false });
@@ -20,9 +21,9 @@ export async function GET() {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ available: false });
-  const orgId = member.org_id as string;
+  // Prompt 902 — the viewed org in a Developer Viewer session, the caller's own otherwise.
+  const { orgId, viewer } = await resolveViewedOrg(sb, req, user.id);
+  if (!orgId) return NextResponse.json({ available: false });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
@@ -50,7 +51,11 @@ export async function GET() {
   const { data: existing } = await admin.from('watson_investor_feedback_digests').select('*').eq('org_id', orgId).maybeSingle();
   const isStale = !existing || (Date.now() - new Date(existing.generated_at as string).getTime()) > STALE_MS;
 
-  if (!isStale) {
+  // Prompt 902 — regenerating is an AI call plus a write, on a GET. A Developer
+  // Viewer session reads what the founder would see right now and never spends
+  // or writes: the cached digest if there is one (even a stale one), otherwise nothing.
+  if (viewer && !existing) return NextResponse.json({ available: false });
+  if (!isStale || viewer) {
     return NextResponse.json({
       available: true,
       digest: { contributorCount: existing!.contributor_count, scoreAvg: existing!.score_avg, scoreMin: existing!.score_min, scoreMax: existing!.score_max, themes: existing!.themes, generatedAt: existing!.generated_at },

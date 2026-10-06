@@ -12,6 +12,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
+import { assertNotViewer } from '@/lib/developer-viewer';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
 
@@ -28,6 +29,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+
+  // Prompt 902 — grant/decline writes access_grants and emails the requester
+  // through service-role; a viewer session is read-only.
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
   const { data: reqRow } = await admin.from('access_requests').select('*').eq('id', params.id).maybeSingle();

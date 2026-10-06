@@ -7,11 +7,11 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { interestLevelAvailable } from '@/lib/investor-interest-level-capability';
 import { decideInterestLevel3 } from '@/lib/investor-interest-level-db';
-import { assertNotViewer } from '@/lib/developer-viewer';
+import { assertNotViewer, resolveViewedOrg, resolveViewedOrgId } from '@/lib/developer-viewer';
 import { staleInterestTasks } from '@/lib/stale-interest-tasks';
 import { recordInvestorSignalForEntity } from '@/lib/investor-signal-events-server';
 
-export async function GET() {
+export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ requests: [] }, { status: 200 });
@@ -21,9 +21,9 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
   if (!(await interestLevelAvailable())) return NextResponse.json({ requests: [] });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ requests: [] });
-  const orgId = member.org_id as string;
+  // Prompt 902 — the viewed org in a Developer Viewer session, the caller's own otherwise.
+  const { orgId, viewer } = await resolveViewedOrg(sb, req, user.id);
+  if (!orgId) return NextResponse.json({ requests: [] });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const { data: rows } = await admin.from('investor_interest_levels')
@@ -61,7 +61,10 @@ export async function GET() {
       entityId: entityByCatalogId.get(r.investor_catalog_entity_id as string) ?? null,
     })),
   );
-  if (stale.length > 0) {
+  // Prompt 902 — this heal is a WRITE on a GET. Inside a Developer Viewer
+  // session (read-only everywhere else) it must not run: the viewed org's own
+  // next load heals it.
+  if (stale.length > 0 && !viewer) {
     const { error: closeError } = await admin.from('tasks').update({ done: true }).in('id', stale.map((s) => s.taskId));
     if (closeError) console.error('stale interest_level_request task reconciliation failed', closeError);
     else for (const s of stale) console.log(`interest_level_request task ${s.taskId} auto-closed — request ${s.requestId} already decided`);
@@ -89,9 +92,10 @@ export async function POST(req: Request) {
   if (viewerBlock) return viewerBlock;
   if (!(await interestLevelAvailable())) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  // Prompt 902 — assertNotViewer above means this is never a viewer session, so
+  // this is the caller's own org; the shared resolver keeps one answer to the question.
+  const orgId = await resolveViewedOrgId(sb, req, user.id);
+  if (!orgId) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as { id?: string; decision?: 'granted' | 'denied'; note?: string; shareDirectEmail?: boolean };
   if (!body.id) return NextResponse.json({ ok: false, error: 'id is required.' }, { status: 400 });
