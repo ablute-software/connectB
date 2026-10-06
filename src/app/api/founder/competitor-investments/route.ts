@@ -11,8 +11,9 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient, authEnabled } from '@/lib/supabase-server';
 import { competitorInvestmentsAvailable } from '@/lib/competitor-investments-capability';
+import { resolveViewedOrgId } from '@/lib/developer-viewer';
 
-export async function GET() {
+export async function GET(req: Request) {
   if (!authEnabled) return NextResponse.json({ ok: true, items: [] });
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
@@ -20,8 +21,8 @@ export async function GET() {
 
   if (!(await competitorInvestmentsAvailable())) return NextResponse.json({ ok: true, items: [] });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).limit(1).maybeSingle();
-  const orgId = (member?.org_id as string | undefined) ?? null;
+  // Prompt 902 — the viewed org in a Developer Viewer session, the caller's own otherwise.
+  const orgId = await resolveViewedOrgId(sb, req, user.id);
   if (!orgId) return NextResponse.json({ ok: true, items: [] });
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

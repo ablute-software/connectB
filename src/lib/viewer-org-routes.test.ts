@@ -36,6 +36,8 @@ import { GET as accessRequestsGet } from '@/app/api/data-room/access-requests/ro
 import { GET as accessLogGet } from '@/app/api/account/access-log/route';
 import { GET as vaultDocumentsGet } from '@/app/api/market-data/vault-documents/route';
 import { GET as investorInterestGet, POST as investorInterestPost } from '@/app/api/founder/investor-interest/route';
+import { GET as investorDecisionsGet } from '@/app/api/org/investor-decisions/route';
+import { GET as investorFeedbackGet } from '@/app/api/founder/investor-feedback/route';
 
 const DEV = 'dddddddd-0000-0000-0000-000000000001';
 const ORG_A = '0cdfcfc9-0000-0000-0000-00000000000a'; // ablute_ — the developer's own org
@@ -81,7 +83,11 @@ function tables(): Record<string, Record<string, unknown>[]> {
       { id: 'decA', org_id: ORG_A, investor_catalog_entity_id: 'catA', decision: 'interested', reason_detail: null, decided_at: '2026-09-01T00:00:00Z', seen_at: null },
       { id: 'decB', org_id: ORG_B, investor_catalog_entity_id: 'catB', decision: 'interested', reason_detail: null, decided_at: '2026-09-02T00:00:00Z', seen_at: null },
     ],
-    catalog_entities: [{ id: 'catA', name: 'Fund A' }, { id: 'catB', name: 'Fund B' }],
+    catalog_entities: [{ id: 'catA', name: 'nunomarujo@gmail.com — Individual investor' }, { id: 'catB', name: 'Fund B' }],
+    investor_feedback_shares: [
+      { id: 'fbA', org_id: ORG_A, investor_name: 'Fund A', kind: 'insight', text: 'A note', shared_at: '2026-09-01T00:00:00Z' },
+      { id: 'fbB', org_id: ORG_B, investor_name: 'Fund B', kind: 'insight', text: 'B note', shared_at: '2026-09-02T00:00:00Z' },
+    ],
     catalog_deliveries: [],
   };
 }
@@ -237,6 +243,52 @@ describe('/api/founder/investor-interest', () => {
   });
 });
 
+// Reported right after the first fix shipped to review: "a demonstração de
+// interesse de nunomarujo@gmail.com ainda lá está". That investor (a test
+// account of the developer's own) expressed interest in ablute_ — the
+// developer's org — and the Company tab's "Investor decisions" card
+// (/api/org/investor-decisions) listed it under ABOUT FOOD, which has no
+// decisions at all. That route was on this prompt's own "found, not touched"
+// list; it should not have been.
+describe('GET /api/org/investor-decisions — the “Interested” card', () => {
+  async function names(res: Response): Promise<string[]> {
+    const body = await res.json() as { decisions: { id: string; investorName: string }[] };
+    return body.decisions.map((d) => d.id);
+  }
+
+  it('in the viewer over B it lists B’s decisions only — never the developer’s own org’s “Interested”', async () => {
+    asDeveloper();
+    expect(await names(await investorDecisionsGet(req('/api/org/investor-decisions', { cookie: COOKIE_B })))).toEqual(['decB']);
+  });
+
+  it('an org with no decisions (ABOUT FOOD in production) shows none, not the developer’s org’s', async () => {
+    asDeveloper();
+    db.tables.investor_relationship_decisions = db.tables.investor_relationship_decisions.filter((d) => d.org_id !== ORG_B);
+    const res = await investorDecisionsGet(req('/api/org/investor-decisions', { cookie: COOKIE_B }));
+    expect(await names(res)).toEqual([]);
+  });
+
+  it('outside the viewer a founder sees their own org’s decisions, with the investor’s name', async () => {
+    asDeveloper();
+    const res = await investorDecisionsGet(req('/api/org/investor-decisions'));
+    const body = await res.json() as { decisions: { id: string; investorName: string }[] };
+    expect(body.decisions).toEqual([expect.objectContaining({ id: 'decA', investorName: 'nunomarujo@gmail.com — Individual investor' })]);
+  });
+
+  it('a forged viewer cookie on a non-developer session does not redirect the read at B', async () => {
+    asDeveloper(false);
+    expect(await names(await investorDecisionsGet(req('/api/org/investor-decisions', { cookie: COOKIE_B })))).toEqual(['decA']);
+  });
+});
+
+describe('GET /api/founder/investor-feedback', () => {
+  it('in the viewer over B it lists B’s shared feedback only', async () => {
+    asDeveloper();
+    const body = await (await investorFeedbackGet(req('/api/founder/investor-feedback', { cookie: COOKIE_B }))).json() as { shares: { id: string }[] };
+    expect(body.shares.map((x) => x.id)).toEqual(['fbB']);
+  });
+});
+
 // The routes whose whole viewer-side change is "refuse writes" or "swap the
 // org resolver" and that would need heavyweight fixtures (email, deal threads,
 // grants graph) to run for real. For those, pin the shape so a future edit
@@ -254,6 +306,8 @@ describe('source guard — the routes this prompt changed keep the viewed-org re
     'founder/messages', 'founder/messages/eligible', 'founder/messages/[threadId]',
     'data-room/recipient-identities', 'data-room/access-requests', 'account/access-log',
     'market-data/vault-documents',
+    'org/investor-decisions', 'founder/watches', 'founder/investor-feedback', 'founder/competitor-investments',
+    'pipeline/suspended-investors', 'org/watson-investor-digest',
   ];
   for (const rel of READERS) {
     it(`${rel} resolves its org through the viewer-aware helper`, () => {
@@ -272,6 +326,12 @@ describe('source guard — the routes this prompt changed keep the viewed-org re
       expect(read(rel)).toMatch(/assertNotViewer\(sb, req\)/);
     });
   }
+
+  it('the investor digest never regenerates (an AI call + a write on a GET) from a viewer session', () => {
+    const src = read('org/watson-investor-digest');
+    expect(src).toMatch(/if \(viewer && !existing\)/);
+    expect(src).toMatch(/if \(!isStale \|\| viewer\)/);
+  });
 
   it('the two message GETs do not clear the founder’s unread flag from a viewer session', () => {
     for (const rel of ['founder/messages', 'founder/messages/[threadId]']) {

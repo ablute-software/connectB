@@ -5,9 +5,9 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { getWatchersForOrg, respondToWatch, revokeWatch } from '@/lib/investor-watching-db';
-import { assertNotViewer } from '@/lib/developer-viewer';
+import { assertNotViewer, resolveViewedOrgId } from '@/lib/developer-viewer';
 
-export async function GET() {
+export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ watchers: [] });
@@ -16,11 +16,12 @@ export async function GET() {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ watchers: [] });
+  // Prompt 902 — the viewed org in a Developer Viewer session, the caller's own otherwise.
+  const orgId = await resolveViewedOrgId(sb, req, user.id);
+  if (!orgId) return NextResponse.json({ watchers: [] });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const watchers = await getWatchersForOrg(admin, member.org_id as string);
+  const watchers = await getWatchersForOrg(admin, orgId);
   return NextResponse.json({ watchers });
 }
 
@@ -35,9 +36,10 @@ export async function POST(req: Request) {
   const viewerBlock = await assertNotViewer(sb, req);
   if (viewerBlock) return viewerBlock;
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  // Prompt 902 — assertNotViewer above means this is never a viewer session, so
+  // this is the caller's own org; the shared resolver keeps one answer to the question.
+  const orgId = await resolveViewedOrgId(sb, req, user.id);
+  if (!orgId) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as { watchId?: string; action?: 'accept' | 'decline' | 'revoke' };
   if (!body.watchId || !body.action) return NextResponse.json({ ok: false, error: 'watchId and action are required.' }, { status: 400 });
