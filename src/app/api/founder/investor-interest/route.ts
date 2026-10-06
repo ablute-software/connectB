@@ -8,11 +8,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient, authEnabled } from '@/lib/supabase-server';
 import { investorInterestNotifyAvailable } from '@/lib/investor-interest-notify-capability';
-
-async function resolveFounderOrgId(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
-  return (member?.org_id as string | undefined) ?? null;
-}
+import { assertNotViewer, resolveViewedOrg, resolveViewedOrgId } from '@/lib/developer-viewer';
 
 export async function GET(req: Request) {
   // Demo mode — same "check before ever calling serverClient()" convention
@@ -26,7 +22,8 @@ export async function GET(req: Request) {
 
   if (!(await investorInterestNotifyAvailable())) return NextResponse.json({ items: [] });
 
-  const orgId = await resolveFounderOrgId(sb, user.id);
+  // Prompt 902 — the viewed org in a Developer Viewer session, the caller's own otherwise.
+  const { orgId, viewer } = await resolveViewedOrg(sb, req, user.id);
   if (!orgId) return NextResponse.json({ items: [] });
 
   // Prompt 257 §2 — Pipeline's "in conversation" band needs every entity
@@ -35,6 +32,12 @@ export async function GET(req: Request) {
   // popup itself never passes it, so its own seen_at-filtered behavior is
   // untouched.
   const all = new URL(req.url).searchParams.get('all') === '1';
+  // Prompt 902 — without ?all=1 this is the popup's feed: the founder's own
+  // "not looked at yet" state, which a developer in the viewer neither sees nor
+  // consumes (POST below is read-only for a viewer, so the toast could never be
+  // dismissed for good). ?all=1 — Pipeline's "in conversation" band — is data
+  // the founder sees on screen, and stays.
+  if (viewer && !all) return NextResponse.json({ items: [] });
   let query = sb.from('investor_relationship_decisions')
     .select('id, investor_catalog_entity_id, reason_detail, decided_at')
     .eq('org_id', orgId).eq('decision', 'interested');
@@ -66,7 +69,11 @@ export async function POST(req: Request) {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false }, { status: 401 });
 
-  const orgId = await resolveFounderOrgId(sb, user.id);
+  // Prompt 902 — "marked seen" is a service-role write; a viewer session is read-only.
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
+
+  const orgId = await resolveViewedOrgId(sb, req, user.id);
   if (!orgId) return NextResponse.json({ ok: false, error: 'No org.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as { catalogEntityId?: string };

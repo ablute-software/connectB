@@ -12,8 +12,9 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { dealMessagesAvailable } from '@/lib/deal-messages-capability';
 import { founderMessageEligibleFirms } from '@/lib/deal-messages';
+import { resolveViewedOrgId } from '@/lib/developer-viewer';
 
-export async function GET() {
+export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ firms: [] }, { status: 200 });
@@ -23,9 +24,9 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
   if (!(await dealMessagesAvailable())) return NextResponse.json({ firms: [] });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ firms: [] });
-  const orgId = member.org_id as string;
+  // Prompt 902 — the viewed org in a Developer Viewer session, the caller's own otherwise.
+  const orgId = await resolveViewedOrgId(sb, req, user.id);
+  if (!orgId) return NextResponse.json({ firms: [] });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const eligible = await founderMessageEligibleFirms(admin, orgId);

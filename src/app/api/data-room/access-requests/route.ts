@@ -15,6 +15,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
+import { authorizeViewedOrg } from '@/lib/developer-viewer';
 
 export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -28,8 +29,13 @@ export async function GET(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).eq('org_id', orgId).maybeSingle();
-  if (!member) return NextResponse.json({ error: 'Not a member of this org.' }, { status: 403 });
+  // Prompt 902 — a Developer Viewer session reads exactly the viewed org
+  // (what its founder sees); it used to be refused here as a non-member, so the
+  // developer saw an empty "Pending requests" panel for an org that had some.
+  // Naming any OTHER org from inside a viewer session is refused too.
+  if (!(await authorizeViewedOrg(sb, req, user.id, orgId))) {
+    return NextResponse.json({ error: 'Not a member of this org.' }, { status: 403 });
+  }
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
   // Prompt 669 §1 — scoped to kind='access' (the whole-request folder_ids/

@@ -13,20 +13,25 @@
 import { NextResponse } from 'next/server';
 import { serverClient } from '@/lib/supabase-server';
 import { serviceAdmin } from '@/lib/account-security-server';
+import { resolveViewedOrgId } from '@/lib/developer-viewer';
 
 // Never prerendered: the env early-return precedes the cookie read, and an
 // env-less build would otherwise cache this as static (seen in the 603 build
 // manifest) — serving an empty log to every founder.
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req: Request) {
   const admin = serviceAdmin();
   if (!admin) return NextResponse.json({ ok: true, available: false, views: [], teamAccess: [] });
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
-  const { data: self } = await admin.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!self) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  // Prompt 902 — the viewed org in a Developer Viewer session (it used to be
+  // the developer's own org's document views, shown under someone else's
+  // name), the caller's own org otherwise.
+  const viewedOrgId = await resolveViewedOrgId(sb, req, user.id);
+  if (!viewedOrgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  const self = { org_id: viewedOrgId };
 
   // Prompt 886/877 — the developer-viewer accesses (admin_audit_log's
   // viewer_enter/viewer_exit) are no longer surfaced to the organisation being
