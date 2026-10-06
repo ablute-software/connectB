@@ -9875,3 +9875,17 @@ O Nuno, depois de ver o relatório do 902: "ainda lá está a demonstração de 
 **Continuam por tratar (fora do âmbito de interesse de investidores; mesma correcção de uma linha), 20 ficheiros:** `blueprint`, `company/sherlock-prep`, `founder/watch-updates`, `market-data` (+ `bridge`, `competitors`, `facts`, `research`, `rings`, `visibility`), `market-thesis`, `network/followon`, `network/milestone`, `network/pathfinder`, `network/update/suggest`, `org/permissions`, `settings/dossier-preview`, `suggestions/eligibility`, `ai-credits/status`, `community-consensus/entity/[id]`. Já não digo "fora do âmbito" como argumento para deixar um sítio onde a org errada aparece num ecrã: se o Nuno os quiser, é um prompt à parte, mas a lista está inteira e à vista.
 
 Sem merge — aguarda "sim" explícito do Nuno, branch `claude/902-viewer-org-document-requests`. Depois do merge, a verificação em produção é dele: Developer Viewer sobre a ABOUT FOOD, separador Company — o cartão "Investor decisions" **não** deve aparecer (a ABOUT FOOD não tem decisões; o cartão devolve `null` com lista vazia).
+
+---
+
+## 02/10/2026 — O código do Vault Data Room deixa de aparecer em claro enquanto se escreve
+
+Reportado pelo Nuno: ao desbloquear o Vault com o código de 4 dígitos, os dígitos ficavam visíveis no ecrã enquanto se escreviam — risco de segurança (o código existe precisamente como dissuasor de "alguém a olhar por cima do ombro", ver o cabeçalho de `VaultPinGate.tsx`; mostrá-lo em claro anulava isso). Pedido: um `*` por carácter, com a opção de tornar visível (ícone de olho).
+
+**Causa:** os campos eram `<input>` de texto simples (sem `type="password"`). Eram **quatro**, não três — além dos três de `VaultPinGate.tsx` (código novo, confirmação, desbloqueio), o owner define o código de cada membro em `settings/page.tsx`, com o mesmo problema; encontrado ao procurar por `vault_pin_*` em `src/`, não só no componente apontado.
+
+**Correcção:** componente partilhado novo `src/components/PinInput.tsx` — `type="password"` por omissão (um ponto por dígito), botão com ícone de olho (`aria-pressed`, `aria-label` "Show code"/"Hide code") que alterna para `type="text"`, estado de visibilidade independente por campo (mostrar o código novo não revela a confirmação), mesmo filtro de só-dígitos/máximo 4, `autoComplete="off"` + `data-1p-ignore`/`data-lpignore` para os gestores de passwords não tentarem guardar um PIN. Usado nos quatro sítios; a validação, o `Enter` para desbloquear e o resto da lógica de cada chamador ficaram exactamente como estavam. Settings usa um campo ligeiramente mais largo (`w-24`, antes `w-14`) para o olho caber.
+
+**Verificação.** `tsc --noEmit` EXIT=0. `vitest run` EXIT=1, **4618/4619** — só a falha de locale ICU pré-existente. `eslint` EXIT=0, 258 problemas (0 erros), nenhum nos ficheiros tocados. `npm run build` EXIT=0. No browser (`dev:verify`, identidade confirmada por `verifyIdentity`: cwd e HEAD `6359c171` certos): numa página de rascunho temporária (removida antes do commit — o gate real só renderiza com `authEnabled`, e em demo mode abre directamente) escrevi `12a345` → quatro pontos, estado `1234` (a letra filtrada); o olho mostra `1234` e o ícone muda; o campo pequeno de Settings mostra o mesmo valor mascarado. **Não verificado:** o gate real com uma sessão autenticada (esta sessão não tem credenciais de founder em produção) — fica para o Nuno confirmar ao abrir o Vault depois do deploy.
+
+**Estado:** branch `claude/vault-pin-masked-input`, à espera do "sim" do Nuno para merge.

@@ -35,6 +35,7 @@ import { PageTour } from '@/components/onboarding/PageTour';
 import { VisibilityToggle } from '@/components/VisibilityToggle';
 import { useTrackPageView } from '@/lib/use-track-page-view';
 import { LoadingState } from '@/components/workspace-shell/LoadingState';
+import { PinInput } from '@/components/PinInput';
 
 type Invitation = { id: string; email: string; role: string; status: string; created_at: string; expires_at: string };
 type Member = { userId: string; email: string; role: OrgRole; isSelf: boolean };
@@ -173,9 +174,10 @@ function RosterCard({ myRole, orgId }: { myRole: OrgRole | null; orgId: string }
                     </>
                   ) : (
                     <>
-                      <input value={pinInputs[m.userId] ?? ''} inputMode="numeric" placeholder="0000"
-                        onChange={(e) => setPinInputs((s) => ({ ...s, [m.userId]: e.target.value.replace(/\D/g, '').slice(0, 4) }))}
-                        className="w-14 rounded border border-gray-200 px-1.5 py-0.5 text-center text-xs" />
+                      <PinInput value={pinInputs[m.userId] ?? ''} ariaLabel={`Vault Data Room code for ${m.email}`}
+                        onChange={(digits) => setPinInputs((s) => ({ ...s, [m.userId]: digits }))}
+                        wrapperClassName="w-24" iconSize={13}
+                        inputClassName="rounded border border-gray-200 px-1.5 py-0.5 text-center text-xs" />
                       <button disabled={pinBusy === m.userId || (pinInputs[m.userId] ?? '').length !== 4}
                         onClick={() => setPin(m.userId)}
                         className="text-xs text-[#0E7490] hover:underline disabled:text-gray-300">Set code</button>
