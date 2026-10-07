@@ -14,6 +14,35 @@ export type VisibilityCounts = Record<DocVisibility, number>;
 // same as any other visibility level would.
 const EMPTY_COUNTS: VisibilityCounts = { open: 0, on_grant: 0, due_diligence: 0, private: 0 };
 
+// Prompt 742 §B.3 — moved out of documents/page.tsx (where it was the only
+// copy) so the investor-side dossier mirror (StartupDossierContent.tsx)
+// reads the exact same icons/colors instead of a second, driftable copy.
+// Investor-side labels can be variants ("Open to you" instead of "Open" —
+// built locally where they're used), but the icon/color/title vocabulary
+// itself is one source, per the prompt's own instruction.
+//
+// 'private' (review fix A, 2026-09-30) is never one of the three pickable
+// levels — VISIBILITY_OPTIONS below deliberately omits it, and a document
+// carrying it (only ever a locked deal memo — see types.ts's DocVisibility
+// comment) has folder_id null, so the Vault tree never surfaces it. This
+// entry exists only so the Record<DocVisibility, …> type stays total; it
+// is not expected to render in practice, and it never reaches an investor
+// (the picker excludes deal memos by kind as well as by visibility).
+export const VISIBILITY_META: Record<DocVisibility, { icon: string; label: string; title: string }> = {
+  due_diligence: { icon: '🔴🔒', label: 'Due diligence only', title: 'Due diligence only — fully closed, requires an access request' },
+  on_grant: { icon: '🟡🔓', label: 'On request', title: 'On request — simple access grant needed' },
+  open: { icon: '🟢🔓✕', label: 'Open', title: 'Openly shareable — still only reaches whoever you grant access to' },
+  private: { icon: '⚫🔒', label: 'Private', title: 'Private — never shareable, not filed in the Vault tree' },
+};
+export const VISIBILITY_OPTIONS: DocVisibility[] = ['open', 'on_grant', 'due_diligence'];
+// Prompt 741 — the same three colors, everywhere a level shows as a pill.
+export const VISIBILITY_PILL_CLASS: Record<DocVisibility, string> = {
+  open: 'bg-green-100 text-green-800',
+  on_grant: 'bg-amber-100 text-amber-800',
+  due_diligence: 'bg-red-100 text-[#B00000]',
+  private: 'bg-gray-200 text-gray-600',
+};
+
 export function countByVisibility(docs: { visibility: DocVisibility }[]): VisibilityCounts {
   const counts: VisibilityCounts = { ...EMPTY_COUNTS };
   for (const d of docs) counts[d.visibility] += 1;

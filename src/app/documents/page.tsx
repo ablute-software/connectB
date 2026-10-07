@@ -17,6 +17,7 @@ import {
 } from '@/lib/data-room';
 import {
   countByVisibility, filterByVisibility, levelCountsByFolder, nonZeroLevels, toggleVisibilityFilter, type VisibilityCounts,
+  VISIBILITY_META, VISIBILITY_OPTIONS, VISIBILITY_PILL_CLASS,
 } from '@/lib/vault-level-summary';
 import { dataRoomFirstContactTipApplies } from '@/lib/relationship';
 import { grantStatus } from '@/lib/access-grants';
@@ -56,30 +57,11 @@ function fmtBytes(n?: number): string | undefined {
 // can ever have an effect here" behavior (was 'private') — the icon/name
 // change alone, no new "confirmed meeting" gate is enforced here (not
 // concretely specified anywhere; flagging back rather than inventing it).
-// 'private' (review fix A, 2026-09-30) is never one of these three pickable
-// levels — VISIBILITY_OPTIONS below deliberately omits it, and a document
-// carrying it (only ever a locked deal memo — see types.ts's DocVisibility
-// comment) has folder_id null, so docsIn() never surfaces it in this tree
-// at all. This entry exists only so the Record<DocVisibility, …> type below
-// stays total; it is not expected to render in practice.
-const VISIBILITY_META: Record<DocVisibility, { icon: string; label: string; title: string }> = {
-  due_diligence: { icon: '🔴🔒', label: 'Due diligence only', title: 'Due diligence only — fully closed, requires an access request' },
-  on_grant: { icon: '🟡🔓', label: 'On request', title: 'On request — simple access grant needed' },
-  open: { icon: '🟢🔓✕', label: 'Open', title: 'Openly shareable — still only reaches whoever you grant access to' },
-  private: { icon: '⚫🔒', label: 'Private', title: 'Private — never shareable, not filed in the Vault tree' },
-};
-const VISIBILITY_OPTIONS: DocVisibility[] = ['open', 'on_grant', 'due_diligence'];
-// Prompt 741 — the same three colors, everywhere a level shows as a pill:
-// the top-of-tab pastilles (§A.1), the per-folder tree dots (§A.2, plain
-// text there — no background needed for a small inline dot), and the
-// document row's own leading pill (§A.3, replacing the plain <select>
-// styling it had at the end of the row).
-const VISIBILITY_PILL_CLASS: Record<DocVisibility, string> = {
-  open: 'bg-green-100 text-green-800',
-  on_grant: 'bg-amber-100 text-amber-800',
-  due_diligence: 'bg-red-100 text-[#B00000]',
-  private: 'bg-gray-200 text-gray-600',
-};
+//
+// Prompt 742 §B.3 — VISIBILITY_META/OPTIONS/PILL_CLASS moved to
+// vault-level-summary.ts so the investor-side dossier mirror reads the
+// same icons/colors instead of a second copy; imported below. (They carry
+// the 'private' entry added by review fix A on 30/09 — see there.)
 
 interface PendingAccessRequest {
   id: string; requesterName: string | null; requesterEmail: string | null;
