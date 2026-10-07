@@ -19,6 +19,7 @@ import Link from 'next/link';
 import { browserClient, authEnabled } from '@/lib/supabase';
 import { LogoLockup } from '@/components/Logo';
 import { AuthShell } from '@/components/auth/AuthShell';
+import { PasswordInput } from '@/components/auth/PasswordInput';
 import { PasswordRequirementsIndicator } from '@/components/auth/PasswordRequirementsIndicator';
 import { checkPassword } from '@/lib/password-policy';
 import { INCUBATOR_INVITE_CONTINUE_PATH, INCUBATOR_INVITE_STORAGE_KEY, inviteEmailMismatchText, type StoredIncubatorInvite } from '@/lib/incubators';
@@ -400,8 +401,10 @@ function FounderSignupForm() {
             Use the address {inviteStub.incubatorName ?? 'the organisation'} invited{inviteStub.invitedEmailMasked ? ` (${inviteStub.invitedEmailMasked})` : ''} — the invite can only be accepted with it.
           </p>
         )}
-        <input autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Password *"
-          className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
+        {/* Prompt 903 — no "confirm password" field on purpose (product
+            decision): the eye lets the founder read back what they typed. */}
+        <PasswordInput autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password *"
+          className="rounded-xl border border-gray-300 px-3 py-2 text-sm" />
         <PasswordRequirementsIndicator password={password} />
 
         {/* Prompt 404 §B.1 — replaces the old standalone agreement

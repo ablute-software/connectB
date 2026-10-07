@@ -17,6 +17,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { browserClient, authEnabled } from '@/lib/supabase';
+import { PasswordInput } from '@/components/auth/PasswordInput';
 import { incubatorErrorText, inviteEmailMismatchText } from '@/lib/incubators';
 import { PENDING_MEMBER_INVITE_PATH } from '@/lib/landing-redirect';
 
@@ -116,7 +117,7 @@ export default function IncubatorMemberInvitePage({ params }: { params: { token:
             <input type="email" className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm" placeholder="Your email *"
               value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
             <p className="text-[11px] text-gray-500">Use the address the invite was sent to{p.invitedEmailMasked ? ` (${p.invitedEmailMasked})` : ''}.</p>
-            <input type="password" className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm" placeholder="Password (8+ characters) *"
+            <PasswordInput className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm" placeholder="Password (8+ characters) *"
               value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
             <button className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
               disabled={busy || !email.trim() || password.length < 8} onClick={createAndAccept}>Create and accept</button>

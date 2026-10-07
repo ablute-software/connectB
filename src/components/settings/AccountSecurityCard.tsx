@@ -6,6 +6,7 @@
 // that shows the admin nothing — the owner chooses the password.
 import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui';
+import { PasswordInput } from '@/components/auth/PasswordInput';
 import { PasswordRequirementsIndicator } from '@/components/auth/PasswordRequirementsIndicator';
 import { checkPassword } from '@/lib/password-policy';
 import { LoadingState } from '@/components/workspace-shell/LoadingState';
@@ -77,9 +78,9 @@ export function AccountSecurityCard() {
           <h4 className="font-semibold text-gray-800">Change your password</h4>
           <p className="mt-0.5 text-xs text-gray-500">Your current password is required. Every other session on your account ends, and you get an email saying it happened — never the password itself.</p>
           <div className="mt-2 grid gap-2 md:grid-cols-3">
-            <input type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} placeholder="Current password" className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
-            <input type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} placeholder="New password" className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
-            <input type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Confirm new password" className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+            <PasswordInput autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} placeholder="Current password" className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+            <PasswordInput autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} placeholder="New password" className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+            <PasswordInput autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Confirm new password" className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
           </div>
           {next && <PasswordRequirementsIndicator password={next} />}
           <div className="mt-2 flex items-center gap-2">

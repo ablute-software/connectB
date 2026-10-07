@@ -11,6 +11,7 @@ import { LogoLockup } from '@/components/Logo';
 import { AuthShell } from '@/components/auth/AuthShell';
 import { AccountNotice } from '@/components/auth/AccountNotice';
 import { InvestorSignInForm } from '@/components/auth/InvestorSignInForm';
+import { PasswordInput } from '@/components/auth/PasswordInput';
 
 function LoginInner() {
   const sp = useSearchParams();
@@ -75,9 +76,9 @@ function LoginInner() {
             <input autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="you@company.com"
               className="mb-3 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
             <label className="mb-1 block text-xs font-medium text-gray-500">Password</label>
-            <input autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="••••••••"
+            <PasswordInput autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••"
               onKeyDown={(e) => e.key === 'Enter' && passwordLogin()}
-              className="mb-4 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
+              wrapperClassName="mb-4" className="rounded-xl border border-gray-300 px-3 py-2 text-sm" />
             <button disabled={busy || !email || !password} onClick={passwordLogin}
               className="w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
               {busy ? 'Signing in…' : 'Sign in'}

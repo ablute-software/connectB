@@ -5,6 +5,7 @@
 // privacy-request queue. Re-authentication and the typed company name.
 import { useState } from 'react';
 import { Card } from '@/components/ui';
+import { PasswordInput } from '@/components/auth/PasswordInput';
 import { ACCOUNT_RETENTION_DAYS } from '@/lib/account-security';
 
 export function CloseAccountCard({ orgName, myRole }: { orgName: string; myRole: string | null }) {
@@ -41,7 +42,7 @@ export function CloseAccountCard({ orgName, myRole }: { orgName: string; myRole:
         ) : (
           <div className="space-y-2 rounded-lg border border-red-200 bg-white p-3">
             <p className="text-xs text-gray-600">To confirm, enter your password and type the company name exactly: <b>{orgName}</b></p>
-            <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Your password" className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+            <PasswordInput autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Your password" className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
             <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Company name" autoComplete="off" className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
             <div className="flex items-center gap-2">
               <button disabled={busy || !password || !typed} onClick={close}

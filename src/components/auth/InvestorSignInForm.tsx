@@ -14,6 +14,7 @@
 import { useEffect, useState } from 'react';
 import { browserClient } from '@/lib/supabase';
 import { getMagicLinkSent, setMagicLinkSent, clearMagicLinkSent } from '@/lib/magic-link-storage';
+import { PasswordInput } from './PasswordInput';
 
 export function InvestorSignInForm({ next, linkFailed }: { next: string; linkFailed: boolean }) {
   const [email, setEmail] = useState('');
@@ -111,9 +112,9 @@ export function InvestorSignInForm({ next, linkFailed }: { next: string; linkFai
       {passwordMode ? (
         <>
           <label className="mb-1 block text-xs font-medium text-gray-500">Password</label>
-          <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="••••••••"
+          <PasswordInput autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••"
             onKeyDown={(e) => e.key === 'Enter' && passwordLogin()}
-            className="mb-3 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
+            wrapperClassName="mb-3" className="rounded-xl border border-gray-300 px-3 py-2 text-sm" />
           <button disabled={busy || !email || !password} onClick={passwordLogin}
             className="w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
             {busy ? 'Signing in…' : 'Sign in'}

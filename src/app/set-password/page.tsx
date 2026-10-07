@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { browserClient } from '@/lib/supabase';
 import { LogoLockup } from '@/components/Logo';
 import { AuthShell } from '@/components/auth/AuthShell';
+import { PasswordInput } from '@/components/auth/PasswordInput';
 import { PasswordRequirementsIndicator } from '@/components/auth/PasswordRequirementsIndicator';
 import { checkPassword } from '@/lib/password-policy';
 import { useTermsGateStatus } from '@/lib/terms-status';
@@ -83,14 +84,14 @@ function SetPasswordInner() {
         <p className="mb-4 text-sm text-gray-500">You can always still sign in with an emailed link instead — this is optional.</p>
 
         <label className="mb-1 block text-xs font-medium text-gray-500">New password</label>
-        <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="••••••••••"
-          className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
+        <PasswordInput autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••••"
+          className="rounded-xl border border-gray-300 px-3 py-2 text-sm" />
         <PasswordRequirementsIndicator password={password} />
 
         <label className="mb-1 mt-3 block text-xs font-medium text-gray-500">Confirm password</label>
-        <input value={confirm} onChange={(e) => setConfirm(e.target.value)} type="password" placeholder="••••••••••"
+        <PasswordInput autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="••••••••••"
           onKeyDown={(e) => e.key === 'Enter' && canSubmit && void submit()}
-          className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
+          className="rounded-xl border border-gray-300 px-3 py-2 text-sm" />
 
         {/* Prompt 404 §C.1 — only when this user hasn't accepted the
             current Terms version yet; same required block/visual as

@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { BRAND_NAME } from '@/lib/brand';
 import { browserClient } from '@/lib/supabase';
+import { PasswordInput } from '@/components/auth/PasswordInput';
 
 type Invite = { org_name: string; role: string; email: string; status: string };
 type Me = { user: { id: string; email?: string } | null };
@@ -93,8 +94,8 @@ export default function InvitePage({ params }: { params: { token: string } }) {
                 <span className="font-medium">{invite.role}</span>. Set a password to finish.
               </p>
               <input value={invite.email} disabled className="mb-3 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500" />
-              <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Choose a password (min 8 chars)"
-                className="mb-4 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
+              <PasswordInput autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Choose a password (min 8 chars)"
+                wrapperClassName="mb-4" className="rounded-xl border border-gray-300 px-3 py-2 text-sm" />
               <button disabled={busy || password.length < 8} onClick={createAccountAndAccept}
                 className="w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
                 {busy ? 'Joining…' : 'Create account & join'}
