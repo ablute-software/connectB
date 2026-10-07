@@ -30,7 +30,7 @@
 //
 // `autoComplete` is required, and narrowed to the two values that are right for
 // a password, because leaving it off is silent: browsers and password managers
-// then guess, and 5 of the 13 fields this replaced had no value at all.
+// then guess, and 6 of the 13 fields this replaced had no value at all.
 import { useRef, useState, type InputHTMLAttributes, type Ref } from 'react';
 
 export type PasswordInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'autoComplete'> & {
