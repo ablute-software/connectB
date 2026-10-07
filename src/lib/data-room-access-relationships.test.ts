@@ -142,6 +142,13 @@ describe('countGrantedDocuments — files, not grants', () => {
     expect(countGrantedDocuments([grant({ person_id: 'p1', folder_id: 'root' })], DOCUMENTS, FOLDERS, NOW)).toBe(4);
   });
 
+  // Prompt 742 §A.3 — same rule the portal enforces: a folder grant never opens a
+  // document that asks for an NDA by default; only a grant to the document does.
+  it('a folder grant does not count a document that asks for an NDA by default; its own grant does', () => {
+    const docs = [...DOCUMENTS, { id: 'd6', folder_id: 'financials', nda_by_default: true }];
+    expect(countGrantedDocuments([grant({ person_id: 'p1', folder_id: 'financials' })], docs, FOLDERS, NOW)).toBe(3);
+    expect(countGrantedDocuments([grant({ person_id: 'p1', folder_id: 'financials' }), grant({ person_id: 'p1', document_id: 'd6' })], docs, FOLDERS, NOW)).toBe(4);
+  });
   it('a document covered by both a folder grant and its own grant counts once', () => {
     const grants = [grant({ person_id: 'p1', folder_id: 'financials' }), grant({ person_id: 'p1', document_id: 'd1' })];
     expect(countGrantedDocuments(grants, DOCUMENTS, FOLDERS, NOW)).toBe(3);

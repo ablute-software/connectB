@@ -62,7 +62,7 @@ export function WhoHasAccessPanel({ folderId }: { folderId: string }) {
     affiliations: db.personAffiliations.map((a) => ({ person_id: a.person_id, entity_id: a.entity_id, current: a.current })),
     grants: db.grants as RelationshipGrant[],
     folders: folderTree,
-    documents: db.documents.map((d) => ({ id: d.id, folder_id: d.folder_id, visibility: d.visibility })),
+    documents: db.documents.map((d) => ({ id: d.id, folder_id: d.folder_id, visibility: d.visibility, nda_by_default: d.nda_by_default })),
     now,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [db.entities, db.people, db.personAffiliations, db.grants, db.documents, folderTree]);
@@ -92,7 +92,7 @@ export function WhoHasAccessPanel({ folderId }: { folderId: string }) {
         const g = findEffectiveGrantAmong(live, doc.id, folderId, folderTree);
         if (!g) continue;
         reachedAny = true;
-        const effect = computeCellEffect(g, now, doc.visibility);
+        const effect = computeCellEffect(g, now, doc.visibility, doc.nda_by_default);
         if (effect === 'shared' || effect === 'shared_pending_nda' || effect === 'shared_pending_confirmation') {
           accessibleDocs.push(doc.name);
         } else if (effect === 'no_effect_private') {

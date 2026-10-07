@@ -66,6 +66,26 @@ describe('computeCellEffect sobre um grant herdado', () => {
     expect(computeCellEffect(g, NOW)).toBe('shared_pending_nda');
   });
 
+  // Prompt 742 §A.3 — a document that asks for an NDA by default is reached only by a
+  // grant to the document itself (resolveDocumentAccess): the founder's matrix has to say
+  // the same thing the portal does, not "✓ Can view" for a folder grant the gate ignores.
+  it('nda_by_default: um grant de pasta herdado não chega ao documento — lê-se not_shared', () => {
+    const g = findEffectiveGrant([grant({ folder_id: 'raiz' })], 'd1', 'sum', PESSOAS, ARVORE);
+    expect(computeCellEffect(g, NOW, 'on_grant', true)).toBe('not_shared');
+  });
+
+  it('nda_by_default: um grant ao próprio documento conta, com e sem NDA por aceitar', () => {
+    const semNda = findEffectiveGrant([grant({ document_id: 'd1' })], 'd1', 'sum', PESSOAS, ARVORE);
+    expect(computeCellEffect(semNda, NOW, 'on_grant', true)).toBe('shared');
+    const comNda = findEffectiveGrant([grant({ document_id: 'd1', nda_required: true })], 'd1', 'sum', PESSOAS, ARVORE);
+    expect(computeCellEffect(comNda, NOW, 'on_grant', true)).toBe('shared_pending_nda');
+  });
+
+  it('sem nda_by_default (ou ausente) nada muda: o grant herdado continua a ler-se shared', () => {
+    const g = findEffectiveGrant([grant({ folder_id: 'raiz' })], 'd1', 'sum', PESSOAS, ARVORE);
+    expect(computeCellEffect(g, NOW, 'on_grant', false)).toBe('shared');
+    expect(computeCellEffect(g, NOW, 'on_grant')).toBe('shared');
+  });
   it('documento due_diligence continua sem efeito, herdado ou não', () => {
     const g = findEffectiveGrant([grant({ folder_id: 'raiz' })], 'd1', 'sum', PESSOAS, ARVORE);
     expect(computeCellEffect(g, NOW, 'due_diligence')).toBe('no_effect_private');

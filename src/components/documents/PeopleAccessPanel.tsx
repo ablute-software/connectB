@@ -511,7 +511,7 @@ export function PeopleAccessPanel({ onShareByEmail }: {
     kind: 'folder' | 'doc'; id: string; name: string; documentId?: string; folderId?: string; visibility?: string; ndaByDefault?: boolean;
   }) {
     const effective = findEffectiveGrantAmong(liveGrants, documentId, folderId, folderTree);
-    const effect = computeCellEffect(effective, now, visibility);
+    const effect = computeCellEffect(effective, now, visibility, ndaByDefault);
     const expired = effect === 'not_shared' ? expiredFor(documentId, folderId) : undefined;
     const ownGrants = grantsForNode(kind, id);
     const ownExpired = ownGrants.filter((g) => grantStatus(g, now) === 'expired');

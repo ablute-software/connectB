@@ -24,7 +24,7 @@ export function FilesTab({ entityId }: { entityId: string }) {
     || people.some((p) => p.email_verified && p.email_verified === v.viewer_email));
   const sharedDocs = personIds.size === 0 ? [] : db.documents.filter((d) => {
     const g = findEffectiveGrant(db.grants, d.id, d.folder_id, personIds, folderTree);
-    const effect = computeCellEffect(g, new Date(), d.visibility);
+    const effect = computeCellEffect(g, new Date(), d.visibility, d.nda_by_default);
     return effect === 'shared' || effect === 'shared_pending_nda' || effect === 'shared_pending_confirmation';
   });
   const ndas = db.ndas.filter((n) => n.entity_id === entityId);

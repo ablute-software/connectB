@@ -88,6 +88,7 @@ export interface RelationshipDocument {
   id: string;
   folder_id?: string;
   visibility?: string;
+  nda_by_default?: boolean;
 }
 
 /** `associated` = resolved to a real entity/person; `por_associar` = an
@@ -200,7 +201,7 @@ export function countGrantedDocuments(
   let count = 0;
   for (const doc of documents) {
     const effective = findEffectiveGrantAmong(live, doc.id, doc.folder_id, folders);
-    const effect = computeCellEffect(effective, now, doc.visibility);
+    const effect = computeCellEffect(effective, now, doc.visibility, doc.nda_by_default);
     if (effect === 'shared' || effect === 'shared_pending_nda' || effect === 'shared_pending_confirmation') count += 1;
   }
   return count;

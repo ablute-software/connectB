@@ -91,8 +91,15 @@ export function findEffectiveGrantAmong(
 // explicit 4th state ("Sem efeito — documento privado"), which used to fail
 // silently (indistinguishable from "not shared") before this addenda asked
 // for it by name.
-export function computeCellEffect(effectiveGrant: MatrixGrant | undefined, now: Date, documentVisibility?: string): CellEffect {
+//
+// `ndaByDefault` (Prompt 742 §A.3): a document that asks for an NDA by default is
+// reachable only by a grant to the DOCUMENT itself — resolveDocumentAccess, the real
+// gate, never lets a folder grant open it. So a cell whose effective grant is a folder
+// grant inherited from above is not shared for such a document; showing "✓ Can view"
+// there would be the same decorative padlock Prompt 204(a) removed for due_diligence.
+export function computeCellEffect(effectiveGrant: MatrixGrant | undefined, now: Date, documentVisibility?: string, ndaByDefault?: boolean): CellEffect {
   if (documentVisibility === 'due_diligence') return 'no_effect_private';
+  if (ndaByDefault && effectiveGrant && !effectiveGrant.document_id) return 'not_shared';
   if (!effectiveGrant) return 'not_shared';
   const status = grantStatus(effectiveGrant, now);
   if (status === 'revoked' || status === 'expired') return 'not_shared';
