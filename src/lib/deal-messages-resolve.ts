@@ -13,6 +13,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { withDocumentInfo, type DealMessage } from './deal-messages';
 import { resolveDocumentAccess, type GrantLike } from './data-room';
 import { vaultFrozenForOrg } from './data-room-server';
+import { documentNdaByDefaultAvailable } from './documents-nda-default-capability';
 
 function idsOf(messages: DealMessage[]): string[] {
   return [...new Set(messages.flatMap((m) => m.documentIds))];
@@ -76,10 +77,17 @@ export async function resolveInvestorMessageDocs(
 
   // kind added (deal-terms review fix A) — feeds resolveDocumentAccess's
   // hard deal_memo exclusion, same as the `names` map above.
-  const [{ data: docs }, { data: folders }] = await Promise.all([
-    admin.from('documents').select('id, folder_id, visibility, kind').in('id', ids).eq('org_id', orgId),
+  // Prompt 742 §A.3 — nda_by_default, capability-gated. Explicit `: string`
+  // — see document-picker/route.ts's own comment.
+  const ndaByDefaultOn = await documentNdaByDefaultAvailable();
+  const docSelect: string = `id, folder_id, visibility, kind${ndaByDefaultOn ? ', nda_by_default' : ''}`;
+  const [{ data: rawDocs }, { data: folders }] = await Promise.all([
+    admin.from('documents').select(docSelect).in('id', ids).eq('org_id', orgId),
     admin.from('folders').select('id, parent_id').eq('org_id', orgId),
   ]);
+  // `as unknown as` — docSelect is a runtime string (not a literal), so
+  // postgrest-js's type-level select parser can't infer a row shape for it.
+  const docs = rawDocs as unknown as { id: string; folder_id?: string; visibility?: string; kind?: string | null; nda_by_default?: boolean }[] | null;
   const folderTree = (folders ?? []).map((f) => ({
     id: f.id as string, parent_id: (f.parent_id as string | undefined) ?? undefined,
   }));
@@ -91,10 +99,11 @@ export async function resolveInvestorMessageDocs(
   const { visibleIds } = resolveDocumentAccess(
     activeGrants,
     (docs ?? []).map((d) => ({
-      id: d.id as string,
-      folder_id: (d.folder_id as string | undefined) ?? undefined,
-      visibility: d.visibility as string | undefined,
-      kind: d.kind as string | null | undefined,
+      id: d.id,
+      folder_id: d.folder_id ?? undefined,
+      visibility: d.visibility,
+      kind: d.kind,
+      nda_by_default: d.nda_by_default,
     })),
     folderTree,
   );

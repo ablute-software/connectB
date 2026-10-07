@@ -9,6 +9,7 @@
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { canViewStartup } from '@/lib/can-view-startup';
+import { documentNdaByDefaultAvailable } from '@/lib/documents-nda-default-capability';
 import { closedOrgGuard } from '@/lib/org-closed';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveDocumentAccess, type DocMeta, type TreeFolder } from '@/lib/data-room';
@@ -57,18 +58,29 @@ export async function GET(req: Request) {
   // memo (visibility 'private', but defense-in-depth doesn't rely on that
   // alone) must never reach — see the explicit kind check on `requestable`
   // below, on top of the structural exclusion resolveDocumentAccess applies.
-  const [{ data: docs }, { data: folders }] = await Promise.all([
-    admin.from('documents').select('id, name, folder_id, visibility, kind').eq('org_id', orgId),
+  // Prompt 742 §A.3 — nda_by_default, capability-gated: an environment that has
+  // not applied the migration yet would hard-error on an unknown column.
+  // Explicit `: string` — a template literal is otherwise a literal type that
+  // postgrest-js's type-level select parser chokes on.
+  const ndaByDefaultOn = await documentNdaByDefaultAvailable();
+  const docSelect: string = `id, name, folder_id, visibility, kind${ndaByDefaultOn ? ', nda_by_default' : ''}`;
+  const [{ data: rawDocs }, { data: folders }] = await Promise.all([
+    admin.from('documents').select(docSelect).eq('org_id', orgId),
     admin.from('folders').select('id, parent_id').eq('org_id', orgId),
   ]);
+  // `as unknown as` — docSelect is a runtime string, so postgrest-js cannot
+  // infer a row shape for it.
+  const docs = (rawDocs ?? []) as unknown as {
+    id: string; name: string; folder_id: string | null; visibility: string | null; kind: string | null; nda_by_default?: boolean;
+  }[];
 
   const orParts = [`grantee_email.eq.${email}`, `invited_email.eq.${email}`];
   if (person) orParts.push(`person_id.eq.${person.id}`);
   const { data: grants } = await admin.from('access_grants').select('folder_id, document_id, nda_required, nda_accepted_at')
     .eq('org_id', orgId).is('revoked_at', null).or(orParts.join(','));
 
-  const docMetas: DocMeta[] = ((docs ?? []) as { id: string; folder_id: string | null; visibility: string | null; kind: string | null }[])
-    .map((d) => ({ id: d.id, folder_id: d.folder_id ?? undefined, visibility: d.visibility ?? undefined, kind: d.kind }));
+  const docMetas: DocMeta[] = docs
+    .map((d) => ({ id: d.id, folder_id: d.folder_id ?? undefined, visibility: d.visibility ?? undefined, kind: d.kind, nda_by_default: d.nda_by_default }));
   const treeFolders: TreeFolder[] = ((folders ?? []) as { id: string; parent_id: string | null }[])
     .map((f) => ({ id: f.id, parent_id: f.parent_id ?? undefined }));
   const { visibleIds } = resolveDocumentAccess(
@@ -78,7 +90,7 @@ export async function GET(req: Request) {
   );
   const visibleSet = new Set(visibleIds);
 
-  const requestable = ((docs ?? []) as { id: string; name: string; visibility: string | null; kind: string | null }[])
+  const requestable = docs
     // Explicit kind check, not just the visibility filter that already
     // excludes 'private' — this list must stay correct even if a deal
     // memo's visibility were ever wrong (a stale row, a manual DB edit).

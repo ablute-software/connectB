@@ -50,6 +50,7 @@ import { closedOrgGuard } from '@/lib/org-closed';
 import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
 import { recordInvestorSignalForEntity } from '@/lib/investor-signal-events-server';
 import { shouldLogOpen, streamStorageObject } from '@/lib/document-proxy';
+import { documentNdaByDefaultAvailable } from '@/lib/documents-nda-default-capability';
 
 // Prompt 750 — streaming a real 18MB video / 11MB PDF through this route
 // needs the Node runtime (not Edge) and no route-level body size cap.
@@ -80,9 +81,21 @@ export async function GET(req: Request, { params }: { params: { documentId: stri
 
   // kind added (deal-terms review fix A, 2026-09-30) — feeds the hard
   // deal_memo exclusion in resolveDocumentAccess below.
-  const { data: doc } = await admin.from('documents')
-    .select('id, name, folder_id, visibility, storage_path, external_url, malware_scan_status, org_id, kind')
+  // Prompt 742 §A.3 — nda_by_default, capability-gated (see that file's own
+  // comment for why: a plain unconditional select would hard-error on an
+  // environment that hasn't applied the migration yet).
+  const ndaByDefaultOn = await documentNdaByDefaultAvailable();
+  // Explicit `: string` — see document-picker/route.ts's own comment.
+  const docSelect: string = `id, name, folder_id, visibility, storage_path, external_url, malware_scan_status, org_id, kind${ndaByDefaultOn ? ', nda_by_default' : ''}`;
+  const { data: rawDoc } = await admin.from('documents')
+    .select(docSelect)
     .eq('id', params.documentId).maybeSingle();
+  // `as unknown as` — docSelect is a runtime string (not a literal), so
+  // postgrest-js's type-level select parser can't infer a row shape for it.
+  const doc = rawDoc as unknown as {
+    id: string; name: string; folder_id?: string; visibility?: string; storage_path?: string;
+    external_url?: string; malware_scan_status?: string; org_id: string; kind?: string | null; nda_by_default?: boolean;
+  } | null;
   // A document that does not exist and one that is not shared with this
   // investor answer identically, on purpose.
   if (!doc) return refuse('not_found', 404);
@@ -122,7 +135,7 @@ export async function GET(req: Request, { params }: { params: { documentId: stri
   // here with the reason that names the real next step.
   const { visibleIds, pendingIds } = resolveDocumentAccess(
     grants,
-    [{ id: doc.id as string, folder_id: doc.folder_id as string | undefined, visibility: doc.visibility as string | undefined, kind: doc.kind as string | null }],
+    [{ id: doc.id as string, folder_id: doc.folder_id as string | undefined, visibility: doc.visibility as string | undefined, kind: doc.kind as string | null, nda_by_default: doc.nda_by_default as boolean | undefined }],
     folderTree,
   );
   if (pendingIds.includes(doc.id as string)) return refuse('nda_required', 403);

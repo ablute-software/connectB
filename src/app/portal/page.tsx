@@ -513,7 +513,7 @@ function PortalPageInner() {
   // manual grant" against a locked deal memo's id is caught the same way
   // the real /api/portal/access route now is — this demo path mirrors that
   // route's behaviour deliberately (see this block's own header comment).
-  const demoDocAccess = resolveDocumentAccess(demoAllGrants, demoCandidateDocs.map((d) => ({ id: d.id, folder_id: d.folder_id, visibility: d.visibility, kind: d.kind })), demoFolderTree);
+  const demoDocAccess = resolveDocumentAccess(demoAllGrants, demoCandidateDocs.map((d) => ({ id: d.id, folder_id: d.folder_id, visibility: d.visibility, kind: d.kind, nda_by_default: d.nda_by_default })), demoFolderTree);
   const demoDocs = demoCandidateDocs.filter((d) => demoDocAccess.visibleIds.includes(d.id));
   const demoFolderGrants = demoAllGrants.filter((g) => g.folder_id);
   const demoUnlockedFolderGrants = unlockedGrants(demoFolderGrants);

@@ -176,7 +176,9 @@ export async function GET() {
       activeGrants.map((g) => ({ ...g, nda_required: false, nda_accepted_at: g.nda_accepted_at ?? undefined })),
       // kind carried through (deal-terms review fix A, 2026-09-30) — docsInFolders/
       // directDocs above are `select('*')`, so it's already on each row.
-      candidateDocs.map((d) => ({ id: d.id as string, folder_id: (d.folder_id as string | undefined) ?? undefined, visibility: d.visibility as string | undefined, kind: d.kind as string | null | undefined })),
+      // Prompt 742 §A.3 — nda_by_default comes straight off `d` the same way,
+      // so it needs no capability gate of its own here.
+      candidateDocs.map((d) => ({ id: d.id as string, folder_id: (d.folder_id as string | undefined) ?? undefined, visibility: d.visibility as string | undefined, kind: d.kind as string | null | undefined, nda_by_default: d.nda_by_default as boolean | undefined })),
       folderTree,
     );
     const inScopeDocs = candidateDocs.filter((d) => inScopeIds.includes(d.id as string));

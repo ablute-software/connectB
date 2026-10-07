@@ -12,6 +12,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { descendantFolderIds, resolveDocumentAccess, type GrantLike } from './data-room';
 import { vaultKillSwitchAvailable } from './vault-kill-switch-capability';
+import { documentNdaByDefaultAvailable } from './documents-nda-default-capability';
 
 export type FirmGrant = GrantLike & { expires_at?: string | null; invited_email?: string | null; confirmed_at?: string | null };
 
@@ -54,14 +55,26 @@ export async function visibleDocumentsForFirm(admin: SupabaseClient, orgId: stri
   // investor-facing surfaces (interaction-log's attachableDocuments,
   // actions-required's newDocs), so the exclusion is load-bearing, not
   // decorative.
+  // Prompt 742 §A.3 — nda_by_default, capability-gated. Explicit `: string`
+  // — a template literal here is otherwise a literal type postgrest-js's
+  // type-level select parser chokes on (same fix as document-requests/
+  // route.ts's own itemsSelect).
+  const ndaByDefaultOn = await documentNdaByDefaultAvailable();
+  const docSelect: string = `id, name, folder_id, visibility, kind${ndaByDefaultOn ? ', nda_by_default' : ''}`;
   const [{ data: docsInFolders }, { data: directDocs }] = await Promise.all([
-    folderIds.length ? admin.from('documents').select('id, name, folder_id, visibility, kind').in('folder_id', folderIds).eq('org_id', orgId) : Promise.resolve({ data: [] }),
-    directDocIds.length ? admin.from('documents').select('id, name, folder_id, visibility, kind').in('id', directDocIds).eq('org_id', orgId) : Promise.resolve({ data: [] }),
+    folderIds.length ? admin.from('documents').select(docSelect).in('folder_id', folderIds).eq('org_id', orgId) : Promise.resolve({ data: [] }),
+    directDocIds.length ? admin.from('documents').select(docSelect).in('id', directDocIds).eq('org_id', orgId) : Promise.resolve({ data: [] }),
   ]);
-  const docMap = new Map<string, { id: string; name: string; folder_id: string | null; visibility?: string; kind?: string | null }>();
-  for (const d of [...(docsInFolders ?? []), ...(directDocs ?? [])]) docMap.set(d.id as string, d as { id: string; name: string; folder_id: string | null; visibility?: string; kind?: string | null });
+  type CandidateDoc = { id: string; name: string; folder_id: string | null; visibility?: string; kind?: string | null; nda_by_default?: boolean };
+  const docMap = new Map<string, CandidateDoc>();
+  // `as unknown as` — docSelect is a runtime string (not a literal), so
+  // postgrest-js's type-level select parser can't infer a row shape for it.
+  for (const raw of [...(docsInFolders ?? []), ...(directDocs ?? [])]) {
+    const d = raw as unknown as CandidateDoc;
+    docMap.set(d.id, d);
+  }
   const candidateDocs = [...docMap.values()];
 
-  const { visibleIds } = resolveDocumentAccess(activeGrants, candidateDocs.map((d) => ({ id: d.id, folder_id: d.folder_id ?? undefined, visibility: d.visibility, kind: d.kind })), folderTree);
+  const { visibleIds } = resolveDocumentAccess(activeGrants, candidateDocs.map((d) => ({ id: d.id, folder_id: d.folder_id ?? undefined, visibility: d.visibility, kind: d.kind, nda_by_default: d.nda_by_default })), folderTree);
   return candidateDocs.filter((d) => visibleIds.includes(d.id)).map((d) => ({ id: d.id, name: d.name }));
 }
