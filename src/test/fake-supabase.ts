@@ -5,7 +5,9 @@
 // `.eq('org_id', …)` filtering, not a mock that returns whatever it was given.
 //
 // Deliberately small: eq / in / is / not / neq filter for real; select, order,
-// limit and range are accepted and ignored; update / insert / delete are
+// limit, range and or are accepted and ignored (`or` is a PostgREST filter
+// string — a test that depends on it filtering must say so with its fixture
+// rows, not rely on this); update / insert / delete are
 // recorded in `db.writes` (and applied to nothing — a test asserts on the
 // record, never on the resulting table). maybeSingle()/single() return the
 // first match, which is enough for the one-membership-per-user fixtures here.
@@ -48,6 +50,7 @@ function builder(db: FakeDb, table: string): any {
     order: () => b,
     limit: () => b,
     range: () => b,
+    or: () => b,
     eq: (col: string, val: unknown) => { eqs.push([col, val]); predicates.push((r) => r[col] === val); return b; },
     neq: (col: string, val: unknown) => { predicates.push((r) => r[col] !== val); return b; },
     in: (col: string, vals: unknown[]) => { predicates.push((r) => vals.includes(r[col])); return b; },

@@ -8,6 +8,7 @@
 // "nunca conteúdo, tamanho ou visualizações").
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { canViewStartup } from '@/lib/can-view-startup';
 import { closedOrgGuard } from '@/lib/org-closed';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveDocumentAccess, type DocMeta, type TreeFolder } from '@/lib/data-room';
@@ -32,10 +33,22 @@ export async function GET(req: Request) {
   if (!user || !email) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
+  const person = await resolvePerson(admin, email);
+
+  // Prompt 742 §B.1 — this route used to go from "signed in" straight to
+  // querying `orgId`'s documents: any account could read any org's document
+  // NAMES by passing its id. A caller with no relationship to the startup gets
+  // the same flat 404 the dossier route gives (404, not 403: never confirm the
+  // org exists), and this runs BEFORE the closed-org check below for the same
+  // reason that route checks relationship before closed-state — answering
+  // "closed" first would turn the 410 into an oracle for "this org id exists".
+  if (!(await canViewStartup(admin, user.id, email, person?.id ?? null, orgId))) {
+    return NextResponse.json({ error: 'Not found.' }, { status: 404 });
+  }
+
   // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
   const closedBlock = await closedOrgGuard(admin, orgId);
   if (closedBlock) return closedBlock;
-  const person = await resolvePerson(admin, email);
 
   // kind added (deal-terms review fix A, 2026-09-30) — this route's whole
   // job is announcing document NAMES to an investor with zero grants (this
