@@ -562,6 +562,15 @@ function DocumentsPageInner() {
   // Prompt 742 §A.4 — same "only show it if it's non-zero" discipline as the
   // visibility pastilles above.
   const orgNdaByDefaultCount = useMemo(() => db.documents.filter(requiresNda).length, [db.documents]);
+  // A pastille is only drawn while its count is non-zero, so a filter whose last
+  // matching document just changed (turn the NDA chip off, move the only
+  // due-diligence file to another level) would be left active with no pastille
+  // to click — an empty folder under a "Filtered: …" line. Found by clicking it
+  // (07/10/2026, Prompt 742). Clear it instead.
+  useEffect(() => {
+    if (ndaFilter && orgNdaByDefaultCount === 0) setNdaFilter(false);
+    if (visibilityFilter && !orgVisibilityLevels.some((l) => l.visibility === visibilityFilter)) setVisibilityFilter(null);
+  }, [ndaFilter, orgNdaByDefaultCount, visibilityFilter, orgVisibilityLevels]);
   const levelCountsByFolderId = useMemo(() => levelCountsByFolder(db.folders, db.documents), [db.folders, db.documents]);
   const levelCountsIn = (id: string) => levelCountsByFolderId.get(id) ?? countByVisibility([]);
   // Prompt 33/47 — "active grants" used to mean exactly one thing (not
@@ -1989,10 +1998,14 @@ function DocumentsPageInner() {
                     const selectedFolderIds = Object.entries(selection)
                       .filter(([k, st]) => st !== 'none' && k.startsWith('folder:'))
                       .map(([k]) => k.split(':')[1]);
+                    const sharedOnTheirOwn = Object.entries(selection)
+                      .filter(([k, st]) => st !== 'none' && k.startsWith('doc:'))
+                      .map(([k]) => k.slice(4));
                     const blocked = dueDiligenceUnderFolders(
                       db.folders.map((f) => ({ id: f.id, parent_id: f.parent_id })),
                       db.documents.map((d) => ({ id: d.id, name: d.name, folder_id: d.folder_id, visibility: d.visibility, nda_by_default: d.nda_by_default })),
                       selectedFolderIds,
+                      sharedOnTheirOwn,
                     );
                     if (blocked.length === 0) return null;
                     return (

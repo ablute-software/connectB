@@ -316,10 +316,18 @@ export function diffGrantSelection(
 // widened past "due diligence" specifically.
 export interface VisibilityDoc { id: string; name: string; folder_id?: string; visibility?: string; nda_by_default?: boolean }
 
+//
+// `sharedIndividuallyIds` (Prompt 742, found live 07/10/2026): documents the same
+// selection already shares ON THEIR OWN. The folder cascade lands a requiresNda
+// document as shared_nda, so without this the warning claimed "will NOT be shared"
+// about a document the tree beside it showed as shared — and a warning that
+// contradicts the screen teaches people to stop reading it.
 export function dueDiligenceUnderFolders(
   folders: TreeFolder[], documents: VisibilityDoc[], selectedFolderIds: string[],
+  sharedIndividuallyIds: Iterable<string> = [],
 ): VisibilityDoc[] {
   if (selectedFolderIds.length === 0) return [];
   const subtree = new Set(descendantFolderIds(folders, selectedFolderIds));
-  return documents.filter((d) => requiresNda(d) && d.folder_id && subtree.has(d.folder_id));
+  const own = new Set(sharedIndividuallyIds);
+  return documents.filter((d) => requiresNda(d) && d.folder_id && subtree.has(d.folder_id) && !own.has(d.id));
 }

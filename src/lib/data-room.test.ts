@@ -532,6 +532,20 @@ describe('dueDiligenceUnderFolders (204b: o aviso na criacao do grant)', () => {
     expect(dueDiligenceUnderFolders(ARVORE, DOCS, [])).toEqual([]);
   });
 
+  // Found live (07/10/2026): clicking a folder cascades its requiresNda documents to
+  // shared_nda, so the same selection already shares them — the warning must not claim
+  // they "will NOT be shared" while the tree beside it shows them shared.
+  it('um documento que a mesma selecção já partilha por si não conta como bloqueado', () => {
+    expect(dueDiligenceUnderFolders(ARVORE, DOCS, ['raiz'], ['prr']).map((d) => d.id)).toEqual(['norte']);
+  });
+
+  it('se todos os que pedem NDA já têm o seu próprio share, não há aviso nenhum', () => {
+    expect(dueDiligenceUnderFolders(ARVORE, DOCS, ['raiz'], new Set(['prr', 'norte']))).toEqual([]);
+  });
+
+  it('um id de um documento fora da subárvore, ou que não pede NDA, não muda nada', () => {
+    expect(dueDiligenceUnderFolders(ARVORE, DOCS, ['grants'], ['outro', 'normal']).map((d) => d.id)).toEqual(['prr', 'norte']);
+  });
   // Prompt 742 §A.3 — generalized past due_diligence-only.
   it('tambem apanha um documento nda_by_default que nao e due_diligence', () => {
     const docs = [...DOCS, { id: 'termsheet', name: 'TermSheet.pdf', folder_id: 'grants', visibility: 'on_grant', nda_by_default: true }];
