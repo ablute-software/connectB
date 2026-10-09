@@ -10015,3 +10015,19 @@ O gap anotado a 26/09, fechado antes de a migração ser aplicada: `computeCellE
 
 - O `WhoHasAccessPanel` diz "Complete access to folder" para qualquer pasta com grant, mesmo que algum documento lá dentro precise do seu próprio share (já era assim para `due_diligence`).
 - `invite/[token]` e `invite/incubator/member/[token]` aceitam 8 caracteres de password, enquanto o resto pede 10 + classes (já anotado a 07/10 no Prompt 903).
+
+## Prompt 904 — Calls, Etapa 0 (09/10/2026, branch `claude/904-calls-etapa0`)
+
+Fundações antes de qualquer ecrã de calls (spec em `docs/calls/SPEC_CALLS_V2.md`). Nada de calls foi construído. Três partes independentes; relatórios completos em `docs/calls/ETAPA0_PARTE_A_EMAIL.md`, `…_PARTE_B_CODIGO.md`, `…_PARTE_C_SEATS.md`.
+
+### Parte A — email (só investigação, nada alterado em Supabase/Resend/Vercel)
+
+Produção já envia pelo Resend com `Sherlock Deal <noreply@sherlockdeal.com>` (domínio verificado, SPF/DKIM/DMARC presentes, 13 envios em 30 dias, todos para terceiros; as 4 falhas históricas eram do `from` placeholder). O que falta é o lado do Supabase Auth: esta sessão não tem token da Management API, por isso SMTP próprio, limites e OTP ficam como passos do Nuno no painel, e o template "Confirm signup" com `{{ .Token }}` ficou escrito para ele colar. Estimativa de uma call de 200 candidatos: ≈ 1 000 emails, ≈ 450 em 48 h perto do prazo; o plano gratuito do Resend (teto diário baixo) não chega, é preciso o plano pago de entrada. Nada foi comprado.
+
+### Parte B — registo com palavra-passe e código de 6 dígitos
+
+**A palavra-passe escolhida só é aplicada depois de o código verificar.** A conta nasce com uma palavra-passe aleatória e `password_set:false`; senão, alguém registaria o email de outra pessoa com uma palavra-passe sua e ficava com a conta quando a vítima confirmasse (pre-hijacking). **As 5 tentativas e o intervalo de reenvio são nossos, em SQL atómico por email** (`auth_code_reserve_attempt` / `auth_code_reserve_send`, reservar-e-depois-verificar): o Supabase só limita por IP, e todos os candidatos partilham o IP do Vercel. **Sem oráculo:** a mesma frase para email sem conta, por confirmar e confirmado; o estado dos contadores existe para qualquer email; piso de 1,5 s no tempo de resposta; falhas do fornecedor só vão para o log (limitação anotada: um erro de envio fica invisível para quem espera). Quem já tem conta recebe pelo Resend "You already have an account".
+
+**Pressuposto NÃO provado: pedir código novo invalida o anterior** (um slot por utilizador no GoTrue). O teste automático modela-o; a prova é o passo 4 do teste em produção, e o relatório descreve o desenho de reserva (código gerado por nós, hash em `auth_code_state`, email pelo Resend) se falhar. Interruptor `AUTH_CODE_MODE` (`off` por omissão = 404; `allowlist` com `AUTH_CODE_TEST_EMAILS`; `on`), `/api/auth-code` em PUBLIC no middleware (com teste; as falhas dos Prompts 538/749), página `/auth-code-test` só para administradores e fora da casca da app.
+
+**A migração `20261009120000_auth_code_state.sql` está escrita e NÃO foi aplicada** — fica à espera do OK do Nuno.

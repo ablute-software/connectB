@@ -184,7 +184,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
     // Prompt 602/603 — the closed-account page, the post-signup commitments
     // page and the public legal pages bring their own layout, same as the
     // auth pages above.
-    || path === '/closed' || path === '/welcome/commitments' || !!path?.startsWith('/legal');
+    || path === '/closed' || path === '/welcome/commitments'
+    // Prompt 904 Part B — the code-registration test page: the signed-in session it ends in is a
+    // brand-new account with no startup yet, which the app shell must not try to route.
+    || path === '/auth-code-test' || !!path?.startsWith('/legal');
   // Prompt 295 §1 — Shell mounts (and its hooks run) for EVERY route,
   // including the ones just below that early-return bare children — the
   // heartbeat must not count that time as 'crm' context (backoffice has

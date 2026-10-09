@@ -46,6 +46,20 @@ describe('middleware — unauthenticated API access', () => {
     expect(res.headers.get('location')).toBeNull();
   });
 
+  // Prompt 904 Part B — the code-registration routes are called by people who have no session
+  // yet (that is the point of registering). Without this entry every POST would 307 to /login,
+  // the exact failure of Prompts 538/749. The page that hosts the form is NOT public.
+  it('lets the unauthenticated auth-code routes through, but not the test page', async () => {
+    for (const path of ['/api/auth-code/register', '/api/auth-code/resend', '/api/auth-code/verify']) {
+      const res = await middleware(post(path));
+      expect(res.status, path).not.toBe(307);
+      expect(res.headers.get('location'), path).toBeNull();
+    }
+    const page = await middleware(get('/auth-code-test'));
+    expect(page.status).toBe(307);
+    expect(page.headers.get('location')).toContain('/login');
+  });
+
   it('still redirects any other unauthenticated API POST to /login', async () => {
     const res = await middleware(post('/api/anything-else'));
     expect(res.status).toBe(307);

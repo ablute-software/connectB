@@ -115,7 +115,7 @@ Caminho: Supabase → Authentication → Emails → Templates → **Confirm sign
     Prefer a link? You can also confirm with one click:
   </p>
   <p style="margin: 0 0 20px;">
-    <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=signup&next=%2Fportal"
+    <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=signup&next=%2Fset-password"
        style="display: inline-block; background: #0E7490; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 600; padding: 10px 18px; border-radius: 8px;">
       Confirm my email
     </a>
@@ -129,9 +129,7 @@ Caminho: Supabase → Authentication → Emails → Templates → **Confirm sign
 Notas:
 
 - O link usa `/auth/confirm` (página com botão, Prompt 86), que protege o token contra
-  scanners de email que fazem GET automático. O destino `next=%2Fportal` é o valor atual e
-  será ajustado na Etapa 1 consoante a call. Se o Nuno colar o template já, o código e o link
-  funcionam.
+  scanners de email que fazem GET automático. O destino `next=%2Fset-password` serve quem fechou a janela antes de escrever o código: a conta nasce com uma palavra-passe aleatória inutilizável (a escolhida só é aplicada depois de o código ser verificado, para ninguém poder registar o email de outra pessoa com uma palavra-passe sua), e o link leva-a a escolher uma. O destino pode ser ajustado na Etapa 1.
 - `{{ .Token }}` só tem 6 dígitos se "Email OTP Length" for 6 (A2).
 - "30 minutes" só é verdade com expiração a 1800 s (A2). Se a expiração ficar noutro valor,
   alterar este texto.

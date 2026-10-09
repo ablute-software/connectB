@@ -10,7 +10,9 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { shareableCookieDomain } from '@/lib/supabase';
 
-const PUBLIC = ['/', '/investors', '/login', '/signup', '/auth', '/portal', '/api/me', '/invite', '/api/invite', '/api/portal', '/privacy-request', '/api/gdpr', '/forgot-password', '/reset-password', '/set-password', '/api/stripe/webhook', '/contact', '/api/support', '/api/investor-access-request', '/matchdeal/pair', '/pair', '/manifest.json', '/api/plan/private-detective',
+// Prompt 904 Part B: '/api/auth-code' (register / resend / verify / status) is public because its
+// callers have no session yet; each route answers 404 unless AUTH_CODE_MODE allows the email.
+const PUBLIC = ['/', '/investors', '/login', '/signup', '/auth', '/portal', '/api/me', '/api/auth-code', '/invite', '/api/invite', '/api/portal', '/privacy-request', '/api/gdpr', '/forgot-password', '/reset-password', '/set-password', '/api/stripe/webhook', '/contact', '/api/support', '/api/investor-access-request', '/matchdeal/pair', '/pair', '/manifest.json', '/api/plan/private-detective',
   // Prompt 341 — DL 7/2004's pre-contractual information duty: the text
   // must be reachable BEFORE anyone contracts, not gated behind login. The
   // acceptance routes (/api/terms/status, /api/terms/accept) stay OUT of
