@@ -23,6 +23,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import {
   MATCHDEAL_TIER_TO_INVESTOR_PLAN, investorSeatLimit, type InvestorPlanTier,
 } from './plans';
+import { canDeleteSeatCode, seatCodeState } from './seat-plans-view';
 
 export const SEAT_ADMIN_ROLES = ['owner', 'admin'] as const;
 export function isSeatAdminRole(role: string | null | undefined): boolean {
@@ -68,10 +69,28 @@ export interface SeatCodeRow {
   expiresAt: string; redeemedBy: string | null; redeemedAt: string | null; createdAt: string; note: string | null;
 }
 
+export interface ArchivedMember { userId: string | null; email: string | null; name: string | null; role: string | null; since: string | null }
+export interface ArchivedPlan {
+  id: string; entityId: string; planName: string; seats: number; tier: string; activatedVia: string; adminEmail: string | null;
+  planCreatedAt: string; planChangedAt: string; endedAt: string; endedBy: string | null; members: ArchivedMember[];
+  /** Rebuilt from the history for a plan that ended before the archive existed. */
+  reconstructed: boolean;
+}
+export interface SeatNotice { id: string; entityId: string; createdAt: string }
+
 export interface SeatStore {
   getPlan(entityId: string): Promise<FirmSeatPlan | null>;
   upsertPlan(plan: FirmSeatPlan & { activatedVia: 'backoffice' | 'promo_code'; setBy: string | null; note?: string | null }): Promise<void>;
-  endPlan(entityId: string, actor: string | null): Promise<void>;
+  /** Ends the plan AND archives it (with a snapshot of who held a seat), in one transaction. null = no active plan. */
+  endPlan(entityId: string, actor: string | null): Promise<{ archiveId: string } | null>;
+  /** Plans that ended, newest first (the archive), optionally of one firm. */
+  listArchive(entityId?: string): Promise<ArchivedPlan[]>;
+  /** The account that owns this email, if any. */
+  userIdByEmail(email: string): Promise<string | null>;
+  /** "You have been added to X": keyed by email, shown to whoever signs in with that confirmed address. */
+  addNotice(email: string, entityId: string, actor: string | null): Promise<void>;
+  unseenNotices(email: string): Promise<SeatNotice[]>;
+  markNoticesSeen(email: string, ids: string[]): Promise<void>;
   activeMembers(entityId: string): Promise<SeatMember[]>;
   /** Cheap: only who holds a seat (no email lookups) — for counting. */
   activeMemberUserIds(entityId: string): Promise<string[]>;
@@ -91,6 +110,8 @@ export interface SeatStore {
   insertCode(row: { codeHash: string; codeHint: string; entityId: string; seats: number; tier: string; planName: string; expiresAt: string; createdBy: string | null; note: string | null }): Promise<void>;
   listCodes(entityId: string): Promise<SeatCodeRow[]>;
   revokeCode(entityId: string, codeId: string): Promise<boolean>;
+  /** Deletes a code that was never used. A redeemed code is never deleted (it proves how the firm got its seats). */
+  deleteCode(entityId: string, codeId: string): Promise<boolean>;
   redeemCode(codeHash: string, userId: string): Promise<{ ok: boolean; catalogEntityId?: string; seats?: number }>;
 }
 
@@ -352,12 +373,13 @@ export async function setSeatPlan(
   return { ok: true, plan };
 }
 
-export async function endSeatPlan(store: SeatStore, args: { entityId: string; actor: string | null }): Promise<SeatActionResult> {
+export async function endSeatPlan(store: SeatStore, args: { entityId: string; actor: string | null }): Promise<SeatActionResult<{ archiveId: string }>> {
   const existing = await store.getPlan(args.entityId);
   if (!existing) return { ok: false, status: 404, error: 'This firm has no custom seat plan.' };
-  await store.endPlan(args.entityId, args.actor);
-  await store.recordEvent(args.entityId, 'plan_ended', args.actor, { seats: existing.seats });
-  return { ok: true };
+  // One transaction in SQL: the archive row (with who held a seat right now), the status, and the history entry.
+  const ended = await store.endPlan(args.entityId, args.actor);
+  if (!ended) return { ok: false, status: 409, error: 'This plan was already ended.' };
+  return { ok: true, archiveId: ended.archiveId };
 }
 
 export async function promoteToAdmin(
@@ -373,23 +395,44 @@ export async function promoteToAdmin(
 
 // --- Entity-bound codes (C3) -----------------------------------------------------------------
 
-/** 20 base32 characters, 100 bits, shown as PD-XXXXX-XXXXX-XXXXX-XXXXX. Not guessable, and the
- * hash alone is stored. */
+/** The alphabet of a code: 32 characters, no 0, O, 1 or I (they get misread over the phone and in print). */
+export const SEAT_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+/**
+ * 8 characters of that alphabet (40 bits), shown as PD-XXXX-XXXX (Adenda 1, 09/10/2026: shorter, to be typed
+ * or read out). A code is only usable by someone who already holds an approved claim and an active seat on the
+ * exact profile it was made for, so 40 bits is a lock on a door that is already behind a login, and the hash
+ * alone is stored. Codes issued before this, in the long format (PD-XXXXX-XXXXX-XXXXX-XXXXX), stay valid: the
+ * hash is over the normalised text, which is the same function for both.
+ */
 export function generateSeatCode(): string {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const bytes = randomBytes(20);
+  const bytes = randomBytes(8);
   let s = '';
-  for (let i = 0; i < 20; i++) s += alphabet[bytes[i] % alphabet.length];
-  return `PD-${s.match(/.{5}/g)!.join('-')}`;
+  for (let i = 0; i < 8; i++) s += SEAT_CODE_ALPHABET[bytes[i] % SEAT_CODE_ALPHABET.length];
+  return `PD-${s.slice(0, 4)}-${s.slice(4)}`;
 }
 
+/** With or without hyphens or spaces, in any case: "pd-abcd-efgh", "PDABCDEFGH" and " PD ABCD EFGH " are one code. */
 export function normalizeSeatCode(raw: string): string {
   return raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+/**
+ * The texts a typed code may be the hash of. The stored hash is of the FULL code including its "PD" prefix, but
+ * people copy only the 8 characters; so the typed text is tried as it is and with the prefix put back. Both
+ * are refused alike when wrong (SEAT_CODE_REFUSED), so trying two says nothing about which was close.
+ */
+export function seatCodeCandidates(raw: string): string[] {
+  const n = normalizeSeatCode(raw);
+  return n.startsWith('PD') ? [n, `PD${n}`] : [`PD${n}`, n];
 }
 
 export function hashSeatCode(raw: string): string {
   return createHash('sha256').update(normalizeSeatCode(raw)).digest('hex');
 }
+
+// The list of codes (Adenda 1, point 3): pure and client-safe, so they live in seat-plans-view.ts and the page uses them too.
+export { canDeleteSeatCode, filterSeatCodes, seatCodeState, type SeatCodeState } from './seat-plans-view';
 
 export async function createSeatCode(
   store: SeatStore,
@@ -412,6 +455,19 @@ export async function createSeatCode(
   return { ok: true, code, expiresAt };
 }
 
+export async function deleteSeatCode(store: SeatStore, args: { entityId: string; codeId: string; actor: string | null; now?: Date }): Promise<SeatActionResult> {
+  const code = (await store.listCodes(args.entityId)).find((c) => c.id === args.codeId);
+  if (!code) return { ok: false, status: 404, error: 'Not found.' };
+  if (!canDeleteSeatCode(code)) {
+    return { ok: false, status: 409, error: 'A code that was used cannot be deleted: it is the record of how this firm got its seats.' };
+  }
+  const state = seatCodeState(code, args.now);
+  const done = await store.deleteCode(args.entityId, args.codeId);
+  if (!done) return { ok: false, status: 409, error: 'That code was just used, so it can no longer be deleted.' };
+  await store.recordEvent(args.entityId, 'code_deleted', args.actor, { codeHint: code.codeHint, wasState: state, seats: code.seats });
+  return { ok: true };
+}
+
 export async function revokeSeatCode(store: SeatStore, args: { entityId: string; codeId: string; actor: string | null }): Promise<SeatActionResult> {
   const ok = await store.revokeCode(args.entityId, args.codeId);
   if (!ok) return { ok: false, status: 404, error: 'Not found, or already used.' };
@@ -426,10 +482,13 @@ export async function redeemSeatCode(
   store: SeatStore, args: { code: string; userId: string },
 ): Promise<SeatActionResult<{ catalogEntityId: string; seats: number }>> {
   const normalized = normalizeSeatCode(args.code ?? '');
-  if (normalized.length < 12) return { ok: false, status: 400, error: SEAT_CODE_REFUSED };
-  const res = await store.redeemCode(hashSeatCode(args.code), args.userId);
-  if (!res.ok || !res.catalogEntityId) return { ok: false, status: 400, error: SEAT_CODE_REFUSED };
-  return { ok: true, catalogEntityId: res.catalogEntityId, seats: res.seats ?? 0 };
+  // 8 characters in the new format (10 with the prefix), 20 in the old one (22 with it).
+  if (normalized.length < 8 || normalized.length > 40) return { ok: false, status: 400, error: SEAT_CODE_REFUSED };
+  for (const text of seatCodeCandidates(args.code)) {
+    const res = await store.redeemCode(hashSeatCode(text), args.userId);
+    if (res.ok && res.catalogEntityId) return { ok: true, catalogEntityId: res.catalogEntityId, seats: res.seats ?? 0 };
+  }
+  return { ok: false, status: 400, error: SEAT_CODE_REFUSED };
 }
 
 /**

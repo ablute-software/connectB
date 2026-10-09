@@ -12,6 +12,7 @@ import { InvestorAgendaPanel } from './InvestorAgendaPanel';
 import { AccessGrantedPanel } from './AccessGrantedPanel';
 import { InvestorPlansPanel } from './InvestorPlansPanel';
 import { RemovedFromFirmNotice } from './RemovedFromFirmNotice';
+import { AddedToFirmNotice } from './AddedToFirmNotice';
 import { EvaluationToolsPanel } from './EvaluationToolsPanel';
 import { InvestorDashboardPanel } from './InvestorDashboardPanel';
 import { MessagesPanel, useInvestorMessagesUnreadCount } from './MessagesPanel';
@@ -327,6 +328,7 @@ export function InvestorWorkspaceShell({
             Pipeline's own row was before Prompt 345 §D.1 widened it. */}
         <main style={{ paddingBottom: investorBottomNavHeight ? `calc(1rem + ${investorBottomNavHeight}px)` : undefined }}
           className={`mx-auto p-4 md:p-8 ${shownTab === null ? 'max-w-6xl' : shownTab === 'evaluation' ? 'max-w-7xl' : shownTab === 'plans' || shownTab === 'network' || shownTab === 'pipeline' || shownTab === 'portfolio' ? 'max-w-6xl' : 'max-w-3xl'}`}>
+          <AddedToFirmNotice />
           {removedFrom && shownTab !== 'plans' && <RemovedFromFirmNotice firmName={removedFrom} onSeePlans={() => { setCallsOpen(false); setTab('plans'); }} />}
           {shownTab === null && <CallsWorkspace kind="catalog_entity" />}
           {shownTab === 'pipeline' && (

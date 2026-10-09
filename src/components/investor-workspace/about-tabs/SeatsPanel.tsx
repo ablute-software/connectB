@@ -140,9 +140,9 @@ export function SeatsPanelView({
             claim on your firm&apos;s profile.
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <input autoComplete="off" value={code} onChange={(e) => onCode(e.target.value)} placeholder="PD-XXXXX-XXXXX-XXXXX-XXXXX"
+            <input autoComplete="off" value={code} onChange={(e) => onCode(e.target.value)} placeholder="PD-XXXX-XXXX"
               aria-label="Plan code" className="min-w-[16rem] flex-1 rounded-lg border border-gray-300 px-3 py-1.5 font-mono text-sm uppercase" />
-            <button type="button" onClick={onRedeem} disabled={busy || code.replace(/[^A-Za-z0-9]/g, '').length < 12}
+            <button type="button" onClick={onRedeem} disabled={busy || code.replace(/[^A-Za-z0-9]/g, '').length < 8}
               className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#0c637b] disabled:opacity-40">Activate</button>
           </div>
           {notice && <p role="status" className="mt-2 text-xs text-emerald-700">{notice}</p>}

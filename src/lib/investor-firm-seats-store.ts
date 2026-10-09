@@ -6,7 +6,7 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
-  FirmSeatPlan, PendingSeatClaim, SeatCodeRow, SeatEvent, SeatInvite, SeatMember, SeatStore,
+  ArchivedMember, ArchivedPlan, FirmSeatPlan, PendingSeatClaim, SeatCodeRow, SeatEvent, SeatInvite, SeatMember, SeatNotice, SeatStore,
 } from './investor-firm-seats';
 
 type Row = Record<string, unknown>;
@@ -44,18 +44,61 @@ export function makeSeatStore(admin: SupabaseClient): SeatStore {
     },
 
     async upsertPlan(plan) {
+      // A plan row is one per firm. When it is the ENDED one being brought back, this is a new plan with a new
+      // life (its predecessor was archived when it ended): it starts now, it does not inherit the old date.
+      const { data: before } = await admin.from('investor_firm_seat_plans').select('status')
+        .eq('catalog_entity_id', plan.catalogEntityId).maybeSingle();
+      const reborn = (before as Row | null)?.status === 'ended';
+      const now = new Date().toISOString();
       const { error } = await admin.from('investor_firm_seat_plans').upsert({
         catalog_entity_id: plan.catalogEntityId, plan_name: plan.planName, seats: plan.seats, tier: plan.tier,
         status: 'active', activated_via: plan.activatedVia, admin_email: plan.adminEmail, note: plan.note ?? null,
-        set_by: plan.setBy, updated_at: new Date().toISOString(),
+        set_by: plan.setBy, updated_at: now, ...(reborn ? { created_at: now } : {}),
       }, { onConflict: 'catalog_entity_id' });
       if (error) throw new Error(error.message);
     },
 
-    async endPlan(entityId) {
-      const { error } = await admin.from('investor_firm_seat_plans')
-        .update({ status: 'ended', updated_at: new Date().toISOString() }).eq('catalog_entity_id', entityId);
+    async endPlan(entityId, actor) {
+      const { data, error } = await admin.rpc('end_investor_seat_plan', { p_entity: entityId, p_actor: actor });
       if (error) throw new Error(error.message);
+      return data?.ok === true ? { archiveId: data.archiveId as string } : null;
+    },
+
+    async listArchive(entityId) {
+      let q = admin.from('investor_firm_seat_plan_archive').select('*').order('ended_at', { ascending: false });
+      if (entityId) q = q.eq('catalog_entity_id', entityId);
+      const { data, error } = await q;
+      if (error) return [];
+      return ((data ?? []) as Row[]).map((r): ArchivedPlan => ({
+        id: r.id as string, entityId: r.catalog_entity_id as string, planName: r.plan_name as string, seats: r.seats as number,
+        tier: r.tier as string, activatedVia: r.activated_via as string, adminEmail: (r.admin_email as string | null) ?? null,
+        planCreatedAt: r.plan_created_at as string, planChangedAt: r.plan_changed_at as string, endedAt: r.ended_at as string,
+        endedBy: (r.ended_by as string | null) ?? null, members: ((r.members as ArchivedMember[] | null) ?? []),
+        reconstructed: r.reconstructed === true,
+      }));
+    },
+
+    async userIdByEmail(email) {
+      const { data, error } = await admin.rpc('seat_user_id_by_email', { p_email: email });
+      return error || !data ? null : (data as string);
+    },
+
+    async addNotice(email, entityId, actor) {
+      const { error } = await admin.from('investor_seat_notices').insert({ email, catalog_entity_id: entityId, created_by: actor });
+      if (error) throw new Error(error.message);
+    },
+
+    async unseenNotices(email) {
+      const { data, error } = await admin.from('investor_seat_notices').select('id, catalog_entity_id, created_at')
+        .eq('email', email).is('seen_at', null).order('created_at', { ascending: false });
+      if (error) return [];
+      return ((data ?? []) as Row[]).map((r): SeatNotice => ({ id: r.id as string, entityId: r.catalog_entity_id as string, createdAt: r.created_at as string }));
+    },
+
+    async markNoticesSeen(email, ids) {
+      if (!ids.length) return;
+      await admin.from('investor_seat_notices').update({ seen_at: new Date().toISOString() })
+        .eq('email', email).in('id', ids).is('seen_at', null);
     },
 
     async activeMembers(entityId) {
@@ -185,6 +228,12 @@ export function makeSeatStore(admin: SupabaseClient): SeatStore {
     async revokeCode(entityId, codeId) {
       const { data } = await admin.from('investor_seat_codes').update({ status: 'revoked', revoked_at: new Date().toISOString() })
         .eq('id', codeId).eq('catalog_entity_id', entityId).eq('status', 'active').select('id');
+      return (data ?? []).length > 0;
+    },
+
+    async deleteCode(entityId, codeId) {
+      const { data } = await admin.from('investor_seat_codes').delete()
+        .eq('id', codeId).eq('catalog_entity_id', entityId).neq('status', 'redeemed').select('id');
       return (data ?? []).length > 0;
     },
 

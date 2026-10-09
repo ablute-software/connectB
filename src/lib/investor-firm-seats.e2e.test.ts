@@ -100,9 +100,13 @@ describe('C2 — the SQL limit and the TypeScript limit agree', () => {
     expect(sql).toMatch(/if tg_op = 'UPDATE' and old\.status = 'active' then\s+return new;/);
   });
 
-  it('every event type the code writes is allowed by the migration CHECK', () => {
-    const sql = readFileSync(join(process.cwd(), 'supabase/migrations/20261009130000_investor_firm_seat_plans.sql'), 'utf8');
-    const allowed = new Set([...(/event\s+text\s+not null check \(event in \(([\s\S]*?)\)\)/.exec(sql)?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map((m) => m[1]));
+  it('every event type the code writes is allowed by the CHECK (the Adenda 1 migration replaces the first one with a superset)', () => {
+    const first = readFileSync(join(process.cwd(), 'supabase/migrations/20261009130000_investor_firm_seat_plans.sql'), 'utf8');
+    const later = readFileSync(join(process.cwd(), 'supabase/migrations/20261009170000_seat_plans_archive_notices_lookup.sql'), 'utf8');
+    const list = (sql: string, re: RegExp) => new Set([...(re.exec(sql)?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map((m) => m[1]));
+    const before = list(first, /event\s+text\s+not null check \(event in \(([\s\S]*?)\)\)/);
+    const allowed = list(later, /investor_seat_events_event_check check \(event in \(([\s\S]*?)\)\);/);
+    for (const e of before) expect(allowed.has(e), `the new CHECK dropped '${e}'`).toBe(true);
     const written = new Set<string>();
     for (const f of ['investor-firm-seats.ts', 'investor-seat-claims.ts', 'investor-firm-seats-store.ts']) {
       const src = readFileSync(join(process.cwd(), 'src/lib', f), 'utf8');
@@ -270,6 +274,7 @@ describe('C7 — pre-assignment by the back-office (a test firm with 10 seats, t
     expect((await setSeatPlan(env.store, { entityId: FIRM, seats: 3, actor: 'bo' })).ok).toBe(true);
     expect((await endSeatPlan(env.store, { entityId: FIRM, actor: 'bo' })).ok).toBe(true);
     expect(await env.store.getPlan(FIRM)).toBeNull();
+    expect(members(env.db)).toHaveLength(3); // ending a plan removes nobody
     expect((await checkSeatAvailable(env.admin, FIRM, 'u-new', 'new@x.com')).allowed).toBe(false);
   });
 
@@ -434,7 +439,7 @@ describe('entity-bound promo code', () => {
     const created = await createSeatCode(env.store, { entityId: FIRM, seats: 10, validDays: 30, actor: 'bo', now: new Date(env.db.clock) });
     expect(created.ok).toBe(true);
     const code = (created as { code: string }).code;
-    expect(code).toMatch(/^PD-[A-Z2-9]{5}(-[A-Z2-9]{5}){3}$/);
+    expect(code).toMatch(/^PD-[A-Z2-9]{4}-[A-Z2-9]{4}$/);
     const stored = env.db.tables.investor_seat_codes[0];
     expect(JSON.stringify(stored)).not.toContain(code.replace(/-/g, ''));
     expect(stored.code_hash).toBe(hashSeatCode(code));
