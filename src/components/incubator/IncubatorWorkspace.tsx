@@ -6,6 +6,8 @@
 // two audiences share no navigation. Everything reads /api/incubator/**,
 // which starts from requireIncubatorMember() — the incubator reads only its
 // own tables plus incubator_portfolio() (level-0 fields).
+import { CallsWorkspace } from '@/components/calls/CallsWorkspace';
+import { useCallsAccess } from '@/components/calls/useCallsAccess';
 import { useCallback, useEffect, useState } from 'react';
 import { WorkspaceSidebar } from '@/components/workspace-shell/WorkspaceSidebar';
 import { LogoutButton } from '@/components/workspace-shell/LogoutButton';
@@ -20,7 +22,7 @@ import {
 } from '@/lib/incubators';
 import { DEMO_INCUBATOR, DEMO_PORTFOLIO, DEMO_TEAM } from '@/lib/incubator-demo';
 
-type Tab = 'portfolio' | 'team' | 'settings';
+type Tab = 'portfolio' | 'calls' | 'team' | 'settings';
 
 interface MeResponse {
   ok: boolean; demo?: boolean; error?: string;
@@ -363,6 +365,8 @@ function SettingsPanel({ me, demo, onSaved }: { me: MeResponse; demo: boolean; o
 export function IncubatorWorkspace() {
   const [me, setMe] = useState<MeResponse | null>(null);
   const [tab, setTab] = useState<Tab>('portfolio');
+  // Prompt 905 — the Calls tab, behind CALLS_MODE: the server answers 404 and the tab never shows when it is off.
+  const callsEnabled = useCallsAccess('incubator');
 
   const loadMe = useCallback(() => {
     fetch('/api/incubator/me').then((r) => r.json()).then((d: MeResponse) => {
@@ -393,6 +397,7 @@ export function IncubatorWorkspace() {
   const demo = !!me.demo;
   const items: WorkspaceNavItem[] = ([
     { key: 'portfolio', label: 'Portfolio', icon: '▦' },
+    ...(callsEnabled ? [{ key: 'calls', label: 'Calls', icon: '◇' } as const] : []),
     { key: 'team', label: 'Team', icon: '◉' },
     { key: 'settings', label: 'Settings', icon: '⚙' },
   ] as const).map((n) => ({ ...n, active: tab === n.key, onSelect: () => setTab(n.key) }));
@@ -422,6 +427,7 @@ export function IncubatorWorkspace() {
           <p className="text-xs text-gray-500">{incubatorKindLabel(me.incubator.kind)}{me.incubator.city ? ` · ${me.incubator.city}` : ''}{demo ? ' · demo mode' : ''}</p>
         </div>
         {tab === 'portfolio' && <PortfolioPanel demo={demo} />}
+        {tab === 'calls' && callsEnabled && <CallsWorkspace kind="incubator" />}
         {tab === 'team' && <TeamPanel demo={demo} isOwner={me.member?.role === 'owner'} />}
         {tab === 'settings' && <SettingsPanel me={me} demo={demo} onSaved={loadMe} />}
       </main>

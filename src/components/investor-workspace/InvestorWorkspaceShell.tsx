@@ -46,6 +46,9 @@ import { InvestorActionsPanel, useInvestorActions } from '@/components/investor-
 import { InvestorReminderPopup } from '@/components/portal/InvestorReminderPopup';
 import { INVESTOR_NAV } from '@/lib/investor-nav';
 import { HatSwitcher } from '@/components/incubator/HatSwitcher';
+// Prompt 905 — the Calls tab: only when CALLS_MODE allows this person AND they belong to an investor firm.
+import { CallsWorkspace } from '@/components/calls/CallsWorkspace';
+import { useCallsAccess } from '@/components/calls/useCallsAccess';
 
 // Prompt 337 — 'archive' is no longer its own tab: ArchivePanel's content
 // moved into PipelinePanel as an "Archived" filter (same content, same
@@ -112,6 +115,11 @@ export function InvestorWorkspaceShell({
   initialEvaluationOrgId?: string | null;
 }) {
   const [tab, setTab] = useState<Tab>(() => initialTab ?? 'pipeline');
+  // Prompt 905 — Calls is deliberately NOT a `Tab` (that union is mirrored by the guest sidebar, which must not
+  // preview a feature behind a switch): it is a separate view that replaces the tab content while it is open.
+  const callsEnabled = useCallsAccess('catalog_entity');
+  const [callsOpen, setCallsOpen] = useState(false);
+  const shownTab: Tab | null = callsOpen && callsEnabled ? null : tab;
   const investorMobileNavRef = useBottomNavRef<HTMLElement>();
   const investorBottomNavHeight = useBottomNavHeight();
   // P131-B — set when a Pipeline card's "Ownership calculator" shortcut is
@@ -216,12 +224,17 @@ export function InvestorWorkspaceShell({
   // for two separately-computed arrays.
   const navItems: WorkspaceNavItem[] = NAV.map((n) => ({
     key: n.key, icon: n.icon, label: n.label, group: n.group,
-    active: tab === n.key, emphasize: n.key === 'about',
+    active: shownTab === n.key, emphasize: n.key === 'about',
     badge: n.key === 'support' && unreadSupport > 0 ? unreadSupport
       : n.key === 'actions' && investorActions.count > 0 ? investorActions.count
       : n.key === 'messages' && messagesUnread > 0 ? messagesUnread : undefined,
-    onSelect: () => setTab(n.key),
+    onSelect: () => { setCallsOpen(false); setTab(n.key); },
   }));
+  if (callsEnabled) {
+    // Right after Pipeline, in the same group (Data room / Pipeline / Calls).
+    const at = navItems.findIndex((n) => n.key === 'pipeline');
+    navItems.splice(at + 1, 0, { key: 'calls', icon: '◇', label: 'Calls', group: 2, active: callsOpen, onSelect: () => setCallsOpen(true) });
+  }
 
   return (
     <OnboardingProvider>
@@ -313,9 +326,10 @@ export function InvestorWorkspaceShell({
             ticket, instrument, contact) is cramped at max-w-3xl the same way
             Pipeline's own row was before Prompt 345 §D.1 widened it. */}
         <main style={{ paddingBottom: investorBottomNavHeight ? `calc(1rem + ${investorBottomNavHeight}px)` : undefined }}
-          className={`mx-auto p-4 md:p-8 ${tab === 'evaluation' ? 'max-w-7xl' : tab === 'plans' || tab === 'network' || tab === 'pipeline' || tab === 'portfolio' ? 'max-w-6xl' : 'max-w-3xl'}`}>
-          {removedFrom && tab !== 'plans' && <RemovedFromFirmNotice firmName={removedFrom} onSeePlans={() => setTab('plans')} />}
-          {tab === 'pipeline' && (
+          className={`mx-auto p-4 md:p-8 ${shownTab === null ? 'max-w-6xl' : shownTab === 'evaluation' ? 'max-w-7xl' : shownTab === 'plans' || shownTab === 'network' || shownTab === 'pipeline' || shownTab === 'portfolio' ? 'max-w-6xl' : 'max-w-3xl'}`}>
+          {removedFrom && shownTab !== 'plans' && <RemovedFromFirmNotice firmName={removedFrom} onSeePlans={() => { setCallsOpen(false); setTab('plans'); }} />}
+          {shownTab === null && <CallsWorkspace kind="catalog_entity" />}
+          {shownTab === 'pipeline' && (
             !gateOpen ? (
               <EmptyState
                 message="Complete your investor profile to start receiving startups matched to your thesis."
@@ -357,17 +371,17 @@ export function InvestorWorkspaceShell({
               <PipelinePanel onOpenStartup={onOpenStartup} />
             )
           )}
-          {tab === 'actions' && <InvestorActionsPanel actions={investorActions} />}
-          {tab === 'about' && <InvestorProfilePanel onCompletenessChange={setPct} onEntityNameChange={setInvestorFirmName} onIdentityStatusChange={setIdentityStatus} />}
-          {tab === 'portfolio' && <PortfolioPanel />}
-          {tab === 'access' && <AccessGrantedPanel />}
-          {tab === 'evaluation' && <EvaluationToolsPanel initialOrgId={evaluationTargetOrgId} />}
-          {tab === 'agenda' && <InvestorAgendaPanel />}
-          {tab === 'support' && <SupportTicketsPanel />}
-          {tab === 'plans' && <InvestorPlansPanel />}
-          {tab === 'dashboard' && <InvestorDashboardPanel />}
-          {tab === 'messages' && <MessagesPanel />}
-          {tab === 'network' && <NetworkPageContent viewerKind="investor" />}
+          {shownTab === 'actions' && <InvestorActionsPanel actions={investorActions} />}
+          {shownTab === 'about' && <InvestorProfilePanel onCompletenessChange={setPct} onEntityNameChange={setInvestorFirmName} onIdentityStatusChange={setIdentityStatus} />}
+          {shownTab === 'portfolio' && <PortfolioPanel />}
+          {shownTab === 'access' && <AccessGrantedPanel />}
+          {shownTab === 'evaluation' && <EvaluationToolsPanel initialOrgId={evaluationTargetOrgId} />}
+          {shownTab === 'agenda' && <InvestorAgendaPanel />}
+          {shownTab === 'support' && <SupportTicketsPanel />}
+          {shownTab === 'plans' && <InvestorPlansPanel />}
+          {shownTab === 'dashboard' && <InvestorDashboardPanel />}
+          {shownTab === 'messages' && <MessagesPanel />}
+          {shownTab === 'network' && <NetworkPageContent viewerKind="investor" />}
         </main>
       </div>
       {/* Prompt 127 Bloco A (addenda §3) — this workspace never had a mobile

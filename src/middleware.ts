@@ -12,7 +12,9 @@ import { shareableCookieDomain } from '@/lib/supabase';
 
 // Prompt 904 Part B: '/api/auth-code' (register / resend / verify / status) is public because its
 // callers have no session yet; each route answers 404 unless AUTH_CODE_MODE allows the email.
-const PUBLIC = ['/', '/investors', '/login', '/signup', '/auth', '/portal', '/api/me', '/api/auth-code', '/invite', '/api/invite', '/api/portal', '/privacy-request', '/api/gdpr', '/forgot-password', '/reset-password', '/set-password', '/api/stripe/webhook', '/contact', '/api/support', '/api/investor-access-request', '/matchdeal/pair', '/pair', '/manifest.json', '/api/plan/private-detective',
+// Prompt 905: a published call's link (/call/<token>) and the header it reads (/api/calls/public/<token>) are for
+// candidates who have no account yet. Everything else under /api/calls needs a session and answers 404 while CALLS_MODE is off.
+const PUBLIC = ['/call', '/api/calls/public', '/', '/investors', '/login', '/signup', '/auth', '/portal', '/api/me', '/api/auth-code', '/invite', '/api/invite', '/api/portal', '/privacy-request', '/api/gdpr', '/forgot-password', '/reset-password', '/set-password', '/api/stripe/webhook', '/contact', '/api/support', '/api/investor-access-request', '/matchdeal/pair', '/pair', '/manifest.json', '/api/plan/private-detective',
   // Prompt 341 — DL 7/2004's pre-contractual information duty: the text
   // must be reachable BEFORE anyone contracts, not gated behind login. The
   // acceptance routes (/api/terms/status, /api/terms/accept) stay OUT of

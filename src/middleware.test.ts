@@ -60,6 +60,19 @@ describe('middleware — unauthenticated API access', () => {
     expect(page.headers.get('location')).toContain('/login');
   });
 
+  // Prompt 905 — the public link of a call and its header are for people with no account; the rest of Calls is not.
+  it('lets the public call link through, but not the Calls API or the editor', async () => {
+    for (const path of ['/call/abcdefghijklmnopqrstuv', '/api/calls/public/abcdefghijklmnopqrstuv']) {
+      const res = await middleware(get(path));
+      expect(res.status, path).not.toBe(307);
+    }
+    for (const path of ['/api/calls', '/api/calls/some-id', '/api/calls/access']) {
+      const res = await middleware(get(path));
+      expect(res.status, path).toBe(307);
+      expect(res.headers.get('location'), path).toContain('/login');
+    }
+  });
+
   it('still redirects any other unauthenticated API POST to /login', async () => {
     const res = await middleware(post('/api/anything-else'));
     expect(res.status).toBe(307);
