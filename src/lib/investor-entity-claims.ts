@@ -18,6 +18,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import psl from 'psl';
 import { normalizeDomain } from './catalog-dedupe';
+import { normalizeSeatEmail } from './investor-firm-seats';
+import { makeSeatStore } from './investor-firm-seats-store';
+import { applyInvestorTierToFirm } from './investor-plan-apply';
 
 // Same freemail set the prompt names explicitly (§2.4) — a provider
 // anyone can register an address at, so it can never be proof of
@@ -122,6 +125,8 @@ export async function applyClaimApproval(admin: SupabaseClient, opts: {
   requestedRole: string | null;
   resolvedBy: string | null;
   verificationMethod: 'domain' | 'document' | 'manual';
+  /** Prompt 904 Part C — the claimant's email, to settle a reserved seat / name the plan's administrator. */
+  claimantEmail?: string | null;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   // matchdeal_investor_members.role is NOT NULL, default 'member' — a claim
   // with no requested role (the field is optional on /claim) has
@@ -141,11 +146,25 @@ export async function applyClaimApproval(admin: SupabaseClient, opts: {
   // the human approve route 500'd on the same row. The free text is still
   // kept verbatim on investor_entity_claims.requested_role (the admin sees
   // it); the SEAT role is the constrained value, defaulting to 'member'.
+  // Prompt 904 Part C — on a firm with a custom seat plan the person the back-office named as its
+  // administrator is seated as 'admin' (the role gates nothing on firms without a plan).
+  const seatStore = makeSeatStore(admin);
+  const seatPlan = await seatStore.getPlan(opts.catalogEntityId);
+  const claimantEmail = normalizeSeatEmail(opts.claimantEmail);
+  const isPlanAdmin = !!seatPlan?.adminEmail && !!claimantEmail && normalizeSeatEmail(seatPlan.adminEmail) === claimantEmail;
+
   const { error: memberErr } = await admin.from('matchdeal_investor_members').upsert({
     user_id: opts.claimantUserId, catalog_entity_id: opts.catalogEntityId,
-    status: 'active', domain_verified: true, role: seatRoleFromRequested(opts.requestedRole), verification_method: opts.verificationMethod,
+    status: 'active', domain_verified: true, role: isPlanAdmin ? 'admin' : seatRoleFromRequested(opts.requestedRole), verification_method: opts.verificationMethod,
   }, { onConflict: 'user_id,catalog_entity_id' });
   if (memberErr) return { ok: false, error: memberErr.message };
+
+  if (seatPlan) {
+    // The seat that was reserved for this email is now a real one; and every member of the firm
+    // carries the plan's feature tier, not the default the profile row is created with.
+    if (claimantEmail) await seatStore.acceptInvite(opts.catalogEntityId, claimantEmail, opts.claimantUserId).catch(() => {});
+    await applyInvestorTierToFirm(admin, opts.catalogEntityId, seatPlan.tier).catch(() => {});
+  }
 
   // §3.3 — "aprovado um claim, a entidade fica gerida".
   const { error: entityUpdateErr } = await admin.from('catalog_entities').update({

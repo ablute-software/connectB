@@ -44,7 +44,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   // approved, no seat) would be worse than not approving it. Nothing is
   // written yet at this point, so the claim stays pending and re-approvable
   // once the plan is raised (Accounts → set investor plan) or a seat freed.
-  const seatVerdict = await checkSeatAvailable(admin, claim.catalog_entity_id as string, claim.claimant_user_id as string);
+  const seatVerdict = await checkSeatAvailable(admin, claim.catalog_entity_id as string, claim.claimant_user_id as string, claim.claimant_email as string | null);
   if (!seatVerdict.allowed) {
     return NextResponse.json({
       ok: false, error: `Seat limit reached for ${entity.name}. ${seatVerdict.reason}`,
@@ -59,6 +59,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const applied = await applyClaimApproval(admin, {
     claimId: id, catalogEntityId: claim.catalog_entity_id as string, claimantUserId: claim.claimant_user_id as string,
     requestedRole: claim.requested_role as string | null, resolvedBy: userId, verificationMethod: resolvedMethod,
+    claimantEmail: claim.claimant_email as string | null,
   });
   if (!applied.ok) return NextResponse.json({ ok: false, error: applied.error }, { status: 500 });
 

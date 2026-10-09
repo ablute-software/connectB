@@ -88,6 +88,8 @@ export interface ProfileResponse {
   pipelineConfirmedAt?: string | null;
   // Prompt 421 §D.2 — migration 0267.
   notifyNewEligibleStartup?: boolean;
+  // Prompt 904 Part C (C5) — set when `linked` is false because an administrator removed the seat.
+  removedFrom?: { entityId: string; entityName: string } | null;
 }
 
 // Bloco 4 placeholder legal text — EXACT strings from the prompt, never a

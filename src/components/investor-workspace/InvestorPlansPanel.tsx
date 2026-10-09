@@ -20,6 +20,7 @@ import { useEffect, useState } from 'react';
 import { INVESTOR_PLANS, INVESTOR_PLAN_FOOTNOTES, MATCHDEAL_TIER_TO_INVESTOR_PLAN as MATCHDEAL_TO_TIER, type InvestorPlanTier } from '@/lib/plans';
 import { InvestorPlanGrid } from '@/components/investor-workspace/InvestorPlanGrid';
 import { SECURE_PAYMENT_COPY } from '@/lib/billing';
+import { RemovedFromFirmNotice } from './RemovedFromFirmNotice';
 
 interface Profile { plan_tier?: string | null; plan_tier_requested?: string | null }
 interface BillingState { configured: boolean; hasSubscription: boolean; blocked?: boolean; lastPaidTier?: string | null }
@@ -35,11 +36,14 @@ export function InvestorPlansPanel() {
   // real annualEur/annualPerMonthEur values (all three confirmed by the
   // founder — Prompt 501 removed the last `annualPending` placeholders).
   const [billing, setBilling] = useState<'monthly' | 'annual'>('monthly');
+  // Prompt 904 Part C (C5) — not linked to any firm. `removedFrom` names the one that took the seat away.
+  const [unlinked, setUnlinked] = useState<{ removedFrom: string | null } | null>(null);
 
   useEffect(() => {
     fetch('/api/portal/investor-profile').then((r) => r.json())
       .then((d) => {
         setProfile(d.linked ? d.profile : null);
+        if (!d.linked) setUnlinked({ removedFrom: d.removedFrom?.entityName ?? null });
         if (d.billing) setBillingState(d.billing);
       })
       .catch(() => setProfile(null));
@@ -51,6 +55,20 @@ export function InvestorPlansPanel() {
     else if (q === 'cancel') setNotice('Checkout canceled — nothing was charged.');
   }, []);
 
+  // Prompt 904 Part C (C5) — no firm, no plan of their own yet: the plans, with no "current plan" and
+  // no free access implied. Choosing one needs a firm of their own to attach it to (profile tab).
+  if (!profile && unlinked) {
+    return (
+      <div className="max-w-6xl space-y-4">
+        <h1 className="text-lg font-bold text-gray-900">Plans &amp; billing</h1>
+        {unlinked.removedFrom && <RemovedFromFirmNotice firmName={unlinked.removedFrom} />}
+        <InvestorPlanGrid
+          billing={billing} onBillingChange={setBilling} current={null}
+          renderCta={() => <span className="text-xs text-gray-500">Link your own firm in the About tab to choose a plan.</span>}
+        />
+      </div>
+    );
+  }
   if (!profile) return <p className="text-sm text-gray-400">Loading…</p>;
 
   const current = MATCHDEAL_TO_TIER[profile.plan_tier ?? 'tier_a'] ?? 'pro_scout';

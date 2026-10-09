@@ -20,6 +20,8 @@ import { ALL_SECTOR_NAMES } from '@/lib/sector-taxonomy';
 import { computeIdentityStatus } from '@/lib/investor-identity';
 import { countDistinctVoucherEntities } from '@/lib/investor-vouching';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
+import { findRemovedFirm } from '@/lib/investor-firm-seats-guard';
+import { makeSeatStore } from '@/lib/investor-firm-seats-store';
 import { investorBillingConfigured } from '@/lib/stripe-env';
 import { isBlockedState } from '@/lib/investor-billing-access';
 import { ensureInvestorAccessStarted } from '@/lib/investor-access-period';
@@ -87,14 +89,21 @@ export async function GET(req: Request) {
   // ligado" e não teria por onde voltar a pagar. O POST desta mesma rota
   // (editar o perfil) NÃO leva a excepção — editar é uso a sério.
   const member = await resolveActiveInvestorMember(admin, user.id, { allowBillingLapsed: true });
-  if (!member) return NextResponse.json({ linked: false });
+  if (!member) {
+    // Prompt 904 Part C (C5) — a member whose seat was taken away is told so, by name, instead of
+    // being shown the "find your firm" form as if they had never belonged anywhere.
+    return NextResponse.json({ linked: false, removedFrom: await findRemovedFirm(admin, user.id) });
+  }
 
   const { data: entity } = await admin.from('catalog_entities').select('name, verification_status').eq('id', member.catalog_entity_id).maybeSingle();
   let { data: profile } = await admin.from('matchdeal_profiles').select('*')
     .eq('membership_id', member.id).eq('kind', 'investor').maybeSingle();
   if (!profile) {
+    // Prompt 904 Part C — a member of a firm with a custom plan starts on the plan's feature tier,
+    // not on the column default.
+    const seatPlan = await makeSeatStore(admin).getPlan(member.catalog_entity_id);
     const { data: created } = await admin.from('matchdeal_profiles')
-      .insert({ membership_id: member.id, kind: 'investor', entity_name: entity?.name ?? null })
+      .insert({ membership_id: member.id, kind: 'investor', entity_name: entity?.name ?? null, ...(seatPlan ? { plan_tier: seatPlan.tier } : {}) })
       .select('*').single();
     profile = created;
   }

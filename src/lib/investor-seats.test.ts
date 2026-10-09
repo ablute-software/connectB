@@ -13,11 +13,16 @@ import { checkSeatAvailable, resolveFirmPlanTier } from './investor-seats';
 function fakeAdmin(rows: {
   members: { id: string; user_id: string; catalog_entity_id: string; status: string; created_at: string }[];
   profiles: { membership_id: string; kind: string; plan_tier: string | null }[];
+  // Prompt 904 Part C — the custom-plan tables; absent = a firm with no custom plan.
+  plans?: Record<string, unknown>[];
+  invites?: Record<string, unknown>[];
 }) {
   return {
     from(table: string) {
       let data: Record<string, unknown>[] = table === 'matchdeal_investor_members'
         ? rows.members as unknown as Record<string, unknown>[]
+        : table === 'investor_firm_seat_plans' ? (rows.plans ?? [])
+        : table === 'investor_firm_seat_invites' ? (rows.invites ?? [])
         : rows.profiles as unknown as Record<string, unknown>[];
       const q = {
         select: () => q,
@@ -27,6 +32,7 @@ function fakeAdmin(rows: {
           data = [...data].sort((a, b) => String(a[col]).localeCompare(String(b[col])));
           return q;
         },
+        maybeSingle: () => Promise.resolve({ data: data[0] ?? null, error: null }),
         then: (resolve: (v: { data: Record<string, unknown>[] }) => unknown) => resolve({ data }),
       };
       return q;

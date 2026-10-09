@@ -11,6 +11,9 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
+import { resolveSeatContext } from '@/lib/investor-firm-seats-guard';
+import { removeSeat } from '@/lib/investor-firm-seats';
+import { makeSeatStore } from '@/lib/investor-firm-seats-store';
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -37,6 +40,16 @@ export async function POST(req: Request) {
     .select('id, catalog_entity_id').eq('id', memberId).maybeSingle();
   if (!target || target.catalog_entity_id !== own.catalog_entity_id) {
     return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
+  }
+
+  // Prompt 904 Part C — on a firm with a custom seat plan, seats belong to its administrators: any
+  // member removing any other (the Prompt 421 rule, kept for firms without a plan) would let an
+  // evaluator remove the head of the firm. Same removal, same history, one place (removeSeat).
+  const seatCtx = await resolveSeatContext(admin, user);
+  if (seatCtx?.plan) {
+    if (!seatCtx.isAdmin) return NextResponse.json({ ok: false, error: "Only your firm's administrators can remove seats." }, { status: 403 });
+    const removed = await removeSeat(makeSeatStore(admin), { entityId: seatCtx.entityId, memberId, actor: user.id, actorMemberId: own.id });
+    return removed.ok ? NextResponse.json({ ok: true }) : NextResponse.json({ ok: false, error: removed.error }, { status: removed.status });
   }
 
   const { error } = await admin.from('matchdeal_investor_members').update({ status: 'revoked' }).eq('id', memberId);

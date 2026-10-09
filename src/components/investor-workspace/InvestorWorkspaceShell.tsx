@@ -11,6 +11,7 @@ import { PipelinePanel } from './PipelinePanel';
 import { InvestorAgendaPanel } from './InvestorAgendaPanel';
 import { AccessGrantedPanel } from './AccessGrantedPanel';
 import { InvestorPlansPanel } from './InvestorPlansPanel';
+import { RemovedFromFirmNotice } from './RemovedFromFirmNotice';
 import { EvaluationToolsPanel } from './EvaluationToolsPanel';
 import { InvestorDashboardPanel } from './InvestorDashboardPanel';
 import { MessagesPanel, useInvestorMessagesUnreadCount } from './MessagesPanel';
@@ -137,6 +138,9 @@ export function InvestorWorkspaceShell({
   // and unlocked the Pipeline.
   const [pipelineConfirmedAt, setPipelineConfirmedAt] = useState<string | null>(null);
   const [confirmingPipeline, setConfirmingPipeline] = useState(false);
+  // Prompt 904 Part C (C5) — the firm whose administrator removed this person's seat, when that is why
+  // the workspace is unlinked. Opens on Plans, with the notice on top of every tab.
+  const [removedFrom, setRemovedFrom] = useState<string | null>(null);
   // Top bar activity counter (Bloco 1) — reuses Today's own item list rather
   // than a second aggregation query; a plain count, not a kind-by-kind
   // breakdown, since Today's items already vary in shape per kind and this
@@ -162,6 +166,7 @@ export function InvestorWorkspaceShell({
       setInvestorFirmName(d.linked ? d.entityName ?? null : null);
       setIdentityStatus(d.linked ? d.identityStatus ?? null : null);
       setPipelineConfirmedAt(d.linked ? d.pipelineConfirmedAt ?? null : null);
+      if (!d.linked && d.removedFrom) { setRemovedFrom(d.removedFrom.entityName); setTab('plans'); }
     }).catch(() => {});
   }, []);
 
@@ -309,6 +314,7 @@ export function InvestorWorkspaceShell({
             Pipeline's own row was before Prompt 345 §D.1 widened it. */}
         <main style={{ paddingBottom: investorBottomNavHeight ? `calc(1rem + ${investorBottomNavHeight}px)` : undefined }}
           className={`mx-auto p-4 md:p-8 ${tab === 'evaluation' ? 'max-w-7xl' : tab === 'plans' || tab === 'network' || tab === 'pipeline' || tab === 'portfolio' ? 'max-w-6xl' : 'max-w-3xl'}`}>
+          {removedFrom && tab !== 'plans' && <RemovedFromFirmNotice firmName={removedFrom} onSeePlans={() => setTab('plans')} />}
           {tab === 'pipeline' && (
             !gateOpen ? (
               <EmptyState

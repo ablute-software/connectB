@@ -173,6 +173,7 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
 
     item('accounts-startups', 'Startups', '/backoffice/startups', { icon: '◉', group: 2, groupLabel: 'Accounts' }),
     item('accounts-investors', 'Investors', '/backoffice/investors', { icon: '◉', group: 2 }),
+    item('accounts-seat-plans', 'Custom plan seats', '/backoffice/seat-plans', { icon: '◉', group: 2 }),
     // Prompt I-01 §C.1 — incubators/accelerators (own tables, never orgs).
     item('accounts-incubators', 'Ecosystem organisations', '/backoffice/incubators', { icon: '◉', group: 2 }),
     item('accounts-plans', 'Plan requests', '/backoffice/plan-requests', { icon: '◉', group: 2, dimmed: true }),

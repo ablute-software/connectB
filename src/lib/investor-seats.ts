@@ -16,6 +16,8 @@ import {
   MATCHDEAL_TIER_TO_INVESTOR_PLAN, checkInvestorSeatLimit,
   type InvestorPlanTier, type InvestorSeatVerdict,
 } from './plans';
+import { customSeatLimitInfo, judgeSeats, normalizeSeatEmail } from './investor-firm-seats';
+import { makeSeatStore } from './investor-firm-seats-store';
 
 /** MatchDeal's internal default, mirrored from investor-pipeline.ts / portal-access.ts. */
 const DEFAULT_MATCHDEAL_TIER = 'tier_a';
@@ -54,7 +56,27 @@ export async function resolveFirmPlanTier(
  */
 export async function checkSeatAvailable(
   admin: SupabaseClient, catalogEntityId: string, userId: string,
+  /** The person's email: a seat the firm's administrator reserved for it is theirs, not "taken". */
+  claimantEmail?: string | null,
 ): Promise<InvestorSeatVerdict> {
+  // Prompt 904 Part C — a firm with a custom plan has its own number of seats, and seats an
+  // administrator reserved by email count as taken for everybody else. Same "already seated here
+  // is always allowed" rule as below; a firm WITHOUT a plan falls through, untouched.
+  const store = makeSeatStore(admin);
+  const plan = await store.getPlan(catalogEntityId);
+  if (plan) {
+    const [active, invites] = await Promise.all([store.activeMemberUserIds(catalogEntityId), store.openInvites(catalogEntityId)]);
+    const info = customSeatLimitInfo(plan);
+    const others = active.filter((id) => id !== userId).length;
+    const reserved = invites.filter((i) => i.email !== normalizeSeatEmail(claimantEmail)).length;
+    const verdict = judgeSeats(info, others + reserved);
+    const alreadySeated = active.includes(userId);
+    return {
+      allowed: alreadySeated || verdict.allowed, tier: info.tier, planName: info.planName, limit: info.limit,
+      used: others + reserved, reason: alreadySeated ? null : verdict.reason,
+    };
+  }
+
   const [{ data: members }, tier] = await Promise.all([
     admin.from('matchdeal_investor_members')
       .select('user_id').eq('catalog_entity_id', catalogEntityId).eq('status', 'active'),

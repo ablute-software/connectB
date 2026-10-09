@@ -7,12 +7,12 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { evaluateClaimDomain, applyClaimApproval } from '@/lib/investor-entity-claims';
+import { evaluateClaimDomain } from '@/lib/investor-entity-claims';
 import { investorEntityClaimsAvailable } from '@/lib/investor-entity-claims-capability';
 import { accountModerationAvailable } from '@/lib/account-moderation-capability';
 import { pipelineTestFlagAvailable } from '@/lib/pipeline-test-flag-capability';
 import { sendClaimDisputeNotice, notifyClaimDecision, sendClaimApprovalTripwire, splitEmails } from '@/lib/investor-entity-claim-notify';
-import { checkSeatAvailable } from '@/lib/investor-seats';
+import { classifyClaim, autoApproveClaimIfEligible } from '@/lib/investor-claim-auto-approval';
 import { logAdminAction } from '@/lib/audit';
 
 // §3.4 — "máx. 3 claims pendentes por utilizador". The (entity, user)
@@ -104,7 +104,13 @@ export async function POST(req: Request) {
   // told right away (independent of whatever the backoffice later decides).
   const { data: existingApproved } = await admin.from('investor_entity_claims')
     .select('claimant_email').eq('catalog_entity_id', catalogEntityId).eq('status', 'approved');
-  const isDispute = (existingApproved ?? []).length > 0;
+  // Prompt 904 Part C — on a firm with a custom seat plan, several people of the same firm are
+  // MEANT to be seated, so a second claimant is not a dispute (it used to park claim 2..N in
+  // pending whatever the seat count said). A firm without a plan keeps the dispute rule untouched.
+  const classification = await classifyClaim(admin, {
+    entityId: catalogEntityId, userId: user.id, email: user.email, domainMatch: verdict.domainMatch, approvedClaimCount: (existingApproved ?? []).length,
+  });
+  const isDispute = classification.isDispute;
 
   const evidence = {
     claimantDomain: verdict.claimantDomain, entityDomain: verdict.entityDomain,
@@ -145,26 +151,23 @@ export async function POST(req: Request) {
   // (queued for backoffice, same as the human-approval route already does)
   // rather than either silently over-filling the plan or refusing the claim
   // outright.
-  let autoApproved = false;
-  if (verdict.domainMatch && !isDispute) {
-    const seatVerdict = await checkSeatAvailable(admin, catalogEntityId, user.id);
-    if (seatVerdict.allowed) {
-      const applied = await applyClaimApproval(admin, {
-        claimId: claim.id, catalogEntityId, claimantUserId: user.id,
-        requestedRole: requestedRole?.trim() || null, resolvedBy: null, verificationMethod: 'domain',
-      });
-      if (applied.ok) {
-        autoApproved = true;
-        await logAdminAction(admin, {
-          adminUserId: null, action: 'investor_entity_claim_auto_approved', subjectType: 'investor_entity_claim',
-          subjectId: claim.id, detail: { catalogEntityId, claimantEmail: user.email, note: 'auto-approved: domain match' },
-        });
-        await notifyClaimDecision(admin, { id: claim.id, claimantEmail: user.email, entityName: entity.name as string, status: 'approved' });
-        const contactEmails = [...new Set([...splitEmails(entity.email as string | null), ...splitEmails(entity.general_partner_emails as string | null)])]
-          .filter((e) => e !== user.email!.toLowerCase());
-        await sendClaimApprovalTripwire({ contactEmails, claimantEmail: user.email, entityName: entity.name as string }).catch(() => {});
-      }
-    }
+  const autoApproved = await autoApproveClaimIfEligible(admin, {
+    claimId: claim.id, entityId: catalogEntityId, userId: user.id, email: user.email,
+    requestedRole: requestedRole?.trim() || null, domainMatch: verdict.domainMatch, classification,
+  });
+  if (autoApproved) {
+    await logAdminAction(admin, {
+      adminUserId: null, action: 'investor_entity_claim_auto_approved', subjectType: 'investor_entity_claim',
+      subjectId: claim.id, detail: {
+        catalogEntityId, claimantEmail: user.email,
+        note: classification.planned.consumesInvite ? 'auto-approved: seat reserved by the firm administrator'
+          : classification.isPlanned ? 'auto-approved: domain match on a firm with a custom seat plan' : 'auto-approved: domain match',
+      },
+    });
+    await notifyClaimDecision(admin, { id: claim.id, claimantEmail: user.email, entityName: entity.name as string, status: 'approved' });
+    const contactEmails = [...new Set([...splitEmails(entity.email as string | null), ...splitEmails(entity.general_partner_emails as string | null)])]
+      .filter((e) => e !== user.email!.toLowerCase());
+    await sendClaimApprovalTripwire({ contactEmails, claimantEmail: user.email, entityName: entity.name as string }).catch(() => {});
   }
 
   return NextResponse.json({ ok: true, claimId: claim.id, domainMatch: verdict.domainMatch, isDispute, autoApproved });

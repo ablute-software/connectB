@@ -13,6 +13,7 @@
 // useful: seeing each colleague's role and revoking access for someone who
 // left the firm — ColleaguesCard was read-only for both.
 import { useEffect, useState } from 'react';
+import { SeatsPanel } from './SeatsPanel';
 
 interface Colleague { id: string; email: string; name: string | null; role: string | null }
 
@@ -21,6 +22,9 @@ export function AppAccessTab() {
   const [colleagues, setColleagues] = useState<Colleague[] | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [err, setErr] = useState('');
+  // Prompt 904 Part C — a firm with a custom seat plan manages seats in <SeatsPanel> (administrators
+  // only); the generic revoke button and the "adding a colleague" note below are for firms without one.
+  const [hasSeatPlan, setHasSeatPlan] = useState(false);
 
   function load() {
     fetch('/api/portal/colleagues').then((r) => r.json()).then((d) => {
@@ -44,6 +48,7 @@ export function AppAccessTab() {
 
   return (
     <div className="max-w-2xl space-y-4">
+      <SeatsPanel onData={(d) => setHasSeatPlan(!!d?.hasPlan)} onChange={load} />
       <div className="rounded-lg border border-gray-200 bg-white p-4">
         <h2 className="text-sm font-semibold text-gray-900">Your team on Sherlock Deal</h2>
         {colleagues === null ? (
@@ -59,10 +64,12 @@ export function AppAccessTab() {
                   {c.name && <span className="ml-2 text-xs text-gray-400">{c.email}</span>}
                   {c.role && <span className="ml-2 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">{c.role}</span>}
                 </div>
-                <button onClick={() => revoke(c.id)} disabled={revokingId === c.id}
-                  className="shrink-0 text-xs text-gray-400 hover:text-[#B00000] disabled:opacity-40">
-                  {revokingId === c.id ? 'Revoking…' : 'Revoke access'}
-                </button>
+                {!hasSeatPlan && (
+                  <button onClick={() => revoke(c.id)} disabled={revokingId === c.id}
+                    className="shrink-0 text-xs text-gray-400 hover:text-[#B00000] disabled:opacity-40">
+                    {revokingId === c.id ? 'Revoking…' : 'Revoke access'}
+                  </button>
+                )}
               </li>
             ))}
           </ul>
@@ -70,14 +77,14 @@ export function AppAccessTab() {
         {err && <p className="mt-2 text-xs text-[#B00000]">{err}</p>}
       </div>
 
-      <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-xs text-gray-500">
+      {!hasSeatPlan && <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-xs text-gray-500">
         <h3 className="text-xs font-semibold text-gray-700">Adding a colleague</h3>
         <p className="mt-1">
           There&apos;s no separate invite step — a colleague signs up on Sherlock Deal and searches for{' '}
           <b>{entityName ?? 'your firm'}</b> the same way you did. If their sign-in email matches your firm&apos;s
           domain, they&apos;re linked automatically; otherwise it&apos;s reviewed and approved shortly.
         </p>
-      </div>
+      </div>}
     </div>
   );
 }

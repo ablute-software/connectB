@@ -18,6 +18,8 @@ import { serverClient } from '@/lib/supabase-server';
 import { checkInvestorDomainMatch, isAutoEligible } from '@/lib/investor-domain-match';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { checkSeatAvailable } from '@/lib/investor-seats';
+import { selfLinkRefusal, normalizeSeatEmail } from '@/lib/investor-firm-seats';
+import { makeSeatStore } from '@/lib/investor-firm-seats-store';
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -46,7 +48,7 @@ export async function POST(req: Request) {
   // lookup (the message names the firm's plan, which needs the entity). A
   // user who already holds an active seat here short-circuits to allowed in
   // checkSeatAvailable(), so a re-link is a no-op write, never a 409.
-  const seatVerdict = await checkSeatAvailable(admin, catalog_entity_id, user.id);
+  const seatVerdict = await checkSeatAvailable(admin, catalog_entity_id, user.id, email);
   if (!seatVerdict.allowed) {
     return NextResponse.json({
       ok: false, error: seatVerdict.reason, seatLimit: {
@@ -61,10 +63,20 @@ export async function POST(req: Request) {
   });
   const domainVerified = isAutoEligible(verdict);
 
+  // Prompt 904 Part C — a firm with a custom seat plan manages its own seats: self-linking is for
+  // people it reserved a seat for or whose email is the firm's own domain, never for a stranger, and
+  // never for someone the administrator removed.
+  const refusal = await selfLinkRefusal(makeSeatStore(admin), { entityId: catalog_entity_id, userId: user.id, email: normalizeSeatEmail(email), domainVerified });
+  if (refusal) return NextResponse.json({ ok: false, error: refusal }, { status: 403 });
+
   const { data: member, error } = await admin.from('matchdeal_investor_members')
     .upsert({ user_id: user.id, catalog_entity_id, status: 'active', domain_verified: domainVerified }, { onConflict: 'user_id,catalog_entity_id' })
     .select('id').single();
   if (error || !member) return NextResponse.json({ ok: false, error: error?.message ?? 'Could not link.' }, { status: 500 });
+
+  // Prompt 904 Part C — a seat reserved for this email is now a real one; leaving the reservation open
+  // would count it twice against the plan. No-op on a firm without a plan.
+  await makeSeatStore(admin).acceptInvite(catalog_entity_id, normalizeSeatEmail(email), user.id).catch(() => {});
 
   return NextResponse.json({ ok: true, membershipId: member.id, entityName: entity.name, domainVerified, verdict: verdict.kind });
 }
