@@ -13,6 +13,7 @@ import { accountModerationAvailable } from '@/lib/account-moderation-capability'
 import { pipelineTestFlagAvailable } from '@/lib/pipeline-test-flag-capability';
 import { sendClaimDisputeNotice, notifyClaimDecision, sendClaimApprovalTripwire, splitEmails } from '@/lib/investor-entity-claim-notify';
 import { classifyClaim, autoApproveClaimIfEligible } from '@/lib/investor-claim-auto-approval';
+import { notifySeatAdminsOfPendingClaim } from '@/lib/investor-seat-claims';
 import { logAdminAction } from '@/lib/audit';
 
 // §3.4 — "máx. 3 claims pendentes por utilizador". The (entity, user)
@@ -117,6 +118,8 @@ export async function POST(req: Request) {
     entityDomainIsFreemail: verdict.entityDomainIsFreemail, roleMailbox: verdict.roleMailbox,
     isDispute, disputedOwnerEmails: isDispute ? (existingApproved ?? []).map((c) => c.claimant_email) : [],
     requestedRole: requestedRole?.trim() || null,
+    // Prompt 904 decision 3 — on a firm with a custom seat plan this claim waits for the firm's own administrator.
+    awaitingFirmAdmin: verdict.domainMatch && (classification.planned.reason === 'awaiting_firm_admin' || classification.planned.reason === 'removed_member'),
   };
 
   const { data: claim, error: insertErr } = await admin.from('investor_entity_claims').insert({
@@ -155,6 +158,10 @@ export async function POST(req: Request) {
     claimId: claim.id, entityId: catalogEntityId, userId: user.id, email: user.email,
     requestedRole: requestedRole?.trim() || null, domainMatch: verdict.domainMatch, classification,
   });
+  if (!autoApproved && evidence.awaitingFirmAdmin) {
+    await notifySeatAdminsOfPendingClaim(admin, { entityId: catalogEntityId, entityName: entity.name as string, claimantEmail: user.email }).catch(() => 0);
+  }
+
   if (autoApproved) {
     await logAdminAction(admin, {
       adminUserId: null, action: 'investor_entity_claim_auto_approved', subjectType: 'investor_entity_claim',

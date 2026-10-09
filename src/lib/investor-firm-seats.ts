@@ -52,6 +52,10 @@ export interface SeatMember {
   since: string | null;
 }
 
+export interface PendingSeatClaim {
+  id: string; claimantUserId: string; claimantEmail: string; requestedRole: string | null; createdAt: string;
+}
+
 export interface SeatInvite { id: string; email: string; invitedBy: string | null; createdAt: string }
 
 export interface SeatEvent {
@@ -71,6 +75,8 @@ export interface SeatStore {
   activeMembers(entityId: string): Promise<SeatMember[]>;
   /** Cheap: only who holds a seat (no email lookups) — for counting. */
   activeMemberUserIds(entityId: string): Promise<string[]>;
+  /** Claims waiting for the firm's administrator: pending, and the claimant's email domain matches the firm's. */
+  pendingClaims(entityId: string): Promise<PendingSeatClaim[]>;
   /** Users whose seat on this firm was taken away (membership 'revoked'). */
   revokedUserIds(entityId: string): Promise<string[]>;
   openInvites(entityId: string): Promise<SeatInvite[]>;
@@ -186,7 +192,7 @@ export interface ClaimSeatDecision {
   /** The reserved invite this claim consumes, if any. */
   consumesInvite: boolean;
   /** Why it was not auto-approved, for the audit trail and the claimant's pending screen. */
-  reason: 'no_plan' | 'no_domain_match_or_invite' | 'no_free_seat' | 'removed_member' | null;
+  reason: 'no_plan' | 'awaiting_firm_admin' | 'no_domain_match_or_invite' | 'no_free_seat' | 'removed_member' | null;
   verdict: SeatVerdict | null;
 }
 
@@ -194,11 +200,11 @@ export interface ClaimSeatDecision {
  * Decide a claim on a firm that has a custom plan. A firm WITHOUT a plan keeps the legacy rule in
  * /api/portal/claims untouched (`no_plan` -> the caller falls through to it).
  *
- * Two differences from the legacy rule, both on purpose:
- *  - a second claimant is NOT a "dispute" on a planned firm: the plan exists precisely because
- *    several people of the same firm are meant to be seated, and the dispute guard would otherwise
- *    park claim 2..N in pending whatever the seat count says (it did, for any firm, before this);
- *  - an invited email is eligible even without a domain match (an external evaluator).
+ * Differences from the legacy rule, all on purpose:
+ *  - a second claimant is NOT a "dispute" on a planned firm (the plan exists so several people of the
+ *    same firm are seated), but a matching domain alone approves nobody: it is `awaiting_firm_admin`;
+ *  - only an invited email, or the administrator the back-office named, comes in by itself (an invited
+ *    external evaluator needs no domain match).
  * What does NOT change: the email must be confirmed (checked before this is reached), the entity
  * must be claimable, and the seat limit is still enforced — in the app here and in the trigger.
  */
@@ -216,8 +222,16 @@ export async function decideClaimOnPlannedFirm(
   if (!invited && args.userId && (await store.revokedUserIds(args.entityId)).includes(args.userId)) {
     return { autoApprove: false, roleOverride: null, consumesInvite: false, reason: 'removed_member', verdict: null };
   }
-  if (!invited && !args.domainMatch && !roleOverride) {
-    return { autoApprove: false, roleOverride: null, consumesInvite: false, reason: 'no_domain_match_or_invite', verdict: null };
+  // Prompt 904 decision 3 (Nuno, 09/10/2026): on a firm with a custom plan a matching email domain is NOT
+  // enough. Only the people the administrator reserved a seat for, and the administrator the back-office
+  // named, come in by themselves; a claimant whose domain matches waits for the firm's administrator
+  // (who is told, and accepts or declines in the seat management); any other claimant waits for the
+  // back-office, as before.
+  if (!invited && !roleOverride) {
+    return {
+      autoApprove: false, roleOverride: null, consumesInvite: false, verdict: null,
+      reason: args.domainMatch ? 'awaiting_firm_admin' : 'no_domain_match_or_invite',
+    };
   }
 
   // The invite that is being consumed is this person's own reservation: not counted against them.
@@ -420,9 +434,10 @@ export async function redeemSeatCode(
 
 /**
  * Self-service linking (POST /api/portal/investor-profile/link) onto a firm with a custom plan:
- * null = fine, otherwise the sentence to show. Seats are for people the firm's administrator
- * reserved one for, or whose email is the firm's own domain; never a stranger, and never someone the
- * administrator removed. A firm WITHOUT a plan is not restricted here (unchanged behaviour).
+ * null = fine, otherwise the sentence to show. Linking yourself is for people the firm's administrator
+ * reserved a seat for (and the administrator the back-office named). Everyone else — even with the
+ * firm's own email domain — claims the profile and waits for the administrator (decision 3, 09/10/2026),
+ * and someone the administrator removed needs a new reservation. A firm WITHOUT a plan is not restricted.
  */
 export async function selfLinkRefusal(
   store: SeatStore, args: { entityId: string; userId: string; email: string; domainVerified: boolean },
@@ -435,6 +450,8 @@ export async function selfLinkRefusal(
   if ((await store.revokedUserIds(args.entityId)).includes(args.userId)) {
     return 'Your access to this firm was removed by its administrator. Ask them to invite you again.';
   }
-  if (args.domainVerified) return null;
-  return 'This firm manages its own seats. Ask its administrator to reserve one for your email, then claim the profile.';
+  if (plan.adminEmail && normalizeSeatEmail(plan.adminEmail) === args.email) return null;
+  return args.domainVerified
+    ? "This firm manages its own seats. Claim the profile instead: your firm's administrator will be asked to approve you."
+    : 'This firm manages its own seats. Ask its administrator to reserve one for your email, then claim the profile.';
 }

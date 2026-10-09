@@ -10,6 +10,8 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { computeMatchScore, type InvestorThesis, type StartupRound } from '@/lib/investor-match-score';
 import { eligibleOrgIds, resolveInvestorProfile } from '@/lib/portal-access';
+import { resolveSeatContext } from '@/lib/investor-firm-seats-guard';
+import { listPendingSeatClaims } from '@/lib/investor-seat-claims';
 
 const WAVE_SIZE = 8;
 const ANSWERED_RECENTLY_DAYS = 7;
@@ -125,6 +127,13 @@ export async function GET() {
     .eq('investor_email', email).eq('done', false).lt('remind_at', now.toISOString());
   for (const f of overdueFollowups ?? []) {
     items.push({ kind: 'followup_overdue', orgId: f.org_id as string, title: (f.note as string | null) || `Follow up with ${await orgName(f.org_id as string)} is overdue` });
+  }
+
+  // 6. Prompt 904 decision 3 — people waiting for THIS firm's administrator to accept or decline them.
+  const seatCtx = await resolveSeatContext(admin, user).catch(() => null);
+  if (seatCtx?.plan && seatCtx.isAdmin) {
+    const waiting = (await listPendingSeatClaims(admin, seatCtx.entityId).catch(() => [])).length;
+    if (waiting > 0) items.push({ kind: 'seat_claim_pending', title: `${waiting} ${waiting === 1 ? 'person is' : 'people are'} waiting for your approval to join your firm — App access → Seats` });
   }
 
   return NextResponse.json({ items });

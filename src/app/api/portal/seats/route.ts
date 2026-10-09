@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { authSeatCaller } from '@/lib/investor-firm-seats-guard';
 import { seatSummary, tierSeatLimitInfo } from '@/lib/investor-firm-seats';
 import { makeSeatStore } from '@/lib/investor-firm-seats-store';
+import { listPendingSeatClaims } from '@/lib/investor-seat-claims';
 
 export async function GET() {
   const auth = await authSeatCaller();
@@ -14,10 +15,13 @@ export async function GET() {
     return NextResponse.json({ ok: true, hasPlan: true, isAdmin: false, planName: ctx.plan.planName, seats: ctx.plan.seats });
   }
   const summary = await seatSummary(makeSeatStore(admin), ctx.entityId, tierSeatLimitInfo('pro_scout', 'Pro Scout'));
+  const pendingClaims = await listPendingSeatClaims(admin, ctx.entityId);
   return NextResponse.json({
     ok: true, hasPlan: true, isAdmin: true, ownMemberId: ctx.memberId,
     planName: summary.planName, seats: summary.limit, used: summary.used, reserved: summary.reserved, free: summary.free,
     members: summary.members.map((m) => ({ id: m.id, email: m.email, name: m.name, role: m.role, since: m.since })),
     invites: summary.invites.map((i) => ({ id: i.id, email: i.email, createdAt: i.createdAt })),
+    // Domain-matched claimants waiting for THIS firm's administrator to accept or decline.
+    pendingClaims: pendingClaims.map((c) => ({ id: c.id, email: c.claimantEmail, createdAt: c.createdAt })),
   });
 }

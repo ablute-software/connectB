@@ -1,9 +1,15 @@
 # Calls, Etapa 0 — Parte C: seats de planos custom (09/10/2026)
 
-Prompt 904, Parte C (spec §9.3). **A migração está escrita e NÃO foi aplicada**
-(`supabase/migrations/20261009130000_investor_firm_seat_plans.sql`). Sem ela, todo o código novo
-degrada para "esta firma não tem plano custom" e tudo se comporta como antes (verificado por teste).
+Prompt 904, Parte C (spec §9.3). **Migração aplicada em produção a 09/10/2026 às 14:17:39Z**
+(`supabase/migrations/20261009130000_investor_firm_seat_plans.sql`), depois de um teste seco numa transação
+sempre revertida (ver C7). Sem tabelas, o código degrada para "esta firma não tem plano custom".
 O perfil real da Portugal Ventures não foi tocado: a pré-atribuição da PV é do Nuno.
+
+> **Revisão de 09/10/2026 (decisões do Nuno).** (2) O administrador ocupa um dos N seats: a PV fica com
+> 10 seats **incluindo** o administrador. (3) Numa firma com plano custom, **o claim por domínio sem
+> convite já não é aprovado automaticamente**: fica pendente para o administrador da firma, que é
+> notificado (email, Today e painel Seats) e aceita ou recusa na gestão de seats. Entram sozinhos só os
+> convidados e o administrador nomeado pelo backoffice. Firmas sem plano: inalteradas.
 
 ## C1 — Como funcionavam os seats, e o que faltava
 
@@ -45,10 +51,12 @@ preso à entidade; (7) o 2.º..N-ésimo claim não cair em "disputa"; (8) o ecr�
 plan" com N, nome e, opcionalmente, o email do administrador. Quando o primeiro claim é aprovado o
 plano já está ativo. O administrador nomeado entra como `admin`.
 
-**2.º..N-ésimo claim:** numa firma com plano **não há "disputa"**; um claim com o domínio da firma
-(ou com lugar reservado) é aprovado automaticamente **enquanto houver lugares livres**; só cai em
-pendente quando acabam (com o motivo "no free seat"). Uma firma **sem** plano mantém exatamente a
-regra de antes (testado).
+**Claims numa firma com plano (decisão 3):** não há "disputa", mas **o domínio sozinho não aprova ninguém**.
+Entram automaticamente **só** (a) quem tem um lugar reservado pelo administrador (mesmo sem o domínio — o
+avaliador externo) e (b) o administrador nomeado pelo backoffice, ambos dentro do número de seats. Um claimant
+com o domínio da firma e sem reserva fica **pendente para o administrador** (`awaiting_firm_admin`); sem o
+domínio, pendente para o backoffice, como antes. Uma firma **sem** plano mantém exatamente a regra de antes
+(testado: o 2.º claimant continua "disputa").
 
 **Código preso à entidade:** estrutura **própria** (`investor_seat_codes`), não extensão de `promo_codes`:
 aquele preço-cobra organizações de founder (`percent_off`/`free_trial`, resgatado por `org_id`); este
@@ -90,14 +98,22 @@ a avisar (best-effort).
 Numa firma **com** plano, `/api/portal/colleagues/revoke` passa a exigir administrador (antes qualquer
 membro removia qualquer outro, incluindo o chefe da firma); **sem** plano fica como estava.
 Um administrador não pode remover o próprio lugar nem o último administrador.
-O `link` (auto-ligação) numa firma com plano só aceita quem tem lugar reservado ou o domínio da firma,
-e **nunca quem foi removido**.
+O `link` (auto-ligação) numa firma com plano só aceita quem tem lugar reservado (ou o administrador
+nomeado): quem tem o domínio da firma é mandado fazer o claim e esperar pelo administrador; e **nunca quem
+foi removido**.
 
-> **Decisão para o Nuno (seats do administrador).** O administrador **ocupa um dos N seats** (é um
-> membro com seat, e pode avaliar — spec §3). Com 10 seats, o administrador + **9** convidados enchem
-> a firma, e o 10.º convite é bloqueado. O prompt descreve "convida 10 membros, o 11.º é bloqueado";
-> isso só acontece se o backoffice definir **11** seats para a PV (10 avaliadores + o administrador).
-> Se a PV deve ter 10 avaliadores **mais** o administrador, definir 11.
+**Pedidos à espera do administrador (decisão 3).** Quando alguém com o domínio da firma faz claim e não tem
+reserva: (1) o claim fica pendente e o ecrã `/claim/pending` do claimant diz que o administrador foi
+chamado a decidir; (2) **os administradores recebem um email** (só eles); (3) **na plataforma**: aparece no
+**Today** do administrador (e conta no indicador do topo) e numa caixa **"Waiting for your approval"** no painel
+Seats, com **Accept** / **Decline**; (4) **Accept** toma um seat dentro do número (passado o número, bloqueia e
+explica, e o claim fica pendente), aprova o claim, avisa o claimant e regista quem aceitou no histórico;
+**Decline** rejeita e avisa. O administrador só vê e decide claims **desta** firma e com o domínio da firma; os
+restantes ficam para o backoffice. Um ex-membro que volta a fazer claim também espera aqui.
+
+> **Decidido pelo Nuno (09/10/2026): o administrador ocupa um dos N seats.** A PV fica com 10 seats
+> **incluindo** o administrador: administrador + 9 reservas enchem a firma e a 10.ª reserva é bloqueada
+> (é o que os testes verificam).
 
 ## C5 — Membro retirado
 
@@ -127,27 +143,37 @@ terminar o plano. Auditado no log de auditoria de admin (o código nunca).
 ## C7 — Teste de ponta a ponta
 
 **Feito (automático, numa firma `zz-test-firm`, nunca na PV):** `src/lib/investor-firm-seats.e2e.test.ts`
-(29 testes), `…/portal/seats/seats-routes.test.ts` (16), `…/backoffice/investor-seats/route.test.ts` (7).
+(37 testes), `…/portal/seats/seats-routes.test.ts` (21), `…/backoffice/investor-seats/route.test.ts` (7).
 Correm o código real (store, auto-aprovação de claims, `applyClaimApproval`, `checkSeatAvailable`, rotas e
 guarda) sobre uma base **em memória que aplica as escritas** e que **modela em TypeScript o trigger e a função
 de resgate**. Cobrem: plano antes do claim; claims 2..N aprovados enquanto há lugares e o seguinte pendente
-com motivo; administrador convida até ao número e o seguinte é bloqueado; reserva guardada para o email;
+com motivo; **claim por domínio sem reserva fica pendente, o administrador é notificado e aceita (dentro do número) ou recusa**; administrador convida até ao número e o seguinte é bloqueado; reserva guardada para o email;
 remoção (conta intacta, histórico, "no longer part of", não volta sozinho); reatribuição; trigger como rede
 de segurança; código — certo funciona, **outra conta / outro perfil / reencaminhado / depois de usado /
 revogado / expirado falham**; firma sem plano inalterada. Um teste de mutação confirmou que desligar a regra
 do membro removido faz falhar o cenário.
 
-**Não verificado — depende de aplicar a migração:** o **SQL em si** (as funções, o trigger novo, as permissões)
-nunca correu num Postgres; os testes provam a lógica da aplicação, e o modelo do trigger é uma segunda
-implementação das mesmas regras. **Só o OK do Nuno desbloqueia** o passo seguinte, que é repetir o cenário em
-produção numa firma `zz-test-…`: (1) aplicar a migração; (2) backoffice define 10 seats por pré-atribuição;
-(3) claim aprovado; (4) o administrador reserva e a plataforma bloqueia o excedente; (5) remover um membro
-e ver o ecrã de planos; (6) reatribuir; (7) repetir com o código (certo / outra conta / outro perfil /
-usado / revogado). Apago a firma de teste no fim com a autorização dele.
+**SQL — teste seco em produção (09/10/2026, 14:17Z), transação sempre revertida** (bloco `do $$ … raise exception`,
+nada ficou gravado: confirmado depois por consulta). Fixtures `zz-dryrun-*` dentro da transação. Resultados:
+limite sem plano = 1 e com plano = 3; o 4.º seat é **bloqueado** pelo trigger; depois de libertar um, entra;
+eventos `seat_granted` 4 / `seat_released` 1 registados pelo trigger; firma sem plano continua a bloquear o
+2.º seat (regra do 0285); código: **outro utilizador / expirado / revogado / outro perfil / inexistente → recusado**,
+o claimant certo → ok com 10 seats, plano ativo com 10, papel `admin`, limite passa a 10, **segunda utilização
+recusada**, código `redeemed`; reserva duplicada bloqueada pelo índice único; evento inválido bloqueado pelo CHECK;
+`anon` e `authenticated` **sem** execute em `redeem_investor_seat_code` e no limite, `service_role` com; RLS ativo nas 4 tabelas.
+Migração aplicada logo a seguir (14:17:39Z); verificado: 6 tabelas, os 2 triggers, o trigger usa o limite novo,
+conselheiros de segurança só com o INFO esperado "RLS ativo sem policies".
+
+**Por fazer — o cenário C7 em produção**, que o Nuno desbloqueia ao confirmar o painel do Supabase e as
+variáveis do Vercel (ver Parte A/B): numa firma `zz-test-…`: (1) backoffice define 10 seats (administrador
+incluído); (2) o administrador nomeado faz claim e entra; (3) reserva 9 e a 10.ª é bloqueada com a explicação;
+(4) um claim por domínio sem reserva fica pendente, o administrador recebe o email e aceita/recusa; (5) remover
+um membro e ver o ecrã de planos; (6) reatribuir; (7) repetir com o código (certo / outra conta / outro perfil /
+usado / revogado). Apago a firma de teste no fim.
 
 ## O que depende do Nuno
 
-1. **Aplicar a migração** `20261009130000_investor_firm_seat_plans.sql` (e a da Parte B, ver relatório B).
-2. Decidir os seats do administrador (10 ou 11 para a PV).
+1. ~~Aplicar a migração~~ — **feito** (14:17Z), com teste seco prévio.
+2. ~~Seats do administrador~~ — **decidido**: 10 incluindo o administrador.
 3. **Pré-atribuir a PV** quando decidir, em `/backoffice/seat-plans` (eu não toquei no perfil real).
-4. Dizer-me para correr o C7 em produção na firma de teste depois da migração.
+4. **Confirmar o painel do Supabase e as variáveis do Vercel**; a seguir corro o C7 (e o teste do código, Parte B) em produção.

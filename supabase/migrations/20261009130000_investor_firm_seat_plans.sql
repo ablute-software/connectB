@@ -1,6 +1,7 @@
 -- Prompt 904, Part C — seats of custom plans (docs/calls/SPEC_CALLS_V2.md §9.3).
 --
--- PROPOSED, NOT APPLIED: Nuno confirms before this runs on production.
+-- APPLIED to production on 09/10/2026 at 14:17:39Z (Nuno's go-ahead, after a dry run inside a transaction
+-- that always rolls back: every function behaved as specified, nothing persisted).
 --
 -- What is missing today (report in docs/calls/ETAPA0_PARTE_C_SEATS.md, C1):
 --   1. The seat limit of a firm is a function of ONE of three tiers (1/2/5 seats) read off the
@@ -87,7 +88,8 @@ create table if not exists public.investor_seat_events (
   user_id           uuid,
   event             text        not null check (event in (
     'seat_granted', 'seat_released', 'plan_set', 'plan_ended', 'admin_changed',
-    'invite_created', 'invite_cancelled', 'code_created', 'code_redeemed', 'code_revoked')),
+    'invite_created', 'invite_cancelled', 'claim_approved', 'claim_declined',
+    'code_created', 'code_redeemed', 'code_revoked')),
   actor_user_id     uuid,
   detail            jsonb       not null default '{}'::jsonb,
   created_at        timestamptz not null default now()

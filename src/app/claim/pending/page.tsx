@@ -17,6 +17,7 @@ interface ClaimEvidence {
   entityDomain?: string | null;
   entityDomainIsFreemail?: boolean;
   isDispute?: boolean;
+  awaitingFirmAdmin?: boolean;
 }
 interface OwnClaim {
   id: string; catalog_entity_id: string; entityName: string;
@@ -26,6 +27,7 @@ interface OwnClaim {
 
 function pendingReason(claim: OwnClaim): string {
   const ev = claim.evidence;
+  if (ev?.awaitingFirmAdmin) return "Your firm manages its own seats on Sherlock Deal: its administrator has been asked to approve you. You'll get an email as soon as they decide.";
   if (ev?.isDispute) return 'Someone else already manages this profile — our team is reviewing your request against theirs.';
   if (!ev?.entityDomain) return "This profile doesn't have a registered domain on file yet, so we can't verify it automatically.";
   if (ev.entityDomainIsFreemail) return "This profile's domain on file is a shared/freemail provider, so it can't be auto-verified.";

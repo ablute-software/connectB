@@ -2,7 +2,7 @@
 
 Prompt 904, Parte B (spec §13.2–13.4). Mecanismo reutilizável: rotas de servidor e um
 componente, montados só em `/auth-code-test`, atrás de um interruptor, para a Etapa 1 os ligar
-ao ecrã da call. **A migração está escrita mas NÃO foi aplicada.**
+ao ecrã da call. **Migração aplicada em produção a 09/10/2026 às 14:17:16Z**, depois de um teste seco numa transação sempre revertida.
 
 ## O que existe
 
@@ -139,5 +139,5 @@ Eu faço-o por SQL depois do "sim" dele e confirmo as contagens.
   com espaço aceite; erro "4 attempts left" e caixa limpa; recarregar repõe o estado e pede a
   palavra-passe; código certo → passo da startup. As respostas do servidor foram simuladas
   (o modo demo não tem Supabase): isto verifica o ecrã, **não** o Supabase.
-- **O SQL da migração ainda não correu em nenhum Postgres.** Os testes automáticos modelam as funções em TypeScript; a semântica real (bloqueio de linha, `now()`, permissões) só se confirma ao aplicar. Há um teste seco preparado (corre a migração dentro de um bloco que termina sempre em exceção, por isso nada fica gravado, e imprime os resultados) que **só corro com o OK do Nuno**, por ser DDL em produção, mesmo que revertido.
+- **SQL verificado em produção por teste seco (14:17Z, transação sempre revertida, nada ficou gravado):** 1.º envio permitido, 2.º `too_early`; 4.º envio com cap 3 → `hourly_cap`; tentativas 1–5 com `attempts_left` 4→0, a 6.ª `locked`; email nunca pedido → `no_code`; novo envio repõe as 5 tentativas; código usado → `locked`; limite por IP (3.º pedido com limite 2 → excedido); `user_state` distingue conta confirmada de inexistente; RLS ativo; `anon` sem execute, `service_role` com. Os testes automáticos continuam a modelar o mesmo em TypeScript.
 - **Não verificado, depende do Nuno:** tudo o que é Supabase/Resend reais (passos 1 a 7).

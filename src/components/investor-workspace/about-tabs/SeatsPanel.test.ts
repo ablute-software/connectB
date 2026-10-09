@@ -10,7 +10,8 @@ const noop = () => {};
 function render(data: SeatsData | null, over: Partial<Parameters<typeof SeatsPanelView>[0]> = {}) {
   return renderToStaticMarkup(createElement(SeatsPanelView, {
     data, busy: false, error: '', notice: '', inviteEmail: '', code: '',
-    onInviteEmail: noop, onInvite: noop, onCancelInvite: noop, onRemove: noop, onCode: noop, onRedeem: noop, ...over,
+    onInviteEmail: noop, onInvite: noop, onCancelInvite: noop, onRemove: noop, onCode: noop, onRedeem: noop,
+    onApproveClaim: noop, onDeclineClaim: noop, ...over,
   }));
 }
 
@@ -51,6 +52,24 @@ describe('administrator view', () => {
     const filled = render(ADMIN, { inviteEmail: 'x@external.com' });
     expect(/disabled=""[^>]*>Reserve seat/.test(empty)).toBe(true);
     expect(/disabled=""[^>]*>Reserve seat/.test(filled)).toBe(false);
+  });
+});
+
+describe('claims waiting for the administrator', () => {
+  const withWaiting: SeatsData = { ...ADMIN, pendingClaims: [{ id: 'c1', email: 'col@firm.com', createdAt: '2026-10-12T09:00:00.000Z' }] };
+
+  it('lists who is waiting with Accept and Decline, and says nobody gets a seat without the administrator', () => {
+    const html = render(withWaiting);
+    expect(html).toContain('data-testid="pending-claims"');
+    expect(html).toContain('Waiting for your approval');
+    expect(html).toContain('col@firm.com');
+    expect(html).toContain('>Accept<');
+    expect(html).toContain('>Decline<');
+    expect(html).toContain('Nobody gets a seat without you');
+  });
+
+  it('shows no such section when nobody is waiting', () => {
+    expect(render(ADMIN)).not.toContain('pending-claims');
   });
 });
 

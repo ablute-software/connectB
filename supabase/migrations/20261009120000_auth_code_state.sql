@@ -1,7 +1,8 @@
 -- Prompt 904, Part B — server-side state for the "register with a 6-digit code" flow
 -- (spec docs/calls/SPEC_CALLS_V2.md §13.2–13.4).
 --
--- PROPOSED, NOT APPLIED: Nuno confirms before this runs on production.
+-- APPLIED to production on 09/10/2026 at 14:17:16Z (Nuno's go-ahead, after a dry run inside a transaction
+-- that always rolls back: every function behaved as specified, nothing persisted).
 --
 -- Why a table at all. Supabase Auth guarantees that a code is random, single-use and
 -- expiring, but it limits verification attempts per IP, never per code or per email. Every

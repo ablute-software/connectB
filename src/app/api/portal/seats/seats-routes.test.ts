@@ -22,6 +22,8 @@ import { POST as invite } from './invite/route';
 import { POST as cancel } from './invite/cancel/route';
 import { POST as remove } from './remove/route';
 import { POST as redeem } from './redeem/route';
+import { POST as approveClaim } from './claims/approve/route';
+import { POST as declineClaim } from './claims/decline/route';
 import { POST as legacyRevoke } from '../colleagues/revoke/route';
 import { makeSeatStore } from '@/lib/investor-firm-seats-store';
 import { createSeatCode, setSeatPlan } from '@/lib/investor-firm-seats';
@@ -185,5 +187,51 @@ describe('POST /api/portal/seats/redeem', () => {
   it('refuses a signed-out caller', async () => {
     currentUser = null;
     expect((await redeem(json({ code: 'PD-AAAAA-BBBBB-CCCCC-DDDDD' }))).status).toBe(401);
+  });
+});
+
+describe('decision 3 — claims waiting for the administrator', () => {
+  const waiting = (id = 'c1', userId = 'col', email = 'col@zz-test-firm.com', domainMatch = true) => {
+    addUser(db, userId, email);
+    db.tables.investor_entity_claims.push({ id, catalog_entity_id: FIRM, claimant_user_id: userId, claimant_email: email, status: 'pending', domain_match: domainMatch, requested_role: null });
+  };
+
+  it('the administrator sees the domain-matched claimants who are waiting, and only those', async () => {
+    waiting();
+    waiting('c2', 'ext', 'ext@elsewhere.com', false);
+    const body = await (await seatsGet()).json();
+    expect(body.pendingClaims).toMatchObject([{ id: 'c1', email: 'col@zz-test-firm.com' }]);
+  });
+
+  it('accepting gives the seat, within the number; a non-administrator cannot', async () => {
+    waiting();
+    currentUser = { id: 'bob', email: 'bob@zz-test-firm.com' };
+    expect((await approveClaim(json({ claimId: 'c1' }))).status).toBe(403);
+    expect((await declineClaim(json({ claimId: 'c1' }))).status).toBe(403);
+    currentUser = { id: 'ana', email: 'ana@zz-test-firm.com' };
+    expect(await (await approveClaim(json({ claimId: 'c1' }))).json()).toEqual({ ok: true });
+    expect(db.tables.matchdeal_investor_members.find((m) => m.user_id === 'col')).toMatchObject({ status: 'active' });
+    expect(db.tables.investor_entity_claims[0]).toMatchObject({ status: 'approved', resolved_by: 'ana' });
+  });
+
+  it('accepting past the number is blocked with the plan explanation (3 seats: ana, bob, plus one reserved)', async () => {
+    waiting();
+    await invite(json({ email: 'guest@external.com' }));
+    const res = await approveClaim(json({ claimId: 'c1' }));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain('3 seats');
+    expect(db.tables.investor_entity_claims[0].status).toBe('pending');
+  });
+
+  it('declining rejects the claim', async () => {
+    waiting();
+    expect(await (await declineClaim(json({ claimId: 'c1' }))).json()).toEqual({ ok: true });
+    expect(db.tables.investor_entity_claims[0]).toMatchObject({ status: 'rejected', resolved_by: 'ana' });
+    expect((await approveClaim(json({ claimId: 'c1' }))).status).toBe(404); // no longer waiting
+  });
+
+  it('refuses a request without a claim id', async () => {
+    expect((await approveClaim(json({}))).status).toBe(400);
+    expect((await declineClaim(json({}))).status).toBe(400);
   });
 });

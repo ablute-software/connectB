@@ -6,7 +6,7 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
-  FirmSeatPlan, SeatCodeRow, SeatEvent, SeatInvite, SeatMember, SeatStore,
+  FirmSeatPlan, PendingSeatClaim, SeatCodeRow, SeatEvent, SeatInvite, SeatMember, SeatStore,
 } from './investor-firm-seats';
 
 type Row = Record<string, unknown>;
@@ -82,6 +82,17 @@ export function makeSeatStore(admin: SupabaseClient): SeatStore {
       const { data } = await admin.from('matchdeal_investor_members').select('user_id')
         .eq('catalog_entity_id', entityId).eq('status', 'active');
       return ((data ?? []) as Row[]).map((r) => r.user_id as string);
+    },
+
+    async pendingClaims(entityId) {
+      const { data } = await admin.from('investor_entity_claims')
+        .select('id, claimant_user_id, claimant_email, requested_role, created_at')
+        .eq('catalog_entity_id', entityId).eq('status', 'pending').eq('domain_match', true)
+        .order('created_at', { ascending: true });
+      return ((data ?? []) as Row[]).map((r): PendingSeatClaim => ({
+        id: r.id as string, claimantUserId: r.claimant_user_id as string, claimantEmail: String(r.claimant_email ?? '').toLowerCase(),
+        requestedRole: (r.requested_role as string | null) ?? null, createdAt: r.created_at as string,
+      }));
     },
 
     async revokedUserIds(entityId) {

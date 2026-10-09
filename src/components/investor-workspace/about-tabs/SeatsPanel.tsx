@@ -20,6 +20,8 @@ export interface SeatsData {
   ownMemberId?: string;
   members?: { id: string; email: string | null; name: string | null; role: string | null; since: string | null }[];
   invites?: { id: string; email: string; createdAt: string }[];
+  /** Prompt 904 decision 3 — domain-matched claimants waiting for this administrator. */
+  pendingClaims?: { id: string; email: string; createdAt: string }[];
 }
 
 function day(iso: string | null): string {
@@ -30,7 +32,7 @@ function day(iso: string | null): string {
 
 export function SeatsPanelView({
   data, busy, error, notice, inviteEmail, code,
-  onInviteEmail, onInvite, onCancelInvite, onRemove, onCode, onRedeem,
+  onInviteEmail, onInvite, onCancelInvite, onRemove, onCode, onRedeem, onApproveClaim, onDeclineClaim,
 }: {
   data: SeatsData | null;
   busy: boolean;
@@ -44,6 +46,8 @@ export function SeatsPanelView({
   onRemove: (id: string) => void;
   onCode: (v: string) => void;
   onRedeem: () => void;
+  onApproveClaim: (id: string) => void;
+  onDeclineClaim: (id: string) => void;
 }) {
   if (!data) return null;
   return (
@@ -59,6 +63,24 @@ export function SeatsPanelView({
           <div className="mt-2 h-1.5 rounded-full bg-gray-100">
             <div className="h-1.5 rounded-full bg-[#0E7490]" style={{ width: `${Math.min(100, Math.round((((data.used ?? 0) + (data.reserved ?? 0)) / Math.max(1, data.seats ?? 1)) * 100))}%` }} />
           </div>
+
+          {(data.pendingClaims ?? []).length > 0 && (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3" data-testid="pending-claims">
+              <p className="text-xs font-semibold text-amber-900">Waiting for your approval</p>
+              <p className="mt-0.5 text-[11px] text-amber-800">They claimed your firm&apos;s profile with an email at your domain. Nobody gets a seat without you.</p>
+              <ul className="mt-2 divide-y divide-amber-100">
+                {(data.pendingClaims ?? []).map((c) => (
+                  <li key={c.id} className="flex items-center justify-between gap-2 py-1.5 text-sm">
+                    <span className="min-w-0 truncate text-gray-900">{c.email}</span>
+                    <span className="flex shrink-0 gap-3 text-xs">
+                      <button type="button" onClick={() => onApproveClaim(c.id)} disabled={busy} className="font-medium text-[#0E7490] hover:underline disabled:opacity-40">Accept</button>
+                      <button type="button" onClick={() => onDeclineClaim(c.id)} disabled={busy} className="text-gray-500 hover:text-[#B00000] disabled:opacity-40">Decline</button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <ul className="mt-3 divide-y divide-gray-100">
             {(data.members ?? []).map((m) => (
@@ -171,6 +193,8 @@ export function SeatsPanel({ onData, onChange }: { onData?: (d: SeatsData | null
       onRemove={(id) => void post('/api/portal/seats/remove', { memberId: id }, 'Seat removed.')}
       onCode={(v) => { setCode(v); setError(''); }}
       onRedeem={async () => { if (await post('/api/portal/seats/redeem', { code }, 'Plan activated.')) setCode(''); }}
+      onApproveClaim={(id) => void post('/api/portal/seats/claims/approve', { claimId: id }, 'Accepted — they have a seat.')}
+      onDeclineClaim={(id) => void post('/api/portal/seats/claims/decline', { claimId: id }, 'Declined.')}
     />
   );
 }
