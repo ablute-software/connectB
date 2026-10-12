@@ -125,6 +125,8 @@ export interface Call {
   validatedAt: string | null;
   publishedAt: string | null;
   closedAt: string | null;
+  /** Prompt 909: set when the call is archived (status 'archived'). */
+  archivedAt: string | null;
   duplicatedFrom: string | null;
   createdBy: string;
   createdAt: string;

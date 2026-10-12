@@ -6,7 +6,7 @@ import type { CallSummary, ReadinessIssue, availableActions } from '@/lib/calls/
 
 export interface PromoterInfo { kind: PromoterKind; id: string; name: string; canManage: boolean }
 
-export interface CallListItem extends Call { effectiveStatus: CallStatus; applications: number; fields: number; phases: number }
+export interface CallListItem extends Call { effectiveStatus: CallStatus; applications: number; applicationsTotal: number; fields: number; phases: number }
 
 export interface CallEvent { id: number; event: string; actor_user_id: string | null; detail: Record<string, unknown>; created_at: string }
 
@@ -21,6 +21,7 @@ export interface CallState {
   issues: ReadinessIssue[];
   summary: CallSummary;
   actions: ReturnType<typeof availableActions>;
+  applications: { submitted: number; inProgress: number; withdrawn: number; total: number };
   events: CallEvent[];
 }
 
@@ -48,6 +49,8 @@ export const callsApi = {
     call<CallState>(`/api/calls/${id}/phases`, send('PUT', { baseVersion, phases })),
   putForm: (id: string, baseVersion: number, fields: FormField[]) => call<CallState>(`/api/calls/${id}/form`, send('PUT', { baseVersion, fields })),
   duplicate: (id: string) => call<{ call: Call }>(`/api/calls/${id}/duplicate`, send('POST')),
-  act: (id: string, action: 'confirm' | 'edit' | 'publish' | 'extend' | 'close', extra: { closesAt?: string } = {}) =>
+  act: (id: string, action: 'confirm' | 'edit' | 'publish' | 'extend' | 'close' | 'archive', extra: { closesAt?: string } = {}) =>
     call<CallState>(`/api/calls/${id}/action`, send('POST', { action, ...extra })),
+  /** Delete a call nobody applied to (the server decides). */
+  remove: (id: string) => call<{ deleted: boolean; name: string }>(`/api/calls/${id}/action`, send('POST', { action: 'delete' })),
 };

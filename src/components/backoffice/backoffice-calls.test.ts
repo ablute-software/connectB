@@ -54,11 +54,12 @@ describe('the list', () => {
     expect(html).toContain('Closes 01 Jan 2027');
     expect(html).toContain('Europe/Lisbon');
   });
-  it('has nothing to edit: no inputs but the search, no save, no delete', () => {
+  it('has nothing to edit: no inputs but the search and the "Show archived" filter, no save, no delete', () => {
     expect(html).not.toMatch(/>Save</);
     expect(html).not.toMatch(/>Delete</);
     expect(html).not.toMatch(/>Edit</);
-    expect(html.match(/<input/g)).toHaveLength(1);
+    expect(html.match(/<input/g)).toHaveLength(2); // the search box and the Show archived checkbox
+    expect(html.match(/type="checkbox"/g)).toHaveLength(1);
   });
   it('is not expanded until a row is clicked', () => {
     expect(html).not.toContain('data-testid="call-detail-c1"');

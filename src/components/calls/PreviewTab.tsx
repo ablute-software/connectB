@@ -14,7 +14,7 @@ import type { CallStatus } from '@/lib/calls/types';
 
 const TAB_NAMES: Record<EditorTab, string> = { general: 'General', phases: 'Phases', form: 'Form', preview: 'Preview' };
 
-export type LifecycleAction = 'confirm' | 'edit' | 'publish' | 'extend' | 'close';
+export type LifecycleAction = 'confirm' | 'edit' | 'publish' | 'extend' | 'close' | 'archive';
 
 // The URL builder lives in lib/calls/link.ts (the back-office Calls page uses the very same one); re-exported here
 // so existing imports keep working.

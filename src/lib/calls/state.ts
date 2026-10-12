@@ -3,7 +3,7 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { availableActions, effectiveStatus, readiness, summarise } from './lifecycle';
-import { loadEvents, loadFields, loadPhases, logCallEvent, promoterName, transitionCall } from './store';
+import { countApplications, loadEvents, loadFields, loadPhases, logCallEvent, promoterName, transitionCall } from './store';
 import type { Promoter } from './access';
 import type { Call } from './types';
 
@@ -32,8 +32,9 @@ export async function syncStatus(admin: SupabaseClient, call: Call, now: Date = 
 
 export async function buildCallState(admin: SupabaseClient, call: Call, promoter: Promoter, now: Date = new Date()) {
   const synced = await syncStatus(admin, call, now);
-  const [phases, fields, events, name] = await Promise.all([
+  const [phases, fields, events, name, applications] = await Promise.all([
     loadPhases(admin, synced.id), loadFields(admin, synced.id), loadEvents(admin, synced.id, 30), promoterName(admin, synced.promoterKind, synced.promoterId),
+    countApplications(admin, synced.id),
   ]);
   const issues = readiness(synced, phases, fields, now);
   return {
@@ -44,7 +45,8 @@ export async function buildCallState(admin: SupabaseClient, call: Call, promoter
     canManage: promoter.canManage,
     phases, fields, issues,
     summary: summarise(phases, fields),
-    actions: availableActions(synced, issues, now),
+    applications,
+    actions: availableActions(synced, issues, now, applications.total),
     events,
   };
 }

@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   const now = new Date();
   const calls = await Promise.all(cards.map(async (c) => {
     const call = effectiveStatus(c.call, now) !== c.call.status ? await syncStatus(auth.admin, c.call, now) : c.call;
-    return { ...call, effectiveStatus: effectiveStatus(call, now), applications: c.applications, fields: c.fields, phases: c.phases };
+    return { ...call, effectiveStatus: effectiveStatus(call, now), applications: c.applications, applicationsTotal: c.applicationsTotal, fields: c.fields, phases: c.phases };
   }));
   return NextResponse.json({ ok: true, promoter: { kind: promoter.kind, id: promoter.id, name: promoter.name, canManage: promoter.canManage }, calls });
 }

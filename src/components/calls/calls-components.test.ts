@@ -21,7 +21,7 @@ const field = (over: Partial<FormField> & Pick<FormField, 'id' | 'kind'>): FormF
 const call = (over: Partial<Call> = {}): Call => ({
   id: 'c1', promoterKind: 'incubator', promoterId: 'i1', name: 'Seed Call', description: null, opensAt: '2027-02-01T09:00:00.000Z',
   closesAt: '2027-03-31T16:00:00.000Z', timezone: 'Europe/Lisbon', visibility: 'listed', limitUnit: 'project', allowMultiple: false,
-  contentLanguage: 'en', currency: 'EUR', status: 'draft', linkToken: null, configVersion: 1, validatedAt: null, publishedAt: null, closedAt: null,
+  contentLanguage: 'en', currency: 'EUR', status: 'draft', linkToken: null, configVersion: 1, validatedAt: null, publishedAt: null, closedAt: null, archivedAt: null,
   duplicatedFrom: null, createdBy: 'u', createdAt: '', updatedAt: '', ...over,
 });
 

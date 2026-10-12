@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { PromoterKind } from '@/lib/calls/types';
 import { formatInZone } from '@/lib/calls/tz';
 import { callsApi, type CallListItem, type PromoterInfo } from './api';
+import { ARCHIVE_CONFIRM, DELETE_CONFIRM, callMenu, hasMenu, visibleCalls } from '@/lib/calls/list-view';
 import { StatusBadge } from './StatusBadge';
 
 export function CallsList({ kind, onOpen }: { kind: PromoterKind; onOpen: (id: string) => void }) {
@@ -13,6 +14,7 @@ export function CallsList({ kind, onOpen }: { kind: PromoterKind; onOpen: (id: s
   const [calls, setCalls] = useState<CallListItem[] | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
 
   const load = useCallback(async () => {
     const res = await callsApi.list(kind);
@@ -36,7 +38,26 @@ export function CallsList({ kind, onOpen }: { kind: PromoterKind; onOpen: (id: s
     await load();
   }
 
+  async function archive(id: string) {
+    if (!window.confirm(ARCHIVE_CONFIRM)) return;
+    setBusy(id); setError('');
+    const res = await callsApi.act(id, 'archive');
+    setBusy(null);
+    if (!res.ok) { setError(res.body.error ?? 'Could not archive the call.'); return; }
+    await load();
+  }
+  async function remove(id: string) {
+    if (!window.confirm(DELETE_CONFIRM)) return;
+    setBusy(id); setError('');
+    const res = await callsApi.remove(id);
+    setBusy(null);
+    if (!res.ok) { setError(res.body.error ?? 'Could not delete the call.'); return; }
+    await load();
+  }
+
   const canManage = promoter?.canManage ?? false;
+  const shown = calls ? visibleCalls(calls, showArchived) : null;
+  const archivedCount = calls ? calls.length - visibleCalls(calls, false).length : 0;
 
   return (
     <div data-testid="calls-list">
@@ -53,16 +74,22 @@ export function CallsList({ kind, onOpen }: { kind: PromoterKind; onOpen: (id: s
         )}
       </div>
       {error && <p role="alert" className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{error}</p>}
-      {calls === null ? (
+      {archivedCount > 0 || showArchived ? (
+        <label className="mb-3 flex items-center gap-2 text-xs text-gray-600">
+          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} data-testid="show-archived" />
+          Show archived{!showArchived && archivedCount > 0 ? ` (${archivedCount})` : ''}
+        </label>
+      ) : null}
+      {shown === null ? (
         <p className="text-sm text-gray-400">Loading…</p>
-      ) : calls.length === 0 ? (
+      ) : shown.length === 0 ? (
         <div className="rounded-lg border border-dashed border-gray-300 p-10 text-center" data-testid="calls-empty">
           <p className="text-sm font-medium text-gray-700">No calls yet</p>
           <p className="mt-1 text-xs text-gray-400">{canManage ? 'Create your first call: set it up, build its form, preview it and publish a link.' : 'Calls created by your organisation will appear here.'}</p>
         </div>
       ) : (
         <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {calls.map((c) => (
+          {shown.map((c) => (
             <li key={c.id} className="flex flex-col rounded-lg border border-gray-200 bg-white p-4" data-testid="call-card">
               <div className="flex items-start justify-between gap-2">
                 <button type="button" onClick={() => onOpen(c.id)} className="min-w-0 text-left">
@@ -79,10 +106,23 @@ export function CallsList({ kind, onOpen }: { kind: PromoterKind; onOpen: (id: s
               </p>
               <div className="mt-4 flex items-center gap-3 border-t border-gray-100 pt-3 text-xs">
                 <button type="button" onClick={() => onOpen(c.id)} className="font-semibold text-[#0E7490] hover:underline">{canManage ? 'Open' : 'View'}</button>
-                {canManage && (
-                  <button type="button" onClick={() => void duplicate(c.id)} disabled={busy === c.id} className="text-gray-500 hover:text-[#0E7490] disabled:opacity-40" data-testid="duplicate-call">
-                    {busy === c.id ? 'Duplicating…' : 'Duplicate'}
-                  </button>
+                {hasMenu(callMenu(c, canManage)) && (
+                  <details className="relative ml-auto" data-testid="call-menu">
+                    <summary aria-label={`More actions for ${c.name}`} className="cursor-pointer list-none rounded px-2 py-0.5 text-base leading-none text-gray-500 hover:bg-gray-100">⋯</summary>
+                    <div className="absolute right-0 z-10 mt-1 w-40 rounded-lg border border-gray-200 bg-white py-1 shadow-md">
+                      {callMenu(c, canManage).duplicate && (
+                        <button type="button" onClick={() => void duplicate(c.id)} disabled={busy === c.id} className="block w-full px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-40" data-testid="duplicate-call">
+                          {busy === c.id ? 'Duplicating…' : 'Duplicate'}
+                        </button>
+                      )}
+                      {callMenu(c, canManage).archive && (
+                        <button type="button" onClick={() => void archive(c.id)} disabled={busy === c.id} className="block w-full px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-40" data-testid="archive-call-menu">Archive call</button>
+                      )}
+                      {callMenu(c, canManage).delete && (
+                        <button type="button" onClick={() => void remove(c.id)} disabled={busy === c.id} className="block w-full px-3 py-1.5 text-left text-xs text-[#B00000] hover:bg-red-50 disabled:opacity-40" data-testid="delete-call-menu">Delete call</button>
+                      )}
+                    </div>
+                  </details>
                 )}
               </div>
             </li>

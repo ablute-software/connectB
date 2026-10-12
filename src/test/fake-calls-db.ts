@@ -16,6 +16,9 @@ export function callsDb(): CallsDb {
   const names = [
     'calls', 'call_phases', 'call_form_fields', 'call_config_snapshots', 'call_applications', 'call_application_submissions', 'call_events',
     'catalog_entities', 'incubators', 'matchdeal_investor_members', 'incubator_members', 'investor_billing', 'matchdeal_profiles',
+    // Prompt 909
+    'call_deletions', 'call_team_categories', 'call_team_members', 'call_declared_conflicts', 'call_source_documents', 'call_import_runs',
+    'investor_firm_seat_invites',
   ];
   return { tables: Object.fromEntries(names.map((n) => [n, []])), users: new Map(), clock: Date.UTC(2026, 9, 9, 12, 0, 0), seq: 0 };
 }
@@ -29,8 +32,13 @@ const DEFAULTS: Record<string, (db: CallsDb) => Row> = {
   calls: () => ({
     description: null, opens_at: null, closes_at: null, timezone: 'Europe/Lisbon', visibility: 'listed', limit_unit: 'project',
     allow_multiple: false, content_language: 'en', currency: 'EUR', status: 'draft', link_token: null, config_version: 1,
-    validated_at: null, validated_by: null, published_at: null, closed_at: null, duplicated_from: null, catalog_entity_id: null, incubator_id: null,
+    validated_at: null, validated_by: null, published_at: null, closed_at: null, archived_at: null, archived_by: null, duplicated_from: null, catalog_entity_id: null, incubator_id: null,
   }),
+  call_team_categories: () => ({ permissions: {}, catalog_entity_id: null, incubator_id: null }),
+  call_team_members: () => ({ permission_overrides: {} }),
+  call_declared_conflicts: () => ({ note: null }),
+  call_source_documents: () => ({ kind: 'other', pages: null }),
+  call_import_runs: () => ({ source_document_ids: [], status: 'proposed', found_later: {}, model: null, tokens_in: null, tokens_out: null, cost_eur: null, applied_at: null, applied_by: null }),
   call_phases: () => ({ starts_on: null, ends_on: null }),
   call_form_fields: () => ({
     page: 1, position: 0, instruction: null, required: false, options: [], validations: {}, condition: null,
@@ -50,6 +58,18 @@ function check(table: string, row: Row, all: Row[]) {
     if (row.link_token && all.some((r) => r !== row && r.link_token === row.link_token)) throw new Violation('calls_link_token_key', '23505');
   }
   if (table === 'call_form_fields' && (typeof row.label !== 'string' || row.label.trim() === '')) throw new Violation('call_form_fields_label_check');
+  if (table === 'call_team_categories') {
+    if (typeof row.name !== 'string' || row.name.trim() === '') throw new Violation('call_team_categories_name_check');
+    if (typeof row.permissions !== 'object' || Array.isArray(row.permissions)) throw new Violation('call_team_categories_permissions_check');
+    const org = (row.catalog_entity_id ?? row.incubator_id) as string;
+    if (all.some((r) => r !== row && ((r.catalog_entity_id ?? r.incubator_id) as string) === org && String(r.name).trim().toLowerCase() === String(row.name).trim().toLowerCase())) {
+      throw new Violation('call_team_categories_name_uq', '23505');
+    }
+  }
+  if (table === 'call_team_members' && all.some((r) => r !== row && r.call_id === row.call_id && r.user_id === row.user_id)) {
+    throw new Violation('call_team_members_call_id_user_id_key', '23505');
+  }
+  if (table === 'call_declared_conflicts' && (typeof row.company_name !== 'string' || row.company_name.trim() === '')) throw new Violation('call_declared_conflicts_company_name_check');
   if (table === 'call_phases' && (typeof row.name !== 'string' || row.name.trim() === '')) throw new Violation('call_phases_name_check');
 }
 
@@ -83,12 +103,16 @@ function builder(db: CallsDb, table: string): any {
       }
       let matched = rows.filter((r) => preds.every((p) => p(r)));
       if (op === 'update') {
-        if (table === 'call_events' || table === 'call_config_snapshots' || table === 'call_application_submissions') throw new Violation(`${table} is append-only`);
+        if (table === 'call_events' || table === 'call_config_snapshots' || table === 'call_application_submissions' || table === 'call_deletions') throw new Violation(`${table} is append-only`);
         const done = matched.map((r) => { const next = { ...r, ...(values as Row) }; check(table, next, rows.filter((o) => o !== r)); Object.assign(r, values as Row); return r; });
         return { data: done, error: null };
       }
       if (op === 'delete') {
-        if (table === 'call_application_submissions') throw new Violation(`${table} is append-only`);
+        if (table === 'call_application_submissions' || table === 'call_deletions') throw new Violation(`${table} is append-only`);
+        // call_team_members.category_id has no ON DELETE action: a category that still has people cannot be deleted.
+        if (table === 'call_team_categories' && matched.some((c) => db.tables.call_team_members.some((m) => m.category_id === c.id))) {
+          throw new Violation('call_team_members_category_id_fkey', '23503');
+        }
         for (const r of matched) rows.splice(rows.indexOf(r), 1);
         return { data: matched, error: null };
       }
@@ -123,6 +147,39 @@ function builder(db: CallsDb, table: string): any {
   return b;
 }
 
-export function fakeCallsAdmin(db: CallsDb): SupabaseClient {
-  return { from: (t: string) => builder(db, t), auth: { admin: { getUserById: async (id: string) => ({ data: { user: db.users.get(id) ?? null }, error: null }) } } } as unknown as SupabaseClient;
+/** delete_call_if_empty(), modelled (migration 20261012150000): the refusals, the record that survives, the cascade. */
+function deleteCallIfEmpty(db: CallsDb, callId: string, actor: string, promoterName: string) {
+  const call = db.tables.calls.find((c) => c.id === callId);
+  if (!call) return { ok: false, reason: 'not_found' };
+  if (!['draft', 'validated', 'scheduled'].includes(call.status as string)) return { ok: false, reason: 'status', status: call.status };
+  if (db.tables.call_applications.some((a) => a.call_id === callId)) return { ok: false, reason: 'has_applications' };
+  db.tables.call_deletions.push({
+    id: uuid(db), call_id: call.id, call_name: call.name, promoter_kind: call.promoter_kind, promoter_id: call.catalog_entity_id ?? call.incubator_id,
+    promoter_name: promoterName, status_at_deletion: call.status, deleted_by: actor, deleted_at: tick(db),
+  });
+  for (const t of ['call_phases', 'call_form_fields', 'call_config_snapshots', 'call_events', 'call_team_members', 'call_declared_conflicts', 'call_source_documents', 'call_import_runs']) {
+    db.tables[t] = db.tables[t].filter((r) => r.call_id !== callId);
+  }
+  db.tables.calls.splice(db.tables.calls.indexOf(call), 1);
+  return { ok: true, call_name: call.name };
+}
+
+export interface FakeStorage { objects: Map<string, { bytes: Uint8Array; contentType?: string }> }
+
+export function fakeCallsAdmin(db: CallsDb, storage: FakeStorage = { objects: new Map() }): SupabaseClient {
+  return {
+    from: (t: string) => builder(db, t),
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      if (name === 'delete_call_if_empty') return { data: deleteCallIfEmpty(db, args.p_call as string, args.p_actor as string, args.p_promoter_name as string), error: null };
+      return { data: null, error: { message: `unknown rpc ${name}` } };
+    },
+    storage: {
+      from: () => ({
+        upload: async (path: string, body: Uint8Array | Buffer, opts?: { contentType?: string }) => { storage.objects.set(path, { bytes: new Uint8Array(body), contentType: opts?.contentType }); return { data: { path }, error: null }; },
+        remove: async (paths: string[]) => { for (const p of paths) storage.objects.delete(p); return { data: paths, error: null }; },
+        download: async (path: string) => { const o = storage.objects.get(path); return o ? { data: new Blob([Buffer.from(o.bytes)]), error: null } : { data: null, error: { message: 'not found' } }; },
+      }),
+    },
+    auth: { admin: { getUserById: async (id: string) => ({ data: { user: db.users.get(id) ?? null }, error: null }) } },
+  } as unknown as SupabaseClient;
 }

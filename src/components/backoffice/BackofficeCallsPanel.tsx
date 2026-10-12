@@ -47,9 +47,10 @@ export function BackofficeCallsTable({ rows, origin, initialOpen = null }: { row
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<CallStatus | ''>('');
   const [sort, setSort] = useState<CallSort>('created');
+  const [showArchived, setShowArchived] = useState(false);
   const [open, setOpen] = useState<string | null>(initialOpen);
 
-  const shown = sortCallRows(filterCallRows(rows, { q, status }), sort);
+  const shown = sortCallRows(filterCallRows(rows, { q, status, showArchived }), sort);
 
   return (
     <div className="space-y-3">
@@ -68,6 +69,10 @@ export function BackofficeCallsTable({ rows, origin, initialOpen = null }: { row
             className="mt-0.5 block rounded-lg border border-gray-300 px-2 py-1 text-sm">
             {(Object.keys(CALL_SORT_LABELS) as CallSort[]).map((k) => <option key={k} value={k}>{CALL_SORT_LABELS[k]}</option>)}
           </select></label>
+        <label className="flex items-center gap-1.5 pb-1 text-xs text-gray-600">
+          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} aria-label="Show archived" />
+          Show archived
+        </label>
         <span className="pb-1 text-xs text-gray-400">{shown.length} of {rows.length}</span>
       </div>
 

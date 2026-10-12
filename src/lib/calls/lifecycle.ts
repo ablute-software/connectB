@@ -147,10 +147,35 @@ export function closeEarly(call: Call, now: Date = new Date()): Transition {
   return { ok: true, event: 'call_closed', patch: { status: 'closed', closed_at: now.toISOString() }, detail: { early: true } };
 }
 
+/**
+ * Delete (Prompt 909, I1): only before the call opens, and only if nobody has applied in any state (submitted, in
+ * progress or withdrawn): after that there is applicants' data in it. Same rules as delete_call_if_empty() in SQL,
+ * which has the last word under a row lock. null = may be deleted.
+ */
+export function deleteProblem(status: CallStatus, applicationsTotal: number): string | null {
+  if (status !== 'draft' && status !== 'validated' && status !== 'scheduled') {
+    return 'Only a call that has not opened yet can be deleted. Close it and archive it instead.';
+  }
+  if (applicationsTotal > 0) return 'This call has applications, so it cannot be deleted: there is applicants’ data in it. Archive it instead.';
+  return null;
+}
+
+/** Archive: for calls with applications, or already open or closed. An open call must be closed first. */
+export function archiveCall(call: Call, actor: string, now: Date = new Date()): Transition {
+  if (call.status === 'archived') return refuse('This call is already archived.');
+  if (effectiveStatus(call, now) === 'open') return refuse('Close the call before archiving it.');
+  return {
+    ok: true, event: 'call_archived',
+    patch: { status: 'archived', archived_at: now.toISOString(), archived_by: actor }, detail: { from: call.status },
+  };
+}
+
 /** Which actions the editor offers for this state. */
-export function availableActions(call: Call, issues: ReadinessIssue[], now: Date = new Date()) {
+export function availableActions(call: Call, issues: ReadinessIssue[], now: Date = new Date(), applicationsTotal = 0) {
   const status = effectiveStatus(call, now);
   return {
+    canDelete: deleteProblem(status, applicationsTotal) === null,
+    canArchive: call.status !== 'archived' && status !== 'open',
     status,
     canEditForm: isConfigEditable(call.status),
     canConfirm: call.status === 'draft' && issues.length === 0,

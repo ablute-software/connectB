@@ -17,6 +17,7 @@ import { FormTab } from './FormTab';
 import { PreviewTab, type LifecycleAction } from './PreviewTab';
 import { SaveStatus, type SaveState } from './SaveStatus';
 import { StatusBadge } from './StatusBadge';
+import { CallDangerZone } from './CallDangerZone';
 
 type Section = 'general' | 'phases' | 'form';
 const DEBOUNCE_MS = 700;
@@ -146,6 +147,18 @@ export function CallEditor({ callId, onBack }: { callId: string; onBack: () => v
     } finally { setBusy(false); }
   }
 
+  /** Delete (the server refuses it when anybody applied or the call opened) — then back to the list. */
+  async function removeCall() {
+    setBusy(true); setActionError('');
+    try {
+      if (timer.current) clearTimeout(timer.current);
+      const res = await callsApi.remove(callId);
+      if (!res.ok) { setActionError(res.body.error ?? 'The call could not be deleted.'); return; }
+      dirty.current = { general: false, phases: false, form: false };
+      onBack();
+    } finally { setBusy(false); }
+  }
+
   if (loadError) {
     return (
       <div className="max-w-md rounded-lg border border-gray-200 bg-white p-6 text-center">
@@ -187,7 +200,14 @@ export function CallEditor({ callId, onBack }: { callId: string; onBack: () => v
 
       {reason && <p role="status" className="mb-4 rounded-lg bg-sky-50 px-4 py-2.5 text-xs text-sky-900" data-testid="lock-reason">{reason}</p>}
 
-      {tab === 'general' && <GeneralTab call={call} promoterName={server.promoterName} disabled={readOnly} onChange={editGeneral} />}
+      {tab === 'general' && (
+        <>
+          <GeneralTab call={call} promoterName={server.promoterName} disabled={readOnly} onChange={editGeneral} />
+          <CallDangerZone actions={server.actions} status={server.effectiveStatus} applicationsTotal={server.applications.total}
+            canManage={server.canManage} busy={busy} onDelete={() => void removeCall()} onArchive={() => void act('archive')} />
+          {actionError && <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{actionError}</p>}
+        </>
+      )}
       {tab === 'phases' && <PhasesTab phases={phases} disabled={readOnly} onChange={editPhases} />}
       {tab === 'form' && <FormTab fields={fields} disabled={readOnly} onChange={editFields} />}
       {tab === 'preview' && (
