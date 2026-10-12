@@ -83,14 +83,44 @@ beforeEach(() => {
 });
 
 describe('the switch', () => {
-  it('off (the default): every route answers 404, for a member and for a stranger alike', async () => {
-    delete process.env.CALLS_MODE;
+  it('off (set explicitly, the emergency brake): every route answers 404, for a member and for a stranger alike', async () => {
+    process.env.CALLS_MODE = 'off';
     as('ana');
     for (const res of [await listGet(new NextRequest('http://localhost/api/calls')), await accessGet(), await createPost(json('POST', { kind: 'catalog_entity' })),
       await oneGet(json('GET'), params('x')), await publicGet(json('GET'), { params: { token: 'abcdefghijklmnopqrstuv' } })]) {
       expect(res.status).toBe(404);
     }
     expect(db.tables.calls).toHaveLength(0);
+  });
+
+  it('CALLS_MODE not defined (Prompt 908): the tab and the routes are ON, and the role rules still decide who does what', async () => {
+    delete process.env.CALLS_MODE;
+    delete process.env.CALLS_TEST_EMAILS;
+    // Owner/admin of the firm: sees the tab, creates, and the call is theirs.
+    as('ana');
+    expect((await read(await accessGet())).body.promoters).toEqual([{ kind: 'catalog_entity', id: FIRM, name: 'zz-test-firm', canManage: true }]);
+    const created = await read(await createPost(json('POST', { kind: 'catalog_entity', name: 'Without any switch' })));
+    expect(created.status).toBe(200);
+    expect(db.tables.calls).toHaveLength(1);
+    // A plain member sees the tab but does not create.
+    as('bob');
+    expect((await accessGet()).status).toBe(200);
+    expect((await createPost(json('POST', { kind: 'catalog_entity', name: 'nope' }))).status).toBe(403);
+    expect(db.tables.calls).toHaveLength(1);
+    // Someone who belongs to no promoter is refused, signed out is 401, and another firm's call is a 404.
+    db.users.set('zed', { id: 'zed', email: 'zed@example.com' });
+    as('zed');
+    expect((await accessGet()).status).toBe(403);
+    as('otto');
+    expect((await oneGet(json('GET'), params(db.tables.calls[0].id as string))).status).toBe(404);
+    currentUser = null;
+    expect((await accessGet()).status).toBe(401);
+  });
+
+  it('the brake wins over everything: with CALLS_MODE=off even the owner sees no tab', async () => {
+    process.env.CALLS_MODE = 'off';
+    as('ana');
+    expect((await accessGet()).status).toBe(404);
   });
 
   it('allowlist: only the listed emails get in, everyone else gets the same 404', async () => {
@@ -441,7 +471,7 @@ describe('the public link', () => {
 
   it('with the switch off the link answers 404 as well', async () => {
     const { token } = await published();
-    delete process.env.CALLS_MODE;
+    process.env.CALLS_MODE = 'off';
     expect((await pub(token)).status).toBe(404);
   });
 });

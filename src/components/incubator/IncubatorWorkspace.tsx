@@ -365,7 +365,8 @@ function SettingsPanel({ me, demo, onSaved }: { me: MeResponse; demo: boolean; o
 export function IncubatorWorkspace() {
   const [me, setMe] = useState<MeResponse | null>(null);
   const [tab, setTab] = useState<Tab>('portfolio');
-  // Prompt 905 — the Calls tab, behind CALLS_MODE: the server answers 404 and the tab never shows when it is off.
+  // Prompt 905 — the Calls tab. Visible by the role rules; only CALLS_MODE="off" (the emergency brake) hides it:
+  // the server then answers 404 and the tab never shows.
   const callsEnabled = useCallsAccess('incubator');
 
   const loadMe = useCallback(() => {

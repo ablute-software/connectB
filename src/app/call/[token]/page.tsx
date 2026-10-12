@@ -1,7 +1,7 @@
 'use client';
 // Prompt 905 — the page behind a published call's link. PLACEHOLDER: it shows the call's header and one
 // sentence ("Applications open on [date]"). The real applicant screen — registration, the form, submission — is
-// Prompt 906, which replaces this page. With CALLS_MODE off (or a token that does not exist) it says the link is
+// Prompt 906, which replaces this page. With CALLS_MODE "off" (or a token that does not exist) it says the link is
 // not available, like any other dead link.
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';

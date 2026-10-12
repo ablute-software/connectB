@@ -23,8 +23,12 @@ const f = (over: Partial<FormField> & Pick<FormField, 'id' | 'kind'>): FormField
 });
 
 describe('CALLS_MODE', () => {
-  it('is off unless set, and off allows nobody', () => {
-    for (const v of [undefined, '', 'maybe', 'true']) {
+  it('is ON when not set (Prompt 908): only an explicit "off" is the emergency brake', () => {
+    for (const v of [undefined, '', 'maybe', 'true', 'on', ' ON ']) {
+      expect(callsMode({ CALLS_MODE: v })).toBe('on');
+      expect(callsAllowedFor('a@b.com', { CALLS_MODE: v })).toBe(true);
+    }
+    for (const v of ['off', 'OFF', ' off ']) {
       expect(callsMode({ CALLS_MODE: v })).toBe('off');
       expect(callsAllowedFor('a@b.com', { CALLS_MODE: v })).toBe(false);
     }

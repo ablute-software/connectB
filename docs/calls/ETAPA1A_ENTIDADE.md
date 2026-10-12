@@ -10,11 +10,15 @@ publicação com link. O ecrã do candidato é o Prompt 906 e reutiliza o que aq
 
 | Variável | Valor |
 | --- | --- |
-| `CALLS_MODE` | `allowlist` |
-| `CALLS_TEST_EMAILS` | o email de uma conta que seja **owner/admin de uma firma de investimento** ou **owner/manager de uma organização de ecossistema** (vários, separados por vírgula) |
+**Atualização do Prompt 908 (09/10/2026): já não é preciso definir nenhuma variável.** Sem `CALLS_MODE` as Calls
+ficam ligadas para quem cumpre as regras de papel. `CALLS_MODE=off` é agora só o **travão de emergência**: desliga
+tudo e as rotas respondem 404. `CALLS_MODE=allowlist` + `CALLS_TEST_EMAILS` continua a existir como restrição
+opcional. (O que se segue é o texto original do 905.)
 
-Sem estas variáveis (ou com `CALLS_MODE` ausente/`off`) **nada aparece e as rotas respondem 404**. `on` abre a
-qualquer membro com o papel certo.
+| Variável | Valor |
+| --- | --- |
+| `CALLS_MODE` | (não definir) · `off` desliga tudo · `allowlist` restringe |
+| `CALLS_TEST_EMAILS` | só com `allowlist`: emails permitidos, separados por vírgula |
 
 **O que clicar para testar** (≈ 10 minutos):
 

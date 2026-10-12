@@ -1,5 +1,6 @@
-// Prompt 905 — Calls: the list of the caller's calls (GET) and creating a new one (POST). Behind CALLS_MODE
-// (404 when off); only members of the promoting entity see anything; only its owners/admins create.
+// Prompt 905 — Calls: the list of the caller's calls (GET) and creating a new one (POST). 404 only when
+// CALLS_MODE is explicitly "off" (Prompt 908: the emergency brake); only members of the promoting entity see
+// anything; only its owners/admins create.
 import { NextResponse, type NextRequest } from 'next/server';
 import { authCalls, pickPromoter } from '@/lib/calls/access';
 import { createCall, listPromoterCalls, loadCall } from '@/lib/calls/store';

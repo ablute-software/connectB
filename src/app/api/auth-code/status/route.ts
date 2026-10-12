@@ -4,6 +4,9 @@ import { NextResponse } from 'next/server';
 import { authCodeMode } from '@/lib/auth-code/mode';
 import { serverClient } from '@/lib/supabase-server';
 
+// No request argument: without this Next prerenders it at build time and freezes the 404 it answers while the mode is off.
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   if (authCodeMode() === 'off') return NextResponse.json({ ok: false }, { status: 404 });
   const sb = await serverClient();

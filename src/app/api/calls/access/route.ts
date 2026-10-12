@@ -3,6 +3,9 @@
 import { NextResponse } from 'next/server';
 import { authCalls } from '@/lib/calls/access';
 
+// No request argument, so Next would prerender this at build time and freeze whatever it answered then.
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   const auth = await authCalls();
   if (auth.error) return auth.error;
