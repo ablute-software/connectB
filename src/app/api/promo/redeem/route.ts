@@ -13,6 +13,7 @@ import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
 import { grantPioneerBadgeAndReferrals } from '@/lib/pioneer-server';
 import { grantReferralCodes } from '@/lib/referral-server';
 import type { PlanTier } from '@/lib/types';
+import { withoutViewer } from '@/lib/acting-org';
 
 const REASON_MESSAGE: Record<string, string> = {
   not_found: 'That code doesn’t exist. Check for typos and try again.',
@@ -25,7 +26,7 @@ const REASON_MESSAGE: Record<string, string> = {
   email_locked: 'This code is reserved for a specific email address. Sign in with that account to redeem it.',
 };
 
-export async function POST(req: Request) {
+export const POST = withoutViewer(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'Not available yet.' }, { status: 200 });
@@ -151,4 +152,4 @@ export async function POST(req: Request) {
     applicable_plans: promo!.applicable_plans as string[],
     benefit_ends_at: benefitEndsAt ? benefitEndsAt.toISOString() : null,
   });
-}
+});

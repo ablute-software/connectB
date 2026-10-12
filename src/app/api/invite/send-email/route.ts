@@ -6,8 +6,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 import { BRAND_NAME, APP_URL } from '@/lib/brand';
+import { withActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: NextRequest) {
+export const POST = withActingOrg(async function POST(req: NextRequest) {
   const { token } = await req.json();
   if (!token) return NextResponse.json({ ok: false, sent: false, error: 'token required' }, { status: 400 });
 
@@ -40,4 +41,4 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json({ ok: true, sent: result.sent, error: result.sent ? undefined : result.error });
-}
+});

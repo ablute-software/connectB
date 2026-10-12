@@ -52,6 +52,7 @@ import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { markReadinessTrainFirstUsed } from '@/lib/readiness-usage';
 import { chargeAiAction } from '@/lib/ai-credits';
 import type { SwotData } from '@/lib/types';
+import { withActingOrg } from '@/lib/acting-org';
 
 interface Report extends SwotData {
   score: number; summary: string;
@@ -102,7 +103,7 @@ const PIPELINE_STATS_SCOPE_RULE = 'PIPELINE STATS (contacts, passes, response ra
 
 interface TeamMember { full_name: string; title?: string | null; is_founder: boolean; commitment?: string | null }
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const { facts, pipeline, company, team } = await req.json() as {
     facts?: string[]; pipeline?: Record<string, unknown>; company?: Record<string, unknown>; team?: TeamMember[];
   };
@@ -306,7 +307,7 @@ export async function POST(req: Request) {
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }
-}
+});
 
 // Prompt 211 §B — o SWOT que o investidor pode ver. Outro prompt, outros
 // dados de entrada: so COMPANY e CONFIRMED FACTS, nada de pipeline.

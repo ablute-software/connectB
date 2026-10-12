@@ -4,7 +4,8 @@
 // /api/ai-review) check server-side, so the UI never has to guess or
 // duplicate that logic (and never inspects env vars client-side).
 import { NextResponse, type NextRequest } from 'next/server';
-import { serverClient, resolveRoleSignals, decideRole, hatsFromSignals, getOrgRole, authEnabled } from '@/lib/supabase-server';
+import { serverClient, resolveRoleSignals, decideRole, hatsFromSignals, authEnabled, type OrgMemberRole } from '@/lib/supabase-server';
+import { actingReader, resolveActingOrg, withActingOrg } from '@/lib/acting-org';
 import { hasPendingIncubatorMemberInvite } from '@/lib/incubator-pending-server';
 import { readViewerSession } from '@/lib/developer-viewer';
 import { companyCanonAvailable } from '@/lib/company-canon';
@@ -30,14 +31,14 @@ import { vaultPinOwnerManagedAvailable } from '@/lib/vault-pin-owner-managed-cap
 import { taskRemindersAvailable } from '@/lib/task-reminders-capability';
 import { resolveUserPlan } from '@/lib/plan-server';
 import { planEntitlements, REVIEW_QUOTA } from '@/lib/plans';
-import { aiWalletStatus } from '@/lib/ai-credits';
+import { aiWalletStatus, aiWalletStatusForViewer } from '@/lib/ai-credits';
 import { stripeConfigured } from '@/lib/stripe-env';
 import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
 import { aiReviewDocumentLinkAvailable } from '@/lib/ai-review-document-link-capability';
 import { roadmapEventsAvailable } from '@/lib/document-extraction-capability';
 import { buildUnauthenticatedMeResponse, buildAuthenticatedNoUserResponse, buildAuthenticatedMeResponse } from '@/lib/me-response';
 
-export async function GET(req: NextRequest) {
+export const GET = withActingOrg(async function GET(req: NextRequest) {
   const capabilities = {
     ai: !!process.env.ANTHROPIC_API_KEY,
     companyCanon: await companyCanonAvailable(),
@@ -79,11 +80,15 @@ export async function GET(req: NextRequest) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json(buildAuthenticatedNoUserResponse(capabilities));
-  const [signals, orgRole, { orgId, plan }] = await Promise.all([
+  // Prompt 904 — everything below that describes "the org" (plan, wallet, quota, badges, the caller's role in
+  // it) describes the ACTING org: the viewed one inside a Developer Viewer session, never the developer's
+  // own. `orgRole` is the caller's role there — null in a viewer session (no role in the viewed org).
+  const [signals, acting] = await Promise.all([
     resolveRoleSignals(user.id, user.email, sb, user.email_confirmed_at),
-    getOrgRole(user.id, sb),
-    resolveUserPlan(user.id, sb),
+    resolveActingOrg(req, user, sb),
   ]);
+  const orgRole = acting.role as OrgMemberRole | null;
+  const { orgId, plan } = await resolveUserPlan(user.id, sb, acting);
   const role = decideRole(signals);
   // Prompt I-01 — every workspace this account can open (the hat switcher in
   // the founder shell, the portal and the incubator shell reads this).
@@ -121,7 +126,11 @@ export async function GET(req: NextRequest) {
   // it always has, just keyed on the org flag now rather than user role.
   let watson: { quota: number; used: number; remaining: number; resetAt: string } | null = null;
   if (orgId) {
-    const status = await aiWalletStatus(sb, orgId, 'compose_outreach');
+    // ai_wallet_status() demands membership (and rolls the period over as a side effect), so a viewer
+    // session reads the same numbers through a read-only replica instead.
+    const status = acting.mode === 'viewer'
+      ? await aiWalletStatusForViewer(actingReader(acting, sb), orgId, 'compose_outreach')
+      : await aiWalletStatus(sb, orgId, 'compose_outreach');
     if (status && !status.isTest) {
       watson = { quota: status.monthlyLimit, used: status.used, remaining: status.remaining, resetAt: status.resetAt };
     }
@@ -158,4 +167,4 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json(buildAuthenticatedMeResponse({ authEnabled: true, user: { id: user.id, email: user.email }, role, hats, pendingIncubatorMemberInvite, signupIntent, orgRole, plan, entitlements, capabilities, watson, reviewQuota, viewer, pioneerBadge }));
-}
+});

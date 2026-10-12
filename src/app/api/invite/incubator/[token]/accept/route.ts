@@ -8,8 +8,9 @@ import { createClient } from '@supabase/supabase-js';
 import { requireProgramManager } from '@/lib/incubator-founder-gate';
 import { acceptIncubatorInvite, type AcceptRpcResult } from '@/lib/incubator-accept';
 import { redeemIncubatorInviteVoucher } from '@/lib/incubator-voucher-server';
+import { withoutViewer } from '@/lib/acting-org';
 
-export async function POST(req: Request, { params }: { params: { token: string } }) {
+export const POST = withoutViewer(async function POST(req: Request, { params }: { params: { token: string } }) {
   const gate = await requireProgramManager(req, { allowNoOrg: true });
   if ('error' in gate) return gate.error;
   const { sb, userId } = gate;
@@ -29,4 +30,4 @@ export async function POST(req: Request, { params }: { params: { token: string }
     },
   });
   return NextResponse.json(outcome, { status: outcome.ok ? 200 : 400 });
-}
+});

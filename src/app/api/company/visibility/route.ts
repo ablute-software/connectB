@@ -50,7 +50,7 @@ export const GET = withActingOrg(async function GET(req: Request) {
     // viewer session isn't an owner of the org it's looking at, so the toggle is
     // never offered as actionable (and the POST refuses it regardless).
     const orgId = acting.orgId;
-    const isOwner = acting.mode === 'member' && acting.role === 'owner';
+    const isOwner = acting.role === 'owner'; // null in a viewer session
     // Addenda to Prompt 120 (2026-08-04) — before this, the toggle only
     // ever reflected owner_suspended_at/platform_suspended_at, so a
     // profile that's invisible because it's INCOMPLETE (never suspended by

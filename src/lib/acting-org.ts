@@ -46,16 +46,14 @@ export interface ActingOrg {
   orgId: string | null;
   mode: ActingMode;
   /**
-   * The caller's role in `orgId`. In a viewer session the developer is not a member
-   * of the viewed org, so there is no membership row to read a role from; they see
-   * what the owner sees (the point of the viewer is to reproduce the founder's
-   * screen) and cannot change any of it (the wrapper refuses every write).
+   * The caller's role in `orgId`. NULL in a viewer session: the developer is not a
+   * member of the org they are looking at, and a viewer session has no role there
+   * (Prompt 894 made the same call for the roster's `myRole`). Every affordance a
+   * route derives from a role (isOwner, canEdit) is therefore false in a viewer
+   * session — the screen does not invite a write that withActingOrg would refuse.
    */
   role: string | null;
 }
-
-/** What a developer is shown the permission matrix as, inside a viewer session. */
-export const VIEWER_ROLE = 'owner';
 
 type Caller = { id: string };
 type AnyRequest = NextRequest | Request;
@@ -88,7 +86,7 @@ async function sessionClient(sb?: SupabaseClient): Promise<SupabaseClient> {
 export async function resolveActingOrg(req: AnyRequest, user: Caller, sb?: SupabaseClient): Promise<ActingOrg> {
   const client = await sessionClient(sb);
   const viewed = await verifiedViewerOrg(client, req);
-  if (viewed) return { orgId: viewed, mode: 'viewer', role: VIEWER_ROLE };
+  if (viewed) return { orgId: viewed, mode: 'viewer', role: null };
   const { data: member } = await client.from('org_members').select('org_id, role').eq('user_id', user.id).maybeSingle();
   return {
     orgId: (member?.org_id as string | undefined) ?? null,
@@ -111,10 +109,29 @@ export async function authorizeActingOrg(
 ): Promise<ActingOrg | null> {
   const client = await sessionClient(sb);
   const viewed = await verifiedViewerOrg(client, req);
-  if (viewed) return viewed === orgId ? { orgId, mode: 'viewer', role: VIEWER_ROLE } : null;
+  if (viewed) return viewed === orgId ? { orgId, mode: 'viewer', role: null } : null;
   const { data: member } = await client
     .from('org_members').select('org_id, role').eq('user_id', user.id).eq('org_id', orgId).maybeSingle();
   return member ? { orgId, mode: 'member', role: (member.role as string | undefined) ?? null } : null;
+}
+
+/**
+ * The client a founder route READS org data with.
+ *
+ * A member reads through their own session: RLS keeps them inside their org. A
+ * developer in a viewer session is NOT a member of the org they are looking at, so a
+ * session read would answer with the wrong rows — their own org's (a member policy),
+ * or, for a platform admin, EVERY org's (email_send_log_platform_admin). In a viewer
+ * session the read therefore goes through the service role, and the route must scope
+ * the query by `acting.orgId` explicitly. READ ONLY: a viewer session never writes
+ * (withActingOrg refuses the method), so this is not a way around that.
+ */
+export function actingReader(acting: Pick<ActingOrg, 'mode'>, sb: SupabaseClient): SupabaseClient {
+  if (acting.mode !== 'viewer') return sb;
+  const admin = serviceClient();
+  // Fail closed: falling back to the session client here would re-open the very bug this file exists to close.
+  if (!admin) throw new Error('[acting-org] the service role is not configured; refusing to read a viewed org through the caller\'s session');
+  return admin;
 }
 
 /** True when this request is a verified Developer Viewer session. */
@@ -140,7 +157,17 @@ export interface ActingOrgOptions {
   ignoreInViewer?: boolean;
 }
 
-type Handler<R extends Request, A extends unknown[]> = (req: R, ...args: A) => Promise<Response> | Response;
+// A handler may be typed loosely (`Promise<NextResponse | undefined>` is what TypeScript infers for a route that
+// returns `resolved.error` from an `{ error } | { admin }` helper). Next throws when a handler returns nothing, so the
+// wrapper makes that explicit instead of widening the exported type.
+type Handler<R extends Request, A extends unknown[]> =
+  (req: R, ...args: A) => Promise<Response | undefined | void> | Response | undefined | void;
+
+async function invoke<R extends Request, A extends unknown[]>(handler: Handler<R, A>, req: R, args: A): Promise<Response> {
+  const res = await handler(req, ...args);
+  if (!res) throw new Error('[acting-org] a route handler returned no response');
+  return res;
+}
 
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -158,11 +185,11 @@ export function withActingOrg<R extends Request, A extends unknown[]>(
 ): (req: R, ...args: A) => Promise<Response> {
   return async (req: R, ...args: A): Promise<Response> => {
     // No cookie → cannot be a viewer: no session client is built, no RPC is made.
-    if (!hasViewerCookie(req)) return handler(req, ...args);
+    if (!hasViewerCookie(req)) return invoke(handler, req, args);
     const sb = await sessionClient();
     const viewed = await verifiedViewerOrg(sb, req);
     // A cookie on a session that is not (or no longer) a developer: not our concern.
-    if (!viewed) return handler(req, ...args);
+    if (!viewed) return invoke(handler, req, args);
 
     if (opts.ignoreInViewer) return NextResponse.json({ ok: true, ignored: 'viewer' });
     if (!isRead(req)) {
@@ -170,7 +197,7 @@ export function withActingOrg<R extends Request, A extends unknown[]>(
     } else {
       await auditViewerRead(sb, req, viewed);
     }
-    return handler(req, ...args);
+    return invoke(handler, req, args);
   };
 }
 
@@ -183,10 +210,10 @@ export function withoutViewer<R extends Request, A extends unknown[]>(
   handler: Handler<R, A>,
 ): (req: R, ...args: A) => Promise<Response> {
   return async (req: R, ...args: A): Promise<Response> => {
-    if (!hasViewerCookie(req)) return handler(req, ...args);
+    if (!hasViewerCookie(req)) return invoke(handler, req, args);
     const sb = await sessionClient();
     const viewed = await verifiedViewerOrg(sb, req);
-    if (!viewed) return handler(req, ...args);
+    if (!viewed) return invoke(handler, req, args);
     return viewerReadOnlyResponse();
   };
 }

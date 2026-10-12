@@ -4,8 +4,9 @@
 import { NextResponse } from 'next/server';
 import { requireProgramManager } from '@/lib/incubator-founder-gate';
 import { incubatorErrorText } from '@/lib/incubators';
+import { withActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export const POST = withActingOrg(async function POST(req: Request, { params }: { params: { id: string } }) {
   const gate = await requireProgramManager(req);
   if ('error' in gate) return gate.error;
   const { level } = await req.json().catch(() => ({})) as { level?: number };
@@ -13,4 +14,4 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   if (!data?.ok) return NextResponse.json({ ok: false, error: data?.error, message: incubatorErrorText(data?.error) }, { status: 400 });
   return NextResponse.json({ ok: true, sharingLevel: data.sharing_level });
-}
+});

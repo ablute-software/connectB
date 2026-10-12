@@ -13,6 +13,7 @@ import { enforceGroundedRationale, groundingPromptLines } from '@/lib/composer';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import type { Channel, Entity, Person } from '@/lib/types';
+import { withActingOrg } from '@/lib/acting-org';
 
 const NOT_CONFIGURED_MSG =
   'AI drafting isn’t available in your workspace yet — compose the message yourself. ' +
@@ -202,7 +203,7 @@ async function callClaude(apiKey: string, model: string, prompt: string, canonGa
   return toolUse.input as ComposerToolOutput;
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withActingOrg(async function POST(req: NextRequest) {
   const body = await req.json();
   const { context, channel, intent } = body as { context: ComposerContext; channel: Channel; intent: ComposerIntent };
   if (!context || !channel || !intent) {
@@ -319,4 +320,4 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 502 });
   }
-}
+});

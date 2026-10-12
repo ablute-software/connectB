@@ -10,8 +10,9 @@ import { canAssignRole, type OrgRole } from '@/lib/permissions';
 import { loadOrgMatrix } from '@/lib/org-matrix-server';
 import { canWithMatrix } from '@/lib/org-permissions';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
+import { withActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
@@ -43,4 +44,4 @@ export async function POST(req: Request) {
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   return NextResponse.json({ ok: true, token: data.token });
-}
+});

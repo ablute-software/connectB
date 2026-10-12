@@ -32,6 +32,7 @@ import { logAiCall } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { chargeAiAction } from '@/lib/ai-credits';
+import { withActingOrg } from '@/lib/acting-org';
 
 type ReviewKind =
   | 'message_review' | 'deck_review' | 'one_pager_review' | 'market_data'
@@ -183,7 +184,7 @@ const CONTRADICTION_TOOL = {
   },
 };
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const body = await req.json();
   const { kind, draft, context, documentIdA, documentIdB, documentId } = body as {
     kind: ReviewKind; draft?: string; context?: CompanyContext;
@@ -607,4 +608,4 @@ export async function POST(req: Request) {
     console.error('AI review error:', e);
     return NextResponse.json({ error: 'AI review failed — try again in a moment.' }, { status: 500 });
   }
-}
+});

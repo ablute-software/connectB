@@ -7,8 +7,9 @@ import { serverClient } from '@/lib/supabase-server';
 import { can, type OrgRole } from '@/lib/permissions';
 import { stripeConfigured, stripeSecret } from '@/lib/stripe-env';
 import { APP_URL } from '@/lib/brand';
+import { withoutViewer } from '@/lib/acting-org';
 
-export async function POST() {
+export const POST = withoutViewer(async function POST() {
   if (!stripeConfigured()) return NextResponse.json({ ok: false, error: 'Billing not configured.' }, { status: 200 });
 
   const sb = await serverClient();
@@ -39,4 +40,4 @@ export async function POST() {
   }
   const data = await res.json();
   return NextResponse.json({ ok: true, url: data.url as string });
-}
+});

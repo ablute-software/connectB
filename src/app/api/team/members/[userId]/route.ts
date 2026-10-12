@@ -8,6 +8,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { canActOnMember, canAssignRole, type OrgRole } from '@/lib/permissions';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { withoutViewer } from '@/lib/acting-org';
 
 async function authorize(req: Request, targetUserId: string) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -35,7 +36,7 @@ async function authorize(req: Request, targetUserId: string) {
   return { admin, orgId: self.org_id, actorRole: self.role as OrgRole, targetRole: target.role as OrgRole };
 }
 
-export async function PATCH(req: Request, { params }: { params: { userId: string } }) {
+export const PATCH = withoutViewer(async function PATCH(req: Request, { params }: { params: { userId: string } }) {
   const auth = await authorize(req, params.userId);
   if ('error' in auth) return auth.error;
   const { admin, orgId, actorRole } = auth;
@@ -54,9 +55,9 @@ export async function PATCH(req: Request, { params }: { params: { userId: string
   const { error } = await admin.from('org_members').update({ role }).eq('org_id', orgId).eq('user_id', params.userId);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
-}
+});
 
-export async function DELETE(req: Request, { params }: { params: { userId: string } }) {
+export const DELETE = withoutViewer(async function DELETE(req: Request, { params }: { params: { userId: string } }) {
   const auth = await authorize(req, params.userId);
   if ('error' in auth) return auth.error;
   const { admin, orgId } = auth;
@@ -69,4 +70,4 @@ export async function DELETE(req: Request, { params }: { params: { userId: strin
   const { error } = await admin.from('org_members').delete().eq('org_id', orgId).eq('user_id', params.userId);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
-}
+});

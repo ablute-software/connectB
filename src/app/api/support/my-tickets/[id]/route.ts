@@ -14,10 +14,11 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { supportTicketsAvailable } from '@/lib/support-capability';
 import { supportRequesterReadAvailable } from '@/lib/support-requester-read-capability';
+import { resolveActingOrg, withActingOrg } from '@/lib/acting-org';
 
 const VISIBLE_EVENT_KINDS = ['reply', 'status_change'] as const;
 
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export const GET = withActingOrg(async function GET(req: Request, { params }: { params: { id: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'Not available.' }, { status: 404 });
@@ -33,11 +34,18 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   // Ownership confirmed server-side, from the ticket's own row — never
   // trust the id alone. Same user_id-or-email scoping as the list route.
   const { data: ticket, error: ticketErr } = await admin.from('support_tickets')
-    .select('id, created_at, category, subject, message, status, user_id, email')
+    .select('id, created_at, category, subject, message, status, user_id, email, org_id')
     .eq('id', params.id).maybeSingle();
   if (ticketErr) return NextResponse.json({ ok: false, error: ticketErr.message }, { status: 500 });
   if (!ticket) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
-  const owns = ticket.user_id === user.id || (ticket.email as string)?.toLowerCase() === email;
+  // Prompt 904 — a Developer Viewer session reads the VIEWED org's tickets, not its own: ownership is the
+  // ticket's org, and the "mark read" write below is skipped (the requester has not read it — the
+  // developer did, and a developer looking must not change what the requester sees as unread).
+  const acting = await resolveActingOrg(req, user, sb);
+  const isViewer = acting.mode === 'viewer';
+  const owns = isViewer
+    ? ticket.org_id === acting.orgId
+    : ticket.user_id === user.id || (ticket.email as string)?.toLowerCase() === email;
   if (!owns) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
 
   // Prompt 176 §B — the actual "mark read" write, same shape as
@@ -45,7 +53,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   // not a separate endpoint. Best-effort — a failure here (including the
   // column not existing pre-migration, though the capability check above
   // should already prevent that) never blocks the thread from loading.
-  if (await supportRequesterReadAvailable()) {
+  if (!isViewer && await supportRequesterReadAvailable()) {
     await admin.from('support_tickets').update({ requester_last_read_at: new Date().toISOString() }).eq('id', params.id);
   }
 
@@ -57,4 +65,4 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   if (eventsErr) return NextResponse.json({ ok: false, error: eventsErr.message }, { status: 500 });
 
   return NextResponse.json({ ok: true, ticket, events: events ?? [] });
-}
+});

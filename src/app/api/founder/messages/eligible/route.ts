@@ -12,9 +12,9 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { dealMessagesAvailable } from '@/lib/deal-messages-capability';
 import { founderMessageEligibleFirms } from '@/lib/deal-messages';
-import { resolveViewedOrgId } from '@/lib/developer-viewer';
+import { resolveActingOrg, withActingOrg } from '@/lib/acting-org';
 
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ firms: [] }, { status: 200 });
@@ -25,7 +25,7 @@ export async function GET(req: Request) {
   if (!(await dealMessagesAvailable())) return NextResponse.json({ firms: [] });
 
   // Prompt 902 — the viewed org in a Developer Viewer session, the caller's own otherwise.
-  const orgId = await resolveViewedOrgId(sb, req, user.id);
+  const orgId = (await resolveActingOrg(req, user, sb)).orgId;
   if (!orgId) return NextResponse.json({ firms: [] });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
@@ -39,4 +39,4 @@ export async function GET(req: Request) {
   return NextResponse.json({
     firms: startable.map((f) => ({ investorCatalogEntityId: f.investorCatalogEntityId, name: f.name })),
   });
-}
+});

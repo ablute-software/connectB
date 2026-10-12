@@ -5,15 +5,19 @@
 // Service-role write only, same "never a direct browser write" pattern
 // as page-view/route.ts (app_events) — RLS on usage_sessions has no
 // insert/update policy for anon/authenticated at all.
+//
+// Prompt 904 — ignored in a Developer Viewer session (withActingOrg's
+// ignoreInViewer): a developer looking at a customer's workspace must not
+// count as that customer's usage, nor as their own.
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient, authEnabled } from '@/lib/supabase-server';
-import { assertNotViewer, readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { usageSessionsAvailable } from '@/lib/usage-sessions-capability';
 import { resolveOwnMatchdealProfileId } from '@/lib/matchdeal-pairing';
 import { reinstateLapsedTechMasterOnUse } from '@/lib/platform-badges-server';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: NextRequest) {
+export const POST = withActingOrg(async function POST(req: NextRequest) {
   if (!authEnabled) return NextResponse.json({ ok: true });
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -21,8 +25,6 @@ export async function POST(req: NextRequest) {
   if (!(await usageSessionsAvailable())) return NextResponse.json({ ok: true });
 
   const sb = await serverClient();
-  const viewerBlock = await assertNotViewer(sb, req);
-  if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: true }); // unauthenticated — nothing attributable
 
@@ -42,13 +44,9 @@ export async function POST(req: NextRequest) {
   let orgId: string | null = null;
   let matchdealProfileId: string | null = null;
   if (context === 'crm' || context === 'backoffice') {
-    // Prompt 559 §A — verified, so a forged cookie cannot attribute this
+    // Prompt 559 §A / 904 — verified, so a forged cookie cannot attribute this
     // session to another org.
-    orgId = await readVerifiedViewerOrgId(sb, req);
-    if (!orgId) {
-      const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-      orgId = (member?.org_id as string | undefined) ?? null;
-    }
+    orgId = (await resolveActingOrg(req, user, sb)).orgId;
   } else if (context === 'matchdeal' && body.matchdealKind) {
     // Never trust the client's matchdealProfileId directly — re-resolve
     // server-side the same way /api/matchdeal/pairing/self does, and only
@@ -88,4 +86,4 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ ok: true });
-}
+}, { ignoreInViewer: true });

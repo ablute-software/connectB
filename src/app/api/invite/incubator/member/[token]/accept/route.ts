@@ -4,8 +4,9 @@ import { NextResponse } from 'next/server';
 import { serverClient, authEnabled } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { incubatorErrorText } from '@/lib/incubators';
+import { withoutViewer } from '@/lib/acting-org';
 
-export async function POST(req: Request, { params }: { params: { token: string } }) {
+export const POST = withoutViewer(async function POST(req: Request, { params }: { params: { token: string } }) {
   if (!authEnabled) return NextResponse.json({ ok: false, demo: true, error: 'not configured' });
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
@@ -16,4 +17,4 @@ export async function POST(req: Request, { params }: { params: { token: string }
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   if (!data?.ok) return NextResponse.json({ ok: false, error: data?.error, message: incubatorErrorText(data?.error) }, { status: 400 });
   return NextResponse.json({ ok: true });
-}
+});

@@ -5,8 +5,9 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveCallerOrgId, type PairingKind } from '@/lib/matchdeal-pairing';
+import { resolveActingOrg, withActingOrg } from '@/lib/acting-org';
 
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -20,7 +21,13 @@ export async function GET(req: Request) {
   if (kind !== 'startup' && kind !== 'investor') return NextResponse.json({ ok: false, error: 'kind must be startup or investor.' }, { status: 400 });
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
-  const orgId = await resolveCallerOrgId(sb, admin, user.id, kind);
+  // Prompt 904 — a Developer Viewer session lists the VIEWED org's paired devices (startup side only: an
+  // investor pairing belongs to the investor firm, which a viewer session is not looking at), never the
+  // developer's own.
+  const acting = await resolveActingOrg(req, user, sb);
+  const orgId = acting.mode === 'viewer'
+    ? (kind === 'startup' ? acting.orgId : null)
+    : await resolveCallerOrgId(sb, admin, user.id, kind);
   if (!orgId) return NextResponse.json({ ok: true, linked: false, pairings: [], activeToken: null });
 
   const [{ data: pairings }, { data: activeToken }] = await Promise.all([
@@ -34,4 +41,4 @@ export async function GET(req: Request) {
     ok: true, linked: true, orgId, pairings: pairings ?? [],
     activeToken: activeToken ? { expiresAt: activeToken.expires_at } : null,
   });
-}
+});

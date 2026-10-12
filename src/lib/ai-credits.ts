@@ -82,6 +82,45 @@ export interface WalletStatus {
   isTest: boolean;
 }
 
+/**
+ * Prompt 904 — the wallet a Developer Viewer session shows: the VIEWED org's numbers, computed from the
+ * tables with the service role, and WITHOUT the write ai_wallet_status() does as a side effect.
+ *
+ * The RPC is not a pure read: it raises for a non-member (so it cannot be asked about an org the caller is
+ * only looking at) and, when the period has lapsed, it UPDATES orgs.ai_credits_used_this_period /
+ * ai_credits_reset_at before answering. A developer looking at a customer's workspace must not roll that
+ * customer's billing period over, so this mirrors the arithmetic and, when the period has lapsed, reports
+ * what the roll-over WOULD produce (used 0, reset one month ahead) without storing it. Never charges.
+ */
+export async function aiWalletStatusForViewer(admin: SupabaseClient, orgId: string, actionKey: string): Promise<WalletStatus | null> {
+  const { data: org } = await admin.from('orgs')
+    .select('ai_credits_used_this_period, ai_credits_reset_at, is_test, is_internal, plan').eq('id', orgId).maybeSingle();
+  if (!org) return null;
+  const now = new Date();
+  const storedReset = org.ai_credits_reset_at ? new Date(org.ai_credits_reset_at as string) : null;
+  const lapsed = !storedReset || now >= storedReset;
+  const used = lapsed ? 0 : ((org.ai_credits_used_this_period as number | null) ?? 0);
+  const resetAt = lapsed ? new Date(new Date(now).setMonth(now.getMonth() + 1)) : storedReset;
+
+  const [{ data: plan }, { data: limitOverride }, { data: action }, { data: costOverride }] = await Promise.all([
+    admin.from('plans').select('monthly_ai_credits').eq('key', org.plan as string).maybeSingle(),
+    admin.from('plan_overrides').select('monthly_credits_override').eq('org_id', orgId).is('action_key', null).maybeSingle(),
+    admin.from('ai_actions').select('credit_cost, enabled').eq('key', actionKey).maybeSingle(),
+    admin.from('plan_overrides').select('credit_cost_override').eq('org_id', orgId).eq('action_key', actionKey).maybeSingle(),
+  ]);
+  const monthlyLimit = (limitOverride?.monthly_credits_override as number | null | undefined)
+    ?? (plan?.monthly_ai_credits as number | null | undefined) ?? 0;
+  return {
+    used,
+    monthlyLimit,
+    remaining: Math.max(monthlyLimit - used, 0),
+    resetAt: (resetAt as Date).toISOString(),
+    actionCost: (costOverride?.credit_cost_override as number | null | undefined) ?? (action?.credit_cost as number | null | undefined) ?? 0,
+    actionEnabled: (action?.enabled as boolean | null | undefined) ?? false,
+    isTest: !!(org.is_test || org.is_internal),
+  };
+}
+
 /** Read-only: for the Bloco D pre-spend popup ("you've used Y of Z this month") and the /api/me wallet card. Never charges. */
 export async function aiWalletStatus(sb: SupabaseClient, orgId: string, actionKey: string): Promise<WalletStatus | null> {
   const { data, error } = await sb.rpc('ai_wallet_status', { p_org_id: orgId, p_action_key: actionKey });

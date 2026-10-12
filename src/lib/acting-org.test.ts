@@ -83,9 +83,9 @@ describe('resolveActingOrg', () => {
     expect(acting.orgId).not.toBe(ORG_A);
   });
 
-  it('a viewer sees what the owner sees (and nothing else changes: the wrapper refuses every write)', async () => {
+  it('a viewer has NO role in the viewed org, so nothing derived from a role invites a write', async () => {
     const acting = await resolveActingOrg(req('/api/x', { cookie: COOKIE_B }), { id: DEV });
-    expect(acting.role).toBe('owner');
+    expect(acting.role).toBeNull();
   });
 
   it('a forged viewer cookie on a NON-developer session is ignored — the caller\'s own org', async () => {
@@ -122,9 +122,14 @@ describe('authorizeActingOrg (the client names the org)', () => {
   });
   it('in a viewer session only the VIEWED org is acceptable — not the caller\'s own, not a third', async () => {
     const r = () => req('/api/x', { cookie: COOKIE_B });
-    expect(await authorizeActingOrg(r(), { id: DEV }, ORG_B)).toEqual({ orgId: ORG_B, mode: 'viewer', role: 'owner' });
+    expect(await authorizeActingOrg(r(), { id: DEV }, ORG_B)).toEqual({ orgId: ORG_B, mode: 'viewer', role: null });
     expect(await authorizeActingOrg(r(), { id: DEV }, ORG_A)).toBeNull();
     expect(await authorizeActingOrg(r(), { id: DEV }, ORG_C)).toBeNull();
+  });
+  it('a forged viewer cookie on a NON-developer session does not authorise the org it names', async () => {
+    setup({ isDeveloper: false, userId: FOUNDER_B });
+    expect(await authorizeActingOrg(req('/api/x', { cookie: `${VIEWER_ORG_COOKIE}=${ORG_C}:${ENTERED}` }), { id: FOUNDER_B }, ORG_C)).toBeNull();
+    expect(await authorizeActingOrg(req('/api/x', { cookie: `${VIEWER_ORG_COOKIE}=${ORG_C}:${ENTERED}` }), { id: FOUNDER_B }, ORG_B)).toEqual({ orgId: ORG_B, mode: 'member', role: 'owner' });
   });
 });
 

@@ -13,8 +13,9 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { networkAvailable } from '@/lib/network-capability';
 import { resolveActorId, countPendingInvitesFrom, createInvite } from '@/lib/network-db';
 import { canSendInvite } from '@/lib/network';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' });
@@ -27,7 +28,7 @@ export async function POST(req: Request) {
   if (!(await networkAvailable())) return NextResponse.json({ ok: false, error: 'Not available in this workspace yet.' });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const actor = await resolveActorId(admin, user.id);
+  const actor = await resolveActorId(admin, user.id, await resolveActingOrg(req, user, sb));
   if (!actor) return NextResponse.json({ ok: false, error: 'No network profile found for your account.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as {
@@ -49,4 +50,4 @@ export async function POST(req: Request) {
   });
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error });
   return NextResponse.json({ ok: true, invite: result.invite });
-}
+});

@@ -6,8 +6,9 @@
 // this can't be bypassed by switching clients.
 import { NextResponse } from 'next/server';
 import { serverClient } from '@/lib/supabase-server';
+import { withActingOrg } from '@/lib/acting-org';
 
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
@@ -23,4 +24,4 @@ export async function GET(req: Request) {
       userId: r.user_id, hasPin: r.has_pin, required: r.required, lockedUntil: r.locked_until,
     })),
   });
-}
+});

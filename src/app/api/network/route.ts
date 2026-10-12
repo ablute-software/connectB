@@ -17,8 +17,9 @@ import {
 } from '@/lib/network-db';
 import { computeSharedInvestorSuggestions, computeSharedGroupSuggestions, mergeConnectionSuggestions, effectiveInviteStatus } from '@/lib/network';
 import { readReciprocityCounts } from '@/lib/network-reciprocity-db';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
-export async function GET() {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const empty = { available: false };
@@ -30,7 +31,7 @@ export async function GET() {
   if (!(await networkAvailable())) return NextResponse.json(empty);
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const actor = await resolveActorId(admin, user.id);
+  const actor = await resolveActorId(admin, user.id, await resolveActingOrg(req, user, sb));
   if (!actor) return NextResponse.json(empty);
 
   const [connections, invites] = await Promise.all([
@@ -109,4 +110,4 @@ export async function GET() {
       actorId: m.otherActorId, name: displays.get(m.otherActorId)?.name ?? 'Unknown', reasons: m.reasons,
     })),
   });
-}
+});

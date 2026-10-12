@@ -9,8 +9,9 @@ import { serverClient } from '@/lib/supabase-server';
 import { logEvent } from '@/lib/analytics-events';
 import { PAIRING_RATE_LIMIT_PER_HOUR, PAIRING_TOKEN_TTL_MS, generateRawToken, hashToken, resolveCallerOrgId, type PairingKind } from '@/lib/matchdeal-pairing';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { withActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -56,4 +57,4 @@ export async function POST(req: Request) {
   // whole point is a fixed domain the PWA and, later, iOS/Android both
   // recognize regardless of which host generated the code.
   return NextResponse.json({ ok: true, token: raw, expiresAt, pairUrl: `https://app.sherlockdeal.com/pair?token=${raw}` });
-}
+});

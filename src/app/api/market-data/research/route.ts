@@ -41,7 +41,7 @@ import { computeVerdict, type FounderBaseline } from '@/lib/market-assessment-en
 
 import { SECTIONS, type Section } from '@/lib/market-research-sections';
 import { chargeAiAction } from '@/lib/ai-credits';
-import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
+import { withActingOrg, resolveActingOrg, isViewerRequest } from '@/lib/acting-org';
 
 // Prompt 378 §0 — THE production bug. This was the only AI route in the app
 // doing a web search without a maxDuration export: its siblings all have one
@@ -378,6 +378,10 @@ export const GET = withActingOrg(async function GET(req: Request) {
 
   const orgId = await resolveOrg(req, sb, user.id);
   if (!orgId) return NextResponse.json(empty);
+  // Prompt 904 — this GET is also the "Research this hypothesis" action: when nothing is cached it
+  // calls a model, writes market_research_items and debits the org's AI credits. A Developer Viewer
+  // session only READS what is already cached: it never runs, never writes, never charges.
+  const isViewerSession = await isViewerRequest(req, sb);
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
@@ -438,13 +442,13 @@ export const GET = withActingOrg(async function GET(req: Request) {
   // never told. Same class of bug as 371's silent "r" and 375's 401->pending.
   let costEur: number | null = null;
   let ran = false;
-  if (!apiKey) {
+  if (!apiKey && !isViewerSession) {
     return NextResponse.json({
       available: true, items: [], gate, costEur: null, ran: false,
       ok: false, aiError: 'AI isn\'t configured in this workspace yet.',
     });
   }
-  if (forceRefresh || !cached) {
+  if ((forceRefresh || !cached) && !isViewerSession) {
     // Prompt 706 — charged once per invocation regardless of `section`
     // (one action key, `market_research`, covers all seven sub-types —
     // they're one charge point, not seven). A cache hit above never
@@ -455,7 +459,7 @@ export const GET = withActingOrg(async function GET(req: Request) {
       return NextResponse.json({ available: true, items: [], gate, costEur: null, ran: false, ok: false, aiError: charge.reason });
     }
     try {
-      const result = await runResearchPass(admin, apiKey, orgId, hypothesis, thesisFields, thesisVersion, orgRow.country, orgRow.stage, section);
+      const result = await runResearchPass(admin, apiKey!, orgId, hypothesis, thesisFields, thesisVersion, orgRow.country, orgRow.stage, section);
       costEur = result.costEur;
       ran = true;
     } catch (e) {

@@ -21,9 +21,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { resolveViewedOrgId } from '@/lib/developer-viewer';
+import { resolveActingOrg, withActingOrg } from '@/lib/acting-org';
 
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ documents: [] });
@@ -33,7 +33,7 @@ export async function GET(req: Request) {
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
 
   // Prompt 902 — the viewed org in a Developer Viewer session, the caller's own otherwise.
-  const orgId = await resolveViewedOrgId(sb, req, user.id);
+  const orgId = (await resolveActingOrg(req, user, sb)).orgId;
   if (!orgId) return NextResponse.json({ documents: [] });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
@@ -46,4 +46,4 @@ export async function GET(req: Request) {
     id: d.id, name: d.name, folderName: d.folder_id ? folderNameById.get(d.folder_id) ?? '' : '',
   }));
   return NextResponse.json({ documents });
-}
+});

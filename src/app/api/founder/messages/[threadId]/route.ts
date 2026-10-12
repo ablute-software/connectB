@@ -9,9 +9,10 @@ import { dealMessagesAvailable } from '@/lib/deal-messages-capability';
 import { getThreadMessages, postMessage, markThreadRead } from '@/lib/deal-messages';
 import { resolveFounderMessageDocs } from '@/lib/deal-messages-resolve';
 import { notifyInvestorFirmOfFounderMessage } from '@/lib/deal-messages-founder-notify';
-import { assertNotViewer, resolveViewedOrg, resolveViewedOrgId } from '@/lib/developer-viewer';
+import { assertNotViewer } from '@/lib/developer-viewer';
+import { resolveActingOrg, withActingOrg } from '@/lib/acting-org';
 
-export async function GET(req: Request, { params }: { params: { threadId: string } }) {
+export const GET = withActingOrg(async function GET(req: Request, { params }: { params: { threadId: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ messages: [] }, { status: 200 });
@@ -22,7 +23,9 @@ export async function GET(req: Request, { params }: { params: { threadId: string
   if (!(await dealMessagesAvailable())) return NextResponse.json({ messages: [] });
 
   // Prompt 902 — the viewed org in a Developer Viewer session, the caller's own otherwise.
-  const { orgId, viewer } = await resolveViewedOrg(sb, req, user.id);
+  const acting = await resolveActingOrg(req, user, sb);
+  const orgId = acting.orgId;
+  const viewer = acting.mode === 'viewer';
   if (!orgId) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
@@ -34,9 +37,9 @@ export async function GET(req: Request, { params }: { params: { threadId: string
   // Prompt 902 — "read" is the founder's own state; a viewer session must not clear it.
   if (!viewer) await markThreadRead(admin, params.threadId, 'founder');
   return NextResponse.json({ messages });
-}
+});
 
-export async function POST(req: Request, { params }: { params: { threadId: string } }) {
+export const POST = withActingOrg(async function POST(req: Request, { params }: { params: { threadId: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -49,7 +52,7 @@ export async function POST(req: Request, { params }: { params: { threadId: strin
   if (viewerBlock) return viewerBlock;
   if (!(await dealMessagesAvailable())) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
 
-  const orgId = await resolveViewedOrgId(sb, req, user.id);
+  const orgId = (await resolveActingOrg(req, user, sb)).orgId;
   if (!orgId) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
 
   const body = await req.json().catch(() => ({})) as { body?: string; links?: unknown; documentIds?: string[] };
@@ -80,4 +83,4 @@ export async function POST(req: Request, { params }: { params: { threadId: strin
   }
 
   return NextResponse.json({ ok: true });
-}
+});

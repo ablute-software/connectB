@@ -10,8 +10,9 @@ import { serverClient } from '@/lib/supabase-server';
 import { resolveOwnMatchdealProfileId, touchLastSeenIfStale, startupDeckLimit, DEVICE_ID_COOKIE, DEVICE_ID_COOKIE_MAX_AGE } from '@/lib/matchdeal-pairing';
 import { shareableCookieDomain } from '@/lib/supabase';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { withoutViewer } from '@/lib/acting-org';
 
-export async function GET(req: NextRequest) {
+export const GET = withoutViewer(async function GET(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -102,4 +103,4 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json({ ok: true, kind: null, ownProfileId: null });
-}
+});

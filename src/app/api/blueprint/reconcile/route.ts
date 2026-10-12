@@ -32,12 +32,13 @@
 //     `fetch('/api/blueprint/reconcile', {method:'POST'}).catch(() => {})`
 //     and never reads the body at all.
 import { POST as reconciliationRun } from '@/app/api/reconciliation/run/route';
+import { withActingOrg } from '@/lib/acting-org';
 
 // maxDuration is per-route Next config, not something an imported handler
 // carries with it — it has to be re-declared here or this route would keep
 // the shorter default budget while the work it forwards to expects 60s.
 export const maxDuration = 60;
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   return reconciliationRun(req);
-}
+});

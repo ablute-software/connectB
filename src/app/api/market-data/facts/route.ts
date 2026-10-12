@@ -9,7 +9,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { assertNotViewer } from '@/lib/developer-viewer';
 import { marketFactsAvailable } from '@/lib/market-data-capability';
 import { factZone, type FactView, type FactPayload, type FactValidationView } from '@/lib/market-facts-view';
 import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
@@ -32,8 +31,6 @@ export const GET = withActingOrg(async function GET(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
-  const viewerBlock = await assertNotViewer(sb, req);
-  if (viewerBlock) return viewerBlock;
   if (!(await marketFactsAvailable())) return NextResponse.json({ ok: true, available: false, facts: [] });
 
   const acting = await resolveActingOrg(req, user, sb);

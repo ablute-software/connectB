@@ -6,7 +6,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { assertNotViewer } from '@/lib/developer-viewer';
 import { networkAvailable } from '@/lib/network-capability';
 import { resolveActorId } from '@/lib/network-db';
 import { readRoundMilestoneDraft } from '@/lib/network-posts-db';
@@ -29,8 +28,6 @@ export const GET = withActingOrg(async function GET(req: Request) {
   if (!url || !serviceKey) return NextResponse.json({ ok: false, available: false });
 
   const sb = await serverClient();
-  const viewerBlock = await assertNotViewer(sb, req);
-  if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, available: false });
 

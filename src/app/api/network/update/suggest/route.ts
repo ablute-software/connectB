@@ -22,7 +22,6 @@
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { assertNotViewer } from '@/lib/developer-viewer';
 import { documentExtractionsAvailable } from '@/lib/document-extraction-capability';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { logAiCall } from '@/lib/ai-cost-log';
@@ -30,7 +29,7 @@ import { providerErrorMessage } from '@/lib/ai-provider-error';
 import {
   UPDATE_SUGGEST_SYSTEM, UPDATE_SUGGEST_TOOL_SCHEMA, toUpdateSuggestion,
 } from '@/lib/network-update-suggest';
-import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
+import { withActingOrg, resolveActingOrg, viewerReadOnlyResponse } from '@/lib/acting-org';
 
 export const maxDuration = 60;
 
@@ -93,14 +92,14 @@ export const GET = withActingOrg(async function GET(req: Request) {
   if (!url || !serviceKey || !apiKey) return NextResponse.json({ ok: true, available: false });
 
   const sb = await serverClient();
-  const viewerBlock = await assertNotViewer(sb, req);
-  if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 
   const acting = await resolveActingOrg(req, user, sb);
   if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Founders only.' }, { status: 403 });
   const orgId = acting.orgId as string;
+  // A GET that spends a model call: in a Developer Viewer session it is refused exactly like a write.
+  if (acting.mode === 'viewer') return viewerReadOnlyResponse();
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const items = await buildKnowledge(admin, orgId);

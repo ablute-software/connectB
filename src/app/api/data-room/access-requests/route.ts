@@ -15,9 +15,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { authorizeViewedOrg } from '@/lib/developer-viewer';
+import { authorizeActingOrg, withActingOrg } from '@/lib/acting-org';
 
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ requests: [] }, { status: 200 });
@@ -33,7 +33,7 @@ export async function GET(req: Request) {
   // (what its founder sees); it used to be refused here as a non-member, so the
   // developer saw an empty "Pending requests" panel for an org that had some.
   // Naming any OTHER org from inside a viewer session is refused too.
-  if (!(await authorizeViewedOrg(sb, req, user.id, orgId))) {
+  if (!(await authorizeActingOrg(req, user, orgId, sb))) {
     return NextResponse.json({ error: 'Not a member of this org.' }, { status: 403 });
   }
 
@@ -85,4 +85,4 @@ export async function GET(req: Request) {
       };
     }),
   });
-}
+});

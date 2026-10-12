@@ -5,8 +5,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { serverClient } from '@/lib/supabase-server';
 import { googleOAuthConfigured, exchangeCode, fetchGoogleEmail } from '@/lib/google-oauth';
 import { encryptToken } from '@/lib/crypto';
+import { withoutViewer } from '@/lib/acting-org';
 
-export async function GET(req: NextRequest) {
+export const GET = withoutViewer(async function GET(req: NextRequest) {
   const { origin, searchParams } = new URL(req.url);
   if (!googleOAuthConfigured()) return NextResponse.redirect(`${origin}/settings?gmail=not_configured`);
 
@@ -49,4 +50,4 @@ export async function GET(req: NextRequest) {
   } catch {
     return NextResponse.redirect(`${origin}/settings?gmail=error`);
   }
-}
+});

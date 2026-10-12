@@ -11,8 +11,9 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { networkAvailable } from '@/lib/network-capability';
 import { resolveActorId } from '@/lib/network-db';
 import { claimOfferSlot } from '@/lib/network-reciprocity-db';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' });
@@ -25,7 +26,7 @@ export async function POST(req: Request) {
   if (!(await networkAvailable())) return NextResponse.json({ ok: false, error: 'Not available in this workspace yet.' });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const actor = await resolveActorId(admin, user.id);
+  const actor = await resolveActorId(admin, user.id, await resolveActingOrg(req, user, sb));
   if (!actor) return NextResponse.json({ ok: false, error: 'No network profile found for your account.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as { offerId?: string; note?: string };
@@ -34,4 +35,4 @@ export async function POST(req: Request) {
   const result = await claimOfferSlot(admin, { offerId: body.offerId, claimantActorId: actor.actorId, note: body.note });
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error });
   return NextResponse.json({ ok: true });
-}
+});

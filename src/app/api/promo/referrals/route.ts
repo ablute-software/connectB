@@ -15,6 +15,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
+import { withoutViewer } from '@/lib/acting-org';
 
 interface ReferralCode {
   code: string;
@@ -28,7 +29,7 @@ interface ReferralCode {
   kind: string;
 }
 
-export async function GET() {
+export const GET = withoutViewer(async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: true, codes: [] });
@@ -64,4 +65,4 @@ export async function GET() {
   });
 
   return NextResponse.json({ ok: true, codes });
-}
+});

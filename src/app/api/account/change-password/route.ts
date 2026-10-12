@@ -9,8 +9,9 @@ import { checkPassword } from '@/lib/password-policy';
 import {
   currentSessionId, notifyPasswordChanged, recordSecurityEvent, requestOrigin, serviceAdmin, terminateSessions, verifyCurrentPassword,
 } from '@/lib/account-security-server';
+import { withoutViewer } from '@/lib/acting-org';
 
-export async function POST(req: Request) {
+export const POST = withoutViewer(async function POST(req: Request) {
   const admin = serviceAdmin();
   if (!admin) return NextResponse.json({ ok: false, error: 'Not available in this workspace.' }, { status: 200 });
 
@@ -50,4 +51,4 @@ export async function POST(req: Request) {
   const mail = await notifyPasswordChanged(user.email, orgId, now, ip, userAgent);
 
   return NextResponse.json({ ok: true, otherSessionsEnded: ended, emailSent: mail.sent });
-}
+});

@@ -10,13 +10,18 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { supportTicketsAvailable } from '@/lib/support-capability';
 import { supportRequesterReadAvailable } from '@/lib/support-requester-read-capability';
+import { resolveActingOrg, withActingOrg } from '@/lib/acting-org';
 
 interface TicketRow {
   id: string; created_at: string; category: string; subject: string; status: string; last_activity_at: string;
   requester_last_read_at?: string | null;
 }
 
-export async function GET() {
+// Prompt 904 — "my tickets" is the requester's own list (user_id or email). Inside a Developer Viewer
+// session that list was the DEVELOPER's own tickets rendered in another startup's Messages › Support
+// (the six ablute_ tickets of the 12/10 report). A viewer session lists the tickets of the VIEWED org
+// instead (support_tickets.org_id), read-only; the thread's internal notes stay out either way (see [id]).
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: true, tickets: [] });
@@ -28,6 +33,7 @@ export async function GET() {
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
   const email = user.email.toLowerCase();
+  const acting = await resolveActingOrg(req, user, sb);
 
   // Prompt 176 §B — requester_last_read_at (migration 0162) is the real
   // "did this person actually open the ticket" signal; select it only once
@@ -43,10 +49,11 @@ export async function GET() {
   // writes user_id when the submitter had a session at the time — a
   // ticket filed anonymously from /contact before ever logging in is
   // still the same person's, and still has to show up here once they do.
-  const { data: ticketsRaw, error } = await admin.from('support_tickets')
-    .select(selectCols)
-    .or(`user_id.eq.${user.id},email.eq.${email}`)
-    .order('last_activity_at', { ascending: false });
+  const base = admin.from('support_tickets').select(selectCols);
+  const scoped = acting.mode === 'viewer'
+    ? base.eq('org_id', acting.orgId as string)
+    : base.or(`user_id.eq.${user.id},email.eq.${email}`);
+  const { data: ticketsRaw, error } = await scoped.order('last_activity_at', { ascending: false });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   const tickets = (ticketsRaw ?? []) as unknown as TicketRow[];
 
@@ -78,4 +85,4 @@ export async function GET() {
   });
 
   return NextResponse.json({ ok: true, tickets: withUnread });
-}
+});

@@ -8,8 +8,9 @@ import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { networkAvailable } from '@/lib/network-capability';
 import { resolveActorId, addGroupMember, removeGroupMember, leaveGroup } from '@/lib/network-db';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' });
@@ -22,7 +23,7 @@ export async function POST(req: Request) {
   if (!(await networkAvailable())) return NextResponse.json({ ok: false, error: 'Not available in this workspace yet.' });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const actor = await resolveActorId(admin, user.id);
+  const actor = await resolveActorId(admin, user.id, await resolveActingOrg(req, user, sb));
   if (!actor) return NextResponse.json({ ok: false, error: 'No network profile found for your account.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as { groupId?: string; action?: 'add' | 'remove' | 'leave'; candidateActorId?: string };
@@ -39,4 +40,4 @@ export async function POST(req: Request) {
     ? await addGroupMember(admin, { groupId: body.groupId, ownerActorId: actor.actorId, ownerIsInvestor: actor.kind === 'investor', candidateActorId: body.candidateActorId })
     : await removeGroupMember(admin, body.groupId, actor.actorId, body.candidateActorId);
   return NextResponse.json(result.ok ? { ok: true } : { ok: false, error: result.error });
-}
+});

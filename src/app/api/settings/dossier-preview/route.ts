@@ -10,7 +10,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { assertNotViewer } from '@/lib/developer-viewer';
 import { projectDossier, type InterestLevel } from '@/lib/investor-interest-level';
 import { fetchDossierRawData } from '@/lib/dossier-fetch';
 import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
@@ -26,8 +25,6 @@ export const GET = withActingOrg(async function GET(req: Request) {
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
 
   const sb = await serverClient();
-  const viewerBlock = await assertNotViewer(sb, req);
-  if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 

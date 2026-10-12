@@ -6,13 +6,14 @@ import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer, readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { serviceAdmin, userEmail } from '@/lib/account-security-server';
 import { SECURITY_EVENT_LABEL, type SecurityEventKind } from '@/lib/account-security';
+import { withoutViewer } from '@/lib/acting-org';
 
 // Prompt 894 — GET never checked the viewer cookie, so a Developer Viewer
 // session saw the developer's own org's admin/owner list (resettableOwners).
 // The security EVENTS list below is deliberately untouched: it's keyed by
 // `user.id` (the real session's own login history), not by org, so there's
 // no "other org's data" for a viewer to see there in the first place.
-export async function GET(req: Request) {
+export const GET = withoutViewer(async function GET(req: Request) {
   const admin = serviceAdmin();
   if (!admin) return NextResponse.json({ ok: true, available: false });
   const sb = await serverClient();
@@ -48,9 +49,9 @@ export async function GET(req: Request) {
       ip: e.ip, userAgent: e.user_agent, at: e.created_at, byMe: e.actor_user_id === user.id, detail: e.detail,
     })),
   });
-}
+});
 
-export async function PATCH(req: Request) {
+export const PATCH = withoutViewer(async function PATCH(req: Request) {
   const admin = serviceAdmin();
   if (!admin) return NextResponse.json({ ok: false, error: 'Not available in this workspace.' }, { status: 200 });
   const sb = await serverClient();
@@ -70,4 +71,4 @@ export async function PATCH(req: Request) {
     .eq('org_id', self.org_id).eq('user_id', user.id);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true, allowAdminPasswordReset });
-}
+});
