@@ -106,19 +106,19 @@ export function CallsList({ kind, onOpen }: { kind: PromoterKind; onOpen: (id: s
               </p>
               <div className="mt-4 flex items-center gap-3 border-t border-gray-100 pt-3 text-xs">
                 <button type="button" onClick={() => onOpen(c.id)} className="font-semibold text-[#0E7490] hover:underline">{canManage ? 'Open' : 'View'}</button>
-                {hasMenu(callMenu(c, canManage)) && (
+                {hasMenu(callMenu(c, c.canConfigure)) && (
                   <details className="relative ml-auto" data-testid="call-menu">
                     <summary aria-label={`More actions for ${c.name}`} className="cursor-pointer list-none rounded px-2 py-0.5 text-base leading-none text-gray-500 hover:bg-gray-100">⋯</summary>
                     <div className="absolute right-0 z-10 mt-1 w-40 rounded-lg border border-gray-200 bg-white py-1 shadow-md">
-                      {callMenu(c, canManage).duplicate && (
+                      {callMenu(c, c.canConfigure).duplicate && (
                         <button type="button" onClick={() => void duplicate(c.id)} disabled={busy === c.id} className="block w-full px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-40" data-testid="duplicate-call">
                           {busy === c.id ? 'Duplicating…' : 'Duplicate'}
                         </button>
                       )}
-                      {callMenu(c, canManage).archive && (
+                      {callMenu(c, c.canConfigure).archive && (
                         <button type="button" onClick={() => void archive(c.id)} disabled={busy === c.id} className="block w-full px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-40" data-testid="archive-call-menu">Archive call</button>
                       )}
-                      {callMenu(c, canManage).delete && (
+                      {callMenu(c, c.canConfigure).delete && (
                         <button type="button" onClick={() => void remove(c.id)} disabled={busy === c.id} className="block w-full px-3 py-1.5 text-left text-xs text-[#B00000] hover:bg-red-50 disabled:opacity-40" data-testid="delete-call-menu">Delete call</button>
                       )}
                     </div>

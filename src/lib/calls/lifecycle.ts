@@ -6,7 +6,7 @@
 import { UNTITLED, UNTITLED_DOCUMENT, conditionOrderProblems } from './form-builder';
 import { isChoiceKind, type Call, type CallPhase, type CallStatus, type FormField } from './types';
 
-export type EditorTab = 'general' | 'phases' | 'form' | 'preview';
+export type EditorTab = 'general' | 'phases' | 'form' | 'preview' | 'team';
 
 export interface ReadinessIssue { tab: EditorTab; message: string }
 

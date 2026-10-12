@@ -18,6 +18,7 @@ import { PreviewTab, type LifecycleAction } from './PreviewTab';
 import { SaveStatus, type SaveState } from './SaveStatus';
 import { StatusBadge } from './StatusBadge';
 import { CallDangerZone } from './CallDangerZone';
+import { TeamTab } from './TeamTab';
 import type { ImportOutcome } from './ImportFormDialog';
 import type { ImportMode } from '@/lib/calls/form-import';
 
@@ -29,7 +30,7 @@ const TABS: { key: EditorTab | 'eligibility' | 'team' | 'evaluation'; label: str
   { key: 'phases', label: 'Phases' },
   { key: 'form', label: 'Form' },
   { key: 'eligibility', label: 'Eligibility', soon: true },
-  { key: 'team', label: 'Team & distribution', soon: true },
+  { key: 'team', label: 'Team & distribution' },
   { key: 'evaluation', label: 'Evaluation', soon: true },
   { key: 'preview', label: 'Preview & confirm' },
 ];
@@ -188,7 +189,7 @@ export function CallEditor({ callId, onBack }: { callId: string; onBack: () => v
 
   const readOnly = !server.canManage || call.status !== 'draft';
   const reason = !server.canManage
-    ? 'You can view this call, but only the owners and administrators of your organisation can change it.'
+    ? 'You can view this call, but you do not have the “Configure call” permission on it. Ask the call’s administrators.'
     : call.status === 'draft' ? null
     : call.status === 'validated' || call.status === 'scheduled' ? 'This call is confirmed, so its configuration is locked. Use “Edit configuration” in Preview & confirm to change it.'
     : 'This call is open or closed: questions and options can no longer change.';
@@ -226,6 +227,7 @@ export function CallEditor({ callId, onBack }: { callId: string; onBack: () => v
         </>
       )}
       {tab === 'phases' && <PhasesTab phases={phases} disabled={readOnly} onChange={editPhases} />}
+      {tab === 'team' && <TeamTab callId={callId} />}
       {tab === 'form' && <FormTab callId={callId} fields={fields} disabled={readOnly} lockedReason={reason} onChange={editFields} onImport={importForm} />}
       {tab === 'preview' && (
         <PreviewTab

@@ -4,10 +4,11 @@ import type { CallStatus, PromoterKind } from '@/lib/calls/types';
 import type { Call, CallPhase, FormField } from '@/lib/calls/types';
 import type { CallSummary, ReadinessIssue, availableActions } from '@/lib/calls/lifecycle';
 import type { ImportMode, ImportSource } from '@/lib/calls/form-import';
+import type { TeamPayload } from '@/lib/calls/team-payload';
 
 export interface PromoterInfo { kind: PromoterKind; id: string; name: string; canManage: boolean }
 
-export interface CallListItem extends Call { effectiveStatus: CallStatus; applications: number; applicationsTotal: number; fields: number; phases: number }
+export interface CallListItem extends Call { effectiveStatus: CallStatus; applications: number; applicationsTotal: number; fields: number; phases: number; canConfigure: boolean }
 
 export interface CallEvent { id: number; event: string; actor_user_id: string | null; detail: Record<string, unknown>; created_at: string }
 
@@ -17,6 +18,7 @@ export interface CallState {
   effectiveStatus: CallStatus;
   promoterName: string;
   canManage: boolean;
+  canManageTeam: boolean;
   phases: CallPhase[];
   fields: FormField[];
   issues: ReadinessIssue[];
@@ -58,6 +60,9 @@ export const callsApi = {
       `/api/calls/${id}/import-form${previewId ? `?preview=${encodeURIComponent(previewId)}` : ''}`),
   importForm: (id: string, body: { sourceCallId: string; mode: ImportMode; baseVersion: number; confirmReplace?: boolean }) =>
     call<CallState & { import: { imported: number; mode: ImportMode; from: string; warnings: string[] } }>(`/api/calls/${id}/import-form`, send('POST', body)),
+  /** Prompt 909 (I3): the team of a call, and one change at a time (the server answers with the whole picture). */
+  team: (id: string) => call<TeamPayload>(`/api/calls/${id}/team`),
+  teamAction: (id: string, body: Record<string, unknown>) => call<TeamPayload>(`/api/calls/${id}/team`, send('POST', body)),
   /** Delete a call nobody applied to (the server decides). */
   remove: (id: string) => call<{ deleted: boolean; name: string }>(`/api/calls/${id}/action`, send('POST', { action: 'delete' })),
 };

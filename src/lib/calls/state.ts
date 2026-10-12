@@ -43,6 +43,7 @@ export async function buildCallState(admin: SupabaseClient, call: Call, promoter
     effectiveStatus: effectiveStatus(synced, now),
     promoterName: name,
     canManage: promoter.canManage,
+    canManageTeam: promoter.canManageTeam === true,
     phases, fields, issues,
     summary: summarise(phases, fields),
     applications,

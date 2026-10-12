@@ -12,7 +12,7 @@ import { FormPreview } from './FormPreview';
 import { StatusBadge } from './StatusBadge';
 import type { CallStatus } from '@/lib/calls/types';
 
-const TAB_NAMES: Record<EditorTab, string> = { general: 'General', phases: 'Phases', form: 'Form', preview: 'Preview' };
+const TAB_NAMES: Record<EditorTab, string> = { general: 'General', phases: 'Phases', form: 'Form', preview: 'Preview', team: 'Team' };
 
 export type LifecycleAction = 'confirm' | 'edit' | 'publish' | 'extend' | 'close' | 'archive';
 
