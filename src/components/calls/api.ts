@@ -5,6 +5,8 @@ import type { Call, CallPhase, FormField } from '@/lib/calls/types';
 import type { CallSummary, ReadinessIssue, availableActions } from '@/lib/calls/lifecycle';
 import type { ImportMode, ImportSource } from '@/lib/calls/form-import';
 import type { TeamPayload } from '@/lib/calls/team-payload';
+import type { Proposal, ProposalFieldItem, ProposalGeneral, ProposalPhaseItem } from '@/lib/calls/ai-import/proposal';
+import type { SourceKind } from '@/lib/calls/ai-import/limits';
 
 export interface PromoterInfo { kind: PromoterKind; id: string; name: string; canManage: boolean }
 
@@ -63,6 +65,22 @@ export const callsApi = {
   /** Prompt 909 (I3): the team of a call, and one change at a time (the server answers with the whole picture). */
   team: (id: string) => call<TeamPayload>(`/api/calls/${id}/team`),
   teamAction: (id: string, body: Record<string, unknown>) => call<TeamPayload>(`/api/calls/${id}/team`, send('POST', body)),
+  /** Prompt 909 (I4): the import from documents. The upload is multipart, so it does not go through call(). */
+  importFromDocuments: async (id: string, form: FormData): Promise<ApiResult<{ run: { id: string; status: string; proposal: Proposal } }>> => {
+    try {
+      const res = await fetch(`/api/calls/${id}/import-ai`, { method: 'POST', body: form });
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; code?: string; run: { id: string; status: string; proposal: Proposal } };
+      return { ok: res.ok && body.ok !== false, status: res.status, body };
+    } catch {
+      return { ok: false, status: 0, body: { error: 'We could not reach the server. Check your connection and try again.', code: 'network' } as never };
+    }
+  },
+  sourceDocuments: (id: string) =>
+    call<{ documents: { id: string; kind: SourceKind; fileName: string; sizeBytes: number; pages: number | null; createdAt: string }[]; foundLater: { eligibility: string[]; evaluation: string[] } }>(`/api/calls/${id}/import-ai`),
+  applyImport: (id: string, runId: string, body: { baseVersion: number; fieldsMode: 'add' | 'replace'; accepted: { general?: ProposalGeneral; phases?: ProposalPhaseItem[]; fields?: ProposalFieldItem[] } }) =>
+    call<CallState & { applied: { general: boolean; phases: number; fields: number } }>(`/api/calls/${id}/import-ai/${runId}`, send('POST', { action: 'apply', ...body })),
+  discardImport: (id: string, runId: string) => call<{ discarded: boolean }>(`/api/calls/${id}/import-ai/${runId}`, send('POST', { action: 'discard' })),
+  deleteSourceDocument: (id: string, docId: string) => call<Record<string, never>>(`/api/calls/${id}/source-documents/${docId}`, { method: 'DELETE' }),
   /** Delete a call nobody applied to (the server decides). */
   remove: (id: string) => call<{ deleted: boolean; name: string }>(`/api/calls/${id}/action`, send('POST', { action: 'delete' })),
 };

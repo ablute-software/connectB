@@ -7,8 +7,9 @@ import { CallEditor } from './CallEditor';
 import { CallsList } from './CallsList';
 
 export function CallsWorkspace({ kind }: { kind: PromoterKind }) {
-  const [openId, setOpenId] = useState<string | null>(null);
-  return openId
-    ? <CallEditor key={openId} callId={openId} onBack={() => setOpenId(null)} />
-    : <CallsList kind={kind} onOpen={setOpenId} />;
+  // `importFirst`: the call was just created "from documents", so the editor opens on the import dialog.
+  const [open, setOpen] = useState<{ id: string; importFirst: boolean } | null>(null);
+  return open
+    ? <CallEditor key={open.id} callId={open.id} startImport={open.importFirst} onBack={() => setOpen(null)} />
+    : <CallsList kind={kind} onOpen={(id, opts) => setOpen({ id, importFirst: opts?.importFirst === true })} />;
 }

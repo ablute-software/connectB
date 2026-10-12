@@ -19,6 +19,9 @@ import { SaveStatus, type SaveState } from './SaveStatus';
 import { StatusBadge } from './StatusBadge';
 import { CallDangerZone } from './CallDangerZone';
 import { TeamTab } from './TeamTab';
+import { ImportFromDocuments, type ApplyOutcome } from './ImportFromDocuments';
+import { SourceDocumentsPanel } from './SourceDocumentsPanel';
+import type { ProposalFieldItem, ProposalGeneral, ProposalPhaseItem } from '@/lib/calls/ai-import/proposal';
 import type { ImportOutcome } from './ImportFormDialog';
 import type { ImportMode } from '@/lib/calls/form-import';
 
@@ -35,7 +38,7 @@ const TABS: { key: EditorTab | 'eligibility' | 'team' | 'evaluation'; label: str
   { key: 'preview', label: 'Preview & confirm' },
 ];
 
-export function CallEditor({ callId, onBack }: { callId: string; onBack: () => void }) {
+export function CallEditor({ callId, onBack, startImport = false }: { callId: string; onBack: () => void; startImport?: boolean }) {
   const [server, setServer] = useState<CallState | null>(null);
   const [loadError, setLoadError] = useState('');
   const [call, setCall] = useState<Call | null>(null);
@@ -45,6 +48,9 @@ export function CallEditor({ callId, onBack }: { callId: string; onBack: () => v
   const [save, setSave] = useState<{ state: SaveState; message?: string }>({ state: 'idle' });
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState('');
+  // Prompt 909 (I4): the import from documents dialog (opened from Form, from General, or when a call is created from documents).
+  const [importDocs, setImportDocs] = useState(startImport);
+  const [docsReload, setDocsReload] = useState(0);
 
   // The latest local values and the save machinery live in refs: a save in flight must see edits made meanwhile.
   const callRef = useRef<Call | null>(null);
@@ -150,6 +156,22 @@ export function CallEditor({ callId, onBack }: { callId: string; onBack: () => v
     } finally { setBusy(false); }
   }
 
+  /** Apply what was ACCEPTED from an import proposal (Prompt 909, I4): never over unsaved edits; the server's state replaces the local one. */
+  async function applyImport(runId: string, accepted: { general?: ProposalGeneral; phases?: ProposalPhaseItem[]; fields?: ProposalFieldItem[] }, fieldsMode: 'add' | 'replace'): Promise<ApplyOutcome> {
+    if (timer.current) clearTimeout(timer.current);
+    await flush();
+    if (failed.current) return { ok: false, error: 'Fix the save error first, then try again.' };
+    const res = await callsApi.applyImport(callId, runId, { baseVersion: version.current, fieldsMode, accepted });
+    if (!res.ok) {
+      if (res.body.code === 'conflict') void load();
+      return { ok: false, error: res.body.error ?? 'Could not apply the accepted items.' };
+    }
+    adopt(res.body, true);
+    setDocsReload((n) => n + 1);
+    const a = res.body.applied;
+    return { ok: true, summary: `Applied: ${[a.general ? 'General' : '', a.phases ? `${a.phases} phase${a.phases === 1 ? '' : 's'}` : '', a.fields ? `${a.fields} question${a.fields === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')}.` };
+  }
+
   /** Import the form of another call (Prompt 909, I2): never over unsaved edits; the server's form replaces the local one. */
   async function importForm(sourceCallId: string, mode: ImportMode, confirmReplace: boolean): Promise<ImportOutcome> {
     if (timer.current) clearTimeout(timer.current);
@@ -221,6 +243,7 @@ export function CallEditor({ callId, onBack }: { callId: string; onBack: () => v
       {tab === 'general' && (
         <>
           <GeneralTab call={call} promoterName={server.promoterName} disabled={readOnly} onChange={editGeneral} />
+          <SourceDocumentsPanel callId={callId} canConfigure={server.canManage} locked={readOnly} reloadKey={docsReload} onImport={() => setImportDocs(true)} />
           <CallDangerZone actions={server.actions} status={server.effectiveStatus} applicationsTotal={server.applications.total}
             canManage={server.canManage} busy={busy} onDelete={() => void removeCall()} onArchive={() => void act('archive')} />
           {actionError && <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{actionError}</p>}
@@ -228,7 +251,11 @@ export function CallEditor({ callId, onBack }: { callId: string; onBack: () => v
       )}
       {tab === 'phases' && <PhasesTab phases={phases} disabled={readOnly} onChange={editPhases} />}
       {tab === 'team' && <TeamTab callId={callId} />}
-      {tab === 'form' && <FormTab callId={callId} fields={fields} disabled={readOnly} lockedReason={reason} onChange={editFields} onImport={importForm} />}
+      {tab === 'form' && <FormTab callId={callId} fields={fields} disabled={readOnly} lockedReason={reason} onChange={editFields} onImport={importForm} onImportDocuments={() => setImportDocs(true)} />}
+      {importDocs && (
+        <ImportFromDocuments callId={callId} timezone={call.timezone} currentFieldCount={fields.length}
+          onClose={() => { setImportDocs(false); setDocsReload((n) => n + 1); }} onApply={applyImport} />
+      )}
       {tab === 'preview' && (
         <PreviewTab
           call={call} effectiveStatus={server.effectiveStatus} phases={server.phases} fields={fields} issues={server.issues} summary={server.summary}

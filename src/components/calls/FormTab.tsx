@@ -31,8 +31,10 @@ function conditionText(f: FormField, all: FormField[]): string | null {
   return `Shown if “${ctl.label}” ${op}${c.operator === 'equals' || c.operator === 'not_equals' ? ` ${value ?? '…'}` : ''}`;
 }
 
-export function FormTab({ callId, fields, disabled, lockedReason, onChange, onImport }: {
+export function FormTab({ callId, fields, disabled, lockedReason, onChange, onImport, onImportDocuments }: {
   callId: string; fields: FormField[]; disabled: boolean;
+  /** Opens "Import from documents" (Prompt 909, I4). */
+  onImportDocuments: () => void;
   /** Why the configuration cannot be changed (the sentence the editor already shows), or null. */
   lockedReason: string | null;
   onChange: (next: FormField[]) => void;
@@ -100,6 +102,9 @@ export function FormTab({ callId, fields, disabled, lockedReason, onChange, onIm
           <button type="button" disabled={disabled} onClick={() => setImporting(true)} data-testid="import-form"
             title={disabled ? lockedReason ?? undefined : undefined}
             className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-40">Import form from another call</button>
+          <button type="button" disabled={disabled} onClick={onImportDocuments} data-testid="import-from-document"
+            title={disabled ? lockedReason ?? undefined : undefined}
+            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-40">Import from a document</button>
           <span className="text-xs text-gray-400">{ordered.length} field{ordered.length === 1 ? '' : 's'} · {pages.length || 0} page{pages.length === 1 ? '' : 's'}</span>
         </div>
         {disabled && lockedReason && <p className="mb-3 text-[11px] text-gray-500" data-testid="import-locked">{lockedReason}</p>}
