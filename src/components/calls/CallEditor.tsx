@@ -18,6 +18,8 @@ import { PreviewTab, type LifecycleAction } from './PreviewTab';
 import { SaveStatus, type SaveState } from './SaveStatus';
 import { StatusBadge } from './StatusBadge';
 import { CallDangerZone } from './CallDangerZone';
+import type { ImportOutcome } from './ImportFormDialog';
+import type { ImportMode } from '@/lib/calls/form-import';
 
 type Section = 'general' | 'phases' | 'form';
 const DEBOUNCE_MS = 700;
@@ -147,6 +149,21 @@ export function CallEditor({ callId, onBack }: { callId: string; onBack: () => v
     } finally { setBusy(false); }
   }
 
+  /** Import the form of another call (Prompt 909, I2): never over unsaved edits; the server's form replaces the local one. */
+  async function importForm(sourceCallId: string, mode: ImportMode, confirmReplace: boolean): Promise<ImportOutcome> {
+    if (timer.current) clearTimeout(timer.current);
+    await flush();
+    if (failed.current) return { ok: false, error: 'Fix the save error first, then try again.' };
+    const res = await callsApi.importForm(callId, { sourceCallId, mode, baseVersion: version.current, confirmReplace });
+    if (!res.ok) {
+      if (res.body.code === 'conflict') void load();
+      return { ok: false, code: res.body.code, error: res.body.error ?? 'Could not import the form.' };
+    }
+    adopt(res.body, true);
+    const { imported, from, warnings } = res.body.import;
+    return { ok: true, summary: `Imported ${imported} field${imported === 1 ? '' : 's'} from “${from}”.${warnings.length ? ` ${warnings.join(' ')}` : ''}` };
+  }
+
   /** Delete (the server refuses it when anybody applied or the call opened) — then back to the list. */
   async function removeCall() {
     setBusy(true); setActionError('');
@@ -209,7 +226,7 @@ export function CallEditor({ callId, onBack }: { callId: string; onBack: () => v
         </>
       )}
       {tab === 'phases' && <PhasesTab phases={phases} disabled={readOnly} onChange={editPhases} />}
-      {tab === 'form' && <FormTab fields={fields} disabled={readOnly} onChange={editFields} />}
+      {tab === 'form' && <FormTab callId={callId} fields={fields} disabled={readOnly} lockedReason={reason} onChange={editFields} onImport={importForm} />}
       {tab === 'preview' && (
         <PreviewTab
           call={call} effectiveStatus={server.effectiveStatus} phases={server.phases} fields={fields} issues={server.issues} summary={server.summary}

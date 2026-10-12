@@ -3,6 +3,7 @@
 import type { CallStatus, PromoterKind } from '@/lib/calls/types';
 import type { Call, CallPhase, FormField } from '@/lib/calls/types';
 import type { CallSummary, ReadinessIssue, availableActions } from '@/lib/calls/lifecycle';
+import type { ImportMode, ImportSource } from '@/lib/calls/form-import';
 
 export interface PromoterInfo { kind: PromoterKind; id: string; name: string; canManage: boolean }
 
@@ -51,6 +52,12 @@ export const callsApi = {
   duplicate: (id: string) => call<{ call: Call }>(`/api/calls/${id}/duplicate`, send('POST')),
   act: (id: string, action: 'confirm' | 'edit' | 'publish' | 'extend' | 'close' | 'archive', extra: { closesAt?: string } = {}) =>
     call<CallState>(`/api/calls/${id}/action`, send('POST', { action, ...extra })),
+  /** Prompt 909 (I2): the calls the form can be imported from, and the fields of one of them to look at. */
+  importSources: (id: string, previewId?: string) =>
+    call<{ sources: ImportSource[]; preview?: { id: string; name: string; currency: string; fields: FormField[] } }>(
+      `/api/calls/${id}/import-form${previewId ? `?preview=${encodeURIComponent(previewId)}` : ''}`),
+  importForm: (id: string, body: { sourceCallId: string; mode: ImportMode; baseVersion: number; confirmReplace?: boolean }) =>
+    call<CallState & { import: { imported: number; mode: ImportMode; from: string; warnings: string[] } }>(`/api/calls/${id}/import-form`, send('POST', body)),
   /** Delete a call nobody applied to (the server decides). */
   remove: (id: string) => call<{ deleted: boolean; name: string }>(`/api/calls/${id}/action`, send('POST', { action: 'delete' })),
 };

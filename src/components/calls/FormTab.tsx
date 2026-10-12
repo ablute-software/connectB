@@ -4,6 +4,8 @@
 // hand, or proposed by "Suggest pages" (by subject, about five per page, no AI). Display conditions only point at
 // EARLIER questions; links to platform data are explicit and shown with an icon.
 import { useMemo, useState } from 'react';
+import { ImportFormDialog, type ImportOutcome } from './ImportFormDialog';
+import type { ImportMode } from '@/lib/calls/form-import';
 import { orderFields } from '@/lib/calls/form-logic';
 import {
   addOption, appendField, changeKind, deleteField, mergePageWithPrevious, moveField, removeOption, renameOption, splitPageAt, suggestPages,
@@ -29,7 +31,14 @@ function conditionText(f: FormField, all: FormField[]): string | null {
   return `Shown if “${ctl.label}” ${op}${c.operator === 'equals' || c.operator === 'not_equals' ? ` ${value ?? '…'}` : ''}`;
 }
 
-export function FormTab({ fields, disabled, onChange }: { fields: FormField[]; disabled: boolean; onChange: (next: FormField[]) => void }) {
+export function FormTab({ callId, fields, disabled, lockedReason, onChange, onImport }: {
+  callId: string; fields: FormField[]; disabled: boolean;
+  /** Why the configuration cannot be changed (the sentence the editor already shows), or null. */
+  lockedReason: string | null;
+  onChange: (next: FormField[]) => void;
+  onImport: (sourceCallId: string, mode: ImportMode, confirmReplace: boolean) => Promise<ImportOutcome>;
+}) {
+  const [importing, setImporting] = useState(false);
   const ordered = useMemo(() => orderFields(fields), [fields]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -88,8 +97,16 @@ export function FormTab({ fields, disabled, onChange }: { fields: FormField[]; d
               setNotice('Pages suggested by subject — adjust them as you like.');
             }}
             className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-40">Suggest pages</button>
+          <button type="button" disabled={disabled} onClick={() => setImporting(true)} data-testid="import-form"
+            title={disabled ? lockedReason ?? undefined : undefined}
+            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-40">Import form from another call</button>
           <span className="text-xs text-gray-400">{ordered.length} field{ordered.length === 1 ? '' : 's'} · {pages.length || 0} page{pages.length === 1 ? '' : 's'}</span>
         </div>
+        {disabled && lockedReason && <p className="mb-3 text-[11px] text-gray-500" data-testid="import-locked">{lockedReason}</p>}
+        {importing && (
+          <ImportFormDialog callId={callId} currentFieldCount={fields.length} onClose={() => setImporting(false)}
+            onImport={async (id, mode, confirm) => { const r = await onImport(id, mode, confirm); if (r.ok && r.summary) setNotice(r.summary); return r; }} />
+        )}
         {notice && <p role="status" className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid="form-notice">{notice}</p>}
 
         {ordered.length === 0 ? (
