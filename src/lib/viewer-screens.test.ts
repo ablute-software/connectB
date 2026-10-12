@@ -304,13 +304,18 @@ describe('every write handler behind the viewer wrapper refuses a viewer session
 
   it('the routes that act on the caller\'s own account refuse even a READ in a viewer session', async () => {
     actAs(DEV_A);
+    // Every GET behind withoutViewer, found in the sources — not a list somebody has to remember to extend.
+    const reads = Object.entries(importers)
+      .map(([key, load]) => ({ key, load, src: readFileSync(path.resolve(__dirname, key), 'utf8').replace(/\r\n/g, '\n') }))
+      .filter((e) => /^export const GET\s*=\s*withoutViewer\(/m.test(e.src));
+    expect(reads.length).toBeGreaterThanOrEqual(7);
     const failures: string[] = [];
-    for (const key of ['account/security', 'commitments/status', 'auth-code/status', 'oauth/google/status', 'promo/status', 'promo/referrals']) {
-      const load = importers[`../app/api/${key}/route.ts`];
+    for (const { key, load } of reads) {
       const mod = await load();
-      const res = await (mod.GET as (r: Request) => Promise<Response>)(call('GET', `/api/${key}`, { cookie: cookieFor(ORG_B) }));
+      const route = path.relative(API, path.resolve(__dirname, key)).split(path.sep).join('/').replace(/\/?route\.ts$/, '');
+      const res = await (mod.GET as (r: Request) => Promise<Response>)(call('GET', `/api/${route}`, { cookie: cookieFor(ORG_B) }));
       const body = await res.json().catch(() => null) as { error?: string } | null;
-      if (res.status !== 403 || body?.error !== 'viewer_read_only') failures.push(`GET ${key} → ${res.status}`);
+      if (res.status !== 403 || body?.error !== 'viewer_read_only') failures.push(`GET ${route} → ${res.status}`);
     }
     expect(failures).toEqual([]);
   });

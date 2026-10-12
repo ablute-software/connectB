@@ -153,6 +153,14 @@ describe('a route that resolves the acting org is wrapped end to end', () => {
   });
 });
 
+// ─── 3b. My Network: the actor is the acting org's ────────────────────────────────────────────────────────────
+describe('My Network resolves the actor of the acting org', () => {
+  it('no route calls resolveActorId(admin, user.id) without passing the acting org — a viewer would get the developer\'s own actor', () => {
+    const offenders = FILES.filter((f) => /resolveActorId\(\s*\w+\s*,\s*[\w.]+\s*\)/.test(f.src)).map((f) => f.route);
+    expect(offenders).toEqual([]);
+  });
+});
+
 // ─── 4. the two ways to bend the rule are visible here ──────────────────────────────────────────────────────
 describe('the exceptions to "a viewer session cannot write" are exactly these', () => {
   it('allowViewerWrite: none today — a write through a viewer session needs Nuno\'s decision and an entry here', () => {
