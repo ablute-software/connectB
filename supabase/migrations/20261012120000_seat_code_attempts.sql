@@ -1,5 +1,10 @@
 -- Redeeming an entity-bound seat code: at most 5 WRONG attempts per person per hour.
 --
+-- APPLIED to production on 12/10/2026 (Nuno's OK), after a dry run inside a transaction that always rolls back:
+-- 5 checks passed (five tries counted down, the sixth and seventh refused with retry_after, another user
+-- independent, clear starts again, the lock lifts when the hour is up) and nothing persisted. After applying: RLS
+-- on, no function executable by anon/authenticated, and one live call (a throw-away uuid) that was deleted.
+--
 -- Why: since Adenda 1 (09/10/2026) a code is PD-XXXX-XXXX, 40 bits. It only works for someone who already has an
 -- approved claim and an active seat on that exact firm (so they are already behind a login and inside the firm),
 -- but nothing limited how often they could try. This is the same idea as the registration code's "5 wrong
