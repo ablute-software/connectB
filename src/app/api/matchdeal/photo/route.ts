@@ -20,12 +20,13 @@ import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { detectAllowedKind, scanWithVirusTotal, sha256Hex } from '@/lib/upload-security';
 import { matchdealPhotoScanAvailable } from '@/lib/upload-security-capability';
+import { withActingOrg, authorizeActingOrg } from '@/lib/acting-org';
 
 export const maxDuration = 30;
 
 const SIGNED_URL_TTL_SECONDS = 10 * 365 * 24 * 60 * 60;
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -77,9 +78,8 @@ export async function POST(req: Request) {
     .select('id, kind, membership_id').eq('id', profileId).maybeSingle();
   if (!profile) return NextResponse.json({ ok: false, error: 'Profile not found.' }, { status: 404 });
   if (profile.kind === 'startup') {
-    const { data: member } = await admin.from('org_members').select('org_id')
-      .eq('user_id', user.id).eq('org_id', profile.membership_id).maybeSingle();
-    if (!member) return NextResponse.json({ ok: false, error: 'Not your profile.' }, { status: 403 });
+    const acting = await authorizeActingOrg(req, user, profile.membership_id, sb);
+    if (!acting) return NextResponse.json({ ok: false, error: 'Not your profile.' }, { status: 403 });
   } else {
     const member = await resolveActiveInvestorMember(admin, user.id);
     if (!member || member.id !== profile.membership_id) {
@@ -110,4 +110,4 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json({ ok: true, photoUrl: signed.signedUrl });
-}
+});

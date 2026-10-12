@@ -34,6 +34,7 @@ import { logAiCall } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { chargeAiAction } from '@/lib/ai-credits';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 export const maxDuration = 30;
 
@@ -55,9 +56,8 @@ interface PersonRow {
   full_name: string; title: string | null; is_founder: boolean; bio: string | null; linkedin_url: string | null;
 }
 
-async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
-  const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
-  return (data?.org_id as string | undefined) ?? null;
+async function resolveOrg(req: Request, sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
+  return (await resolveActingOrg(req, { id: userId }, sb)).orgId;
 }
 
 async function gapContext(admin: SupabaseClient, orgId: string) {
@@ -207,7 +207,7 @@ async function callClaude(
   return toolUse.input;
 }
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -218,7 +218,7 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
   if (!(await claimsAvailable())) return NextResponse.json({ ok: false, error: 'Not available in this workspace yet.' });
 
-  const orgId = await resolveOrg(sb, user.id);
+  const orgId = await resolveOrg(req, sb, user.id);
   if (!orgId) return NextResponse.json({ ok: false, error: 'No organization.' }, { status: 403 });
 
   const { gapKey, currentAnswer } = await req.json().catch(() => ({})) as { gapKey?: string; currentAnswer?: string };
@@ -333,4 +333,4 @@ export async function POST(req: Request) {
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }
-}
+});

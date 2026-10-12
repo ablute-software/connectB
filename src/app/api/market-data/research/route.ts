@@ -41,6 +41,7 @@ import { computeVerdict, type FounderBaseline } from '@/lib/market-assessment-en
 
 import { SECTIONS, type Section } from '@/lib/market-research-sections';
 import { chargeAiAction } from '@/lib/ai-credits';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 // Prompt 378 §0 — THE production bug. This was the only AI route in the app
 // doing a web search without a maxDuration export: its siblings all have one
@@ -258,9 +259,8 @@ async function callResearchModel(
   return { items, costEur: computeCostEur(model, data.usage) };
 }
 
-async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
-  const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
-  return (data?.org_id as string | undefined) ?? null;
+async function resolveOrg(req: Request, sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
+  return (await resolveActingOrg(req, { id: userId }, sb)).orgId;
 }
 
 async function runResearchPass(
@@ -362,7 +362,7 @@ function toThesisFields(row: Record<string, unknown> | null): MarketThesisFields
   };
 }
 
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -376,7 +376,7 @@ export async function GET(req: Request) {
     return NextResponse.json(empty);
   }
 
-  const orgId = await resolveOrg(sb, user.id);
+  const orgId = await resolveOrg(req, sb, user.id);
   if (!orgId) return NextResponse.json(empty);
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
@@ -477,4 +477,4 @@ export async function GET(req: Request) {
   // verifiable source") from a cache hit — the UI must never show the
   // generic "no pending suggestions" for a real, paid-for empty result.
   return NextResponse.json({ available: true, ok: true, items: items ?? [], gate, costEur, ran, cached: cached && !forceRefresh, hypothesisId: hypothesis.id });
-}
+});

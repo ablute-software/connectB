@@ -8,17 +8,17 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { platformBadgesAvailable } from '@/lib/platform-badges-capability';
 import { loadOrgPlatformBadges, orgUsageSummary } from '@/lib/platform-badges-server';
 import { BADGE_LABEL, freeTierFromBadges, rightsText, sortByImportance, techMasterWindow, TECH_MASTER_WARNING_PCTS } from '@/lib/platform-badges';
+import { resolveActingOrg, withActingOrg } from '@/lib/acting-org';
 
 // Never prerendered: the early returns above the cookie read (no env, no
 // table) let an env-less build cache this route as static, which would serve
 // "no badges" to every founder forever. Confirmed in the 601 build manifest.
 export const dynamic = 'force-dynamic';
 
-export async function GET(req: NextRequest) {
+export const GET = withActingOrg(async function GET(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: true, badges: [], freeTier: null });
@@ -30,11 +30,7 @@ export async function GET(req: NextRequest) {
 
   // Developer Viewer sessions see the viewed org's statuses (read-only, as
   // everything in the viewer is).
-  let orgId = await readVerifiedViewerOrgId(sb, req);
-  if (!orgId) {
-    const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-    orgId = (member?.org_id as string | undefined) ?? null;
-  }
+  const orgId = (await resolveActingOrg(req, user, sb)).orgId;
   if (!orgId) return NextResponse.json({ ok: true, badges: [], freeTier: null });
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
@@ -57,4 +53,4 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json({ ok: true, badges, freeTier: freeTierFromBadges(rows, now) });
-}
+});

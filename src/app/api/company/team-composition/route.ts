@@ -14,22 +14,18 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { assertNotViewer, readVerifiedViewerOrgId } from '@/lib/developer-viewer';
+import { assertNotViewer } from '@/lib/developer-viewer';
 import { analyseTeamComposition, compositionSummary, type RoleKey, type TeamMember } from '@/lib/team-composition';
 import { teamRoleCoverageAvailable } from '@/lib/team-composition-capability';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 export const dynamic = 'force-dynamic';
 
 const EMPTY = { ok: true, available: false, roles: [], summary: null as string | null };
 
-// Prompt 894 — this used to resolve orgId from org_members only, so a
-// Developer Viewer session (real org_members row on the developer's own
-// account, e.g. ablute_) never picked up the org actually being viewed and
-// this one card showed the developer's own team on top of whichever
-// company they'd opened. Every other card on this same /settings screen
-// already goes through readVerifiedViewerOrgId first (see platform-badges,
-// pipeline-unlock, page-view) — this brings the card in line with that
-// pattern instead of inventing a new one.
+// Prompt 904 — the org is resolveActingOrg's answer: inside a Developer Viewer
+// session it is the VIEWED org, never the developer's own membership (Prompt 894
+// fixed this one card by hand; every founder route now shares the one rule).
 async function context(req: NextRequest | Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -38,16 +34,12 @@ async function context(req: NextRequest | Request) {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return null;
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  let orgId = await readVerifiedViewerOrgId(sb, req);
-  if (!orgId) {
-    const { data: member } = await admin.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-    orgId = (member?.org_id as string | undefined) ?? null;
-  }
+  const orgId = (await resolveActingOrg(req, user, sb)).orgId;
   if (!orgId) return null;
   return { sb, admin, orgId };
 }
 
-export async function GET(req: NextRequest) {
+export const GET = withActingOrg(async function GET(req: NextRequest) {
   const ctx = await context(req);
   if (!ctx) return NextResponse.json(EMPTY);
   if (!(await teamRoleCoverageAvailable())) return NextResponse.json(EMPTY);
@@ -101,9 +93,9 @@ export async function GET(req: NextRequest) {
     summary: compositionSummary(coverage),
     people: members.map((m) => ({ id: m.id, fullName: m.fullName, title: m.title })),
   });
-}
+});
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const ctx = await context(req);
   if (!ctx) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
   const { sb, admin, orgId } = ctx;
@@ -138,4 +130,4 @@ export async function POST(req: Request) {
     .upsert({ org_id: orgId, role_key: roleKey, person_id: personId, hiring }, { onConflict: 'org_id,role_key' });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
-}
+});

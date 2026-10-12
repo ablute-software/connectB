@@ -11,7 +11,6 @@
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { assertNotViewer, readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
@@ -21,6 +20,7 @@ import {
 } from '@/lib/mini-pitch';
 import type { ClaimCategory, ClaimSourceKind, ClaimSpecificity, ClaimStatus, DocumentRef, EvidenceClass } from '@/lib/types';
 import { chargeAiAction } from '@/lib/ai-credits';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 const NOT_CONFIGURED_MSG = 'AI-assisted mini-pitch generation isn’t available in your workspace yet.';
 const MAX_WORDS_PER_SLIDE = 25;
@@ -158,33 +158,26 @@ async function loadContext(admin: SupabaseClient, orgId: string) {
   return { org, eligibleClaims };
 }
 
-// Prompt 894 — assertNotViewer only blocks the mutating POST below; GET (the
-// card a Developer Viewer session opens) never checked the viewer cookie, so
-// it showed the developer's own org's mini-pitch. Same fix as
-// team-composition/route.ts.
-async function requireOrgMember(req: Request) {
+// Prompt 904 — the org is resolveActingOrg's answer (a Developer Viewer session
+// reads the VIEWED org's mini-pitch) and withActingOrg refuses the POST in a
+// viewer session, so this helper needs no assertNotViewer of its own.
+async function requireOrgMember(req: Request): Promise<{ error: NextResponse } | { admin: SupabaseClient; orgId: string; sb: Awaited<ReturnType<typeof serverClient>> }> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return { error: NextResponse.json({ ok: false, error: 'not configured' }) };
 
   const sb = await serverClient();
-  const viewerBlock = await assertNotViewer(sb, req);
-  if (viewerBlock) return { error: viewerBlock };
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return { error: NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 }) };
 
-  let orgId = await readVerifiedViewerOrgId(sb, req);
-  if (!orgId) {
-    const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-    orgId = (member?.org_id as string | undefined) ?? null;
-  }
+  const orgId = (await resolveActingOrg(req, user, sb)).orgId;
   if (!orgId) return { error: NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 }) };
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   return { admin, orgId, sb };
 }
 
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const auth = await requireOrgMember(req);
   if ('error' in auth) return auth.error;
   const { admin, orgId } = auth;
@@ -232,9 +225,9 @@ export async function GET(req: Request) {
       generatedAt: stored.generated_at, activatedAt: stored.activated_at, stale,
     } : null,
   });
-}
+});
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const auth = await requireOrgMember(req);
   if ('error' in auth) return auth.error;
   const { admin, orgId, sb } = auth;
@@ -367,4 +360,4 @@ export async function POST(req: Request) {
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }
-}
+});

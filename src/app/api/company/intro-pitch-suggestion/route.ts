@@ -6,14 +6,14 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { documentExtractionsAvailable } from '@/lib/document-extraction-capability';
+import { resolveActingOrg, withActingOrg } from '@/lib/acting-org';
 
 interface ExtractedPitch { pitchProblem?: string | null; pitchSolution?: string | null }
 
 // Prompt 894 — never checked the viewer cookie, so a Developer Viewer
 // session got the developer's own org's intro-pitch suggestion.
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ available: false });
@@ -22,11 +22,7 @@ export async function GET(req: Request) {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 
-  let orgId = await readVerifiedViewerOrgId(sb, req);
-  if (!orgId) {
-    const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-    orgId = (member?.org_id as string | undefined) ?? null;
-  }
+  const orgId = (await resolveActingOrg(req, user, sb)).orgId;
   if (!orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
 
   if (!(await documentExtractionsAvailable())) return NextResponse.json({ available: false });
@@ -64,4 +60,4 @@ export async function GET(req: Request) {
   if (!suggestion.problem && !suggestion.solution) return NextResponse.json({ available: true, suggestion: null });
 
   return NextResponse.json({ available: true, suggestion });
-}
+});
