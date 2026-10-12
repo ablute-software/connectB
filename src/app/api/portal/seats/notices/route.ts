@@ -20,6 +20,9 @@ async function whoAmI(): Promise<Me> {
   return { admin: createClient(url, service, { auth: { persistSession: false } }), email: user.email.trim().toLowerCase() };
 }
 
+// No request argument: without this Next prerenders it at build time and freezes whatever it answered then.
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   const me = await whoAmI();
   if (me.error) return me.error;
