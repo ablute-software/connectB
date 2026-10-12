@@ -237,6 +237,16 @@ export function makeSeatStore(admin: SupabaseClient): SeatStore {
       return (data ?? []).length > 0;
     },
 
+    async reserveRedeemAttempt(userId, max, windowSeconds) {
+      const { data, error } = await admin.rpc('seat_code_reserve_attempt', { p_user: userId, p_max: max, p_window_seconds: windowSeconds });
+      if (error || !data) return { checked: false, allowed: false, retryAfter: 0 };
+      return { checked: true, allowed: data.allowed === true, retryAfter: Number(data.retry_after ?? 0) };
+    },
+
+    async clearRedeemAttempts(userId) {
+      await admin.rpc('seat_code_clear_attempts', { p_user: userId });
+    },
+
     async redeemCode(codeHash, userId) {
       const { data, error } = await admin.rpc('redeem_investor_seat_code', { p_code_hash: codeHash, p_user: userId });
       if (error || !data || data.ok !== true) return { ok: false };
