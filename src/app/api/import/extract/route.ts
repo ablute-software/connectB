@@ -12,6 +12,7 @@ import { logAiCall } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { detectAllowedKind, scanWithVirusTotal } from '@/lib/upload-security';
+import { withActingOrg, authorizeActingOrg } from '@/lib/acting-org';
 
 export const maxDuration = 30;
 
@@ -19,7 +20,7 @@ const MAX_CHARS = 20_000; // token-budget guard; chunking is a future enhancemen
 
 const TEXT_EXTENSIONS = ['.txt', '.csv'];
 
-export async function POST(req: NextRequest) {
+export const POST = withActingOrg(async function POST(req: NextRequest) {
   const { batchId } = await req.json();
   if (!batchId) return NextResponse.json({ ok: false, error: 'batchId required' }, { status: 400 });
 
@@ -37,8 +38,8 @@ export async function POST(req: NextRequest) {
   const { data: batch, error: batchErr } = await admin.from('import_batches').select('*').eq('id', batchId).single();
   if (batchErr || !batch) return NextResponse.json({ ok: false, error: batchErr?.message ?? 'batch not found' }, { status: 404 });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).eq('org_id', batch.org_id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
+  const acting = await authorizeActingOrg(req, user, batch.org_id, sb);
+  if (!acting) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
 
   const ext = batch.file_name.slice(batch.file_name.lastIndexOf('.')).toLowerCase();
   if (!TEXT_EXTENSIONS.includes(ext)) {
@@ -144,4 +145,4 @@ export async function POST(req: NextRequest) {
     await admin.from('import_batches').update({ status: 'failed', error: message }).eq('id', batchId);
     return NextResponse.json({ ok: false, error: message }, { status: 502 });
   }
-}
+});

@@ -30,6 +30,7 @@ import { providerErrorMessage } from '@/lib/ai-provider-error';
 import {
   UPDATE_SUGGEST_SYSTEM, UPDATE_SUGGEST_TOOL_SCHEMA, toUpdateSuggestion,
 } from '@/lib/network-update-suggest';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 export const maxDuration = 60;
 
@@ -85,7 +86,7 @@ async function buildKnowledge(admin: SupabaseClient, orgId: string): Promise<str
   return items.slice(0, MAX_ITEMS);
 }
 
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -97,9 +98,9 @@ export async function GET(req: Request) {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Founders only.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Founders only.' }, { status: 403 });
+  const orgId = acting.orgId as string;
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const items = await buildKnowledge(admin, orgId);
@@ -161,4 +162,4 @@ export async function GET(req: Request) {
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }
-}
+});

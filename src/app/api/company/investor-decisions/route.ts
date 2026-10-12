@@ -23,10 +23,11 @@ import { loadOrgMatrix } from '@/lib/org-matrix-server';
 import type { OrgRole } from '@/lib/permissions';
 import { PASS_REASON_CATEGORIES } from '@/lib/relationship';
 import { noteProblem, noteProblemMessage } from '@/lib/startup-investor-decision';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 type Action = 'create' | 'update' | 'revert';
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -45,12 +46,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'action must be create, update or revert.' }, { status: 400 });
   }
 
-  const { data: member } = await sb.from('org_members').select('org_id, role').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  const actingOrg = await resolveActingOrg(req, user, sb);
+  if (!actingOrg.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
-  const matrix = await loadOrgMatrix(admin, member.org_id as string);
-  if (!canWithMatrix(matrix, member.role as OrgRole, 'investor_decisions')) {
+  const matrix = await loadOrgMatrix(admin, actingOrg.orgId as string);
+  if (!canWithMatrix(matrix, actingOrg.role as OrgRole, 'investor_decisions')) {
     return NextResponse.json({ ok: false, error: 'Your role can’t record decisions about investors.' }, { status: 403 });
   }
 
@@ -63,7 +64,7 @@ export async function POST(req: Request) {
     // can record a new decision later without rewriting the old one.
     const { data: row } = await admin.from('startup_investor_decisions')
       .select('id, org_id, reverted_at').eq('id', body.decisionId ?? '').maybeSingle();
-    if (!row || row.org_id !== member.org_id) return NextResponse.json({ ok: false, error: 'Decision not found.' }, { status: 404 });
+    if (!row || row.org_id !== actingOrg.orgId) return NextResponse.json({ ok: false, error: 'Decision not found.' }, { status: 404 });
     if (row.reverted_at) return NextResponse.json({ ok: true, alreadyReverted: true });
     const { error } = await admin.from('startup_investor_decisions')
       .update({ reverted_at: now, reverted_by: user.id, updated_at: now, updated_by: user.id })
@@ -87,7 +88,7 @@ export async function POST(req: Request) {
   if (action === 'update') {
     const { data: row } = await admin.from('startup_investor_decisions')
       .select('id, org_id').eq('id', body.decisionId ?? '').maybeSingle();
-    if (!row || row.org_id !== member.org_id) return NextResponse.json({ ok: false, error: 'Decision not found.' }, { status: 404 });
+    if (!row || row.org_id !== actingOrg.orgId) return NextResponse.json({ ok: false, error: 'Decision not found.' }, { status: 404 });
     const { error } = await admin.from('startup_investor_decisions')
       .update({ note, reason_category: reasonCategory, updated_at: now, updated_by: user.id })
       .eq('id', row.id);
@@ -99,7 +100,7 @@ export async function POST(req: Request) {
   const entityId = body.entityId;
   if (!entityId) return NextResponse.json({ ok: false, error: 'entityId is required.' }, { status: 400 });
   const { data: entity } = await admin.from('entities').select('id, org_id').eq('id', entityId).maybeSingle();
-  if (!entity || entity.org_id !== member.org_id) {
+  if (!entity || entity.org_id !== actingOrg.orgId) {
     return NextResponse.json({ ok: false, error: 'Investor not found in your pipeline.' }, { status: 404 });
   }
 
@@ -110,7 +111,7 @@ export async function POST(req: Request) {
     .select('catalog_id').eq('entity_id', entityId).maybeSingle();
 
   const { data: created, error } = await admin.from('startup_investor_decisions').insert({
-    org_id: member.org_id,
+    org_id: actingOrg.orgId,
     entity_id: entityId,
     catalog_entity_id: (delivery?.catalog_id as string | undefined) ?? null,
     decision: 'not_a_fit',
@@ -132,4 +133,4 @@ export async function POST(req: Request) {
     }, { status: duplicate ? 409 : 500 });
   }
   return NextResponse.json({ ok: true, decision: created });
-}
+});

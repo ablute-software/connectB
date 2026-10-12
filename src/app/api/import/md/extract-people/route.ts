@@ -14,10 +14,11 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
+import { withActingOrg, authorizeActingOrg } from '@/lib/acting-org';
 
 interface ProposedPerson { name: string; role?: string; confidence: number; evidence: string }
 
-export async function POST(req: NextRequest) {
+export const POST = withActingOrg(async function POST(req: NextRequest) {
   const { batchId, sectionIndex } = await req.json() as { batchId?: string; sectionIndex?: number };
   if (!batchId || sectionIndex === undefined) return NextResponse.json({ ok: false, error: 'batchId and sectionIndex required' }, { status: 400 });
 
@@ -34,8 +35,8 @@ export async function POST(req: NextRequest) {
   const admin = createClient(url, service, { auth: { persistSession: false } });
   const { data: batch, error: batchErr } = await admin.from('import_batches').select('org_id, extraction').eq('id', batchId).single();
   if (batchErr || !batch) return NextResponse.json({ ok: false, error: batchErr?.message ?? 'batch not found' }, { status: 404 });
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).eq('org_id', batch.org_id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
+  const acting = await authorizeActingOrg(req, user, batch.org_id, sb);
+  if (!acting) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
 
   const extraction = batch.extraction as { sections: { name: string; interactions: { text: string }[]; proposedPeople?: ProposedPerson[] }[] };
   const section = extraction?.sections?.[sectionIndex];
@@ -102,4 +103,4 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }
-}
+});

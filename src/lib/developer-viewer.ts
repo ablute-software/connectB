@@ -159,6 +159,18 @@ export async function authorizeViewedOrg(
   return !!member;
 }
 
+// Prompt 904 — the ONE refusal a viewer session gets for anything that is not a
+// read. `error` is a stable code the UI and the tests match on; `message` is the
+// text a person may see. assertNotViewer (below) and acting-org.ts's wrappers
+// answer with exactly this.
+export const VIEWER_READ_ONLY_CODE = 'viewer_read_only';
+
+export function viewerReadOnlyResponse(): NextResponse {
+  return NextResponse.json(
+    { ok: false, error: VIEWER_READ_ONLY_CODE, message: 'Read-only in Developer Viewer.' },
+    { status: 403 },
+  );
+}
 // Called at the top of every service-role mutating route (.insert/.update/
 // .delete/.upsert/a state-changing .rpc). Returns a 403 NextResponse to
 // return immediately if the caller is in an active viewer session; null if
@@ -174,5 +186,5 @@ export async function assertNotViewer(sb: SupabaseClient, req: NextRequest | Req
   if (!viewerOrgId) return null;
   const { data: isDeveloper } = await sb.rpc('is_ablute_developer');
   if (!isDeveloper) return null; // stale/foreign cookie on a non-developer session — not this helper's concern
-  return NextResponse.json({ ok: false, error: 'Viewer mode is read-only.' }, { status: 403 });
+  return viewerReadOnlyResponse();
 }

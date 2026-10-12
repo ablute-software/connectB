@@ -23,8 +23,9 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { applyVerifiedContribution } from '@/lib/contribution-promotion';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { withActingOrg, authorizeActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: NextRequest) {
+export const POST = withActingOrg(async function POST(req: NextRequest) {
   const { contributionId, decision } = await req.json() as { contributionId?: string; decision?: 'keep_existing' | 'use_imported' };
   if (!contributionId || !decision) return NextResponse.json({ ok: false, error: 'contributionId and decision required' }, { status: 400 });
 
@@ -43,8 +44,8 @@ export async function POST(req: NextRequest) {
     .select('org_id, subject_type, subject_id, field, value, kind').eq('id', contributionId).maybeSingle();
   if (fetchErr || !contribution) return NextResponse.json({ ok: false, error: fetchErr?.message ?? 'Contribution not found.' }, { status: 404 });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).eq('org_id', contribution.org_id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
+  const acting = await authorizeActingOrg(req, user, contribution.org_id, sb);
+  if (!acting) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
 
   const status = decision === 'use_imported' ? 'verified' : 'rejected';
   const { error } = await admin.from('contributions').update({
@@ -58,4 +59,4 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ ok: true, promotion });
-}
+});

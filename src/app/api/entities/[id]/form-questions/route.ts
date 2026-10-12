@@ -32,6 +32,7 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { catalogFormQuestionsAvailable } from '@/lib/form-questions-capability';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
+import { withActingOrg, authorizeActingOrg } from '@/lib/acting-org';
 
 const NOT_CONFIGURED_MSG = 'Form question extraction isn’t available in your workspace yet — paste the questions yourself instead.';
 
@@ -113,7 +114,7 @@ async function extractFormQuestions(apiKey: string, model: string, url: string, 
   return { questions: (out.questions ?? []).filter((q) => q.label?.trim()), note: out.note };
 }
 
-export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const POST = withActingOrg(async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -128,8 +129,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const admin = createClient(url, service, { auth: { persistSession: false } });
   const { data: entity, error: entityErr } = await admin.from('entities').select('id, org_id, submission_channel, submission_channel_type').eq('id', id).maybeSingle();
   if (entityErr || !entity) return NextResponse.json({ ok: false, error: entityErr?.message ?? 'Entity not found.' }, { status: 404 });
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).eq('org_id', entity.org_id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
+  const acting = await authorizeActingOrg(req, user, entity.org_id, sb);
+  if (!acting) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as { url?: string; refresh?: boolean };
   const requestedUrl = body.url?.trim() || undefined;
@@ -204,4 +205,4 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }
-}
+});

@@ -41,8 +41,9 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { isProfileGateComplete, missingProfileGateFields } from '@/lib/pipeline-unlock';
 import { computeDeliverable, computeVisiblePipelineSize, raiseCatalogQuotaFloor } from '@/lib/pipeline-unlock-server';
 import { deliverCatalogMatches } from '@/lib/catalog-delivery-core';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: NextRequest) {
+export const POST = withActingOrg(async function POST(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -57,8 +58,8 @@ export async function POST(req: NextRequest) {
   const viewerBlock = await assertNotViewer(sb, req);
   if (viewerBlock) return viewerBlock;
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  const orgId = member?.org_id as string | undefined;
+  const acting = await resolveActingOrg(req, user, sb);
+  const orgId = acting.orgId as string | undefined;
   if (!orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
@@ -146,4 +147,4 @@ export async function POST(req: NextRequest) {
     alreadyDelivered: after ?? 0, deliverable: Math.max(0, quota - (after ?? 0)),
     error: error ?? undefined,
   }, { status: error ? 500 : 200 });
-}
+});

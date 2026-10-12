@@ -5,8 +5,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: NextRequest) {
+export const POST = withActingOrg(async function POST(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -20,9 +21,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'consensusId and vote (1 or -1) are required.' }, { status: 400 });
   }
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  const orgId = acting.orgId as string;
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
   const { data: consensus, error: consensusErr } = await admin.from('catalog_field_consensus').select('id, score').eq('id', body.consensusId).maybeSingle();
@@ -46,4 +47,4 @@ export async function POST(req: NextRequest) {
   await admin.from('catalog_field_consensus').update({ score: newScore, updated_at: new Date().toISOString() }).eq('id', body.consensusId);
 
   return NextResponse.json({ ok: true, score: newScore, yourVote: body.vote });
-}
+});

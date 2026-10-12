@@ -31,6 +31,14 @@ export function fakeDb(tables: Record<string, Row[]>): FakeDb {
   return { tables, writes: [] };
 }
 
+// `detail->>route` reads a key out of a jsonb column, the way PostgREST filters do.
+function cell(r: Row, col: string): unknown {
+  const i = col.indexOf('->>');
+  if (i < 0) return r[col];
+  const inner = r[col.slice(0, i)];
+  return inner && typeof inner === 'object' ? (inner as Record<string, unknown>)[col.slice(i + 3)] : undefined;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function builder(db: FakeDb, table: string): any {
   const predicates: ((r: Row) => boolean)[] = [];
@@ -51,7 +59,7 @@ function builder(db: FakeDb, table: string): any {
     limit: () => b,
     range: () => b,
     or: () => b,
-    eq: (col: string, val: unknown) => { eqs.push([col, val]); predicates.push((r) => r[col] === val); return b; },
+    eq: (col: string, val: unknown) => { eqs.push([col, val]); predicates.push((r) => cell(r, col) === val); return b; },
     neq: (col: string, val: unknown) => { predicates.push((r) => r[col] !== val); return b; },
     in: (col: string, vals: unknown[]) => { predicates.push((r) => vals.includes(r[col])); return b; },
     is: (col: string, val: unknown) => { predicates.push((r) => (r[col] ?? null) === val); return b; },

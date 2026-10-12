@@ -34,6 +34,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { documentExtractionsAvailable } from '@/lib/document-extraction-capability';
 import { extractDocument } from '@/lib/document-extraction-pipeline';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 // Same ceiling every other PDF-reading/upload route in this codebase uses
 // (verify-upload, nda-upload, blueprint/gap-assist) — confirmed by grep
@@ -50,7 +51,7 @@ import { extractDocument } from '@/lib/document-extraction-pipeline';
 // guess made here.
 export const maxDuration = 30;
 
-export async function POST(req: NextRequest) {
+export const POST = withActingOrg(async function POST(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -61,9 +62,9 @@ export async function POST(req: NextRequest) {
   if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).limit(1).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not an org member.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not an org member.' }, { status: 403 });
+  const orgId = acting.orgId as string;
 
   if (!(await documentExtractionsAvailable())) return NextResponse.json({ ok: true, skipped: true });
 
@@ -79,4 +80,4 @@ export async function POST(req: NextRequest) {
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const outcome = await extractDocument(admin, apiKey, orgId, documentId, trigger === 'button' ? { sb } : undefined);
   return NextResponse.json(outcome);
-}
+});

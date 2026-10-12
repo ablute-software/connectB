@@ -43,6 +43,7 @@ import { logAiCall, computeCostEur } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { markReadinessTrainFirstUsed } from '@/lib/readiness-usage';
 import { findCrossOrgDocumentId } from '@/lib/org-document-scope';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 // Prompt 467 v3 §5 (Nuno's review) — this is a HEURISTIC, not a real
 // signal like retrievalMethodByDocId below (that one reads an actual,
@@ -250,7 +251,7 @@ const MARKET_EXTRACT_TOOL_SCHEMA = {
   required: [],
 };
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   // Prompt 484 — the origin every budget below is measured from. Taken first,
   // before any await, so it really is the whole function's clock.
   const startedAt = Date.now();
@@ -266,9 +267,9 @@ export async function POST(req: Request) {
   if (viewerBlock) return viewerBlock;
   if (!(await marketDocumentExtractionAvailable())) return NextResponse.json({ ok: false, error: 'not configured' });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  const orgId = acting.orgId as string;
 
   const body = await req.json().catch(() => ({})) as { documentIds?: string[] };
   const documentIds = [...new Set(body.documentIds ?? [])].slice(0, MAX_DOCS);
@@ -707,4 +708,4 @@ export async function POST(req: Request) {
     // distinguishable.
     telemetry,
   });
-}
+});

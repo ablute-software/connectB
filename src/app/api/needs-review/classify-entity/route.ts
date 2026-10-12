@@ -11,6 +11,7 @@ import { logAiCall } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import type { Channel, Classification, Direction } from '@/lib/types';
+import { withActingOrg, authorizeActingOrg } from '@/lib/acting-org';
 
 interface InputInteraction { id: string; direction: Direction; channel: Channel; content: string; occurredAt: string }
 interface AiProposal {
@@ -26,7 +27,7 @@ interface AiProposal {
 const CLASSIFICATIONS: Classification[] = ['awaiting', 'interested', 'meeting_request', 'question', 'pass', 'out_of_office', 'bounce', 'unclear'];
 const CHANNELS: Channel[] = ['linkedin_dm', 'linkedin_note', 'email', 'web_form', 'call', 'meeting', 'event', 'intro', 'stage_change'];
 
-export async function POST(req: NextRequest) {
+export const POST = withActingOrg(async function POST(req: NextRequest) {
   const { entityId, interactions } = await req.json() as { entityId?: string; interactions?: InputInteraction[] };
   if (!entityId || !interactions?.length) {
     return NextResponse.json({ ok: false, error: 'entityId and interactions required' }, { status: 400 });
@@ -43,8 +44,8 @@ export async function POST(req: NextRequest) {
   const admin = createClient(url, service, { auth: { persistSession: false } });
   const { data: entity, error: entityErr } = await admin.from('entities').select('org_id, name').eq('id', entityId).single();
   if (entityErr || !entity) return NextResponse.json({ ok: false, error: entityErr?.message ?? 'entity not found' }, { status: 404 });
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).eq('org_id', entity.org_id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
+  const acting = await authorizeActingOrg(req, user, entity.org_id, sb);
+  if (!acting) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -121,4 +122,4 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }
-}
+});

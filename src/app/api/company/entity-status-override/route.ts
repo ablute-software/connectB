@@ -24,8 +24,9 @@ import { loadOrgMatrix } from '@/lib/org-matrix-server';
 import type { OrgRole } from '@/lib/permissions';
 import type { EntityStatus } from '@/lib/types';
 import { MANUAL_STATUS_OVERRIDE_OPTIONS, pipelineStageLabel } from '@/lib/pipeline-taxonomy';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -43,17 +44,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'That status can’t be set manually here.' }, { status: 400 });
   }
 
-  const { data: member } = await sb.from('org_members').select('org_id, role').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
-  const matrix = await loadOrgMatrix(admin, member.org_id as string);
-  if (!canWithMatrix(matrix, member.role as OrgRole, 'investor_decisions')) {
+  const matrix = await loadOrgMatrix(admin, acting.orgId as string);
+  if (!canWithMatrix(matrix, acting.role as OrgRole, 'investor_decisions')) {
     return NextResponse.json({ ok: false, error: 'Your role can’t change this manually.' }, { status: 403 });
   }
 
   const { data: entity } = await admin.from('entities').select('id, org_id, status').eq('id', entityId).maybeSingle();
-  if (!entity || entity.org_id !== member.org_id) {
+  if (!entity || entity.org_id !== acting.orgId) {
     return NextResponse.json({ ok: false, error: 'Investor not found in your pipeline.' }, { status: 404 });
   }
   const newStatus = status as EntityStatus;
@@ -65,14 +66,14 @@ export async function POST(req: Request) {
   const note = `${pipelineStageLabel(previousStatus)} → ${pipelineStageLabel(newStatus)} — set manually (the automatic revert had nothing recorded to restore)${trimmedReason ? `: ${trimmedReason}` : '.'}`;
 
   const { error: interactionError } = await admin.from('interactions').insert({
-    org_id: member.org_id, entity_id: entityId, occurred_at: now,
+    org_id: acting.orgId, entity_id: entityId, occurred_at: now,
     direction: 'out', channel: 'stage_change', content: note, author_user_id: user.id,
   });
   if (interactionError) return NextResponse.json({ ok: false, error: interactionError.message }, { status: 500 });
 
   const { error: entityError } = await admin.from('entities')
-    .update({ status: newStatus }).eq('id', entityId).eq('org_id', member.org_id);
+    .update({ status: newStatus }).eq('id', entityId).eq('org_id', acting.orgId);
   if (entityError) return NextResponse.json({ ok: false, error: entityError.message }, { status: 500 });
 
   return NextResponse.json({ ok: true });
-}
+});

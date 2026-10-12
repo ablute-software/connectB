@@ -15,10 +15,11 @@ import { detectAllowedKind, scanWithVirusTotal, sha256Hex } from '@/lib/upload-s
 import { ndaScanAvailable } from '@/lib/upload-security-capability';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 export const maxDuration = 30;
 
-export async function POST(req: NextRequest) {
+export const POST = withActingOrg(async function POST(req: NextRequest) {
   const { storagePath, fileName, personId, entityId, granteeEmail, documentId } = await req.json() as {
     storagePath?: string; fileName?: string; personId?: string; entityId?: string; granteeEmail?: string;
     // Block F — an NDA scoped to ONE document (e.g. a due_diligence item
@@ -41,9 +42,9 @@ export async function POST(req: NextRequest) {
   if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).limit(1).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not an org member.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not an org member.' }, { status: 403 });
+  const orgId = acting.orgId as string;
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
 
@@ -233,4 +234,4 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ ok: true, nda: row, unlockedGrantIds });
-}
+});

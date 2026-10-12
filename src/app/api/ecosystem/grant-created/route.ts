@@ -12,8 +12,9 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { recordGrantCreatedFact } from '@/lib/ecosystem-facts';
+import { withActingOrg, authorizeActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false }, { status: 200 });
@@ -28,10 +29,10 @@ export async function POST(req: Request) {
   // Same membership check the direct client insert's RLS already enforces
   // (is_org_member(org_id)) — this route only ever observes an event for
   // an org the caller actually belongs to.
-  const { data: membership } = await sb.from('org_members').select('org_id').eq('org_id', body.orgId).eq('user_id', user.id).maybeSingle();
-  if (!membership) return NextResponse.json({ ok: false }, { status: 200 });
+  const acting = await authorizeActingOrg(req, user, body.orgId, sb);
+  if (!acting) return NextResponse.json({ ok: false }, { status: 200 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   await recordGrantCreatedFact(admin, { orgId: body.orgId, grantId: body.grantId });
   return NextResponse.json({ ok: true });
-}
+});

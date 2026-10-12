@@ -32,10 +32,11 @@ import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server
 import { allItemsResolved } from '@/lib/document-request-logic';
 import { requiresNda } from '@/lib/data-room';
 import { documentNdaByDefaultAvailable } from '@/lib/documents-nda-default-capability';
+import { withActingOrg, authorizeActingOrg } from '@/lib/acting-org';
 
 type Action = 'grant_existing' | 'fulfill_document' | 'fulfill_via_message' | 'promise' | 'decline' | 'fulfill_cap_table';
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -60,8 +61,8 @@ export async function POST(req: Request) {
 
   const { data: reqRow } = await admin.from('access_requests').select('*').eq('id', item.request_id as string).maybeSingle();
   if (!reqRow) return NextResponse.json({ ok: false, error: 'Request not found.' }, { status: 404 });
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).eq('org_id', reqRow.org_id as string).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
+  const acting = await authorizeActingOrg(req, user, reqRow.org_id as string, sb);
+  if (!acting) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
 
   const now = new Date().toISOString();
   const patch: Record<string, unknown> = { resolved_at: now };
@@ -125,4 +126,4 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json({ ok: true, status: patch.status });
-}
+});

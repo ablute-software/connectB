@@ -17,6 +17,7 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { reawakeningNeglectAvailable } from '@/lib/reawakening-neglect-capability';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 const FITS: FitScore[] = ['high', 'medium_high', 'medium', 'low'];
 
@@ -31,7 +32,7 @@ function buildPrompt(fact: string, supersedes: string | undefined, rows: { entit
     + `INVESTORS:\n${list}`;
 }
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: true, configured: false, proposals: 0 }, { status: 200 });
@@ -46,9 +47,9 @@ export async function POST(req: Request) {
   const viewerBlock = await assertNotViewer(sb, req);
   if (viewerBlock) return viewerBlock;
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  const orgId = acting.orgId as string;
 
   // The confirmed fact that triggered this (scoped to the caller's org by RLS).
   const { data: fact } = await sb.from('company_facts').select('id, statement, status').eq('id', factId).maybeSingle();
@@ -175,4 +176,4 @@ export async function POST(req: Request) {
 
   const pending = proposalRows.filter((r) => r.status === 'pending').length;
   return NextResponse.json({ ok: true, evaluated: proposalRows.length, proposals: pending });
-}
+});

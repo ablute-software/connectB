@@ -20,6 +20,7 @@ import { TEAM_FILL_TOOL_SCHEMA, rawTeamFillToResult, type RosterMember } from '@
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 export const maxDuration = 60;
 
@@ -59,7 +60,7 @@ const SYSTEM = 'You read company documents (typically CVs/resumes) for a startup
   + 'NEVER write that information was not provided, not available, or not found, and never describe the materials as lacking something. If a part is not supported by what you were given, leave it empty and put ONE question to the founder in that person\'s `question` field instead. A question is useful; an announcement that you found nothing is not. '
   + DOCUMENT_CONTENT_INSTRUCTION;
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -71,9 +72,9 @@ export async function POST(req: Request) {
   const viewerBlock = await assertNotViewer(sb, req);
   if (viewerBlock) return viewerBlock;
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  const orgId = acting.orgId as string;
 
   const body = await req.json().catch(() => ({})) as { documentIds?: string[] };
   const documentIds = (body.documentIds ?? []).slice(0, MAX_DOCS);
@@ -134,4 +135,4 @@ export async function POST(req: Request) {
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }
-}
+});

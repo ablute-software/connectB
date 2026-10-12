@@ -25,6 +25,7 @@ import { logAiCall } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { chargeAiAction } from '@/lib/ai-credits';
+import { withActingOrg, authorizeActingOrg } from '@/lib/acting-org';
 
 const NOT_CONFIGURED_MSG = 'AI-assisted enrichment isn’t available in your workspace yet.';
 
@@ -87,7 +88,7 @@ async function callClaude(apiKey: string, model: string, prompt: string, orgId: 
   return ((toolUse.input as { proposals: RawProposal[] }).proposals ?? []);
 }
 
-export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const POST = withActingOrg(async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -103,8 +104,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const admin = createClient(url, service, { auth: { persistSession: false } });
   const { data: entity, error: entityErr } = await admin.from('entities').select('*').eq('id', id).maybeSingle();
   if (entityErr || !entity) return NextResponse.json({ ok: false, error: entityErr?.message ?? 'Entity not found.' }, { status: 404 });
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).eq('org_id', entity.org_id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
+  const actingOrg = await authorizeActingOrg(req, user, entity.org_id, sb);
+  if (!actingOrg) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return NextResponse.json({ ok: true, configured: false, message: NOT_CONFIGURED_MSG });
@@ -149,4 +150,4 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }
-}
+});

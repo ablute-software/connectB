@@ -8,8 +8,9 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { communityConsensusAvailable } from '@/lib/community-consensus-capability';
 import { catalogFieldIsBlank, consensusVisibility, COMMUNITY_ELIGIBLE_FIELDS } from '@/lib/community-consensus';
+import { withActingOrg, authorizeActingOrg } from '@/lib/acting-org';
 
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withActingOrg(async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -24,8 +25,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const admin = createClient(url, service, { auth: { persistSession: false } });
   const { data: entity, error: entityErr } = await admin.from('entities').select('id, org_id, *').eq('id', id).maybeSingle();
   if (entityErr || !entity) return NextResponse.json({ ok: false, error: entityErr?.message ?? 'Entity not found.' }, { status: 404 });
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).eq('org_id', entity.org_id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
+  const acting = await authorizeActingOrg(_req, user, entity.org_id, sb);
+  if (!acting) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
 
   const { data: delivery } = await admin.from('catalog_deliveries').select('catalog_id').eq('entity_id', id).maybeSingle();
   const catalogId = delivery?.catalog_id as string | undefined;
@@ -56,4 +57,4 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     .filter((f) => f.visibility === 'community' || f.visibility === 'verified');
 
   return NextResponse.json({ ok: true, fields });
-}
+});

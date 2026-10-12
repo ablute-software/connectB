@@ -10,6 +10,7 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { networkAvailable } from '@/lib/network-capability';
 import { resolveActorId } from '@/lib/network-db';
 import { readRoundMilestoneDraft } from '@/lib/network-posts-db';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 // Prompt 528 — GET now also returns the DRAFT TEXT, and the POST that used to
 // publish on a single click is gone entirely. The button opens the ordinary
@@ -22,7 +23,7 @@ import { readRoundMilestoneDraft } from '@/lib/network-posts-db';
 // (round_progress_visible_to_investors's own header comment). It now also
 // says no when there is no progress worth announcing (see
 // readRoundMilestoneDraft).
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, available: false });
@@ -34,11 +35,11 @@ export async function GET(req: Request) {
   if (!user) return NextResponse.json({ ok: false, available: false });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: true, available: false });
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: true, available: false });
 
-  const draft = await readRoundMilestoneDraft(admin, member.org_id as string);
+  const draft = await readRoundMilestoneDraft(admin, acting.orgId as string);
   return draft.available
     ? NextResponse.json({ ok: true, available: true, text: draft.text })
     : NextResponse.json({ ok: true, available: false, reason: draft.reason });
-}
+});

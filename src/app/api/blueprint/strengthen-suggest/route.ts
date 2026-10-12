@@ -29,6 +29,7 @@ import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-
 import { logAiCall } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { chargeAiAction } from '@/lib/ai-credits';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 const DIMENSION_LABEL: Record<StrengthenDimension, string> = {
   who: 'exactly who is named', when: 'a date or year', outcome: 'a concrete outcome (signed, agreed, deployed, etc.)',
@@ -59,7 +60,7 @@ async function orgKnowledgeText(admin: SupabaseClient, orgId: string, allClaims:
   return lines.join('\n');
 }
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -73,9 +74,9 @@ export async function POST(req: Request) {
   const { claimId } = await req.json().catch(() => ({})) as { claimId?: string };
   if (!claimId) return NextResponse.json({ ok: false, error: 'Missing claimId.' }, { status: 400 });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'No organization.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'No organization.' }, { status: 403 });
+  const orgId = acting.orgId as string;
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const claims = await readExistingClaims(admin, orgId);
@@ -141,4 +142,4 @@ export async function POST(req: Request) {
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }
-}
+});

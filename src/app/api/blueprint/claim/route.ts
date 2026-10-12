@@ -16,6 +16,7 @@ import { claimsAvailable, strengthenDismissAvailable } from '@/lib/blueprint-cap
 import { normalizeAtom } from '@/lib/company-claims';
 import { normalizeStatement } from '@/lib/company-knowledge';
 import type { ClaimCategory, ClaimSourceKind } from '@/lib/types';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 const CATEGORIES: ClaimCategory[] = [
   'problema', 'solucao', 'prova_tecnica', 'validacao_externa',
@@ -41,7 +42,7 @@ async function findAcceptedDuplicate(
   return (match?.id as string | undefined) ?? null;
 }
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' });
@@ -64,9 +65,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: `action must be one of: ${ACTIONS.join(', ')}.` }, { status: 400 });
   }
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'No organization.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'No organization.' }, { status: 403 });
+  const orgId = acting.orgId as string;
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const now = new Date().toISOString();
@@ -161,4 +162,4 @@ export async function POST(req: Request) {
     .eq('id', body.id).eq('org_id', orgId);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
-}
+});

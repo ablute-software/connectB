@@ -23,6 +23,7 @@ import { ensureGuestToken } from '@/lib/guest-token-server';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
 import { APP_URL } from '@/lib/brand';
+import { withActingOrg, authorizeActingOrg } from '@/lib/acting-org';
 
 type Change = 'documents_added' | 'validity_extended';
 
@@ -60,7 +61,7 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -83,8 +84,8 @@ export async function POST(req: Request) {
   // Developer Viewer session is read-only and must never reach it.
   const viewerBlock = await assertNotViewer(sb, req);
   if (viewerBlock) return viewerBlock;
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).eq('org_id', orgId).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
+  const acting = await authorizeActingOrg(req, user, orgId, sb);
+  if (!acting) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
   if (await isEmailBlocked(admin, email)) {
@@ -172,4 +173,4 @@ export async function POST(req: Request) {
     emailSent: result.sent,
     emailError: result.sent ? undefined : 'Could not send the notification email to this recipient.',
   });
-}
+});

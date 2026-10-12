@@ -5,8 +5,9 @@
 import { NextResponse } from 'next/server';
 import { serverClient } from '@/lib/supabase-server';
 import { parseEntitiesCsv, parsePeopleCsv, parseInteractionsCsv, buildImportPlan } from '@/lib/structured-import';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
@@ -18,13 +19,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'entitiesCsv, peopleCsv, and interactionsCsv are all required.' }, { status: 400 });
   }
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
 
   const [{ data: entities, error: entErr }, { data: people, error: pplErr }, { data: interactions, error: intErr }] = await Promise.all([
-    sb.from('entities').select('*').eq('org_id', member.org_id),
-    sb.from('people').select('*').eq('org_id', member.org_id),
-    sb.from('interactions').select('entity_id, person_id, occurred_at, direction, channel, content').eq('org_id', member.org_id),
+    sb.from('entities').select('*').eq('org_id', acting.orgId),
+    sb.from('people').select('*').eq('org_id', acting.orgId),
+    sb.from('interactions').select('entity_id, person_id, occurred_at, direction, channel, content').eq('org_id', acting.orgId),
   ]);
   if (entErr || pplErr || intErr) {
     return NextResponse.json({ ok: false, error: (entErr ?? pplErr ?? intErr)!.message }, { status: 500 });
@@ -41,4 +42,4 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json({ ok: true, plan });
-}
+});
