@@ -1,6 +1,6 @@
 // Prompt 905 — what the link of a published call shows until the real applicant screen exists (Prompt 906):
 // who promotes it, its name and dates, and one sentence about its state. Public on purpose (a candidate has no
-// account yet), so it reveals nothing beyond the call's own header, and nothing at all while CALLS_MODE is off.
+// account yet), so it reveals nothing beyond the call's own header, and nothing at all while CALLS_MODE is "off".
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { callsMode } from '@/lib/calls/mode';

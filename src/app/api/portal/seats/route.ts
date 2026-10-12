@@ -6,6 +6,9 @@ import { seatSummary, tierSeatLimitInfo } from '@/lib/investor-firm-seats';
 import { makeSeatStore } from '@/lib/investor-firm-seats-store';
 import { listPendingSeatClaims } from '@/lib/investor-seat-claims';
 
+// No request argument, so Next would prerender this at build time and freeze whatever it answered then.
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   const auth = await authSeatCaller();
   if (auth.error) return auth.error;

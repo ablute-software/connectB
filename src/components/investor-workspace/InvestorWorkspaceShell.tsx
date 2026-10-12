@@ -46,7 +46,8 @@ import { InvestorActionsPanel, useInvestorActions } from '@/components/investor-
 import { InvestorReminderPopup } from '@/components/portal/InvestorReminderPopup';
 import { INVESTOR_NAV } from '@/lib/investor-nav';
 import { HatSwitcher } from '@/components/incubator/HatSwitcher';
-// Prompt 905 — the Calls tab: only when CALLS_MODE allows this person AND they belong to an investor firm.
+// Prompt 905 — the Calls tab: whenever they belong to an investor firm (Prompt 908: no switch needed; only
+// CALLS_MODE="off", the emergency brake, hides it).
 import { CallsWorkspace } from '@/components/calls/CallsWorkspace';
 import { useCallsAccess } from '@/components/calls/useCallsAccess';
 

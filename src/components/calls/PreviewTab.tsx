@@ -5,6 +5,7 @@
 // once published, the call's link with a Copy button.
 import { useRef, useState } from 'react';
 import { formatInZone, utcToWall, wallToUtcIso } from '@/lib/calls/tz';
+import { callLink } from '@/lib/calls/link';
 import { CONTENT_LANGUAGES, type Call, type CallPhase, type FormField } from '@/lib/calls/types';
 import type { CallSummary, EditorTab, ReadinessIssue, availableActions } from '@/lib/calls/lifecycle';
 import { FormPreview } from './FormPreview';
@@ -15,9 +16,9 @@ const TAB_NAMES: Record<EditorTab, string> = { general: 'General', phases: 'Phas
 
 export type LifecycleAction = 'confirm' | 'edit' | 'publish' | 'extend' | 'close';
 
-export function callLink(origin: string, token: string): string {
-  return `${origin.replace(/\/$/, '')}/call/${token}`;
-}
+// The URL builder lives in lib/calls/link.ts (the back-office Calls page uses the very same one); re-exported here
+// so existing imports keep working.
+export { callLink };
 
 export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summary, actions, canManage, busy, error, origin, onJump, onAction }: {
   call: Call; effectiveStatus: CallStatus; phases: CallPhase[]; fields: FormField[]; issues: ReadinessIssue[]; summary: CallSummary;

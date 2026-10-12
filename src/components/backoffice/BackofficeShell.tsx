@@ -176,6 +176,8 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
     item('accounts-seat-plans', 'Custom plan seats', '/backoffice/seat-plans', { icon: '◉', group: 2 }),
     // Prompt I-01 §C.1 — incubators/accelerators (own tables, never orgs).
     item('accounts-incubators', 'Ecosystem organisations', '/backoffice/incubators', { icon: '◉', group: 2 }),
+    // Prompt 908 — every call of every investor firm / ecosystem organisation, read only.
+    item('accounts-calls', 'Calls', '/backoffice/calls', { icon: '◉', group: 2 }),
     item('accounts-plans', 'Plan requests', '/backoffice/plan-requests', { icon: '◉', group: 2, dimmed: true }),
     // Prompt 706 — AI credits wallet: plan allowances + per-action cost/kill-switch.
     item('accounts-ai-plans', 'AI credits & plans', '/backoffice/ai-plans', { icon: '◉', group: 2 }),

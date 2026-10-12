@@ -15,7 +15,7 @@ export interface CallsDb {
 export function callsDb(): CallsDb {
   const names = [
     'calls', 'call_phases', 'call_form_fields', 'call_config_snapshots', 'call_applications', 'call_application_submissions', 'call_events',
-    'catalog_entities', 'incubators', 'matchdeal_investor_members', 'incubator_members', 'investor_billing',
+    'catalog_entities', 'incubators', 'matchdeal_investor_members', 'incubator_members', 'investor_billing', 'matchdeal_profiles',
   ];
   return { tables: Object.fromEntries(names.map((n) => [n, []])), users: new Map(), clock: Date.UTC(2026, 9, 9, 12, 0, 0), seq: 0 };
 }
