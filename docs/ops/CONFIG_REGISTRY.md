@@ -94,19 +94,19 @@ estão mortas, a limpar do `.env.example` quando alguém lá mexer.
 
 ## 2. Supabase Auth (projeto `wkjcaoqdvhykrfacsylr`)
 
-**Sem acesso de gestão ao painel nem à Management API** (sem token no ambiente): quase tudo aqui é `desconhecido`
-ou `pendente` até o Nuno ler o painel. Caminhos no painel entre parênteses.
+**Sem acesso de gestão ao painel nem à Management API** (sem token no ambiente): o que não foi confirmado pelo Nuno é `desconhecido`
+ou `pendente`. Caminhos no painel entre parênteses. **SMTP, rate limits, OTP e template: confirmados pelo Nuno em 09/10.**
 
 | Nome | Valor | Estado | Quem decidiu e quando | Fonte |
 |---|---|---|---|---|
 | Confirmação de email ligada | ligada | feito | início de 08/2026 | DECISIONS L3952 (Prompt 538, 02/09/2026) |
-| SMTP próprio (Authentication → Emails → SMTP Settings) | ligado, via Resend: host `smtp.resend.com`, porta `465`, utilizador `resend`, palavra-passe = API key do Resend com permissão de envio (**não escrever aqui**), remetente `noreply@sherlockdeal.com` | desconhecido | Decidido três vezes e **nunca confirmado**: 02/09/2026 (o remetente do Auth passa a ser o mesmo), 30/09/2026 (Nuno: "configurar SMTP do Resend", porque a confirmação caía em spam), 09/10/2026 (valores) | DECISIONS L4078, L9470; 904A §A2 |
-| Limite de envio de emails (Authentication → Rate Limits) | **≥ 300 por hora** | pendente | Recomendado 09/10/2026; o Nuno ainda não confirmou | 904A §A2/A3 |
-| Limite de verificações de token | **≥ 150 por 5 min por IP** (o Supabase vê sempre o IP do Vercel) | pendente | idem | 904A §A2 |
-| Comprimento do código OTP (Sign In / Providers → Email) | **6** | pendente | idem | 904A §A2 |
-| Validade do código OTP | **1800 s** | pendente | idem | 904A §A2 |
-| Template "Confirm signup" (Authentication → Emails → Templates) | o texto de 904A §A4 (assunto `Your Sherlock Deal confirmation code: {{ .Token }}`) | pendente | Proposto 09/10/2026 | 904A §A4 |
-| Leaked password protection | **ligar** (hoje desligada; o advisor de segurança dá `auth_leaked_password_protection` como aviso, visto a 09/10). Pelo que sei só existe em planos pagos: confirmar o plano | pendente | Notada em 904A como "para a Parte B"; **sem decisão de a ligar** | 904A §A2; advisor observado |
+| SMTP próprio (Authentication → Emails → SMTP Settings) | ligado, via Resend: host `smtp.resend.com`, porta `465`, utilizador `resend`, palavra-passe = API key do Resend (**não escrever aqui**), remetente `noreply@sherlockdeal.com` | feito | Nuno, feito no painel (decidido 02/09, 30/09 e 09/10/2026; **confirmado pelo Nuno em 09/10**). Já não é um pendente: a nota de 30/09 (confirmação a cair em spam) está resolvida por isto | DECISIONS L4078, L9470; 904A §A2; confirmado pelo Nuno em 09/10 |
+| Limite de envio de emails (Authentication → Rate Limits) | **≥ 300 por hora** | feito | Nuno, feito no painel; **confirmado pelo Nuno em 09/10** | 904A §A2/A3; confirmado pelo Nuno em 09/10 |
+| Limite de verificações de token | **≥ 150 por 5 min por IP** (o Supabase vê sempre o IP do Vercel) | feito | idem | 904A §A2; confirmado pelo Nuno em 09/10 |
+| Comprimento do código OTP (Sign In / Providers → Email) | **6** | feito | idem | 904A §A2; confirmado pelo Nuno em 09/10 |
+| Validade do código OTP | **1800 s** | feito | idem | 904A §A2; confirmado pelo Nuno em 09/10 |
+| Template "Confirm signup" (Authentication → Emails → Templates) | o texto de 904A §A4 (assunto `Your Sherlock Deal confirmation code: {{ .Token }}`) | feito | Nuno, colado no painel; **confirmado pelo Nuno em 09/10** | 904A §A4; confirmado pelo Nuno em 09/10 |
+| Leaked password protection | **ligar, mas requer o plano Pro do Supabase.** Hoje desligada (o advisor de segurança dá `auth_leaked_password_protection` como aviso, visto a 09/10) | pendente | Notada em 904A como "para a Parte B"; ligar depende de o projeto estar no Pro (decisão do Nuno sobre o plano) | 904A §A2; Nuno 12/10 (requer Pro); advisor observado |
 | Site URL | `https://www.sherlockdeal.com` (o template do 904 usa `{{ .SiteURL }}/auth/confirm`) | desconhecido | Nunca registado o valor. Em 24/07/2026 viu-se que os links gerados voltam ao Site URL de produção e não ao localhost | DECISIONS L1910; 904A §A4 |
 | Redirect URLs (allowlist) | `https://www.sherlockdeal.com/**` (rotas usadas: `/auth/callback`, `/auth/confirm`, `/reset-password`, `/set-password`) | desconhecido | idem. O localhost **não** está na lista (24/07/2026) | DECISIONS L1910; `src/app/auth/*` |
 | Plano do Supabase (Pro?) | por confirmar. Só no Pro se pode reencaminhar o IP do cliente nas verificações | desconhecido | — | 904A §A3 |
@@ -159,27 +159,20 @@ ou `pendente` até o Nuno ler o painel. Caminhos no painel entre parênteses.
 
 ## Pendentes do Nuno
 
-Só o que depende de ação dele em painéis, por ordem. Cada linha cita a do registo e dá o valor exato.
+Só o que depende de ação dele em painéis, por ordem. Cada linha cita a do registo e dá o valor exato. **Os itens do
+Supabase sobre SMTP, rate limits, OTP e template ficaram `feito` (confirmado pelo Nuno em 09/10).**
 
-1. **Supabase → Authentication → Emails → SMTP Settings** (§2): ligar SMTP próprio. Host `smtp.resend.com`, porta `465`,
-   utilizador `resend`, palavra-passe = uma API key do Resend com permissão de envio (criar uma nova, não reutilizar a da
-   app), remetente `noreply@sherlockdeal.com`. *É a causa mais provável de a confirmação de email cair em spam (nota de
-   30/09) e é pré-requisito do registo com código.*
-2. **Supabase → Authentication → Rate Limits** (§2): envio de emails **300 por hora** (no mínimo); verificações de
-   token **150 por 5 minutos** (no mínimo).
-3. **Supabase → Authentication → Sign In / Providers → Email** (§2): comprimento do código **6**, validade **1800**
-   segundos.
-4. **Supabase → Authentication → Emails → Templates → Confirm signup** (§2): colar o assunto e o HTML de
-   `docs/calls/ETAPA0_PARTE_A_EMAIL.md` §A4.
-5. **Supabase → Authentication → URL Configuration** (§2): Site URL `https://www.sherlockdeal.com`; Redirect URLs
-   `https://www.sherlockdeal.com/**`. Se já estiver assim, dizer só "está".
-6. **Vercel → connect-b → Settings → Environment Variables** (§1): confirmar que estão definidas, **sem trocar valores
+1. **Supabase → Authentication → URL Configuration** (§2): confirmar Site URL `https://www.sherlockdeal.com` e
+   Redirect URLs `https://www.sherlockdeal.com/**`. Se já estiver assim, dizer só "está".
+2. **Vercel → connect-b → Settings → Environment Variables** (§1): confirmar que estão definidas, **sem trocar valores
    já decididos**: `RESEND_REPLY_TO` = `sherlockdeal.com@gmail.com` (alternativa sem painel: `/backoffice/email-delivery`
    mostra `replyToInEffect`); `NEXT_PUBLIC_APP_URL` = `https://www.sherlockdeal.com`. Depois, redeploy.
-7. **Vercel** (§1.2): decidir `SUPPORT_NOTIFY_EMAIL` (o endereço da caixa que recebe os pedidos de acesso de
+3. **Vercel** (§4): confirmar se `AUTH_CODE_MODE` está em `allowlist` ou `on` e que `AUTH_CODE_TEST_EMAILS` tem os dois
+   endereços de teste (um novo e um de conta existente). **Com o painel do Supabase já confirmado, é só isto que
+   falta para eu fazer o teste do código em produção e o cenário C7.**
+4. **Vercel** (§1.2): decidir `SUPPORT_NOTIFY_EMAIL` (o endereço da caixa que recebe os pedidos de acesso de
    investidores) e `NEXT_PUBLIC_PRIVACY_EMAIL` (o contacto de privacidade). Sem valor decidido, não há nada para pôr.
-8. **Vercel** (§4): confirmar se `AUTH_CODE_MODE` está em `allowlist` ou `on` e que `AUTH_CODE_TEST_EMAILS` tem os dois
-   endereços de teste; só depois faço o teste do código em produção e o cenário C7.
-9. **Resend → Billing** (§3): decidir o plano Pro antes da primeira call real (≈ 1 000 emails por call).
-10. **Supabase → Authentication → Sign In / Providers → Password** (§2): decidir se liga "leaked password protection"
-    (depende do plano do Supabase).
+5. **Resend → Billing** (§3): ativar o plano **Pro** antes da primeira call real (≈ 1 000 emails por call). Continua por
+   ativar.
+6. **Supabase → plano e Authentication → Sign In / Providers → Password** (§2): a "leaked password protection" só se liga
+   com o plano **Pro**; decidir o plano e, se Pro, ligar a opção.
