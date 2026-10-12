@@ -20,9 +20,12 @@ import 'server-only';
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { parseViewerCookieValue, extractCookieFromHeader, type ViewerSession } from './developer-viewer-shape';
+import {
+  parseViewerCookieValue, extractCookieFromHeader, VIEWER_ORG_COOKIE, VIEWER_READ_ONLY_CODE, VIEWER_READ_ONLY_MESSAGE,
+  type ViewerSession,
+} from './developer-viewer-shape';
 
-export const VIEWER_ORG_COOKIE = 'sd_viewer_org_id';
+export { VIEWER_ORG_COOKIE };
 
 // Prompt 611 §F — the investor firm viewer keeps its OWN cookie rather than
 // overloading the org one. Same value shape ("<id>:<enteredAtIso>", parsed by
@@ -115,11 +118,11 @@ export async function readVerifiedViewerOrgId(
 // read. `error` is a stable code the UI and the tests match on; `message` is the
 // text a person may see. assertNotViewer (below) and acting-org.ts's wrappers
 // answer with exactly this.
-export const VIEWER_READ_ONLY_CODE = 'viewer_read_only';
+export { VIEWER_READ_ONLY_CODE };
 
 export function viewerReadOnlyResponse(): NextResponse {
   return NextResponse.json(
-    { ok: false, error: VIEWER_READ_ONLY_CODE, message: 'Read-only in Developer Viewer.' },
+    { ok: false, error: VIEWER_READ_ONLY_CODE, message: VIEWER_READ_ONLY_MESSAGE },
     { status: 403 },
   );
 }

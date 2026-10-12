@@ -32,7 +32,7 @@ import { logAiCall } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { chargeAiAction } from '@/lib/ai-credits';
-import { withActingOrg } from '@/lib/acting-org';
+import { resolveActingOrg, withActingOrg } from '@/lib/acting-org';
 
 type ReviewKind =
   | 'message_review' | 'deck_review' | 'one_pager_review' | 'market_data'
@@ -206,7 +206,7 @@ export const POST = withActingOrg(async function POST(req: Request) {
   const viewerBlock = await assertNotViewer(sb, req);
   if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
-  const { data: member } = user ? await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle() : { data: null };
+  const orgId = user ? (await resolveActingOrg(req, user, sb)).orgId : null;
 
   // Prompt 302 §2 — never trust a client-supplied documentId at face value:
   // re-resolve it against the caller's own org (RLS-scoped `sb`, not the
@@ -215,8 +215,8 @@ export const POST = withActingOrg(async function POST(req: Request) {
   // should still say what it was actually reviewing at the time.
   let linkedDocumentId: string | null = null;
   let linkedDocumentVersion: string | null = null;
-  if (documentId && member) {
-    const { data: doc } = await sb.from('documents').select('id, version').eq('id', documentId).eq('org_id', member.org_id).maybeSingle();
+  if (documentId && orgId) {
+    const { data: doc } = await sb.from('documents').select('id, version').eq('id', documentId).eq('org_id', orgId).maybeSingle();
     if (doc) { linkedDocumentId = doc.id as string; linkedDocumentVersion = (doc.version as string | null) ?? null; }
   }
 
@@ -261,11 +261,11 @@ export const POST = withActingOrg(async function POST(req: Request) {
     if (documentIdA === documentIdB) {
       return NextResponse.json({ error: 'Pick two different documents to compare.' }, { status: 400 });
     }
-    if (!member) return NextResponse.json({ error: 'No organization.' }, { status: 403 });
+    if (!orgId) return NextResponse.json({ error: 'No organization.' }, { status: 403 });
 
     // Prompt 706 — before reading either document (real I/O, no point
     // doing it if the wallet is empty) or the one model call below.
-    const crossDocCharge = await chargeAiAction(sb, member.org_id as string, 'cross_document_review');
+    const crossDocCharge = await chargeAiAction(sb, orgId, 'cross_document_review');
     if (!crossDocCharge.ok) return NextResponse.json({ error: crossDocCharge.reason }, { status: 200 });
 
     const admin = createClient(url, service, { auth: { persistSession: false } });
@@ -276,8 +276,8 @@ export const POST = withActingOrg(async function POST(req: Request) {
     // above. prepareDocumentForAi's own fail-closed checks (malware scan
     // status, .pdf extension, size cap) apply identically to both slots.
     const [prepA, prepB] = await Promise.all([
-      prepareDocumentForAi(admin, member.org_id, documentIdA),
-      prepareDocumentForAi(admin, member.org_id, documentIdB),
+      prepareDocumentForAi(admin, orgId, documentIdA),
+      prepareDocumentForAi(admin, orgId, documentIdB),
     ]);
     if (!prepA.ok || !prepB.ok) {
       const reason = !prepA.ok ? prepA.skippedReason : (prepB as { skippedReason: string }).skippedReason;
@@ -346,7 +346,7 @@ export const POST = withActingOrg(async function POST(req: Request) {
       await logAiCall({
         route: '/api/ai-review', purpose: 'cross_document_review',
         model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage,
-        orgId: member.org_id,
+        orgId,
       });
       const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
       const parsed = toolUse?.input as { contradictions?: unknown } | undefined;
@@ -391,7 +391,7 @@ export const POST = withActingOrg(async function POST(req: Request) {
         const documentBFields = (await aiReviewDocumentLinkBAvailable()) ? { document_id_b: docB.id } : {};
         const { data: docBRow } = await admin.from('documents').select('version').eq('id', documentIdB).maybeSingle();
         const { data: inserted } = await admin.from('ai_reviews').insert({
-          org_id: member.org_id, kind: 'cross_document_review', status: 'completed',
+          org_id: orgId, kind: 'cross_document_review', status: 'completed',
           result: { contradictions },
           model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5',
           document_id: documentIdA,
@@ -403,7 +403,7 @@ export const POST = withActingOrg(async function POST(req: Request) {
         // category+severity shape as weaknesses/risks; no overall score
         // exists for this kind, so only risk_prevalence facts apply.
         if (inserted) {
-          await recordAiReviewFacts(admin, { orgId: member.org_id, reviewId: inserted.id, risks: contradictions });
+          await recordAiReviewFacts(admin, { orgId, reviewId: inserted.id, risks: contradictions });
         }
       } catch (e) {
         console.error('ai_reviews insert failed:', e);
@@ -489,9 +489,9 @@ export const POST = withActingOrg(async function POST(req: Request) {
   // against — logAiCall already tolerates that same case (orgId: null)
   // further down, so this follows the same allowance rather than blocking
   // an edge case the rest of the route doesn't block either.
-  if (kind !== 'message_review' && member) {
+  if (kind !== 'message_review' && orgId) {
     const actionKey = kind === 'market_data' ? 'market_data_review' : 'document_review';
-    const charge = await chargeAiAction(sb, member.org_id as string, actionKey);
+    const charge = await chargeAiAction(sb, orgId, actionKey);
     if (!charge.ok) return NextResponse.json({ error: charge.reason }, { status: 200 });
   }
 
@@ -523,7 +523,7 @@ export const POST = withActingOrg(async function POST(req: Request) {
     await logAiCall({
       route: '/api/ai-review', purpose: `review:${kind}`,
       model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage,
-      orgId: member?.org_id ?? null,
+      orgId,
     });
 
     let review: string | undefined;
@@ -550,11 +550,11 @@ export const POST = withActingOrg(async function POST(req: Request) {
       const coercion = coerceReport(rawReport);
       if (!coercion.ok) {
         console.error(`[ai-review-shape] kind=${kind} unrecoverable malformed report — raw response preserved with status=malformed`);
-        if (url && service && member) {
+        if (url && service && orgId) {
           try {
             const admin = createClient(url, service, { auth: { persistSession: false } });
             await admin.from('ai_reviews').insert({
-              org_id: member.org_id, kind, status: 'malformed', result: rawReport,
+              org_id: orgId, kind, status: 'malformed', result: rawReport,
               model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5',
             });
           } catch (e) { console.error('ai_reviews insert (malformed) failed:', e); }
@@ -572,7 +572,7 @@ export const POST = withActingOrg(async function POST(req: Request) {
     // Persist every review (Prompt 99 §3.1 — ai_reviews existed with the
     // right schema but nothing ever inserted into it). Best-effort: a
     // logging failure must never fail the review the founder is looking at.
-    if (url && service && member) {
+    if (url && service && orgId) {
       try {
         const admin = createClient(url, service, { auth: { persistSession: false } });
         const historyFields = (await aiReviewHistoryFieldsAvailable())
@@ -582,7 +582,7 @@ export const POST = withActingOrg(async function POST(req: Request) {
           ? { document_id: linkedDocumentId, document_version: linkedDocumentVersion }
           : {};
         const { data: inserted } = await admin.from('ai_reviews').insert({
-          org_id: member.org_id, kind, status: 'completed',
+          org_id: orgId, kind, status: 'completed',
           result: structured ? report : { review },
           model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5',
           interaction_draft: kind === 'message_review' ? draft ?? null : null,
@@ -594,7 +594,7 @@ export const POST = withActingOrg(async function POST(req: Request) {
         // return free text only (`review`), nothing analyzable to capture.
         if (inserted && structured && report) {
           await recordAiReviewFacts(admin, {
-            orgId: member.org_id, reviewId: inserted.id, score: report.score,
+            orgId, reviewId: inserted.id, score: report.score,
             weaknesses: report.weaknesses, risks: report.risks,
           });
         }

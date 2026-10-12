@@ -3,17 +3,15 @@
 // it. Plus the caller's own security history (who/when/from where).
 import { NextResponse } from 'next/server';
 import { serverClient } from '@/lib/supabase-server';
-import { assertNotViewer, readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { serviceAdmin, userEmail } from '@/lib/account-security-server';
 import { SECURITY_EVENT_LABEL, type SecurityEventKind } from '@/lib/account-security';
 import { withoutViewer } from '@/lib/acting-org';
 
-// Prompt 894 — GET never checked the viewer cookie, so a Developer Viewer
-// session saw the developer's own org's admin/owner list (resettableOwners).
-// The security EVENTS list below is deliberately untouched: it's keyed by
-// `user.id` (the real session's own login history), not by org, so there's
-// no "other org's data" for a viewer to see there in the first place.
-export const GET = withoutViewer(async function GET(req: Request) {
+// Prompt 904 — this card is about the CALLER's own account (their password switch, their login
+// history): withoutViewer answers 403 viewer_read_only in a Developer Viewer session, for both methods,
+// so none of it is ever shown in — or changed through — the shell of the org being viewed. (Prompt 894's
+// hand-written viewer branch for the owner list is therefore gone.)
+export const GET = withoutViewer(async function GET() {
   const admin = serviceAdmin();
   if (!admin) return NextResponse.json({ ok: true, available: false });
   const sb = await serverClient();
@@ -24,8 +22,8 @@ export const GET = withoutViewer(async function GET(req: Request) {
   if (error) return NextResponse.json({ ok: true, available: false, error: error.message });
   if (!self) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
 
-  const orgId = (await readVerifiedViewerOrgId(sb, req)) ?? self.org_id;
-  const myRole = orgId === self.org_id ? self.role : null;
+  const orgId = self.org_id;
+  const myRole = self.role;
 
   // Admins see the owners who opted in; owners see nothing here (they reset their own the normal way).
   let resettableOwners: { userId: string; email: string }[] = [];
@@ -55,8 +53,6 @@ export const PATCH = withoutViewer(async function PATCH(req: Request) {
   const admin = serviceAdmin();
   if (!admin) return NextResponse.json({ ok: false, error: 'Not available in this workspace.' }, { status: 200 });
   const sb = await serverClient();
-  const viewerBlock = await assertNotViewer(sb, req);
-  if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 
