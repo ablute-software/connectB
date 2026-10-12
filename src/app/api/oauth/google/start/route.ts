@@ -5,8 +5,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { serverClient } from '@/lib/supabase-server';
 import { googleOAuthConfigured, getAuthUrl } from '@/lib/google-oauth';
+import { withoutViewer } from '@/lib/acting-org';
 
-export async function GET(req: NextRequest) {
+export const GET = withoutViewer(async function GET(req: NextRequest) {
   const { origin } = new URL(req.url);
   if (!googleOAuthConfigured()) {
     return NextResponse.redirect(`${origin}/settings?gmail=not_configured`);
@@ -22,4 +23,4 @@ export async function GET(req: NextRequest) {
   const res = NextResponse.redirect(getAuthUrl(origin, state));
   res.cookies.set('gmail_oauth_state', state, { httpOnly: true, secure: true, maxAge: 600, path: '/' });
   return res;
-}
+});

@@ -23,7 +23,7 @@ import { gapReconciliationsAvailable, gapQuestionsAvailable } from '@/lib/docume
 import { runReconciliationForOrg, readReconcilableDocuments } from '@/lib/reconciliation';
 import { FAST_ROUTE_LOCK_WAIT_MS } from '@/lib/reconciliation-lock';
 import { markReadinessTrainFirstUsed } from '@/lib/readiness-usage';
-import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
+import { withActingOrg, resolveActingOrg, isViewerRequest } from '@/lib/acting-org';
 
 async function resolveOrg(req: Request, sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
   return (await resolveActingOrg(req, { id: userId }, sb)).orgId;
@@ -70,6 +70,10 @@ export const GET = withActingOrg(async function GET(req: Request) {
 
   const orgId = await resolveOrg(req, sb, user.id);
   if (!orgId) return NextResponse.json(empty);
+  // Prompt 904 — this GET also RUNS the reconciliation engine (it takes a lock, may call a model, links
+  // documents to claims). A Developer Viewer session only reads what is already stored: reconciliation is
+  // the founder's own engine, run on the founder's own page loads.
+  const isViewerSession = await isViewerRequest(req, sb);
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   let claims = await readExistingClaims(admin, orgId);
@@ -95,7 +99,7 @@ export const GET = withActingOrg(async function GET(req: Request) {
   // budget here would kill the whole panel load — a worse outcome than the
   // duplicated run the lock prevents. See FAST_ROUTE_LOCK_WAIT_MS.
   let reconciliationSkipped = false;
-  if (await gapReconciliationsAvailable()) {
+  if (!isViewerSession && await gapReconciliationsAvailable()) {
     const outcome = await runReconciliationForOrg(admin, apiKey, orgId, { waitBudgetMs: FAST_ROUTE_LOCK_WAIT_MS });
     reconciliationSkipped = !!outcome.skipped;
     if (outcome.ran && outcome.autoLinked > 0) {

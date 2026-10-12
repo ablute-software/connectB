@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 // Prompt 904 §C.1 — the proof, screen by screen, over the real route handlers and an in-memory database.
 //
 // The world (fixtures named zz-test-*, as CLAUDE.md asks of anything that models a real org):
@@ -92,6 +93,16 @@ function world(): FakeDb {
     matchdeal_pairings: [{ id: 'pair-A', org_id: ORG_A, kind: 'startup', device_id: `${MARK}device`, paired_at: '2026-10-01T00:00:00Z', last_seen_at: null, status: 'active' }],
     matchdeal_pairing_tokens: [],
     platform_admins: [{ user_id: DEV_A }, { user_id: DEV_B }],
+    company_claims: [{ id: 'claim-A', org_id: ORG_A, category: 'problema', statement: `${MARK}claim`, status: 'accepted', evidence_class: 'declared', specificity: 'high', source_kind: 'founder_answer', source_ref: null, created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z' },
+      { id: 'claim-A2', org_id: ORG_A, category: 'solucao', statement: `${MARK}solution`, status: 'accepted', evidence_class: 'declared', specificity: 'high', source_kind: 'founder_answer', source_ref: null, created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z' }],
+    // (a second accepted claim, of the kind the market gate looks for)
+    blueprint_analyses: [{ id: 'bp-A', org_id: ORG_A, created_at: '2026-10-01T00:00:00Z', result: { note: `${MARK}analysis` }, questions_asked: [] }],
+    org_market_data: [{ org_id: ORG_A, market_size_source: `${MARK}market-source`, market_size_value_eur: 16200000000, market_size_scope: 'TAM', market_size_year: 2025 }],
+    org_market_rings: [{ org_id: ORG_A, ring: 'tam', label: `${MARK}ring`, value_eur: 1, source: null }],
+    network_groups: [{ id: 'grp-A', name: `${MARK}group`, description: null, kind: 'peer', owner_actor_id: 'actor-A', created_at: '2026-10-01T00:00:00Z' }],
+    network_group_members: [{ id: 'gm-A', group_id: 'grp-A', actor_id: 'actor-A', added_by_actor_id: 'actor-A', status: 'active', joined_at: '2026-10-01T00:00:00Z', created_at: '2026-10-01T00:00:00Z' }],
+    access_requests: [{ id: 'req-A', org_id: ORG_A, status: 'pending', kind: 'access', person_id: 'p-inv', folder_ids: [], document_ids: [], requested_at: '2026-10-01T00:00:00Z', created_at: '2026-10-01T00:00:00Z' }],
+    people: [{ id: 'p-inv', org_id: ORG_A, full_name: `${MARK}investor`, email_verified: null }],
     app_events: [],
     usage_sessions: [],
     product_events: [],
@@ -116,8 +127,8 @@ function actAs(user: string, isDeveloper = true) {
   h.admin = fakeAdmin(db);
 }
 
-function call(method: string, url: string, opts: { cookie?: string; body?: unknown } = {}): Request {
-  return new Request(`https://example.test${url}`, {
+function call(method: string, url: string, opts: { cookie?: string; body?: unknown } = {}): NextRequest {
+  return new NextRequest(`https://example.test${url}`, {
     method,
     headers: { 'content-type': 'application/json', ...(opts.cookie ? { cookie: opts.cookie } : {}) },
     body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
@@ -146,6 +157,13 @@ const SCREENS: Screen[] = [
   { screen: 'About › Photos & media', name: 'company-media', load: () => import('@/app/api/company-media/route'), url: '/api/company-media', marker: `${MARK}media` },
   { screen: 'About › Team', name: 'company/team-composition', load: () => import('@/app/api/company/team-composition/route'), url: '/api/company/team-composition', marker: `${MARK}person` },
   { screen: 'Data room › Email status', name: 'data-room/email-status', load: () => import('@/app/api/data-room/email-status/route'), url: '/api/data-room/email-status', marker: `${MARK}recipient` },
+  { screen: 'Readiness & Train › Action plan', name: 'blueprint', load: () => import('@/app/api/blueprint/route'), url: '/api/blueprint', marker: `${MARK}claim` },
+  { screen: 'Market › Market data', name: 'market-data', load: () => import('@/app/api/market-data/route'), url: '/api/market-data', marker: `${MARK}market-source` },
+  { screen: 'Market › Market rings', name: 'market-data/rings', load: () => import('@/app/api/market-data/rings/route'), url: '/api/market-data/rings', marker: `${MARK}ring` },
+  { screen: 'Pipeline › Investor questions', name: 'org/questions', load: () => import('@/app/api/org/questions/route'), url: '/api/org/questions', marker: `${MARK}question` },
+  { screen: 'Pipeline › Round updates', name: 'org/updates', load: () => import('@/app/api/org/updates/route'), url: '/api/org/updates', marker: `${MARK}update` },
+  { screen: 'Data room › Access requests', name: 'data-room/access-requests', load: () => import('@/app/api/data-room/access-requests/route'), url: `/api/data-room/access-requests?orgId=${ORG_A}`, marker: `${MARK}investor` },
+  { screen: 'My Network › Groups', name: 'network/group', load: () => import('@/app/api/network/group/route'), url: '/api/network/group', marker: `${MARK}group` },
   { screen: 'MatchDeal › Devices', name: 'matchdeal/pairing/status', load: () => import('@/app/api/matchdeal/pairing/status/route'), url: '/api/matchdeal/pairing/status?kind=startup', marker: `${MARK}device` },
 ];
 
@@ -296,4 +314,53 @@ describe('every write handler behind the viewer wrapper refuses a viewer session
     }
     expect(failures).toEqual([]);
   });
+});
+
+// ─── the sweep over every READ: nothing of A, and not one write ─────────────────────────────────────────────
+// A viewer READ may write exactly one thing: its viewer_read audit row. Anything else is a hidden write behind
+// a GET (the blueprint's reconciliation engine, a research pass that debits credits, a ticket "mark read" …):
+// this sweep runs every wrapped GET in a viewer session over the EMPTY org and fails on the first one.
+const WRITE_RPC = /^(write_|charge_|mark_|reserve_|record_|decide_|close_org|erase_|link_claim|redeem_|end_|incubator_(set|end|invite|remove|revoke|resend|update|accept|decline)|vault_pin_(set|clear)|catalog_(person_apply|entity_(stamp|admin)))/;
+
+describe('every wrapped GET, in a viewer session over the empty org', () => {
+  const reads = Object.entries(importers).map(([key, load]) => {
+    const file = path.resolve(__dirname, key);
+    const src = readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
+    const route = path.relative(API, file).split(path.sep).join('/').replace(/\/?route\.ts$/, '');
+    return { route, load, wrapped: /^export const GET\s*=\s*withActingOrg\(/m.test(src) };
+  }).filter((e) => e.wrapped);
+
+  it("there are dozens of them", () => {
+    expect(reads.length).toBeGreaterThan(60);
+  });
+
+  it('none leaks A, none writes (beyond its audit row), none calls a write rpc', async () => {
+    const problems: string[] = [];
+    let answered = 0;
+    const threw: string[] = [];
+    for (const { route, load } of reads) {
+      db = world();
+      actAs(DEV_A);
+      let mod: Record<string, unknown>;
+      try { mod = await load(); } catch (e) { threw.push(`${route}: cannot import (${(e as Error).message.slice(0, 60)})`); continue; }
+      const url = `/api/${route.replace(/\[\w+\]/g, 'x')}?orgId=${ORG_B}&kind=startup&hypothesisId=h&action=compose_outreach&entityId=x&section=market&id=x`;
+      const req = new NextRequest(`https://example.test${url}`, { headers: { cookie: cookieFor(ORG_B) } });
+      try {
+        const res = await (mod.GET as (r: Request, c?: unknown) => Promise<Response>)(req, { params: { id: 'x', token: 'x', userId: 'x', threadId: 'x', documentId: 'x' } });
+        answered += 1;
+        const text = await res.text();
+        if (text.includes(MARK)) problems.push(`${route}: the response contains zz-test-A data`);
+      } catch (e) {
+        threw.push(`${route}: ${(e as Error).message.slice(0, 80)}`);
+      }
+      const writes = db.writes.filter((w) => w.table !== 'admin_audit_log');
+      if (writes.length) problems.push(`${route}: wrote ${[...new Set(writes.map((w) => `${w.op} ${w.table}`))].join(', ')}`);
+      const rpcs = (db.rpcCalls ?? []).map((c) => c.name).filter((n) => WRITE_RPC.test(n));
+      if (rpcs.length) problems.push(`${route}: called a write rpc ${[...new Set(rpcs)].join(', ')}`);
+    }
+    // eslint-disable-next-line no-console
+    console.warn(`[viewer sweep] ${answered}/${reads.length} GET handlers answered; ${threw.length} stopped early in the fake:\n  ${threw.join('\n  ')}`);
+    expect(problems).toEqual([]);
+    expect(answered).toBeGreaterThan(reads.length * 0.6);
+  }, 300_000);
 });

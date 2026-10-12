@@ -24,6 +24,9 @@ function str(v: unknown): string | undefined {
 export function describeAuditEvent(row: AuditLogRow, admin: string): string {
   const detail = d(row.detail);
   switch (row.action) {
+    // Prompt 904 — one row per route per Developer Viewer session: what the developer actually looked at.
+    case 'viewer_read':
+      return `${admin} looked at ${str(detail.route) ?? 'a screen'} in Developer Viewer`;
     case 'catalog_create':
       return `${admin} added "${str(detail.name) ?? 'an entity'}" to the catalog`;
     case 'catalog_update': {
