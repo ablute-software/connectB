@@ -13,8 +13,25 @@ healthtech startup, €1.3M seed) but designed as a multi-tenant product with th
 - **Vercel** project `connect-b`, team **info-ablute projects** (Hobby plan). Auto-deploys on push to `main`.
 - **Confirming a deploy is actually live.** Compare Next's `buildId` fetched from `https://www.sherlockdeal.com/` with a cache-busting query, before and after the push (`curl -s "https://www.sherlockdeal.com/?cb=$RANDOM" | grep -o 'buildId[^,]*'`). `/login` and other pages are edge-cached — check the `Age:` header before trusting anything read from them — and an empty response must NEVER count as a change: a transient failed fetch diffing against a previous snapshot is what produced a false "deploy is live" on 2026-09-02 (Prompt 546). Never `.vercel.app`.
 - Live: https://connect-b-delta.vercel.app · Repo: https://github.com/ablute-software/connectB
-- Env vars already set on Vercel (production+preview): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`. Also documented in `.env.example` (adds Resend, Stripe, `ANTHROPIC_API_KEY` for later).
+- Env vars on Vercel, Supabase Auth settings, Resend and the feature switches (`AUTH_CODE_MODE`, `CALLS_MODE`, …): **the single source is `docs/ops/CONFIG_REGISTRY.md`** (see "Config registry" below). It replaces the old line here that called Resend, Stripe and `ANTHROPIC_API_KEY` "for later": all three are in use. `.env.example` documents the names the code reads, not their state.
 - **Hobby-plan constraint:** `vercel.json` crons run **at most once/day**. Current: `/api/automations` at `0 9 * * *`. Do not set sub-daily schedules or deploys will be rejected (`cron_jobs_limits_reached`).
+
+## Config registry — one source for what is set where (Prompt 906, 12/10/2026)
+
+Configuration decisions (Vercel variables, Supabase Auth, Resend, switches) used to be scattered through a
+`DECISIONS.md` of 10 000+ lines, and that made instructions fail: the owner was asked to "confirm" a
+`RESEND_REPLY_TO` that had been decided in September, and a note that Supabase's confirmation emails land in spam
+(fix: switch on Resend's SMTP) was dropped. `docs/ops/CONFIG_REGISTRY.md` is the fix. Three rules, permanent:
+
+1. **Any prompt that touches a configuration updates `docs/ops/CONFIG_REGISTRY.md` in the same commit** — a new or
+   changed env var (anything new under `process.env.`), a switch, a Supabase or Resend setting, a cron. Name, value
+   (never a secret: only "definido"/"por definir"), state (`feito`/`pendente`/`desconhecido`), who decided and when,
+   source. A variable the code reads with no recorded decision is `pendente`, "sem decisão registada".
+2. **Any report that asks the owner for a step in Vercel, Supabase or Resend cites the registry row and gives the
+   exact value to set** (it is also added to the registry's "Pendentes do Nuno" list).
+3. **Before asking the owner to "confirm" a value, search the registry and `DECISIONS.md`**: if it is already decided,
+   do not ask for the value again; ask only for the action that is missing (is it set? is it applied?). State what
+   you could not see (panels have no API here) as `desconhecido` instead of asking in the dark.
 
 ## Run locally
 

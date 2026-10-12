@@ -33,6 +33,9 @@ export function isSeatAdminRole(role: string | null | undefined): boolean {
 export const DEFAULT_CUSTOM_PLAN_NAME = 'Private Detective';
 export const MAX_CUSTOM_SEATS = 500;
 export const DEFAULT_CODE_VALIDITY_DAYS = 30;
+/** Redeeming a code: at most this many tries per person per window; the lock lifts by itself when the window ends. */
+export const SEAT_CODE_MAX_ATTEMPTS = 5;
+export const SEAT_CODE_ATTEMPT_WINDOW_SECONDS = 3600;
 
 export interface FirmSeatPlan {
   catalogEntityId: string;
@@ -113,6 +116,13 @@ export interface SeatStore {
   /** Deletes a code that was never used. A redeemed code is never deleted (it proves how the firm got its seats). */
   deleteCode(entityId: string, codeId: string): Promise<boolean>;
   redeemCode(codeHash: string, userId: string): Promise<{ ok: boolean; catalogEntityId?: string; seats?: number }>;
+  /**
+   * Counts one attempt to redeem a code BEFORE the code is checked, under a lock, so parallel guesses cannot both
+   * slip under the limit. `checked: false` = the limiter itself could not answer (the caller must fail closed).
+   */
+  reserveRedeemAttempt(userId: string, max: number, windowSeconds: number): Promise<{ checked: boolean; allowed: boolean; retryAfter: number }>;
+  /** After a code worked: the person's count starts again. */
+  clearRedeemAttempts(userId: string): Promise<void>;
 }
 
 // --- Limit -----------------------------------------------------------------------------------
@@ -482,11 +492,26 @@ export async function redeemSeatCode(
   store: SeatStore, args: { code: string; userId: string },
 ): Promise<SeatActionResult<{ catalogEntityId: string; seats: number }>> {
   const normalized = normalizeSeatCode(args.code ?? '');
-  // 8 characters in the new format (10 with the prefix), 20 in the old one (22 with it).
+  // 8 characters in the new format (10 with the prefix), 20 in the old one (22 with it). A text of any other
+  // length cannot be a code, so it is refused without counting as a try.
   if (normalized.length < 8 || normalized.length > 40) return { ok: false, status: 400, error: SEAT_CODE_REFUSED };
+
+  // At most SEAT_CODE_MAX_ATTEMPTS tries per person per hour. One submission is ONE try, however many spellings of
+  // it are looked up below. The try is counted before the answer is known, and a person who is locked is refused
+  // even with the right code: the refusal says nothing about the code.
+  const gate = await store.reserveRedeemAttempt(args.userId, SEAT_CODE_MAX_ATTEMPTS, SEAT_CODE_ATTEMPT_WINDOW_SECONDS);
+  if (!gate.checked) return { ok: false, status: 503, error: "We couldn't check that right now. Please try again in a moment." };
+  if (!gate.allowed) {
+    const minutes = Math.max(1, Math.ceil(gate.retryAfter / 60));
+    return { ok: false, status: 429, error: `Too many attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.` };
+  }
+
   for (const text of seatCodeCandidates(args.code)) {
     const res = await store.redeemCode(hashSeatCode(text), args.userId);
-    if (res.ok && res.catalogEntityId) return { ok: true, catalogEntityId: res.catalogEntityId, seats: res.seats ?? 0 };
+    if (res.ok && res.catalogEntityId) {
+      await store.clearRedeemAttempts(args.userId).catch(() => {});
+      return { ok: true, catalogEntityId: res.catalogEntityId, seats: res.seats ?? 0 };
+    }
   }
   return { ok: false, status: 400, error: SEAT_CODE_REFUSED };
 }

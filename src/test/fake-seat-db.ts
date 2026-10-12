@@ -22,7 +22,7 @@ export function seatDb(): SeatDb {
   const tables: Record<string, Row[]> = {
     catalog_entities: [], matchdeal_investor_members: [], matchdeal_profiles: [], investor_entity_claims: [],
     investor_firm_seat_plans: [], investor_firm_seat_invites: [], investor_seat_codes: [], investor_seat_events: [],
-    investor_billing: [], investor_firm_seat_plan_archive: [], investor_seat_notices: [],
+    investor_billing: [], investor_firm_seat_plan_archive: [], investor_seat_notices: [], seat_code_attempts: [],
   };
   return { tables, users: new Map(), clock: Date.UTC(2026, 9, 9, 9, 0, 0), seq: 0 };
 }
@@ -155,6 +155,19 @@ function builder(db: SeatDb, table: string): any {
   return b;
 }
 
+/** seat_code_reserve_attempt(), modelled: count first, then answer; the window is an hour on the fake clock. */
+function reserveAttempt(db: SeatDb, userId: string, max: number, windowSeconds: number) {
+  let row = db.tables.seat_code_attempts.find((r) => r.user_id === userId);
+  if (!row) { row = { user_id: userId, wrong_attempts: 0, window_started_at: db.clock }; db.tables.seat_code_attempts.push(row); }
+  if ((row.window_started_at as number) + windowSeconds * 1000 <= db.clock) Object.assign(row, { wrong_attempts: 0, window_started_at: db.clock });
+  if ((row.wrong_attempts as number) >= max) {
+    const wait = Math.ceil(((row.window_started_at as number) + windowSeconds * 1000 - db.clock) / 1000);
+    return { allowed: false, attempts_left: 0, retry_after: Math.max(wait, 1) };
+  }
+  row.wrong_attempts = (row.wrong_attempts as number) + 1;
+  return { allowed: true, attempts_left: max - (row.wrong_attempts as number), retry_after: 0 };
+}
+
 /** end_investor_seat_plan(), modelled: archive with a snapshot of the members + status + history, as one step. */
 function endPlan(db: SeatDb, entity: string, actor: string | null) {
   const plan = db.tables.investor_firm_seat_plans.find((p) => p.catalog_entity_id === entity && p.status === 'active');
@@ -213,6 +226,8 @@ export function fakeSeatAdmin(db: SeatDb): SupabaseClient {
     from: (t: string) => builder(db, t),
     rpc: async (name: string, args: Record<string, unknown>) => {
       if (name === 'redeem_investor_seat_code') return { data: redeem(db, args.p_code_hash as string, args.p_user as string), error: null };
+      if (name === 'seat_code_reserve_attempt') return { data: reserveAttempt(db, args.p_user as string, args.p_max as number, args.p_window_seconds as number), error: null };
+      if (name === 'seat_code_clear_attempts') { db.tables.seat_code_attempts = db.tables.seat_code_attempts.filter((r) => r.user_id !== args.p_user); return { data: null, error: null }; }
       if (name === 'end_investor_seat_plan') return { data: endPlan(db, args.p_entity as string, (args.p_actor as string | null) ?? null), error: null };
       if (name === 'seat_user_id_by_email') {
         const want = String(args.p_email ?? '').trim().toLowerCase();
