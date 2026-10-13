@@ -5,8 +5,13 @@
 // Pure and client-safe (no I/O), so the sign-up pages, the code step, the password-recovery page and the routes all say
 // the same thing, and a test can feed it every shape of error that reaches the screens.
 
-/** The inbox people are told to write to when an email cannot be sent. One place, so it is changed once. */
-export const AUTH_SUPPORT_EMAIL = 'support@sherlockdeal.com';
+/**
+ * Where people are sent when an email cannot be sent: the CONTACT FORM, never an address. There is no public support address until
+ * support@sherlockdeal.com is forwarded (docs/ops/CONFIG_REGISTRY.md, "Contacto de suporte"), and the owner's own inbox must never
+ * be shown to users. The phrase is rendered as a link by AuthMessage.
+ */
+export const CONTACT_PATH = '/contact';
+export const CONTACT_PHRASE = 'contact us';
 
 export type AuthErrorKind = 'send_failed' | 'rate_limited' | 'wrong_code' | 'expired_code' | 'network' | 'generic';
 
@@ -18,7 +23,7 @@ export interface AuthErrorInfo {
   code: string | null;
 }
 
-export const SEND_FAILED_TEXT = `We couldn't send the email right now. Please try again in a few minutes. If it keeps failing, write to us at ${AUTH_SUPPORT_EMAIL}.`;
+export const SEND_FAILED_TEXT = `We couldn't send the email right now. Please try again in a few minutes. If it keeps failing, ${CONTACT_PHRASE}.`;
 export const RATE_LIMITED_TEXT = 'Too many attempts. Please wait a few minutes.';
 export const WRONG_CODE_TEXT = "That code didn't work. Check it and try again, or ask for a new one.";
 export const EXPIRED_CODE_TEXT = 'That code has expired or was already used. Please ask for a new one.';

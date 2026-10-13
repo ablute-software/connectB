@@ -71,7 +71,7 @@ export async function verifyRegistrationCodeRequest(input: {
 }
 
 /** Tell the registry that the browser was refused an email by Supabase directly (the link-only fallback, password recovery). */
-export async function reportAuthEmailFailure(input: { email: string; action: 'signup' | 'recover' | 'invite_signup'; error: unknown }): Promise<void> {
+export async function reportAuthEmailFailure(input: { email: string; action: 'signup' | 'recover' | 'invite_signup' | 'login'; error: unknown }): Promise<void> {
   try {
     const e = (input.error && typeof input.error === 'object' ? input.error : {}) as Record<string, unknown>;
     await fetch('/api/auth-failures/report', {

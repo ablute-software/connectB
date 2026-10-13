@@ -32,6 +32,7 @@ import { EmailCodeConfirm } from '@/components/auth/EmailCodeConfirm';
 import { registerWithCode, reportAuthEmailFailure } from '@/lib/auth-code/client';
 import { clearPending, readPending, writePending } from '@/lib/auth-code/pending-storage';
 import { authErrorText } from '@/lib/auth-errors';
+import { AuthMessage } from '@/components/auth/AuthMessage';
 import { INCUBATOR_INVITE_CONTINUE_PATH, INCUBATOR_INVITE_STORAGE_KEY, inviteEmailMismatchText, type StoredIncubatorInvite } from '@/lib/incubators';
 
 const STAGES = [
@@ -511,7 +512,7 @@ function FounderSignupForm() {
           </button>
         )}
         <p className="mt-2 text-[11px] text-gray-400">* required</p>
-        {msg && <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700">{msg}</div>}
+        {msg && <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700"><AuthMessage text={msg} /></div>}
         <div className="mt-5 border-t border-gray-100 pt-4 text-center text-xs text-gray-500">
           Already have an account? <Link href={fromIncubatorInvite ? `/login?next=${encodeURIComponent(INCUBATOR_INVITE_CONTINUE_PATH)}` : '/login'} className="font-medium text-[#0E7490] hover:underline">Sign in</Link>
         </div>

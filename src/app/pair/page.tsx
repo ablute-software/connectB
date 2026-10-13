@@ -19,6 +19,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { browserClient } from '@/lib/supabase';
+import { authErrorText } from '@/lib/auth-errors';
+import { reportAuthEmailFailure } from '@/lib/auth-code/client';
+import { AuthMessage } from '@/components/auth/AuthMessage';
 import { MatchDealShell } from '@/components/matchdeal/MatchDealShell';
 import { InstallPrompt } from '@/components/matchdeal/InstallPrompt';
 import { detectMobileClient } from '@/lib/is-mobile-client';
@@ -238,7 +241,7 @@ export default function PairPage() {
           shouldCreateUser: false,
         },
       });
-      if (error) { setLoginMsg(error.message); return; }
+      if (error) { reportAuthEmailFailure({ email: loginEmail, action: 'login', error }); setLoginMsg(authErrorText(error, { serverText: error.message })); return; }
       setMagicLinkSent(true);
     } finally {
       setLoginBusy(false);
@@ -394,7 +397,7 @@ export default function PairPage() {
                   )}
                 </div>
 
-                {loginMsg && <p className="mt-2 text-[12px] text-rose-300">{loginMsg}</p>}
+                {loginMsg && <p className="mt-2 text-[12px] text-rose-300"><AuthMessage text={loginMsg} /></p>}
               </>
             )}
 

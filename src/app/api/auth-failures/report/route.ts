@@ -15,7 +15,7 @@ import { isValidEmailShape, normalizeEmail, IP_REQUEST_LIMIT, IP_WINDOW_SECONDS 
 import { adminClientOrNull } from '@/lib/auth-code/supabase-ports';
 import { recordAuthEmailFailure, type AuthFailureAction } from '@/lib/auth-code/failure-log';
 
-const BROWSER_ACTIONS: readonly AuthFailureAction[] = ['signup', 'recover', 'invite_signup'];
+const BROWSER_ACTIONS: readonly AuthFailureAction[] = ['signup', 'recover', 'invite_signup', 'login'];
 
 export async function POST(req: NextRequest) {
   const done = () => NextResponse.json({ ok: true });

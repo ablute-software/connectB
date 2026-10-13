@@ -34,6 +34,9 @@
 import { useEffect, useState } from 'react';
 import { GuestPreviewShell } from '@/components/guest/GuestPreviewShell';
 import { browserClient, authEnabled } from '@/lib/supabase';
+import { authErrorText } from '@/lib/auth-errors';
+import { reportAuthEmailFailure } from '@/lib/auth-code/client';
+import { AuthMessage } from '@/components/auth/AuthMessage';
 import { groupGuestDocuments, type GuestShelf } from '@/lib/guest-shelf';
 import { DocumentViewerModal, type ViewerDocItem } from '@/components/portal/DocumentViewerModal';
 
@@ -92,7 +95,7 @@ export default function GuestPreviewPage({ params }: { params: { token: string }
         email: data.invitedEmail,
         options: { shouldCreateUser: true, emailRedirectTo: `${window.location.origin}/auth/callback?next=/portal` },
       });
-      if (error) { setSendErr(error.message); return; }
+      if (error) { reportAuthEmailFailure({ email: data.invitedEmail, action: 'login', error }); setSendErr(authErrorText(error, { serverText: error.message })); return; }
       setSent(true);
     } finally { setSending(false); }
   }
@@ -209,7 +212,7 @@ export default function GuestPreviewPage({ params }: { params: { token: string }
                               <p className="mt-1.5 text-center text-[11px] text-gray-400">
                                 We&apos;ll email a one-time code to {maskEmail(data.invitedEmail)}. No password, no form.
                               </p>
-                              {sendErr && <p className="mt-2 text-xs text-[#B00000]">{sendErr}</p>}
+                              {sendErr && <p className="mt-2 text-xs text-[#B00000]"><AuthMessage text={sendErr} /></p>}
                             </div>
                           )}
                         </div>

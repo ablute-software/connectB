@@ -8,6 +8,7 @@ import { PasswordInput } from '@/components/auth/PasswordInput';
 import { PasswordRequirementsIndicator } from '@/components/auth/PasswordRequirementsIndicator';
 import { checkPassword } from '@/lib/password-policy';
 import { CODE_LENGTH, sanitizeCodeInput } from '@/lib/auth-code/policy';
+import { AuthMessage } from '@/components/auth/AuthMessage';
 
 const BUTTON = 'w-full rounded-lg bg-[#0E7490] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40';
 
@@ -62,7 +63,7 @@ export function CodeStepView({
         <PasswordRequirementsIndicator password={password} />
       )}
       {notice && <p role="status" className="text-xs text-emerald-700">{notice}</p>}
-      {error && <p role="alert" className="text-xs text-[#B00000]" data-testid="code-error">{error}</p>}
+      {error && <p role="alert" className="text-xs text-[#B00000]" data-testid="code-error"><AuthMessage text={error} /></p>}
       <button type="button" onClick={onSubmit} disabled={busy || code.length !== CODE_LENGTH || !passwordOk} className={BUTTON} data-testid="code-confirm">
         {busy ? 'Checking…' : 'Confirm'}
       </button>

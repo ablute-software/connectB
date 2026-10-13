@@ -10,6 +10,7 @@ import { PasswordInput } from '@/components/auth/PasswordInput';
 import { PasswordRequirementsIndicator } from '@/components/auth/PasswordRequirementsIndicator';
 import { checkPassword } from '@/lib/password-policy';
 import { authErrorText } from '@/lib/auth-errors';
+import { AuthMessage } from '@/components/auth/AuthMessage';
 
 export default function ResetPasswordPage() {
   const [password, setPassword] = useState('');
@@ -65,7 +66,7 @@ export default function ResetPasswordPage() {
               className="w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
               {busy ? 'Saving…' : 'Update password'}
             </button>
-            {msg && <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700">{msg}</div>}
+            {msg && <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700"><AuthMessage text={msg} /></div>}
           </>
         )}
       </div>

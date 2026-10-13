@@ -28,6 +28,12 @@ describe('the failure report route', () => {
     expect(record.mock.calls[0][1]).toMatchObject({ email: 'pedro.loureiro@spaceo.pt', action: 'recover', source: 'browser', status: 500, code: 'unexpected_failure' });
   });
 
+  it('records a passwordless-login failure (investor magic link, guest preview, /pair)', async () => {
+    await POST(post({ ...SEND_FAILURE, action: 'login' }));
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(record.mock.calls[0][1]).toMatchObject({ action: 'login', source: 'browser' });
+  });
+
   it('records a rate limit too', async () => {
     await POST(post({ ...SEND_FAILURE, status: 429, code: 'over_email_send_rate_limit', message: 'email rate limit exceeded' }));
     expect(record).toHaveBeenCalledTimes(1);
