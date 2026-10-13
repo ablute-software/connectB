@@ -5,8 +5,9 @@
 import { NextResponse } from 'next/server';
 import { serverClient, authEnabled } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { withoutViewer } from '@/lib/acting-org';
 
-export async function POST(req: Request) {
+export const POST = withoutViewer(async function POST(req: Request) {
   if (!authEnabled) return NextResponse.json({ ok: false, demo: true, error: 'not configured' });
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
@@ -16,4 +17,4 @@ export async function POST(req: Request) {
   const { data, error } = await sb.rpc('incubator_accept_pending_member_invites');
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true, accepted: (data?.accepted as number | undefined) ?? 0 });
-}
+});

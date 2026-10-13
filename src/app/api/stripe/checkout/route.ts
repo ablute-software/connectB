@@ -19,6 +19,7 @@ import { ensureBadgeCoupon, loadOrgPlatformBadges } from '@/lib/platform-badges-
 import { badgeCouponFor, checkoutBlockedReason, type PlatformBadgeRow } from '@/lib/platform-badges';
 import { APP_URL } from '@/lib/brand';
 import type { PlanTier } from '@/lib/types';
+import { withoutViewer } from '@/lib/acting-org';
 
 // Prompt 163 B — the org's best active app-promo redemption covering this
 // tier, as the shape the coupon step below needs. Same query and the same
@@ -92,7 +93,7 @@ async function orgBadgeState(orgId: string): Promise<PlatformBadgeRow[]> {
   return loadOrgPlatformBadges(admin, orgId);
 }
 
-export async function POST(req: Request) {
+export const POST = withoutViewer(async function POST(req: Request) {
   if (!stripeConfigured()) return NextResponse.json({ ok: false, error: 'Billing not configured.' }, { status: 200 });
 
   const sb = await serverClient();
@@ -195,4 +196,4 @@ export async function POST(req: Request) {
   }
   const data = await res.json();
   return NextResponse.json({ ok: true, url: data.url as string });
-}
+});

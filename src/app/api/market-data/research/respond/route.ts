@@ -17,6 +17,7 @@ import { addOrUpdateCompetitor } from '@/lib/market-competitor-write';
 import { vaultCitation } from '@/lib/market-rings';
 import { shouldAutoFillMarketData } from '@/lib/market-research-structured';
 import type { CompetitorClassification } from '@/lib/market-competition';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 // Prompt 370 §C3 / Prompt 447 §C — an item in an auto-fill section merges
 // straight into org_market_data (the "Added by you" form) instead of
@@ -40,7 +41,7 @@ import type { CompetitorClassification } from '@/lib/market-competition';
 // `players` (document OR web) now always takes the SAME structured,
 // deduped path — see the dedicated branch below instead.
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' });
@@ -57,9 +58,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'id and action are required.' }, { status: 400 });
   }
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'No organization.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'No organization.' }, { status: 403 });
+  const orgId = acting.orgId as string;
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
@@ -204,4 +205,4 @@ export async function POST(req: Request) {
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   return NextResponse.json({ ok: true, claimId });
-}
+});

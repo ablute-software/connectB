@@ -20,9 +20,12 @@ import 'server-only';
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { parseViewerCookieValue, extractCookieFromHeader, type ViewerSession } from './developer-viewer-shape';
+import {
+  parseViewerCookieValue, extractCookieFromHeader, VIEWER_ORG_COOKIE, VIEWER_READ_ONLY_CODE, VIEWER_READ_ONLY_MESSAGE,
+  type ViewerSession,
+} from './developer-viewer-shape';
 
-export const VIEWER_ORG_COOKIE = 'sd_viewer_org_id';
+export { VIEWER_ORG_COOKIE };
 
 // Prompt 611 §F — the investor firm viewer keeps its OWN cookie rather than
 // overloading the org one. Same value shape ("<id>:<enteredAtIso>", parsed by
@@ -107,58 +110,22 @@ export async function readVerifiedViewerOrgId(
   return isDeveloper ? orgId : null;
 }
 
-// Prompt 902 — the single answer to "which org is this request about?" for a
-// founder-side route. In a verified Developer Viewer session it is the VIEWED
-// org, never the caller's own membership; otherwise it is the caller's org.
-//
-// The bug this closes: /api/founder/document-requests (and a dozen siblings)
-// each carried their own `org_members ... eq('user_id', user.id).maybeSingle()`
-// and so answered with the developer's OWN org (ablute_) while the page around
-// them — folders, documents, grants, which load through the store and read
-// /api/me's viewer.orgId — showed the viewed one (ABOUT FOOD). Two orgs on one
-// screen, and the wrong one for exactly the panels that went through a route.
-//
-// `viewer` tells the caller WHICH of the two it got, because a few routes must
-// behave differently inside a viewer session even though they read the right
-// org now (a notification feed the developer must neither see nor consume).
-export interface ViewedOrg { orgId: string | null; viewer: boolean }
+// Prompt 904 — the 902 helpers that lived here (resolveViewedOrg / resolveViewedOrgId /
+// authorizeViewedOrg) are gone: every founder-side route now asks ONE resolver,
+// resolveActingOrg() in acting-org.ts, which also knows whether the request may write.
 
-export async function resolveViewedOrg(
-  sb: SupabaseClient,
-  req: NextRequest | Request,
-  userId: string,
-): Promise<ViewedOrg> {
-  const viewed = await readVerifiedViewerOrgId(sb, req);
-  if (viewed) return { orgId: viewed, viewer: true };
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
-  return { orgId: (member?.org_id as string | undefined) ?? null, viewer: false };
+// Prompt 904 — the ONE refusal a viewer session gets for anything that is not a
+// read. `error` is a stable code the UI and the tests match on; `message` is the
+// text a person may see. assertNotViewer (below) and acting-org.ts's wrappers
+// answer with exactly this.
+export { VIEWER_READ_ONLY_CODE };
+
+export function viewerReadOnlyResponse(): NextResponse {
+  return NextResponse.json(
+    { ok: false, error: VIEWER_READ_ONLY_CODE, message: VIEWER_READ_ONLY_MESSAGE },
+    { status: 403 },
+  );
 }
-
-export async function resolveViewedOrgId(
-  sb: SupabaseClient,
-  req: NextRequest | Request,
-  userId: string,
-): Promise<string | null> {
-  return (await resolveViewedOrg(sb, req, userId)).orgId;
-}
-
-// The same decision for a route whose client NAMES the org (?orgId=… / body):
-// inside a viewer session only the viewed org is readable — naming the
-// developer's own org, or any third org, is refused — and outside one the
-// caller must be a member of exactly the org they named. Never trusts the id
-// on its own.
-export async function authorizeViewedOrg(
-  sb: SupabaseClient,
-  req: NextRequest | Request,
-  userId: string,
-  orgId: string,
-): Promise<boolean> {
-  const viewed = await readVerifiedViewerOrgId(sb, req);
-  if (viewed) return viewed === orgId;
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', userId).eq('org_id', orgId).maybeSingle();
-  return !!member;
-}
-
 // Called at the top of every service-role mutating route (.insert/.update/
 // .delete/.upsert/a state-changing .rpc). Returns a 403 NextResponse to
 // return immediately if the caller is in an active viewer session; null if
@@ -174,5 +141,5 @@ export async function assertNotViewer(sb: SupabaseClient, req: NextRequest | Req
   if (!viewerOrgId) return null;
   const { data: isDeveloper } = await sb.rpc('is_ablute_developer');
   if (!isDeveloper) return null; // stale/foreign cookie on a non-developer session — not this helper's concern
-  return NextResponse.json({ ok: false, error: 'Viewer mode is read-only.' }, { status: 403 });
+  return viewerReadOnlyResponse();
 }

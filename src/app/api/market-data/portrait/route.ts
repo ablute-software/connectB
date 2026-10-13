@@ -20,6 +20,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { orgCompetitorsAvailable, orgMarketRingsAvailable } from '@/lib/market-data-capability';
 import { pickPortraitDocuments, MAX_PORTRAIT_DOCS } from '@/lib/market-portrait';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 // Prompt 458 §A.3 — a genuine platform timeout (Vercel killed document-
 // extract mid-flight) looks nothing like one of ITS OWN failures: every
@@ -36,7 +37,7 @@ const DOCUMENT_TIMEOUT_MESSAGE = 'Reading your documents took too long to finish
 // generous budget for the same Vercel reason as Prompt 378 §0.
 export const maxDuration = 60;
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' });
@@ -47,9 +48,9 @@ export async function POST(req: Request) {
   const viewerBlock = await assertNotViewer(sb, req);
   if (viewerBlock) return viewerBlock;
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  const orgId = acting.orgId as string;
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
@@ -138,4 +139,4 @@ export async function POST(req: Request) {
     cached: !!extractBody.cached,
     ringsProposed, ringsNote, competitorsProposed,
   });
-}
+});

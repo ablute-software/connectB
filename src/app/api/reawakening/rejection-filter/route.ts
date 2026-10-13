@@ -21,6 +21,7 @@ import { buildRejectionFilterPrompt, type FilterCase, type RawFilterVerdict } fr
 import { chunk } from '@/lib/reawakening';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
+import { withActingOrg, authorizeActingOrg } from '@/lib/acting-org';
 
 async function callFilter(apiKey: string, model: string, cases: FilterCase[], orgId: string): Promise<RawFilterVerdict[]> {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -75,7 +76,7 @@ async function callFilter(apiKey: string, model: string, cases: FilterCase[], or
   return input?.verdicts ?? [];
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withActingOrg(async function POST(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: true, verdicts: [] });
@@ -89,8 +90,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, verdicts: [] });
   }
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).eq('org_id', body.orgId).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
+  const acting = await authorizeActingOrg(req, user, body.orgId, sb);
+  if (!acting) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
 
   if (!(await reawakeningAiFilterAvailable())) return NextResponse.json({ ok: true, verdicts: [] });
 
@@ -160,4 +161,4 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ ok: true, verdicts: out });
-}
+});

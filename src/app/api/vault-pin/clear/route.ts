@@ -4,8 +4,9 @@
 import { NextResponse } from 'next/server';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { withActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const sb = await serverClient();
   const viewerBlock = await assertNotViewer(sb, req);
   if (viewerBlock) return viewerBlock;
@@ -19,4 +20,4 @@ export async function POST(req: Request) {
   const { error } = await sb.rpc('vault_pin_clear_for_user', { p_org_id: orgId, p_user_id: userId });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 403 });
   return NextResponse.json({ ok: true });
-}
+});

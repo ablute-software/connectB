@@ -15,8 +15,9 @@ import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { capitalLandscapeManualRoundsAvailable } from '@/lib/market-data-capability';
 import { sanitizeManualRound } from '@/lib/capital-landscape';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' });
@@ -28,9 +29,9 @@ export async function POST(req: Request) {
   if (viewerBlock) return viewerBlock;
   if (!(await capitalLandscapeManualRoundsAvailable())) return NextResponse.json({ ok: false, error: 'not configured' });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  const orgId = acting.orgId as string;
 
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
   const round = sanitizeManualRound(body);
@@ -54,4 +55,4 @@ export async function POST(req: Request) {
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   return NextResponse.json({ ok: true });
-}
+});

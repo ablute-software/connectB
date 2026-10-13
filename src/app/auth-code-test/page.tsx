@@ -1,8 +1,8 @@
 // Prompt 904 Part B — the ONLY place the code-registration component is mounted until Stage 1.
 // It does not exist for anyone else: AUTH_CODE_MODE unset/off -> 404, and even with the switch
 // on, only a signed-in platform admin gets the page (everyone else sees the same 404). The
-// routes behind it have their own gate (the email allowlist), so reaching them directly does
-// not bypass this.
+// routes behind it have their own gate (AUTH_CODE_MODE=off closes them; since Prompt 911 they are open to every
+// email, because the code is how everybody registers), so this page only controls who can see the test screen.
 //
 // Heads-up for whoever tests: a successful registration signs the browser in AS THE NEW
 // ACCOUNT, replacing this admin session. Sign in as admin again afterwards.

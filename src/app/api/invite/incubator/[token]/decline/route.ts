@@ -6,8 +6,9 @@
 import { NextResponse } from 'next/server';
 import { requireProgramManager } from '@/lib/incubator-founder-gate';
 import { incubatorErrorText } from '@/lib/incubators';
+import { withoutViewer } from '@/lib/acting-org';
 
-export async function POST(req: Request, { params }: { params: { token: string } }) {
+export const POST = withoutViewer(async function POST(req: Request, { params }: { params: { token: string } }) {
   const gate = await requireProgramManager(req, { allowNoOrg: true });
   if ('error' in gate) return gate.error;
   const { data, error } = await gate.sb.rpc('incubator_decline_invite', { p_token: params.token });
@@ -19,4 +20,4 @@ export async function POST(req: Request, { params }: { params: { token: string }
     }, { status: 400 });
   }
   return NextResponse.json({ ok: true });
-}
+});

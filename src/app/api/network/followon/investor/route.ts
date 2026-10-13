@@ -14,6 +14,7 @@ import {
   getInvestedRelationshipsForInvestor, getOpenFollowOnRequestsForInvestor,
   setFollowOnSignal, updateFollowOnVisibility, revokeFollowOnSignal, dismissFollowOnRequest,
 } from '@/lib/network-followon-db';
+import { withoutViewer } from '@/lib/acting-org';
 
 async function investorAndAdmin(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -33,7 +34,7 @@ async function investorAndAdmin(req: Request) {
   return { admin, investorCatalogEntityId };
 }
 
-export async function GET(req: Request) {
+export const GET = withoutViewer(async function GET(req: Request) {
   const resolved = await investorAndAdmin(req);
   if ('error' in resolved) return resolved.error;
   const { admin, investorCatalogEntityId } = resolved;
@@ -43,9 +44,9 @@ export async function GET(req: Request) {
     getOpenFollowOnRequestsForInvestor(admin, investorCatalogEntityId),
   ]);
   return NextResponse.json({ ok: true, relationships, requests });
-}
+});
 
-export async function POST(req: Request) {
+export const POST = withoutViewer(async function POST(req: Request) {
   const resolved = await investorAndAdmin(req);
   if ('error' in resolved) return resolved.error;
   const { admin, investorCatalogEntityId } = resolved;
@@ -77,4 +78,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
   return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
-}
+});

@@ -9,9 +9,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { assertNotViewer } from '@/lib/developer-viewer';
 import { marketFactsAvailable } from '@/lib/market-data-capability';
 import { factZone, type FactView, type FactPayload, type FactValidationView } from '@/lib/market-facts-view';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 interface FactRow {
   id: string; fact_type: 'growth' | 'market_size'; payload: unknown;
@@ -23,7 +23,7 @@ interface EvidenceRow {
   origin: string; source_kind: string; retrieval_method: string; documents: { name: string } | null;
 }
 
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' });
@@ -31,13 +31,11 @@ export async function GET(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
-  const viewerBlock = await assertNotViewer(sb, req);
-  if (viewerBlock) return viewerBlock;
   if (!(await marketFactsAvailable())) return NextResponse.json({ ok: true, available: false, facts: [] });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  const orgId = acting.orgId as string;
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
@@ -82,4 +80,4 @@ export async function GET(req: Request) {
   });
 
   return NextResponse.json({ ok: true, available: true, facts: views });
-}
+});

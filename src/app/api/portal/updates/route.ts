@@ -37,7 +37,16 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'No active access to this org.' }, { status: 403 });
   }
 
-  const { data: updates } = await admin.from('round_updates').select('id, title, body, created_at')
+  // Prompt 906 §B — `*`, then an explicit pick, rather than naming updated_at in the select: that column comes
+  // with migration 20261013100000, and a select that names a column the database does not have yet fails the
+  // WHOLE feed. The pick is also what keeps `created_by` (a user id) and `org_id` on this side of the wire.
+  // A deleted update is simply not a row any more; an edited one carries its new text and `updated_at`.
+  const { data: updates } = await admin.from('round_updates').select('*')
     .eq('org_id', orgId).order('created_at', { ascending: false });
-  return NextResponse.json({ updates: updates ?? [] });
+  return NextResponse.json({
+    updates: (updates ?? []).map((u) => ({
+      id: u.id as string, title: u.title as string, body: u.body as string,
+      created_at: u.created_at as string, updated_at: (u.updated_at as string | null | undefined) ?? null,
+    })),
+  });
 }

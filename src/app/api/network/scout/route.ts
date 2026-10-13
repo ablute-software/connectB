@@ -8,6 +8,7 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { networkAvailable } from '@/lib/network-capability';
 import { resolveActorId } from '@/lib/network-db';
 import { createScoutRequest, readScoutRequestsForActor, closeScoutRequest, countReferralsForScoutRequest } from '@/lib/network-reciprocity-db';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 async function actorAndAdmin(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -15,19 +16,17 @@ async function actorAndAdmin(req: Request) {
   if (!url || !serviceKey) return { error: NextResponse.json({ ok: false, error: 'not configured' }) };
 
   const sb = await serverClient();
-  const viewerBlock = await assertNotViewer(sb, req);
-  if (viewerBlock) return { error: viewerBlock };
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return { error: NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 }) };
   if (!(await networkAvailable())) return { error: NextResponse.json({ ok: false, error: 'Not available in this workspace yet.' }) };
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const actor = await resolveActorId(admin, user.id);
+  const actor = await resolveActorId(admin, user.id, await resolveActingOrg(req, user, sb));
   if (!actor) return { error: NextResponse.json({ ok: false, error: 'No network profile found for your account.' }, { status: 403 }) };
   return { admin, actorId: actor.actorId, kind: actor.kind };
 }
 
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const resolved = await actorAndAdmin(req);
   if ('error' in resolved) return resolved.error;
   const { admin, actorId } = resolved;
@@ -36,9 +35,9 @@ export async function GET(req: Request) {
     ...r, receivedReferrals: r.investorActorId === actorId ? await countReferralsForScoutRequest(admin, r.id) : null,
   })));
   return NextResponse.json({ ok: true, requests: withCounts });
-}
+});
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const resolved = await actorAndAdmin(req);
   if ('error' in resolved) return resolved.error;
   const { admin, actorId, kind } = resolved;
@@ -53,9 +52,9 @@ export async function POST(req: Request) {
   });
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error });
   return NextResponse.json({ ok: true, requestId: result.requestId });
-}
+});
 
-export async function PATCH(req: Request) {
+export const PATCH = withActingOrg(async function PATCH(req: Request) {
   const resolved = await actorAndAdmin(req);
   if ('error' in resolved) return resolved.error;
   const { admin, actorId } = resolved;
@@ -66,4 +65,4 @@ export async function PATCH(req: Request) {
   const result = await closeScoutRequest(admin, { requestId: body.requestId, investorActorId: actorId });
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error });
   return NextResponse.json({ ok: true });
-}
+});

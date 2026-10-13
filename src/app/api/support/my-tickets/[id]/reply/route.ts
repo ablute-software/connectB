@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { supportTicketsAvailable } from '@/lib/support-capability';
+import { withActingOrg } from '@/lib/acting-org';
 
 const RATE_LIMIT_PER_HOUR = 10;
 
@@ -14,7 +15,7 @@ function getIp(req: Request): string {
   return req.headers.get('x-real-ip') ?? 'unknown';
 }
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export const POST = withActingOrg(async function POST(req: Request, { params }: { params: { id: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'Not available.' }, { status: 404 });
@@ -66,4 +67,4 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (updErr) return NextResponse.json({ ok: false, error: updErr.message }, { status: 500 });
 
   return NextResponse.json({ ok: true });
-}
+});

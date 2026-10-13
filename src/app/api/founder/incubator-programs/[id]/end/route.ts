@@ -9,8 +9,9 @@ import { incubatorErrorText } from '@/lib/incubators';
 import { APP_URL } from '@/lib/brand';
 import { relationshipEndedByFounderEmail } from '@/lib/email-templates/incubator-emails';
 import { sendIncubatorEmail } from '@/lib/incubator-email-server';
+import { withActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export const POST = withActingOrg(async function POST(req: Request, { params }: { params: { id: string } }) {
   const gate = await requireProgramManager(req);
   if ('error' in gate) return gate.error;
   const { reason } = await req.json().catch(() => ({})) as { reason?: string };
@@ -39,4 +40,4 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     }
   }
   return NextResponse.json({ ok: true, notified });
-}
+});

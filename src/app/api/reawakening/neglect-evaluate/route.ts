@@ -35,6 +35,7 @@ import { DOCUMENT_CONTENT_INSTRUCTION } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { logAiCall } from '@/lib/ai-cost-log';
 import type { Entity, Interaction, Person } from '@/lib/types';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 interface RawVerdict {
   entity_id: string; outcome: NeglectOutcome; rationale: string;
@@ -111,7 +112,7 @@ async function callSherlock(
   return input?.verdicts ?? [];
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withActingOrg(async function POST(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: true, results: [] });
@@ -130,9 +131,9 @@ export async function POST(req: NextRequest) {
   const force = body.force === true;
   if (!Array.isArray(body.entityIds) || body.entityIds.length === 0) return NextResponse.json({ ok: true, results: [] });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  const orgId = acting.orgId as string;
 
   if (!(await reawakeningNeglectAvailable())) return NextResponse.json({ ok: true, results: [] });
   const withAdvice = await reawakeningAdviceAvailable();
@@ -289,4 +290,4 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ ok: true, results });
-}
+});

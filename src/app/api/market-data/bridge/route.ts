@@ -14,13 +14,13 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { orgCompetitorsAvailable } from '@/lib/market-data-capability';
 import { crossReferenceInvestors, type CompetitorInvestmentFact } from '@/lib/market-investor-bridge';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
-async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
-  const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
-  return (data?.org_id as string | undefined) ?? null;
+async function resolveOrg(req: Request, sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
+  return (await resolveActingOrg(req, { id: userId }, sb)).orgId;
 }
 
-export async function GET() {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ available: false, inPipeline: [], missing: [] });
@@ -30,7 +30,7 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
   if (!(await orgCompetitorsAvailable())) return NextResponse.json({ available: false, inPipeline: [], missing: [] });
 
-  const orgId = await resolveOrg(sb, user.id);
+  const orgId = await resolveOrg(req, sb, user.id);
   if (!orgId) return NextResponse.json({ available: false, inPipeline: [], missing: [] });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
@@ -65,4 +65,4 @@ export async function GET() {
 
   const result = crossReferenceInvestors(facts, pipelineByCatalogId);
   return NextResponse.json({ available: true, ...result });
-}
+});

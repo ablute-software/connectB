@@ -8,6 +8,7 @@ import { networkAvailable } from '@/lib/network-capability';
 import { resolveActorId } from '@/lib/network-db';
 import { createPost, deletePost, readFeedForActor } from '@/lib/network-posts-db';
 import type { NetworkUpdateStructured } from '@/lib/network';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 async function actorAndAdmin(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -15,26 +16,24 @@ async function actorAndAdmin(req: Request) {
   if (!url || !serviceKey) return { error: NextResponse.json({ ok: false, error: 'not configured' }) };
 
   const sb = await serverClient();
-  const viewerBlock = await assertNotViewer(sb, req);
-  if (viewerBlock) return { error: viewerBlock };
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return { error: NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 }) };
   if (!(await networkAvailable())) return { error: NextResponse.json({ ok: false, error: 'Not available in this workspace yet.' }) };
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const actor = await resolveActorId(admin, user.id);
+  const actor = await resolveActorId(admin, user.id, await resolveActingOrg(req, user, sb));
   if (!actor) return { error: NextResponse.json({ ok: false, error: 'No network profile found for your account.' }, { status: 403 }) };
   return { admin, actorId: actor.actorId };
 }
 
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const resolved = await actorAndAdmin(req);
   if ('error' in resolved) return resolved.error;
   const posts = await readFeedForActor(resolved.admin, resolved.actorId);
   return NextResponse.json({ ok: true, posts });
-}
+});
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const resolved = await actorAndAdmin(req);
   if ('error' in resolved) return resolved.error;
   const { admin, actorId } = resolved;
@@ -51,9 +50,9 @@ export async function POST(req: Request) {
     : await createPost(admin, { ...shared, kind: 'freeform', body: body.body ?? '' });
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error });
   return NextResponse.json({ ok: true, postId: result.postId });
-}
+});
 
-export async function DELETE(req: Request) {
+export const DELETE = withActingOrg(async function DELETE(req: Request) {
   const resolved = await actorAndAdmin(req);
   if ('error' in resolved) return resolved.error;
   const { admin, actorId } = resolved;
@@ -64,4 +63,4 @@ export async function DELETE(req: Request) {
   const result = await deletePost(admin, { postId, authorActorId: actorId });
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error });
   return NextResponse.json({ ok: true });
-}
+});

@@ -40,10 +40,11 @@ import { buildGuestAccessEmail } from '@/lib/guest-access-email';
 import { APP_URL } from '@/lib/brand';
 import { requiresNda } from '@/lib/data-room';
 import { documentNdaByDefaultAvailable } from '@/lib/documents-nda-default-capability';
+import { withActingOrg, authorizeActingOrg } from '@/lib/acting-org';
 
 interface NodeSelection { kind: 'doc' | 'folder'; id: string; ndaRequired?: boolean }
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -66,8 +67,8 @@ export async function POST(req: Request) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return NextResponse.json({ ok: false, error: 'That does not look like a valid email address.' }, { status: 400 });
   if (nodes.length === 0) return NextResponse.json({ ok: false, error: 'Select at least one document or folder to share.' }, { status: 400 });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).eq('org_id', orgId).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
+  const acting = await authorizeActingOrg(req, user, orgId, sb);
+  if (!acting) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
 
@@ -218,4 +219,4 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json({ ok: true, stage: 'sent', grantsCreated, guestUrl, emailSent: true });
-}
+});

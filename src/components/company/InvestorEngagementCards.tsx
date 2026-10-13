@@ -5,10 +5,14 @@
 // same home as the data room checklist (Prompt 55).
 import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui';
+import { useConfirm } from '@/lib/confirm';
 import { decideInterestRequest } from '@/lib/interest-requests-client';
+import { ROUND_UPDATE_DELETE_MESSAGE, roundUpdateEditedAt } from '@/lib/round-updates';
 
 interface Question { id: string; question: string; answer: string | null; is_faq: boolean; asked_by_email: string; created_at: string }
-interface Update { id: string; title: string; body: string; created_at: string }
+// Prompt 906 §B — updated_at is null until the title/body is edited; can_edit is decided by the server (owner/admin of the
+// org, or the author), so the buttons are only offered to people the server will let through.
+interface Update { id: string; title: string; body: string; created_at: string; updated_at?: string | null; can_edit?: boolean }
 interface SoftCommit { id: string; investor_email: string; amount_eur: number; confirmed_by_founder: boolean; created_at: string }
 interface InvestorDecision { id: string; decision: 'interested' | 'passed'; reasonDetail: string | null; decidedAt: string; investorName: string }
 
@@ -90,11 +94,18 @@ export function InvestorQACard() {
 }
 
 export function RoundUpdatesCard() {
+  const confirm = useConfirm();
   const [updates, setUpdates] = useState<Update[] | null>(null);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [saving, setSaving] = useState(false);
   const [lastEmailed, setLastEmailed] = useState<number | null>(null);
+  // Prompt 906 §B — edit in place, one row at a time.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editBody, setEditBody] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null);
 
   function load() {
     fetch('/api/org/updates').then((r) => r.json()).then((d) => setUpdates(d.updates ?? []));
@@ -114,6 +125,37 @@ export function RoundUpdatesCard() {
     } finally { setSaving(false); }
   }
 
+  function startEdit(u: Update) {
+    setEditingId(u.id); setEditTitle(u.title); setEditBody(u.body); setRowError(null);
+  }
+
+  async function saveEdit(u: Update) {
+    if (!editTitle.trim() || !editBody.trim()) return;
+    setBusyId(u.id); setRowError(null);
+    try {
+      const res = await fetch(`/api/org/updates/${u.id}`, {
+        method: 'PATCH', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: editTitle, body: editBody }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!data?.ok) { setRowError({ id: u.id, message: data?.error ?? 'Could not save — try again.' }); return; }
+      setEditingId(null);
+      load();
+    } finally { setBusyId(null); }
+  }
+
+  async function remove(u: Update) {
+    const yes = await confirm({ title: 'Delete this update?', message: ROUND_UPDATE_DELETE_MESSAGE, confirmLabel: 'Delete', destructive: true });
+    if (!yes) return;
+    setBusyId(u.id); setRowError(null);
+    try {
+      const res = await fetch(`/api/org/updates/${u.id}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => null);
+      if (!data?.ok) { setRowError({ id: u.id, message: data?.error ?? 'Could not delete — try again.' }); return; }
+      load();
+    } finally { setBusyId(null); }
+  }
+
   return (
     <Card title="Round updates">
       <div className="space-y-2">
@@ -128,13 +170,49 @@ export function RoundUpdatesCard() {
         {lastEmailed != null && <p className="text-[11px] text-gray-400">Emailed {lastEmailed} investor{lastEmailed === 1 ? '' : 's'}.</p>}
       </div>
       {updates && updates.length > 0 && (
-        <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
-          {updates.map((u) => (
-            <div key={u.id} className="text-xs">
-              <span className="font-medium text-gray-700">{u.title}</span>
-              <span className="ml-2 text-gray-400">{new Date(u.created_at).toLocaleDateString()}</span>
-            </div>
-          ))}
+        <div className="mt-3 space-y-3 border-t border-gray-100 pt-3">
+          {updates.map((u) => {
+            const editedAt = roundUpdateEditedAt(u);
+            return (
+              <div key={u.id} className="text-xs">
+                {editingId === u.id ? (
+                  <div className="space-y-1.5">
+                    <input autoComplete="off" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} aria-label="Update title"
+                      className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm" />
+                    <textarea autoComplete="off" value={editBody} onChange={(e) => setEditBody(e.target.value)} rows={3} aria-label="Update text"
+                      className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm" />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button onClick={() => saveEdit(u)} disabled={busyId === u.id || !editTitle.trim() || !editBody.trim()}
+                        className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+                        {busyId === u.id ? 'Saving…' : 'Save changes'}
+                      </button>
+                      <button onClick={() => { setEditingId(null); setRowError(null); }} disabled={busyId === u.id}
+                        className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 disabled:opacity-40">Cancel</button>
+                      <span className="text-[11px] text-gray-400">Investors aren&apos;t notified again when you edit.</span>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <div>
+                        <span className="font-medium text-gray-700">{u.title}</span>
+                        <span className="ml-2 text-gray-400">{new Date(u.created_at).toLocaleDateString()}</span>
+                        {editedAt && <span className="ml-1 text-gray-400">· edited {new Date(editedAt).toLocaleDateString()}</span>}
+                      </div>
+                      {u.can_edit && (
+                        <span className="flex shrink-0 items-center gap-3">
+                          <button onClick={() => startEdit(u)} disabled={busyId === u.id} className="text-cyan-700 hover:underline disabled:opacity-40">Edit</button>
+                          <button onClick={() => remove(u)} disabled={busyId === u.id} className="text-gray-400 hover:text-[#B00000] hover:underline disabled:opacity-40">Delete</button>
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-0.5 line-clamp-2 whitespace-pre-wrap text-gray-500">{u.body}</p>
+                  </>
+                )}
+                {rowError?.id === u.id && <p className="mt-1 text-[#B00000]">{rowError.message}</p>}
+              </div>
+            );
+          })}
         </div>
       )}
     </Card>

@@ -47,6 +47,7 @@ import { chargeAiAction } from '@/lib/ai-credits';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { logAiCall, computeCostEur } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 export const maxDuration = 60;
 
@@ -94,7 +95,7 @@ const THESIS_SUGGEST_TOOL_SCHEMA = {
   required: [],
 };
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -107,9 +108,9 @@ export async function POST(req: Request) {
   if (viewerBlock) return viewerBlock;
   if (!(await marketThesisAvailable())) return NextResponse.json({ ok: false, error: 'not configured' });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  const orgId = acting.orgId as string;
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
@@ -256,4 +257,4 @@ export async function POST(req: Request) {
     ok: true, suggestions, costEur, documentsRead: documentBlocks.length,
     readDocuments: [...docsByIndex.values()], skipped,
   });
-}
+});

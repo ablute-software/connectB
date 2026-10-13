@@ -14,9 +14,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { readVerifiedViewerOrgId } from '@/lib/developer-viewer';
+import { withActingOrg, authorizeActingOrg } from '@/lib/acting-org';
 
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export const GET = withActingOrg(async function GET(req: Request, { params }: { params: { id: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -27,20 +27,15 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
 
-  // The entity decides the org; the caller must be a member of THAT org. A
-  // developer viewing a startup read-only resolves the same way every other
-  // surface does.
+  // The entity decides the org; the caller must be a member of THAT org — or, in
+  // a Developer Viewer session, the org being viewed (authorizeActingOrg).
   const { data: entity } = await admin.from('entities').select('id, org_id, source').eq('id', params.id).maybeSingle();
   if (!entity) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
 
-  // Prompt 559 §A — verified, not parsed: an unsigned cookie must never be
+  // Prompt 559 §A / 904 — verified, not parsed: an unsigned cookie must never be
   // what decides the membership check is skippable.
-  const viewerOrgId = await readVerifiedViewerOrgId(sb, req);
-  if (viewerOrgId !== entity.org_id) {
-    const { data: member } = await sb.from('org_members')
-      .select('org_id').eq('user_id', user.id).eq('org_id', entity.org_id).maybeSingle();
-    if (!member) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
-  }
+  const acting = await authorizeActingOrg(req, user, entity.org_id, sb);
+  if (!acting) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
 
   const { data: delivery } = await admin.from('catalog_deliveries')
     .select('catalog_id').eq('entity_id', params.id).maybeSingle();
@@ -57,4 +52,4 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   if (!firm) return NextResponse.json({ ok: false, error: 'No MatchDeal profile behind this entity.' }, { status: 404 });
 
   return NextResponse.json({ ok: true, firm });
-}
+});

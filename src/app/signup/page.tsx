@@ -3,6 +3,12 @@
 // an API route. NEXT_STEPS Phase 2 — collects the startup + person profile
 // fields up front so a new org doesn't start as a bare name.
 //
+// Prompt 911 (13/10/2026): the email is confirmed with a 6-digit CODE typed on this same page (the 904 mechanism, shared
+// through EmailCodeConfirm), with the link in the email as the alternative. "Create account" sends the code; the form is
+// kept in this browser (without the password) so a reload comes back to the code box; the right code signs the browser
+// in and THEN the organisation is provisioned, exactly as before. AUTH_CODE_MODE=off (the routes answer 404) puts the
+// page back on the link-only flow it had. Errors are always sentences (src/lib/auth-errors.ts), never a raw object.
+//
 // ?as=investor renders a different panel: investors aren't self-serve today
 // (access is an access_grants row a founder creates for their email, per
 // resolveRole in supabase-server.ts) — that part is real and unchanged, "Sign
@@ -22,6 +28,11 @@ import { AuthShell } from '@/components/auth/AuthShell';
 import { PasswordInput } from '@/components/auth/PasswordInput';
 import { PasswordRequirementsIndicator } from '@/components/auth/PasswordRequirementsIndicator';
 import { checkPassword } from '@/lib/password-policy';
+import { EmailCodeConfirm } from '@/components/auth/EmailCodeConfirm';
+import { registerWithCode, reportAuthEmailFailure } from '@/lib/auth-code/client';
+import { clearPending, readPending, writePending } from '@/lib/auth-code/pending-storage';
+import { authErrorText } from '@/lib/auth-errors';
+import { AuthMessage } from '@/components/auth/AuthMessage';
 import { INCUBATOR_INVITE_CONTINUE_PATH, INCUBATOR_INVITE_STORAGE_KEY, inviteEmailMismatchText, type StoredIncubatorInvite } from '@/lib/incubators';
 
 const STAGES = [
@@ -171,6 +182,22 @@ function FounderSignupForm() {
   // a retry needs to know, without re-calling signUp(), whether to redirect
   // straight in or show the "check your email" message.
   const [pendingAccount, setPendingAccount] = useState<{ userId: string; session: boolean } | null>(null);
+  // Prompt 911 — the code step. `sentAt` also drives the resend countdown after a reload.
+  const [step, setStep] = useState<'form' | 'code'>('form');
+  const [sentAt, setSentAt] = useState(0);
+
+  // A reload while the code is awaited: restore the form (never the password) and go back to the code box.
+  useEffect(() => {
+    const p = readPending('signup', 'signup');
+    if (!p) return;
+    const f = p.fields;
+    const s = (k: string) => (typeof f[k] === 'string' ? (f[k] as string) : '');
+    setOrg(s('org')); setWebsite(s('website')); setSector(s('sector')); setStage(s('stage')); setRoundTarget(s('roundTarget'));
+    setCountry(s('country')); setOneLiner(s('oneLiner')); setHowHeard(s('howHeard'));
+    setName(s('name')); setTitle(s('title')); setPhone(s('phone')); setLinkedin(s('linkedin'));
+    setEmail(p.email); setWantsNewsletter(f.wantsNewsletter === true); setAgreedToTerms(f.agreedToTerms === true);
+    setSentAt(p.sentAt); setStep('code');
+  }, []);
 
   // Prompt I-01 §C.2 — arriving from an incubator invite: prefill the
   // startup fields from the invite's stub (kept in this browser by the
@@ -290,6 +317,19 @@ function FounderSignupForm() {
     setBusy(true); setMsg('');
     try {
       if (!(await inviteEmailConfirmed())) return;
+      // Prompt 911 — the normal way: the email is confirmed with a code typed on this page.
+      const sent = await registerWithCode({ email, password, profile: { fullName: name, startup: org, country, role: title }, redirectPath: afterSignup });
+      if (sent.kind === 'sent') {
+        const at = Date.now();
+        writePending({
+          flow: 'signup', scope: 'signup', email, sentAt: at,
+          fields: { org, website, sector, stage, roundTarget, country, oneLiner, howHeard, name, title, phone, linkedin, wantsNewsletter, agreedToTerms },
+        });
+        setSentAt(at); setStep('code');
+        return;
+      }
+      if (sent.kind === 'error') { setMsg(sent.text); return; }
+      // kind === 'off': AUTH_CODE_MODE=off — the link-only flow this page always had.
       const sb = browserClient();
       // Prompt 126 B / 119 §4.3 D3 — same shared policy as investor
       // set-password/reset-password; password_set marks this account as
@@ -297,9 +337,9 @@ function FounderSignupForm() {
       // first-login /set-password screen.
       const { data, error } = await sb.auth.signUp({
         email, password,
-        options: { data: { full_name: name, org_name: org, password_set: true } },
+        options: { data: { full_name: name, org_name: org, password_set: true }, emailRedirectTo: `${window.location.origin}${afterSignup}` },
       });
-      if (error) { setMsg(error.message); return; }
+      if (error) { reportAuthEmailFailure({ email, action: 'signup', error }); setMsg(authErrorText(error)); return; }
       const userId = data.user?.id;
       if (!userId) { setMsg('Something went wrong creating your account — please try again.'); return; }
       const hasSession = !!data.session;
@@ -337,6 +377,40 @@ function FounderSignupForm() {
         setMsg(confirmMsg);
       }
     } finally { setBusy(false); }
+  }
+
+  // The code was right: the browser is signed in as the new account. Provision the organisation (same call, same retry
+  // as the link flow had), record the terms and go where the person was going.
+  async function afterCodeVerified(userId: string | null): Promise<string | void> {
+    if (!userId) return 'Your email is confirmed, but we could not finish creating your account. Please sign in.';
+    clearPending('signup');
+    const provisioned = await attemptProvision(userId);
+    if (!provisioned) {
+      // Back to the form, where the Retry button (and the message attemptProvision set) are.
+      setPendingAccount({ userId, session: true });
+      setStep('form');
+      return;
+    }
+    await acceptTerms();
+    window.location.href = afterSignup;
+  }
+
+  if (step === 'code') {
+    return (
+      <AuthShell>
+        <div className="w-full max-w-md rounded-2xl border border-gray-100 bg-white p-7 shadow-2xl" data-testid="signup-code-step">
+          <div className="mb-3 flex items-center gap-2 text-2xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
+            <LogoLockup size={28} accentClassName="text-[#2a7f8e]" />
+          </div>
+          <EmailCodeConfirm
+            email={email} password={password} sentAt={sentAt} redirectPath={afterSignup}
+            onVerified={(v) => afterCodeVerified(v.userId)}
+            onResent={(at) => { setSentAt(at); writePending({ flow: 'signup', scope: 'signup', email, sentAt: at, fields: { org, website, sector, stage, roundTarget, country, oneLiner, howHeard, name, title, phone, linkedin, wantsNewsletter, agreedToTerms } }); }}
+            onChangeEmail={() => { clearPending('signup'); setStep('form'); setMsg(''); }}
+          />
+        </div>
+      </AuthShell>
+    );
   }
 
   return (
@@ -438,7 +512,7 @@ function FounderSignupForm() {
           </button>
         )}
         <p className="mt-2 text-[11px] text-gray-400">* required</p>
-        {msg && <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700">{msg}</div>}
+        {msg && <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700"><AuthMessage text={msg} /></div>}
         <div className="mt-5 border-t border-gray-100 pt-4 text-center text-xs text-gray-500">
           Already have an account? <Link href={fromIncubatorInvite ? `/login?next=${encodeURIComponent(INCUBATOR_INVITE_CONTINUE_PATH)}` : '/login'} className="font-medium text-[#0E7490] hover:underline">Sign in</Link>
         </div>

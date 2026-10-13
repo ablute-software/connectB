@@ -70,7 +70,8 @@ describe('/api/ai-review — the three-way split (document_review / cross_docume
   });
 
   it('message_review is explicitly excluded from the charge — the disabled Watson draft-review card, not one of the three billable buttons', () => {
-    expect(src).toContain("kind !== 'message_review' && member");
+    // (Prompt 904: the org is the acting org's id, `orgId`, not a membership row any more.)
+    expect(src).toContain("kind !== 'message_review' && orgId");
   });
 });
 

@@ -12,8 +12,9 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { resolveActorId, findConnectLinkByTokenHash, connectLinkInvitesGeneratedThisWeek, createInvite } from '@/lib/network-db';
 import { connectLinkPaused } from '@/lib/network';
 import { hashToken } from '@/lib/matchdeal-pairing';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' });
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
   if (!body.token) return NextResponse.json({ ok: false, error: 'Missing token.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const opener = await resolveActorId(admin, user.id);
+  const opener = await resolveActorId(admin, user.id, await resolveActingOrg(req, user, sb));
   if (!opener) return NextResponse.json({ ok: false, error: 'No network profile found for your account.' }, { status: 403 });
 
   const link = await findConnectLinkByTokenHash(admin, hashToken(body.token));
@@ -46,4 +47,4 @@ export async function POST(req: Request) {
   });
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error });
   return NextResponse.json({ ok: true });
-}
+});

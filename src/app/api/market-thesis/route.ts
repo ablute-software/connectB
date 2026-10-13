@@ -14,13 +14,13 @@ import {
   readCandidateDocumentIds, computeDocumentSuggestSignature, isThesisIncomplete, shouldAutoSuggestFromDocuments,
 } from '@/lib/market-thesis-document-suggest';
 import { truncateAtWord } from '@/lib/text-truncate';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
-async function resolveOrgId(sb: Awaited<ReturnType<typeof serverClient>>, userId: string): Promise<string | null> {
-  const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
-  return (data?.org_id as string | undefined) ?? null;
+async function resolveOrgId(req: Request, sb: Awaited<ReturnType<typeof serverClient>>, userId: string): Promise<string | null> {
+  return (await resolveActingOrg(req, { id: userId }, sb)).orgId;
 }
 
-export async function GET() {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ available: false });
@@ -29,7 +29,7 @@ export async function GET() {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 
-  const orgId = await resolveOrgId(sb, user.id);
+  const orgId = await resolveOrgId(req, sb, user.id);
   if (!orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
 
   if (!(await marketThesisAvailable())) return NextResponse.json({ available: false });
@@ -95,9 +95,9 @@ export async function GET() {
     available: true, thesis: thesis ?? null, hypotheses: hypothesesResult.data ?? [], suggestions,
     autoSuggest: { eligible: autoSuggestEligible },
   });
-}
+});
 
-export async function PATCH(req: Request) {
+export const PATCH = withActingOrg(async function PATCH(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' });
@@ -108,7 +108,7 @@ export async function PATCH(req: Request) {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 
-  const orgId = await resolveOrgId(sb, user.id);
+  const orgId = await resolveOrgId(req, sb, user.id);
   if (!orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
 
   if (!(await marketThesisAvailable())) return NextResponse.json({ ok: false, error: 'not configured' });
@@ -140,4 +140,4 @@ export async function PATCH(req: Request) {
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   return NextResponse.json({ ok: true, version });
-}
+});

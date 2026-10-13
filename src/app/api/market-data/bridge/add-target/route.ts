@@ -18,13 +18,13 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { orgCompetitorsAvailable } from '@/lib/market-data-capability';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
 import { crossReferenceInvestors, type CompetitorInvestmentFact } from '@/lib/market-investor-bridge';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
-async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
-  const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
-  return (data?.org_id as string | undefined) ?? null;
+async function resolveOrg(req: Request, sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
+  return (await resolveActingOrg(req, { id: userId }, sb)).orgId;
 }
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' });
@@ -36,7 +36,7 @@ export async function POST(req: Request) {
   if (viewerBlock) return viewerBlock;
   if (!(await orgCompetitorsAvailable())) return NextResponse.json({ ok: false, error: 'not configured' });
 
-  const orgId = await resolveOrg(sb, user.id);
+  const orgId = await resolveOrg(req, sb, user.id);
   if (!orgId) return NextResponse.json({ ok: false, error: 'No organization.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as { investorEntityId?: string };
@@ -115,4 +115,4 @@ export async function POST(req: Request) {
   await admin.from('catalog_deliveries').insert({ org_id: orgId, catalog_id: body.investorEntityId, entity_id: entity!.id as string });
 
   return NextResponse.json({ ok: true, entityId: entity!.id, hookLine });
-}
+});

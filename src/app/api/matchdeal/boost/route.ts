@@ -41,8 +41,9 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveOwnMatchdealProfileId } from '@/lib/matchdeal-pairing';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { withActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: NextRequest) {
+export const POST = withActingOrg(async function POST(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -78,4 +79,4 @@ export async function POST(req: NextRequest) {
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
 
   return NextResponse.json({ ok: true });
-}
+});

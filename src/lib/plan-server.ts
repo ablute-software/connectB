@@ -10,17 +10,27 @@ import { platformBadgesAvailable } from './platform-badges-capability';
 import { loadOrgPlatformBadges } from './platform-badges-server';
 import { freeTierFromBadges } from './platform-badges';
 import type { PlanTier } from './types';
+import type { ActingOrg } from './acting-org';
 
 function tierRank(t: PlanTier): number {
   return PLAN_TIERS.indexOf(t);
 }
 
+// Prompt 904 — pass `acting` (resolveActingOrg's answer) when the route already has it: the plan is
+// the ACTING org's, which in a Developer Viewer session is the viewed org, never the developer's own.
+// Without it the org is the caller's own membership, as before.
 export async function resolveUserPlan(
   userId: string,
   sb: SupabaseClient,
+  acting?: Pick<ActingOrg, 'orgId'>,
 ): Promise<{ orgId: string | null; plan: PlanTier }> {
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
-  const orgId = (member?.org_id as string | undefined) ?? null;
+  let orgId: string | null;
+  if (acting) {
+    orgId = acting.orgId;
+  } else {
+    const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
+    orgId = (member?.org_id as string | undefined) ?? null;
+  }
   if (!orgId) return { orgId: null, plan: 'idea' };
   const { data: org } = await sb.from('orgs').select('plan').eq('id', orgId).maybeSingle();
   const storedPlan = normalizePlan(org?.plan as string | null | undefined);

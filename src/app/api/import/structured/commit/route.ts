@@ -13,11 +13,12 @@ import {
 import { entitiesSourceExpandedAvailable } from '@/lib/entities-source-expanded-capability';
 import type { ImportPlan } from '@/lib/structured-import';
 import type { Channel, Classification, Direction } from '@/lib/types';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 const VALID_CHANNELS: Channel[] = ['linkedin_dm', 'linkedin_note', 'email', 'web_form', 'call', 'meeting', 'event', 'intro'];
 const VALID_CLASSIFICATIONS: Classification[] = ['awaiting', 'interested', 'meeting_request', 'question', 'pass', 'out_of_office', 'bounce', 'unclear'];
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
@@ -25,9 +26,9 @@ export async function POST(req: Request) {
   const { plan } = await req.json() as { plan?: ImportPlan };
   if (!plan) return NextResponse.json({ ok: false, error: 'plan is required.' }, { status: 400 });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
-  const orgId = member.org_id;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  const orgId = acting.orgId;
 
   // Prompt 124 C4 — this route bulk-creates entities from a CSV-shape pack
   // import; 'bulk_import' distinguishes them from a single manual add once
@@ -193,4 +194,4 @@ export async function POST(req: Request) {
     ok: true, entitiesCreated, entitiesUpdated, peopleCreated, peopleUpdated, peopleSkipped,
     interactionsCreated, interactionsSkipped, affiliationsCreated, conflictsQueued,
   });
-}
+});

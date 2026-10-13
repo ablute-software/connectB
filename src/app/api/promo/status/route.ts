@@ -5,8 +5,9 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { isRedemptionCurrentlyActive } from '@/lib/promo';
+import { withoutViewer } from '@/lib/acting-org';
 
-export async function GET() {
+export const GET = withoutViewer(async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: true, active: null });
@@ -39,4 +40,4 @@ export async function GET() {
     .filter(Boolean);
 
   return NextResponse.json({ ok: true, active });
-}
+});

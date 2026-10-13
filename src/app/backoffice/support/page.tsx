@@ -3,11 +3,16 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Card } from '@/components/ui';
+import { TicketAccountCell } from '@/components/backoffice/TicketAccount';
+import type { AccountOption } from '@/lib/support-ticket-list';
+import type { TicketAccount } from '@/lib/support-ticket-account';
 
 interface Ticket {
   id: string; created_at: string; source: string; name: string; email: string;
   category: string; subject: string; status: string; priority: string; area: string | null;
   attachment_urls: string[]; last_activity_at: string; delayedNew: boolean; forgottenOpen: boolean; suggestClose: boolean;
+  // Prompt 907 §B — which company (or VC firm) this ticket belongs to, and the sender's role there.
+  account: TicketAccount;
 }
 interface Counts { new: number; atrasados: number; esquecidos: number; sugerirFechar: number; navBadge: number }
 
@@ -40,18 +45,24 @@ export default function SupportListPage() {
   const [status, setStatus] = useState('');
   const [category, setCategory] = useState('');
   const [source, setSource] = useState('');
+  // Prompt 907 §B — an org id, a firm id, or 'none'. The options come from ALL tickets, so choosing one does not empty the list.
+  const [account, setAccount] = useState('');
+  const [accountOptions, setAccountOptions] = useState<AccountOption[]>([]);
+  const [noAccount, setNoAccount] = useState(0);
 
   function load() {
     const params = new URLSearchParams();
     if (status) params.set('status', status);
     if (category) params.set('category', category);
     if (source) params.set('source', source);
+    if (account) params.set('account', account);
     fetch(`/api/backoffice/support?${params.toString()}`).then((r) => r.json()).then((body) => {
       if (body.ok === false) { setErr(body.error); return; }
       setTickets(body.tickets); setCounts(body.counts);
+      setAccountOptions(body.accounts ?? []); setNoAccount(body.noAccount ?? 0);
     });
   }
-  useEffect(load, [status, category, source]);
+  useEffect(load, [status, category, source, account]);
 
   if (err) return <p className="text-sm text-[#B00000]">{err}</p>;
 
@@ -84,6 +95,11 @@ export default function SupportListPage() {
           <option value="">All sources</option>
           {Object.entries(SOURCE_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>
+        <select value={account} onChange={(e) => setAccount(e.target.value)} aria-label="Account" className="max-w-[220px] rounded-lg border border-gray-300 px-2 py-1.5 text-xs">
+          <option value="">All accounts</option>
+          {accountOptions.map((a) => <option key={a.id} value={a.id}>{a.name}{a.kind === 'investor_entity' ? ' (VC)' : ''} · {a.count}</option>)}
+          {noAccount > 0 && <option value="none">No account · {noAccount}</option>}
+        </select>
       </div>
 
       <Card title={tickets ? `Tickets (${tickets.length})` : 'Tickets'}>
@@ -94,7 +110,7 @@ export default function SupportListPage() {
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
                 <th className="py-1.5">Status</th><th>Priority</th><th>Category</th><th>Area</th><th>Subject</th>
-                <th>Who</th><th>Source</th><th>Age</th><th>Last activity</th>
+                <th>From</th><th>Account</th><th>Source</th><th>Age</th><th>Last activity</th>
               </tr>
             </thead>
             <tbody>
@@ -114,6 +130,7 @@ export default function SupportListPage() {
                     {t.attachment_urls?.length > 0 && <span className="ml-1 text-gray-400" title={`${t.attachment_urls.length} attachment(s)`}>📎{t.attachment_urls.length}</span>}
                   </td>
                   <td className="text-xs text-gray-500">{t.name}<div className="text-gray-400">{t.email}</div></td>
+                  <td className="max-w-[200px]"><TicketAccountCell account={t.account} /></td>
                   <td className="text-xs text-gray-400">{SOURCE_LABEL[t.source] ?? t.source}</td>
                   <td className="text-xs text-gray-400">{age(t.created_at)}</td>
                   <td className="text-xs text-gray-400">{age(t.last_activity_at)} ago</td>

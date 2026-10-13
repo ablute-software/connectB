@@ -6,6 +6,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Card } from '@/components/ui';
+import { PeopleCard } from '@/components/backoffice/PeopleCard';
+import type { CustomerInvite, CustomerPerson } from '@/lib/backoffice-customer-people';
 
 interface Invoice {
   id: string; stripe_invoice_id: string; amount_due_cents: number; amount_paid_cents: number;
@@ -21,6 +23,8 @@ interface Customer {
   kind: 'org' | 'investor_entity'; id: string; name: string; signupDate: string | null;
   plan: string; description: string | null; nextPaymentDueAt: string | null;
   lastPaymentStatus: string | null; invoices: Invoice[];
+  // Prompt 907 §A — who can sign in to this account, and the invitations still waiting.
+  members: CustomerPerson[]; invites: CustomerInvite[];
   redemptions?: Redemption[];
   portfolioNotBuildableReason?: string;
 }
@@ -57,6 +61,9 @@ export default function FichaClienteDetailPage({ params }: { params: { kind: str
         <Link href="/backoffice/ficha-cliente" className="text-xs text-[#0E7490] hover:underline">← Ficha do cliente</Link>
       </div>
       <h1 className="text-lg font-semibold text-gray-900">{customer.name}</h1>
+
+      {/* Prompt 907 §A — under the header, because "who is on this account" is the first thing a support reader needs. */}
+      <PeopleCard members={customer.members ?? []} invites={customer.invites ?? []} />
 
       <Card title="Overview">
         <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">

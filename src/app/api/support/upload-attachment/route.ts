@@ -30,13 +30,14 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { detectAllowedKind, scanWithVirusTotal, sha256Hex } from '@/lib/upload-security';
 import { supportAttachmentScanAvailable } from '@/lib/upload-security-capability';
+import { withActingOrg } from '@/lib/acting-org';
 
 export const maxDuration = 30;
 
 const MAX_FILES = 3;
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB, same cap as investor document upload
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -92,4 +93,4 @@ export async function POST(req: Request) {
   if (updateError) return NextResponse.json({ ok: false, error: updateError.message }, { status: 500 });
 
   return NextResponse.json({ ok: true, count: newPaths.length });
-}
+});

@@ -16,6 +16,7 @@ import { catalogFieldIsBlank, isCommunityEligibleField, normalizedValuesMatch, o
 import { logAiCall } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
+import { withActingOrg, authorizeActingOrg } from '@/lib/acting-org';
 
 // §4 — "mesmo facto, escrito diferente?" (e.g. "Managing Partner: J. Smith"
 // vs "John Smith (Managing Partner)"; "€1M-5M" vs "1-5 milhoes"). One
@@ -111,7 +112,7 @@ async function arbitratedMatch(admin: SupabaseClient, catalogId: string, field: 
   }
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withActingOrg(async function POST(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: true, skipped: 'not configured' });
@@ -133,8 +134,8 @@ export async function POST(req: NextRequest) {
   const admin = createClient(url, service, { auth: { persistSession: false } });
   const { data: entity, error: entityErr } = await admin.from('entities').select('id, org_id').eq('id', body.entityId).maybeSingle();
   if (entityErr || !entity) return NextResponse.json({ ok: false, error: entityErr?.message ?? 'Entity not found.' }, { status: 404 });
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).eq('org_id', entity.org_id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
+  const acting = await authorizeActingOrg(req, user, entity.org_id, sb);
+  if (!acting) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
 
   // Manual entities (no catalog_deliveries row) never resolve to a shared
   // catalog identity — nothing to compare against, silently skipped, not
@@ -203,4 +204,4 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ ok: true, status: matches ? 'source_added' : 'disagreement_recorded' });
-}
+});

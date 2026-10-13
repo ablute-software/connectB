@@ -9,10 +9,11 @@ import { serverClient } from '@/lib/supabase-server';
 import { parseMdHistory, mergeAliasedSections } from '@/lib/md-history-import';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { detectAllowedKind, scanWithVirusTotal } from '@/lib/upload-security';
+import { withActingOrg, authorizeActingOrg } from '@/lib/acting-org';
 
 export const maxDuration = 30;
 
-export async function POST(req: NextRequest) {
+export const POST = withActingOrg(async function POST(req: NextRequest) {
   const { batchId } = await req.json();
   if (!batchId) return NextResponse.json({ ok: false, error: 'batchId required' }, { status: 400 });
 
@@ -30,8 +31,8 @@ export async function POST(req: NextRequest) {
   const { data: batch, error: batchErr } = await admin.from('import_batches').select('*').eq('id', batchId).single();
   if (batchErr || !batch) return NextResponse.json({ ok: false, error: batchErr?.message ?? 'batch not found' }, { status: 404 });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).eq('org_id', batch.org_id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
+  const acting = await authorizeActingOrg(req, user, batch.org_id, sb);
+  if (!acting) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
 
   if (!batch.file_name.toLowerCase().endsWith('.md')) {
     return NextResponse.json({ ok: false, error: 'Expected a .md file for the structured history importer.' }, { status: 400 });
@@ -74,4 +75,4 @@ export async function POST(req: NextRequest) {
     await admin.from('import_batches').update({ status: 'failed', error: (e as Error).message }).eq('id', batchId);
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }
-}
+});

@@ -9,12 +9,14 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { shareableCookieDomain } from '@/lib/supabase';
+import { VIEWER_ORG_COOKIE, VIEWER_READ_ONLY_CODE, VIEWER_READ_ONLY_MESSAGE } from '@/lib/developer-viewer-shape';
+import { viewerWriteVerdict } from '@/lib/viewer-write-gate';
 
 // Prompt 904 Part B: '/api/auth-code' (register / resend / verify / status) is public because its
 // callers have no session yet; each route answers 404 unless AUTH_CODE_MODE allows the email.
 // Prompt 905: a published call's link (/call/<token>) and the header it reads (/api/calls/public/<token>) are for
 // candidates who have no account yet. Everything else under /api/calls needs a session and answers 404 only while CALLS_MODE is explicitly "off".
-const PUBLIC = ['/call', '/api/calls/public', '/', '/investors', '/login', '/signup', '/auth', '/portal', '/api/me', '/api/auth-code', '/invite', '/api/invite', '/api/portal', '/privacy-request', '/api/gdpr', '/forgot-password', '/reset-password', '/set-password', '/api/stripe/webhook', '/contact', '/api/support', '/api/investor-access-request', '/matchdeal/pair', '/pair', '/manifest.json', '/api/plan/private-detective',
+const PUBLIC = ['/call', '/api/calls/public', '/', '/investors', '/login', '/signup', '/auth', '/portal', '/api/me', '/api/auth-code', '/api/auth-failures', '/invite', '/api/invite', '/api/portal', '/privacy-request', '/api/gdpr', '/forgot-password', '/reset-password', '/set-password', '/api/stripe/webhook', '/contact', '/api/support', '/api/investor-access-request', '/matchdeal/pair', '/pair', '/manifest.json', '/api/plan/private-detective',
   // Prompt 341 — DL 7/2004's pre-contractual information duty: the text
   // must be reachable BEFORE anyone contracts, not gated behind login. The
   // acceptance routes (/api/terms/status, /api/terms/accept) stay OUT of
@@ -137,6 +139,23 @@ export async function middleware(req: NextRequest) {
     redirect.pathname = '/login';
     redirect.searchParams.set('next', pathname);
     return NextResponse.redirect(redirect);
+  }
+  // Prompt 904 — Developer Viewer is READ-ONLY for the whole API, by default. Every founder route refuses a
+  // write in a viewer session through withActingOrg()/withoutViewer() (src/lib/acting-org.ts, enforced by
+  // acting-org-guard.test.ts); this is the independent net under them, so a write route that was never
+  // wrapped is still refused. Only a request that carries the viewer cookie AND really comes from a
+  // developer is touched (the cookie is unsigned; is_ablute_developer() is the check that matters), and what
+  // may still write is the short list in viewer-write-gate.ts. Beacons are acknowledged and dropped.
+  if (user && pathname.startsWith('/api/') && req.cookies.has(VIEWER_ORG_COOKIE)) {
+    const verdict = viewerWriteVerdict(req.method, pathname);
+    if (verdict !== 'pass') {
+      const { data: isDeveloper } = await supabase.rpc('is_ablute_developer');
+      if (isDeveloper === true) {
+        return verdict === 'ignore'
+          ? NextResponse.json({ ok: true, ignored: 'viewer' })
+          : NextResponse.json({ ok: false, error: VIEWER_READ_ONLY_CODE, message: VIEWER_READ_ONLY_MESSAGE }, { status: 403 });
+      }
+    }
   }
   if (user && (pathname === '/login' || pathname === '/signup')) {
     // Prompt 680/682 — this used to send EVERY signed-in visitor straight to

@@ -312,7 +312,8 @@ describe('source guard — the routes this prompt changed keep the viewed-org re
   for (const rel of READERS) {
     it(`${rel} resolves its org through the viewer-aware helper`, () => {
       const src = read(rel);
-      expect(src).toMatch(/from '@\/lib\/developer-viewer'/);
+      // Prompt 904 — the 902 helpers are gone; every founder route asks src/lib/acting-org.ts.
+      expect(src).toMatch(/from '@\/lib\/acting-org'/);
       expect(src).not.toMatch(CALLER_MEMBERSHIP);
     });
   }

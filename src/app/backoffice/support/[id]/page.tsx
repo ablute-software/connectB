@@ -5,6 +5,8 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { Card } from '@/components/ui';
+import { TicketAccountLabel, TicketAccountMatch } from '@/components/backoffice/TicketAccount';
+import type { TicketAccount } from '@/lib/support-ticket-account';
 
 interface Ticket {
   id: string; created_at: string; source: string; org_id: string | null; user_id: string | null;
@@ -80,6 +82,8 @@ export default function SupportTicketPage() {
   const [events, setEvents] = useState<Event[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [moderationCase, setModerationCase] = useState<ModerationCase | null>(null);
+  // Prompt 907 §B — whose ticket this is.
+  const [account, setAccount] = useState<TicketAccount | null>(null);
   const [alsoRemove, setAlsoRemove] = useState(true);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -92,6 +96,7 @@ export default function SupportTicketPage() {
       if (body.ok === false) { setErr(body.error); return; }
       setTicket(body.ticket); setEvents(body.events); setAttachments(body.attachments ?? []);
       setModerationCase(body.moderationCase ?? null);
+      setAccount(body.account ?? null);
     });
   }
   useEffect(load, [id]);
@@ -116,7 +121,17 @@ export default function SupportTicketPage() {
     <div className="max-w-3xl space-y-4">
       <Link href="/backoffice/support" className="text-xs text-[#0E7490] hover:underline">← Customer Support</Link>
 
-      <Card title={ticket.subject}>
+      {/* Prompt 907 §B — the header says what the ticket is, where it stands and WHOSE it is: "test · Closed · ABOUT FOOD (owner)". */}
+      <Card title={(
+        <span>
+          {ticket.subject}
+          <span className="font-normal text-gray-400"> · </span><span className="font-normal text-gray-600">{STATUS_LABEL[ticket.status] ?? ticket.status}</span>
+          {account && <><span className="font-normal text-gray-400"> · </span><span className="font-normal"><TicketAccountLabel account={account} /></span></>}
+        </span>
+      )}>
+        {account && account.kind === 'none' && account.matches && (
+          <p className="mb-2 text-xs"><TicketAccountMatch account={account} /></p>
+        )}
         <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
           <span className="font-semibold text-gray-700">{ticket.name}</span> · {ticket.email}
           · {CATEGORY_LABEL[ticket.category] ?? ticket.category} · {SOURCE_LABEL[ticket.source] ?? ticket.source}

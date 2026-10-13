@@ -10,29 +10,27 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { assertNotViewer } from '@/lib/developer-viewer';
 import { projectDossier, type InterestLevel } from '@/lib/investor-interest-level';
 import { fetchDossierRawData } from '@/lib/dossier-fetch';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 function parseLevel(raw: string | null): InterestLevel {
   const n = raw == null ? 3 : Number(raw);
   return n === 0 || n === 1 || n === 2 ? n : 3; // default AND fallback for anything unrecognised is the max level (3)
 }
 
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
 
   const sb = await serverClient();
-  const viewerBlock = await assertNotViewer(sb, req);
-  if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'No organization.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'No organization.' }, { status: 403 });
+  const orgId = acting.orgId as string;
 
   const level = parseLevel(new URL(req.url).searchParams.get('level'));
 
@@ -75,4 +73,4 @@ export async function GET(req: Request) {
     // Prompt 373 §F — same "see it like an investor" preview treatment.
     market: raw.market,
   });
-}
+});

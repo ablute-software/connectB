@@ -9,6 +9,13 @@ function row(overrides: Partial<AuditLogRow>): AuditLogRow {
 }
 
 describe('describeAuditEvent', () => {
+  it('formats viewer_read as what the developer looked at (Prompt 904)', () => {
+    expect(describeAuditEvent(
+      row({ action: 'viewer_read', subject_type: 'org', detail: { route: '/api/market-thesis', enteredAt: '2026-10-12T10:00:00Z' } }),
+      'alexandrameira',
+    )).toBe('alexandrameira looked at /api/market-thesis in Developer Viewer');
+  });
+
   it('formats promo_code_created matching the real example from Prompt 69', () => {
     const s = describeAuditEvent(
       row({ action: 'promo_code_created', detail: { code: 'ALEXOFFER100', kind: 'free_trial', discount_pct: 100 } }),

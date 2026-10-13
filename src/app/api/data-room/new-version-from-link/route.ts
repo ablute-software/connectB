@@ -20,6 +20,7 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { detectAllowedKind, scanWithVirusTotal, sha256Hex } from '@/lib/upload-security';
 import { malwareScanAvailable } from '@/lib/upload-security-capability';
 import { sanitizeStorageKey } from '@/lib/data-room';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 export const maxDuration = 30;
 
@@ -43,7 +44,7 @@ function fileNameFromUrl(url: string, fallback: string): string {
   } catch { return fallback; }
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withActingOrg(async function POST(req: NextRequest) {
   const { docId, url: sourceUrl, fileName: fileNameHint } = await req.json().catch(() => ({})) as {
     docId?: string; url?: string; fileName?: string;
   };
@@ -58,9 +59,9 @@ export async function POST(req: NextRequest) {
   if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).limit(1).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not an org member.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not an org member.' }, { status: 403 });
+  const orgId = acting.orgId as string;
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
   const { data: doc } = await admin.from('documents').select('id').eq('id', docId).eq('org_id', orgId).maybeSingle();
@@ -108,4 +109,4 @@ export async function POST(req: NextRequest) {
     malwareScanStatus: (await malwareScanAvailable()) ? verdict.status : 'not_scanned',
     provider: verdict.provider, sha256: sha256Hex(bytes),
   });
-}
+});

@@ -21,10 +21,10 @@ import { orgMarketDataAvailable, marketResearchItemsAvailable } from '@/lib/mark
 import { documentExtractionsAvailable } from '@/lib/document-extraction-capability';
 import { checkMarketDataGate } from '@/lib/market-data-gate';
 import { markReadinessTrainFirstUsed } from '@/lib/readiness-usage';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
-async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
-  const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
-  return (data?.org_id as string | undefined) ?? null;
+async function resolveOrg(req: Request, sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
+  return (await resolveActingOrg(req, { id: userId }, sb)).orgId;
 }
 
 // Prompt 360 §A1 — "From your documents": extractions whose document lives
@@ -66,7 +66,7 @@ async function marketDocumentItems(admin: SupabaseClient, orgId: string) {
   return items;
 }
 
-export async function GET() {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const empty = { available: false };
@@ -76,7 +76,7 @@ export async function GET() {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
 
-  const orgId = await resolveOrg(sb, user.id);
+  const orgId = await resolveOrg(req, sb, user.id);
   if (!orgId) return NextResponse.json(empty);
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
@@ -165,7 +165,7 @@ export async function GET() {
     // looked at all").
     docCounts: { ...docCounts, docsWithMarketContent: marketDocs.length },
   });
-}
+});
 
 // Prompt 370 §B — the counts MarketDataPanel needs to tell "nothing
 // market-related found in what WAS read" apart from "nothing has been
@@ -185,7 +185,7 @@ async function documentReadCounts(admin: SupabaseClient, orgId: string) {
   return { docsTotal: docsTotal ?? 0, docsReadable: docsReadable ?? 0, docsExtracted: docsExtracted ?? 0 };
 }
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' });
@@ -197,7 +197,7 @@ export async function POST(req: Request) {
   if (viewerBlock) return viewerBlock;
   if (!(await orgMarketDataAvailable())) return NextResponse.json({ ok: false, error: 'not configured' });
 
-  const orgId = await resolveOrg(sb, user.id);
+  const orgId = await resolveOrg(req, sb, user.id);
   if (!orgId) return NextResponse.json({ ok: false, error: 'No organization.' }, { status: 403 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
@@ -293,4 +293,4 @@ export async function POST(req: Request) {
   await markReadinessTrainFirstUsed(admin, orgId);
 
   return NextResponse.json({ ok: true });
-}
+});

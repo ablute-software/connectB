@@ -13,12 +13,13 @@ import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { detectAllowedKind, scanWithVirusTotal, sha256Hex } from '@/lib/upload-security';
 import { malwareScanAvailable } from '@/lib/upload-security-capability';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 // Downloading + hashing + a VirusTotal round-trip can run longer than the
 // default — within Hobby-plan's own allowed range, not a paid-tier feature.
 export const maxDuration = 30;
 
-export async function POST(req: NextRequest) {
+export const POST = withActingOrg(async function POST(req: NextRequest) {
   const { storagePath, fileName } = await req.json().catch(() => ({})) as { storagePath?: string; fileName?: string };
   if (!storagePath || !fileName) return NextResponse.json({ ok: false, error: 'storagePath and fileName are required.' }, { status: 400 });
 
@@ -31,9 +32,9 @@ export async function POST(req: NextRequest) {
   if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).limit(1).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not an org member.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not an org member.' }, { status: 403 });
+  const orgId = acting.orgId as string;
 
   // Defense in depth: the path must actually be this org's own prefix — a
   // client can only ever have uploaded there in the first place (Storage
@@ -76,4 +77,4 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     ok: true, malwareScanStatus: verdict.status, provider: verdict.provider, sha256: sha256Hex(bytes), detail: verdict.detail,
   });
-}
+});

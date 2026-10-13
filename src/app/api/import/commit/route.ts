@@ -13,6 +13,7 @@ import {
 } from '@/lib/entity-catalog-autocreate';
 import { entitiesSourceExpandedAvailable } from '@/lib/entities-source-expanded-capability';
 import type { Channel, Direction, Entity, Person } from '@/lib/types';
+import { withActingOrg } from '@/lib/acting-org';
 
 interface ApprovedEntity { name: string; website?: string; matchId?: string | null }
 interface ApprovedPerson { name: string; role?: string; entity_name?: string; phones?: string[]; emails?: string[]; linkedin_url?: string; matchId?: string | null }
@@ -21,7 +22,7 @@ interface ApprovedInteraction { date?: string; channel?: string; direction: Dire
 const norm = (s: string) => s.trim().toLowerCase();
 const VALID_CHANNELS: Channel[] = ['linkedin_dm', 'linkedin_note', 'email', 'web_form', 'call', 'meeting', 'event', 'intro'];
 
-export async function POST(req: NextRequest) {
+export const POST = withActingOrg(async function POST(req: NextRequest) {
   const { batchId, approved } = await req.json() as {
     batchId: string;
     approved: { entities: ApprovedEntity[]; people: ApprovedPerson[]; interactions: ApprovedInteraction[] };
@@ -170,4 +171,4 @@ export async function POST(req: NextRequest) {
     ok: true, entitiesCreated, peopleCreated, peopleSkipped,
     interactionsImported: interactionRows.length, interactionsSkipped,
   });
-}
+});

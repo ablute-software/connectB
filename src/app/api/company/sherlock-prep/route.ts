@@ -19,6 +19,7 @@ import { documentRefsAvailable, documentExtractionsAvailable } from '@/lib/docum
 import { orgMarketRingsAvailable, orgCompetitorsAvailable, marketResearchItemsAvailable } from '@/lib/market-data-capability';
 import { sherlockPrep, type SherlockPrepSources } from '@/lib/sherlock-prep';
 import type { ClaimCategory, CompanyPhase } from '@/lib/types';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 async function readAcceptedClaims(admin: SupabaseClient, orgId: string): Promise<SherlockPrepSources['claims']> {
   const withRefs = await documentRefsAvailable();
@@ -68,7 +69,7 @@ async function readMarketCounts(admin: SupabaseClient, orgId: string): Promise<S
   return { rings, competitors, trends, regulatory };
 }
 
-export async function GET() {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ available: false });
@@ -77,9 +78,9 @@ export async function GET() {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  const orgId = acting.orgId as string;
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
@@ -117,4 +118,4 @@ export async function GET() {
 
   const report = sherlockPrep(sources, companyPhase);
   return NextResponse.json({ available: true, report });
-}
+});

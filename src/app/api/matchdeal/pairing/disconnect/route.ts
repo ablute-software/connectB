@@ -7,8 +7,9 @@ import { serverClient } from '@/lib/supabase-server';
 import { logEvent } from '@/lib/analytics-events';
 import { resolveCallerOrgId, type PairingKind } from '@/lib/matchdeal-pairing';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { withActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -40,4 +41,4 @@ export async function POST(req: Request) {
 
   await logEvent(admin, { organizationId: orgId, organizationType: kind, eventType: 'matchdeal_disconnected', sourceOfAction: 'manual' });
   return NextResponse.json({ ok: true });
-}
+});

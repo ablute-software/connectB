@@ -12,6 +12,7 @@ import {
   RESEND_MIN_INTERVAL_SECONDS, SEND_WINDOW_SECONDS,
 } from './policy';
 import type { AuthCodePorts } from './service';
+import { recordAuthEmailFailure } from './failure-log';
 
 export function adminClientOrNull(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -67,13 +68,17 @@ export function makeSupabasePorts(admin: SupabaseClient): AuthCodePorts {
       return { exists: data.exists === true, confirmed: data.confirmed === true };
     },
 
-    async createAccountAndSendCode(email, profile) {
+    async createAccountAndSendCode(email, profile, ctx) {
       const { error } = await anonClient().auth.signUp({
         email,
         password: throwawayPassword(),
         options: {
+          // Where the link in the email brings the person back to ("{{ .RedirectTo }}" in the Confirm signup template).
+          emailRedirectTo: ctx.redirectTo,
           data: {
             full_name: profile.fullName, org_name: profile.startup, country: profile.country, title: profile.role,
+            // An incubator team member's account is born with this, so the invite flow recognises it (Prompt I-01c).
+            ...(ctx.intent ? { signup_intent: ctx.intent } : {}),
             // Not yet: the typed password is applied after the code is verified. Until then
             // the first-login /set-password screen is the right place for this account.
             password_set: false,
@@ -83,8 +88,8 @@ export function makeSupabasePorts(admin: SupabaseClient): AuthCodePorts {
       if (error) throw error;
     },
 
-    async resendCode(email) {
-      const { error } = await anonClient().auth.resend({ type: 'signup', email });
+    async resendCode(email, ctx) {
+      const { error } = await anonClient().auth.resend({ type: 'signup', email, options: { emailRedirectTo: ctx.redirectTo } });
       if (error) throw error;
     },
 
@@ -128,5 +133,6 @@ export function makeSupabasePorts(admin: SupabaseClient): AuthCodePorts {
     now: () => Date.now(),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     logError: (where, err) => console.error(`[auth-code] ${where}:`, err instanceof Error ? err.message : err),
+    recordFailure: (f) => recordAuthEmailFailure(admin, { email: f.email, action: f.action, source: 'server', error: f.error }),
   };
 }

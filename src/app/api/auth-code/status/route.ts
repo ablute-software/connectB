@@ -3,15 +3,16 @@
 import { NextResponse } from 'next/server';
 import { authCodeMode } from '@/lib/auth-code/mode';
 import { serverClient } from '@/lib/supabase-server';
+import { withoutViewer } from '@/lib/acting-org';
 
 // No request argument: without this Next prerenders it at build time and freezes the 404 it answers while the mode is off.
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export const GET = withoutViewer(async function GET() {
   if (authCodeMode() === 'off') return NextResponse.json({ ok: false }, { status: 404 });
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: true, authenticated: false, hasStartup: false, userId: null });
   const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
   return NextResponse.json({ ok: true, authenticated: true, hasStartup: !!member, userId: user.id });
-}
+});

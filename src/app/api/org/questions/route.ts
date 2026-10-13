@@ -2,43 +2,39 @@
 // every question for the org, answer, optionally promote to FAQ.
 import { NextResponse } from 'next/server';
 import { serverClient } from '@/lib/supabase-server';
-import { readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
+import { resolveActingOrg, withActingOrg } from '@/lib/acting-org';
 
 // Prompt 894 — never checked the viewer cookie, so a Developer Viewer
 // session saw the developer's own org's questions instead of the org being
 // viewed. Safe to keep reading via `sb` (not admin): migration 0119 already
 // grants is_ablute_developer() a read policy on portal_questions.
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
 
-  let orgId = await readVerifiedViewerOrgId(sb, req);
-  if (!orgId) {
-    const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-    orgId = (member?.org_id as string | undefined) ?? null;
-  }
+  const orgId = (await resolveActingOrg(req, user, sb)).orgId;
   if (!orgId) return NextResponse.json({ error: 'Not a member of any org.' }, { status: 403 });
 
   const { data: questions } = await sb.from('portal_questions').select('*').eq('org_id', orgId).order('created_at', { ascending: false });
   return NextResponse.json({ questions: questions ?? [] });
-}
+});
 
-export async function PATCH(req: Request) {
+export const PATCH = withActingOrg(async function PATCH(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as { id?: string; answer?: string; is_faq?: boolean };
   const { id, answer, is_faq } = body;
   if (!id) return NextResponse.json({ ok: false, error: 'id is required.' }, { status: 400 });
 
   const { data: question } = await sb.from('portal_questions').select('org_id, asked_by_email').eq('id', id).maybeSingle();
-  if (!question || question.org_id !== member.org_id) return NextResponse.json({ ok: false, error: 'Question not found.' }, { status: 404 });
+  if (!question || question.org_id !== acting.orgId) return NextResponse.json({ ok: false, error: 'Question not found.' }, { status: 404 });
 
   const patch: Record<string, unknown> = {};
   if (answer !== undefined) { patch.answer = answer; patch.answered_at = new Date().toISOString(); patch.answered_by = user.id; }
@@ -64,4 +60,4 @@ export async function PATCH(req: Request) {
   }
 
   return NextResponse.json({ ok: true });
-}
+});

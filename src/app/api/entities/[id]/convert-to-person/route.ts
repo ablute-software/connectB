@@ -21,8 +21,9 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { logAdminAction } from '@/lib/audit';
+import { withActingOrg, authorizeActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export const POST = withActingOrg(async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -39,8 +40,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (entityErr) return NextResponse.json({ ok: false, error: entityErr.message }, { status: 500 });
   if (!entity) return NextResponse.json({ ok: false, error: 'Entity not found.' }, { status: 404 });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).eq('org_id', entity.org_id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
+  const acting = await authorizeActingOrg(req, user, entity.org_id, sb);
+  if (!acting) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
   const userId = user.id;
 
   const lastVerified = new Date().toISOString().slice(0, 10);
@@ -75,4 +76,4 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   });
 
   return NextResponse.json({ ok: true, personId: person.id });
-}
+});

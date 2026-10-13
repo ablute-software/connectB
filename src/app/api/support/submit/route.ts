@@ -15,6 +15,7 @@ import { loadOrgPlatformBadges } from '@/lib/platform-badges-server';
 import { canSuggest } from '@/lib/suggestions-gate';
 import { sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 import { BRAND_NAME } from '@/lib/brand';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 // Prompt 605 §A — 'feedback_widget' and 'suggestion' are the two new values,
 // added by migration 0339. Everything a suggestion needs already existed on
@@ -39,7 +40,7 @@ function getIp(req: Request): string {
   return req.headers.get('x-real-ip') ?? 'unknown';
 }
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return genericOk();
@@ -83,8 +84,8 @@ export async function POST(req: Request) {
   let orgId: string | null = null;
   if (user) {
     finalEmail = (user.email ?? finalEmail).toLowerCase();
-    const { data: member } = await admin.from('org_members').select('org_id').eq('user_id', user.id).limit(1).maybeSingle();
-    orgId = member?.org_id ?? null;
+    const acting = await resolveActingOrg(req, user, sb);
+    orgId = acting.orgId ?? null;
   }
 
   // Prompt 605 §B — THE enforcement point for the suggestion gate. The
@@ -183,4 +184,4 @@ export async function POST(req: Request) {
   // early exit above (rate limit, honeypot, not-configured) returns the
   // plain genericOk() with nothing to attach to.
   return NextResponse.json({ ok: true, message: "Thanks — we'll get back to you.", ticketId: ticket.id });
-}
+});

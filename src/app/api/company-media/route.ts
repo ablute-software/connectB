@@ -5,20 +5,17 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { assertNotViewer, readVerifiedViewerOrgId } from '@/lib/developer-viewer';
+import { assertNotViewer } from '@/lib/developer-viewer';
 import { validateCaption } from '@/lib/company-media';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
-// Prompt 894 — this card's GET never checked the viewer cookie at all (not
-// even assertNotViewer, which only guards the mutating handlers below), so a
-// Developer Viewer session showed the developer's own org's photos/media.
+// Prompt 904 — resolveActingOrg: a Developer Viewer session lists the VIEWED
+// org's photos/media (Prompt 894 fixed this card by hand).
 async function resolveOrgId(sb: Awaited<ReturnType<typeof serverClient>>, userId: string, req: Request): Promise<string | null> {
-  const viewerOrgId = await readVerifiedViewerOrgId(sb, req);
-  if (viewerOrgId) return viewerOrgId;
-  const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
-  return (data?.org_id as string | undefined) ?? null;
+  return (await resolveActingOrg(req, { id: userId }, sb)).orgId;
 }
 
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ items: [] });
@@ -34,9 +31,9 @@ export async function GET(req: Request) {
     .select('id, kind, category, caption, storage_path, external_url, malware_scan_status, sort_order, created_at')
     .eq('org_id', orgId).order('sort_order', { ascending: true });
   return NextResponse.json({ items: data ?? [] });
-}
+});
 
-export async function PATCH(req: Request) {
+export const PATCH = withActingOrg(async function PATCH(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -83,9 +80,9 @@ export async function PATCH(req: Request) {
   }
 
   return NextResponse.json({ ok: false, error: 'orderedIds or id is required.' }, { status: 400 });
-}
+});
 
-export async function DELETE(req: Request) {
+export const DELETE = withActingOrg(async function DELETE(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -109,4 +106,4 @@ export async function DELETE(req: Request) {
   const { error } = await admin.from('company_media').delete().eq('id', id);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
-}
+});

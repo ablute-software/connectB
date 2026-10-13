@@ -20,10 +20,11 @@ import {
 } from '@/lib/network-db';
 import { emailInviteRateCounts, canSendDirectInvite } from '@/lib/network';
 import { generateRawToken, hashToken } from '@/lib/matchdeal-pairing';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 const GENERIC_SENT_MESSAGE = 'Invite sent — they need to accept before you\'re connected. Share the link below too, in case they haven\'t signed up yet.';
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' });
@@ -36,7 +37,7 @@ export async function POST(req: Request) {
   if (!(await networkAvailable())) return NextResponse.json({ ok: false, error: 'Not available in this workspace yet.' });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const actor = await resolveActorId(admin, user.id);
+  const actor = await resolveActorId(admin, user.id, await resolveActingOrg(req, user, sb));
   if (!actor) return NextResponse.json({ ok: false, error: 'No network profile found for your account.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as { email?: string; message?: string };
@@ -80,4 +81,4 @@ export async function POST(req: Request) {
 
   const origin = new URL(req.url).origin;
   return NextResponse.json({ ok: true, message: GENERIC_SENT_MESSAGE, inviteLink: `${origin}/network/invite/${rawToken}` });
-}
+});

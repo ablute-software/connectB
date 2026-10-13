@@ -6,7 +6,8 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient, authEnabled } from '@/lib/supabase-server';
 import { accessRequestItemsAvailable, documentRequestItemTypeAvailable } from '@/lib/document-request-capability';
 import { allItemsResolved } from '@/lib/document-request-logic';
-import { assertNotViewer, resolveViewedOrg, resolveViewedOrgId } from '@/lib/developer-viewer';
+import { assertNotViewer } from '@/lib/developer-viewer';
+import { resolveActingOrg, withActingOrg } from '@/lib/acting-org';
 
 // Prompt 426 §A — item_type is only ever selected via a dynamically-built
 // string (see itemsSelect below), so postgrest-js can't statically infer a
@@ -19,7 +20,7 @@ interface AccessRequestItemRow {
   item_type?: string | null;
 }
 
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   if (!authEnabled) return NextResponse.json({ requests: [] });
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
@@ -29,7 +30,9 @@ export async function GET(req: Request) {
   // used to answer with the developer's own org (ablute_) inside a Developer
   // Viewer session over another one, so "Document requests" listed ablute_'s
   // test requests under ABOUT FOOD.
-  const { orgId, viewer } = await resolveViewedOrg(sb, req, user.id);
+  const acting = await resolveActingOrg(req, user, sb);
+  const orgId = acting.orgId;
+  const viewer = acting.mode === 'viewer';
   if (!orgId) return NextResponse.json({ requests: [] });
   // ?unseen=1 is the popup's feed — the founder's own "you have not looked at
   // this yet" state. A developer inside the viewer neither sees nor consumes
@@ -110,9 +113,9 @@ export async function GET(req: Request) {
   });
 
   return NextResponse.json({ requests: (singleId || unseenOnly) ? shaped : shaped.filter((r) => !r.resolved) });
-}
+});
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   if (!authEnabled) return NextResponse.json({ ok: false }, { status: 200 });
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
@@ -125,7 +128,7 @@ export async function POST(req: Request) {
   const viewerBlock = await assertNotViewer(sb, req);
   if (viewerBlock) return viewerBlock;
 
-  const orgId = await resolveViewedOrgId(sb, req, user.id);
+  const orgId = (await resolveActingOrg(req, user, sb)).orgId;
   if (!orgId) return NextResponse.json({ ok: false, error: 'No org.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as { requestId?: string };
@@ -139,4 +142,4 @@ export async function POST(req: Request) {
     .eq('org_id', orgId).eq('id', body.requestId);
 
   return NextResponse.json({ ok: true });
-}
+});

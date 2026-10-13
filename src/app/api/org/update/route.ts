@@ -14,6 +14,7 @@ import { patchTouchesArchiveRelevantFields, regenerateNowSummary } from '@/lib/s
 import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import { logEvent } from '@/lib/analytics-events';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 // Only these columns are editable here — never plan/credits/id/bcc_email.
 // Company tab redesign (migration 0037) added everything from legal_name
@@ -66,7 +67,19 @@ const EDITABLE = [
   'intro_problem', 'intro_solution',
 ] as const;
 
-export async function POST(req: Request) {
+// Prompt 906 §A — what the database holds for the columns this route is allowed to
+// write, handed back with the answer so the page can show the stored value rather
+// than assume its own optimistic copy. Only EDITABLE columns: the founder's browser
+// does not get the rest of the row (plan, credits, suspension stamps, bcc_email …)
+// from here, however much of it the service-role read below happened to select.
+function storedEditableColumns(row: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!row) return null;
+  const out: Record<string, unknown> = {};
+  for (const k of EDITABLE) if (k in row) out[k] = row[k];
+  return out;
+}
+
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -77,14 +90,14 @@ export async function POST(req: Request) {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 
-  const { data: member } = await sb.from('org_members').select('org_id, role').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
-  const orgRole = member.role as OrgRole;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  const orgRole = acting.role as OrgRole;
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
   // The org's configured matrix (batch 3 C) is the source of truth; it falls
   // back to the built-in defaults (owner+admin) when unconfigured / pre-0026.
-  const matrix = await loadOrgMatrix(admin, member.org_id as string);
+  const matrix = await loadOrgMatrix(admin, acting.orgId as string);
   if (!canWithMatrix(matrix, orgRole, 'org_editing')) {
     return NextResponse.json({ ok: false, error: 'Your role can’t edit organisation settings.' }, { status: 403 });
   }
@@ -94,7 +107,7 @@ export async function POST(req: Request) {
   for (const k of EDITABLE) if (k in body) patch[k] = body[k] === '' ? null : body[k];
   if (Object.keys(patch).length === 0) return NextResponse.json({ ok: false, error: 'Nothing to update.' }, { status: 400 });
 
-  const { error } = await admin.from('orgs').update(patch).eq('id', member.org_id);
+  const { error } = await admin.from('orgs').update(patch).eq('id', acting.orgId);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   // Archive "Now" regeneration (prompt 60) — fact-triggered, not periodic.
@@ -105,7 +118,7 @@ export async function POST(req: Request) {
   // so the added latency on a founder's save is both rare and cheap — a
   // single short AI call, never blocking on every save.
   if (patchTouchesArchiveRelevantFields(patch)) {
-    await regenerateNowSummary(admin, member.org_id as string).catch(() => {});
+    await regenerateNowSummary(admin, acting.orgId as string).catch(() => {});
   }
 
   // SherlockDeal_Metricas_BackOffice_V1, Section 6.1 indicator 3/6 — a
@@ -116,20 +129,20 @@ export async function POST(req: Request) {
   // field whitelist (EDITABLE above) already covers everything the
   // formula reads — cheap to re-check, not worth a second whitelist that
   // could drift out of sync with the first.
-  const { data: freshOrg } = await admin.from('orgs').select('*').eq('id', member.org_id).single();
+  const { data: freshOrg } = await admin.from('orgs').select('*').eq('id', acting.orgId).single();
   if (freshOrg && !freshOrg.profile_reached_80_at) {
-    const { data: people } = await admin.from('company_people').select('*').eq('org_id', member.org_id);
+    const { data: people } = await admin.from('company_people').select('*').eq('org_id', acting.orgId);
     const { pct } = calcCompanyCompleteness(freshOrg, people ?? []);
     if (pct >= 80) {
       const reachedAt = new Date().toISOString();
-      await admin.from('orgs').update({ profile_reached_80_at: reachedAt }).eq('id', member.org_id);
+      await admin.from('orgs').update({ profile_reached_80_at: reachedAt }).eq('id', acting.orgId);
       await logEvent(admin, {
-        organizationId: member.org_id as string, organizationType: 'startup', eventType: 'profile_completeness_reached',
+        organizationId: acting.orgId as string, organizationType: 'startup', eventType: 'profile_completeness_reached',
         eventTimestamp: reachedAt, planAtEventTime: freshOrg.plan, countryAtEventTime: freshOrg.country, sectorAtEventTime: freshOrg.sector,
         result: '80', sourceOfAction: 'manual',
       });
     }
   }
 
-  return NextResponse.json({ ok: true });
-}
+  return NextResponse.json({ ok: true, org: storedEditableColumns(freshOrg as Record<string, unknown> | null) });
+});

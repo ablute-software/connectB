@@ -23,12 +23,12 @@ import type { Org } from '@/lib/types';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
-import { assertNotViewer, readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { orgsPipelineSuspensionAvailable } from '@/lib/pipeline-suspension-capability';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 type Kind = 'startup' | 'investor';
 
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -43,15 +43,14 @@ export async function GET(req: Request) {
   const admin = createClient(url, service, { auth: { persistSession: false } });
 
   if (kind === 'startup') {
-    const { data: member } = await sb.from('org_members').select('org_id, role').eq('user_id', user.id).maybeSingle();
-    if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
-    // Prompt 894 — GET never checked the viewer cookie (assertNotViewer
-    // below only guards the mutating POST), so a Developer Viewer session
-    // saw the developer's own org's suspension/visibility state. `isOwner`
-    // stays tied to the REAL membership: a viewer session isn't an owner of
-    // the org it's looking at.
-    const orgId = (await readVerifiedViewerOrgId(sb, req)) ?? member.org_id;
-    const isOwner = orgId === member.org_id && member.role === 'owner';
+    const acting = await resolveActingOrg(req, user, sb);
+    if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+    // Prompt 894 / 904 — a Developer Viewer session reads the VIEWED org's
+    // suspension/visibility state. `isOwner` stays tied to a REAL membership: a
+    // viewer session isn't an owner of the org it's looking at, so the toggle is
+    // never offered as actionable (and the POST refuses it regardless).
+    const orgId = acting.orgId;
+    const isOwner = acting.role === 'owner'; // null in a viewer session
     // Addenda to Prompt 120 (2026-08-04) — before this, the toggle only
     // ever reflected owner_suspended_at/platform_suspended_at, so a
     // profile that's invisible because it's INCOMPLETE (never suspended by
@@ -167,16 +166,14 @@ export async function GET(req: Request) {
     suspended: !!profile?.owner_suspended_at, platformSuspended: !!profile?.platform_suspended_at,
     suspendedAt: profile?.owner_suspended_at ?? null, remindedAt: profile?.suspension_reminded_at ?? null,
   });
-}
+});
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
 
   const sb = await serverClient();
-  const viewerBlock = await assertNotViewer(sb, req);
-  if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 
@@ -194,15 +191,15 @@ export async function POST(req: Request) {
     : { owner_suspended_at: suspended ? new Date().toISOString() : null };
 
   if (kind === 'startup') {
-    const { data: member } = await sb.from('org_members').select('org_id, role').eq('user_id', user.id).maybeSingle();
-    if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
-    if (member.role !== 'owner') return NextResponse.json({ ok: false, error: 'Only the owner can change visibility.' }, { status: 403 });
+    const acting = await resolveActingOrg(req, user, sb);
+    if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+    if (acting.role !== 'owner') return NextResponse.json({ ok: false, error: 'Only the owner can change visibility.' }, { status: 403 });
     // upsert, not update — an org that never touched MatchDeal has no
     // matchdeal_profiles row yet (confirmed live: a real test org had
     // zero rows), and a plain .update() on zero matching rows silently
     // "succeeds" while changing nothing.
     const { error } = await admin.from('matchdeal_profiles')
-      .upsert({ membership_id: member.org_id, kind: 'startup', ...patch }, { onConflict: 'membership_id,kind' });
+      .upsert({ membership_id: acting.orgId, kind: 'startup', ...patch }, { onConflict: 'membership_id,kind' });
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     // Prompt 184 §2 — dual-write onto orgs (migration 0168), the source
     // eligiblePipelineOrgIds actually reads. `orgs` always has exactly one
@@ -211,7 +208,7 @@ export async function POST(req: Request) {
     // (writing only the matchdeal_profiles copy, same as before this
     // prompt) on an environment where 0168 hasn't been applied yet.
     if (await orgsPipelineSuspensionAvailable()) {
-      await admin.from('orgs').update(patch).eq('id', member.org_id);
+      await admin.from('orgs').update(patch).eq('id', acting.orgId);
     }
     return NextResponse.json({ ok: true });
   }
@@ -224,4 +221,4 @@ export async function POST(req: Request) {
     .upsert({ membership_id: activeMember.id, kind: 'investor', ...patch }, { onConflict: 'membership_id,kind' });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
-}
+});

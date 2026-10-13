@@ -34,6 +34,7 @@ import { routeFreeTextAnswer } from '@/lib/answer-routing';
 import { chargeAiAction } from '@/lib/ai-credits';
 import { readExistingClaims } from '@/lib/company-knowledge-db';
 import type { ClaimCategory } from '@/lib/types';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 const CATEGORIES: ClaimCategory[] = [
   'problema', 'solucao', 'prova_tecnica', 'validacao_externa',
@@ -102,7 +103,7 @@ async function recordGapQuestion(
   }, { onConflict: 'org_id,gap_key' });
 }
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -122,9 +123,9 @@ export async function POST(req: Request) {
   };
   if (!body.gapKey || !body.rule) return NextResponse.json({ ok: false, error: 'gapKey and rule are required.' }, { status: 400 });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'No organization.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'No organization.' }, { status: 403 });
+  const orgId = acting.orgId as string;
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
@@ -267,4 +268,4 @@ export async function POST(req: Request) {
   await recordGapQuestion(admin, orgId, targetClaimId ?? null, body.gapKey, body.rule, questionText, 'new_claim');
   const stillOpenNew = await checkStillOpen(admin, orgId, body.rule);
   return NextResponse.json({ ok: true, routedAs: 'new_claim', ...stillOpenNew });
-}
+});

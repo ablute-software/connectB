@@ -13,8 +13,9 @@ import {
   generateRecoveryLink, hashToken, newRawToken, notMeExpiry, notifyOwnerResetInitiated, recordSecurityEvent, requestOrigin,
   serviceAdmin, userEmail,
 } from '@/lib/account-security-server';
+import { withoutViewer } from '@/lib/acting-org';
 
-export async function POST(req: Request) {
+export const POST = withoutViewer(async function POST(req: Request) {
   const admin = serviceAdmin();
   if (!admin) return NextResponse.json({ ok: false, error: 'Not available in this workspace.' }, { status: 200 });
   const sb = await serverClient();
@@ -63,4 +64,4 @@ export async function POST(req: Request) {
 
   // The link itself is never returned to the admin's browser.
   return NextResponse.json({ ok: true, emailSent: mail.sent });
-}
+});

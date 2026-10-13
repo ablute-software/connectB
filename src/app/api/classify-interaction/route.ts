@@ -12,8 +12,9 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { buildClassifyPrompt, parseClassifyResponse, CLASSIFY_MODEL_DEFAULT } from '@/lib/classify-ai';
 import { serverClient, authEnabled } from '@/lib/supabase-server';
 import { logAiCall } from '@/lib/ai-cost-log';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: NextRequest) {
+export const POST = withActingOrg(async function POST(req: NextRequest) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   // `configured: false` e não um erro: sem chave o /log continua a exigir
   // classificação manual, que é o comportamento normal, não uma avaria.
@@ -30,8 +31,8 @@ export async function POST(req: NextRequest) {
     const sb = await serverClient();
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Not signed in.' }, { status: 401 });
-    const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-    orgId = (member?.org_id as string | undefined) ?? null;
+    const acting = await resolveActingOrg(req, user, sb);
+    orgId = (acting.orgId as string | undefined) ?? null;
   }
 
   const body = await req.json().catch(() => ({})) as { content?: string };
@@ -74,4 +75,4 @@ export async function POST(req: NextRequest) {
     // à mão, que é o caminho que já existia.
     return NextResponse.json({ configured: true, suggestion: null });
   }
-}
+});

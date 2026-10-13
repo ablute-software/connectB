@@ -24,6 +24,7 @@ import { logEmailRenderFailure } from '@/lib/email-send-log';
 import { buildGuestAccessEmail } from '@/lib/guest-access-email';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
 import { APP_URL } from '@/lib/brand';
+import { withActingOrg, authorizeActingOrg } from '@/lib/acting-org';
 
 // Prompt 532 §11 — the retry loop is gone.
 //
@@ -37,7 +38,7 @@ import { APP_URL } from '@/lib/brand';
 // route no longer pretends there might be: a missing grant is now an honest,
 // immediate "no pending invite" instead of 1.5 seconds of false hope.
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -50,8 +51,8 @@ export async function POST(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).eq('org_id', orgId).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
+  const acting = await authorizeActingOrg(req, user, orgId, sb);
+  if (!acting) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
 
@@ -139,4 +140,4 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json({ ok: true, token, expiresAt, emailSent, emailError });
-}
+});

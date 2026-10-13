@@ -5,38 +5,32 @@
 // (Pedido B's own "decide by reading what's most honest" resolved to:
 // never claim confidence before the check actually happens).
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { assertNotViewer, readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { findMatchingClaimForBadge } from '@/lib/company-badges';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
-// Prompt 894 — assertNotViewer only ever blocked WRITES here; GET (the card
-// a Developer Viewer session actually opens on someone else's /settings)
-// never consulted the viewer cookie at all, so it showed the developer's own
-// org's badges. Same fix as team-composition/route.ts.
-async function orgAndAdmin(req: Request) {
+// Prompt 904 — the org comes from resolveActingOrg (a Developer Viewer session
+// reads the VIEWED org's badges), and withActingOrg refuses every write in a
+// viewer session, so this helper no longer needs its own assertNotViewer — which
+// also used to refuse the GET, leaving the card empty in a viewer session.
+async function orgAndAdmin(req: Request): Promise<{ error: NextResponse } | { admin: SupabaseClient; orgId: string }> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return { error: NextResponse.json({ ok: false, error: 'not configured' }) };
 
   const sb = await serverClient();
-  const viewerBlock = await assertNotViewer(sb, req);
-  if (viewerBlock) return { error: viewerBlock };
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return { error: NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 }) };
 
-  let orgId = await readVerifiedViewerOrgId(sb, req);
-  if (!orgId) {
-    const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-    orgId = (member?.org_id as string | undefined) ?? null;
-  }
+  const orgId = (await resolveActingOrg(req, user, sb)).orgId;
   if (!orgId) return { error: NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 }) };
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   return { admin, orgId };
 }
 
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const resolved = await orgAndAdmin(req);
   if ('error' in resolved) return resolved.error;
   const { admin, orgId } = resolved;
@@ -44,9 +38,9 @@ export async function GET(req: Request) {
   const { data, error } = await admin.from('company_badges').select('*').eq('org_id', orgId).order('created_at', { ascending: false });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true, badges: data });
-}
+});
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const resolved = await orgAndAdmin(req);
   if ('error' in resolved) return resolved.error;
   const { admin, orgId } = resolved;
@@ -77,4 +71,4 @@ export async function POST(req: Request) {
   if (error || !data) return NextResponse.json({ ok: false, error: error?.message ?? 'Could not create badge.' }, { status: 500 });
 
   return NextResponse.json({ ok: true, badge: data });
-}
+});

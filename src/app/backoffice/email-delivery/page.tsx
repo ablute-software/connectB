@@ -13,6 +13,7 @@
 // Nothing here interprets a failure into a friendlier category. The raw
 // string is the product.
 import { useCallback, useEffect, useState } from 'react';
+import { AuthEmailFailuresPanel } from '@/components/backoffice/AuthEmailFailuresPanel';
 
 interface Health {
   ok: boolean;
@@ -109,6 +110,9 @@ export default function EmailDeliveryPage() {
       </p>
 
       {err && <p className="mt-4 text-sm text-[#B00000]">{err}</p>}
+
+      {/* Prompt 911 — failed sign-up / recovery emails (the Auth SMTP), so an outage shows the day it starts. */}
+      <AuthEmailFailuresPanel />
 
       {health && (
         <div className={`mt-4 rounded-lg border p-4 ${healthy ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50'}`}>

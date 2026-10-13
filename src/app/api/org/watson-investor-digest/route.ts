@@ -7,13 +7,13 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { resolveViewedOrg } from '@/lib/developer-viewer';
 import { canPublishDigest, computeScoreStats, buildFeedbackDigestPrompt, WATSON_FEEDBACK_DIGEST_SYSTEM } from '@/lib/watson-investor-feedback-digest';
 import { logAiCall } from '@/lib/ai-cost-log';
+import { resolveActingOrg, withActingOrg } from '@/lib/acting-org';
 
 const STALE_MS = 24 * 60 * 60 * 1000;
 
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ available: false });
@@ -22,7 +22,9 @@ export async function GET(req: Request) {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
   // Prompt 902 — the viewed org in a Developer Viewer session, the caller's own otherwise.
-  const { orgId, viewer } = await resolveViewedOrg(sb, req, user.id);
+  const acting = await resolveActingOrg(req, user, sb);
+  const orgId = acting.orgId;
+  const viewer = acting.mode === 'viewer';
   if (!orgId) return NextResponse.json({ available: false });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
@@ -120,4 +122,4 @@ export async function GET(req: Request) {
     available: true,
     digest: { contributorCount, scoreAvg: row.score_avg, scoreMin: row.score_min, scoreMax: row.score_max, themes, generatedAt: row.generated_at },
   });
-}
+});

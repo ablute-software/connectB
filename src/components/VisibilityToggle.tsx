@@ -14,10 +14,11 @@
 // visibility already dual-writes; no migration. Publishing on MatchDeal
 // keeps its own button and its own sentence, and stops being the thing
 // that decides discovery.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { MatchdealMissingField, MatchdealStartupState } from '@/lib/matchdeal-publish';
 import { investorVisibilityCopy, type InvestorVisibilityState } from '@/lib/investor-visibility-state';
+import { subscribeOrgChanged } from '@/lib/org-sync';
 
 const AWAY_REMINDER_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -46,9 +47,13 @@ export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
   const [err, setErr] = useState('');
   const [showReminder, setShowReminder] = useState(false);
 
+  // Prompt 906 §A — answers can come back out of order now that this is called on
+  // every save, not once: only the latest request may write the state.
+  const latestLoad = useRef(0);
   function load() {
+    const mine = ++latestLoad.current;
     fetch(`/api/company/visibility?kind=${kind}`, { cache: 'no-store' }).then((r) => r.json()).then((b) => {
-      if (!b.ok) return;
+      if (mine !== latestLoad.current || !b.ok) return;
       setStatus(b);
       if (b.suspended && b.isOwner) {
         const since = Date.parse(b.remindedAt ?? b.suspendedAt);
@@ -57,6 +62,13 @@ export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
     }).catch(() => {});
   }
   useEffect(load, [kind]);
+  // Prompt 906 §A — this badge and its "Still needed: …" list are decided on the
+  // server, and used to be read ONCE, on mount: the founder filled the fields,
+  // saw "saved", and the banner went on saying "6 fields missing" for as long as
+  // /settings stayed open (three hours, in the 07/10 report). The store announces
+  // `org:changed` once the server has accepted a write; ask again then.
+  // The investor side has no org of its own to change here.
+  useEffect(() => (kind === 'startup' ? subscribeOrgChanged(load) : undefined), [kind]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function setSuspended(next: boolean) {
     setBusy(true); setErr('');

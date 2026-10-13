@@ -14,6 +14,11 @@
 // category, offer terms, status, the code itself); once 876 merges, the
 // attachments/lock fields are a straight addition here, not a rewrite.
 //
+// Prompt 907 §A — the customer's PEOPLE: `members` (who can sign in: e-mail, role, when they joined, whether the e-mail was
+// confirmed, last sign-in) and `invites` (the ones still pending), for a startup (org_members + org_invitations) and for a
+// VC firm (active seats + open seat invitations). Read-only context; see backoffice-customer-people.ts for the two limits
+// (no created_at on org_members; the invite token is never selected). Back-office, so outside the Developer Viewer's rules.
+//
 // VC → portfolio-company cross-reference: confirmed not buildable. The only
 // two candidate paths (0201's investor_investments/market_companies, which
 // links a VC to a third-party research library with no org_id; and 0246's
@@ -23,6 +28,7 @@
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { planLabelForSlug, normalizePlan, investorPlanRow, MATCHDEAL_TIER_TO_INVESTOR_PLAN } from '@/lib/plans';
+import { loadFirmPeople, loadOrgPeople } from '@/lib/backoffice-customer-people';
 
 function investorPlanLabel(tierCode: string | null): string {
   if (!tierCode) return '—';
@@ -64,10 +70,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ kind: s
       : { data: [] as { promo_code_id: string; name: string; category: string; status: string }[] };
     const targetByCode = new Map((outreachTargets ?? []).map((t) => [t.promo_code_id as string, t]));
 
+    const people = await loadOrgPeople(admin, id);
+
     return NextResponse.json({
       ok: true,
       customer: {
         kind: 'org', id: org.id, name: org.name,
+        members: people.members, invites: people.invites,
         signupDate: org.created_at,
         plan: planLabelForSlug(normalizePlan(org.plan)),
         description: org.description ?? null,
@@ -101,11 +110,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ kind: s
   ]);
 
   const signupDate = seats?.[0]?.created_at ?? billing?.created_at ?? null;
+  const people = await loadFirmPeople(admin, id);
 
   return NextResponse.json({
     ok: true,
     customer: {
       kind: 'investor_entity', id: entity.id, name: entity.name,
+      members: people.members, invites: people.invites,
       signupDate,
       plan: investorPlanLabel(billing?.plan_tier ?? null),
       description: entity.thesis ?? entity.notes ?? null,

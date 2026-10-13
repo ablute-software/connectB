@@ -11,6 +11,7 @@ import { logAiCall } from '@/lib/ai-cost-log';
 import type { FormAssistContext } from '@/lib/form-assist';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
+import { withActingOrg } from '@/lib/acting-org';
 
 const NOT_CONFIGURED_MSG =
   'Form Assist isn’t available in your workspace yet — fill the form yourself using the Company tab and Round card for reference.';
@@ -100,7 +101,7 @@ async function callClaude(apiKey: string, model: string, prompt: string, orgId: 
   return toolUse.input as FormAssistToolOutput;
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withActingOrg(async function POST(req: NextRequest) {
   const body = await req.json();
   const { context, pastedQuestions } = body as { context: FormAssistContext; pastedQuestions?: string };
   if (!context) return NextResponse.json({ error: 'Missing context.' }, { status: 400 });
@@ -134,4 +135,4 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 502 });
   }
-}
+});

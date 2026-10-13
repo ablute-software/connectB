@@ -13,7 +13,6 @@ import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createHash } from 'crypto';
 import { serverClient } from '@/lib/supabase-server';
-import { readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { roadmapEventSuggestionsAvailable, roadmapEventsAvailable, documentExtractionsAvailable } from '@/lib/document-extraction-capability';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { logAiCall, computeCostEur } from '@/lib/ai-cost-log';
@@ -21,17 +20,8 @@ import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { isDuplicateRoadmapEvent } from '@/lib/roadmap-duplicate';
 import { isFoundingCandidate } from '@/lib/roadmap-derived';
 import { chargeAiAction } from '@/lib/ai-credits';
-import { assertNotViewer } from '@/lib/developer-viewer';
 import { shouldGenerateNewSuggestions } from '@/lib/roadmap-suggest-gate';
-
-// Prompt 894 — never checked the viewer cookie, so a Developer Viewer
-// session got the developer's own org's suggested roadmap events.
-async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string, req: Request) {
-  const viewerOrgId = await readVerifiedViewerOrgId(sb, req);
-  if (viewerOrgId) return viewerOrgId;
-  const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
-  return (data?.org_id as string | undefined) ?? null;
-}
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 interface KnowledgeItem { kind: string; text: string; documentId?: string | null }
 interface ExistingRoadmapItem { title: string; date: string }
@@ -118,7 +108,7 @@ async function buildKnowledge(
   return { items, existingRoadmap, signature, foundedYear };
 }
 
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -130,14 +120,16 @@ export async function GET(req: Request) {
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
   if (!(await roadmapEventSuggestionsAvailable()) || !(await roadmapEventsAvailable())) return NextResponse.json(empty);
 
-  const orgId = await resolveOrg(sb, user.id, req);
-  if (!orgId) return NextResponse.json(empty);
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json(empty);
+  const orgId = acting.orgId;
 
-  // Prompt 892 — checked before any write or credit charge below, per
-  // resolveOrg's own note above: a viewer session already resolves to the
-  // VIEWED org, so this is the one thing standing between "just reading a
-  // startup's roadmap while investigating" and silently writing into it.
-  const isViewerSession = !!(await assertNotViewer(sb, req));
+  // Prompt 892 — checked before any write or credit charge below: a viewer
+  // session resolves to the VIEWED org (Prompt 904: resolveActingOrg), so this is
+  // the one thing standing between "just reading a startup's roadmap while
+  // investigating" and silently writing into it — this GET generates (and
+  // charges for) suggestions.
+  const isViewerSession = acting.mode === 'viewer';
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const { items, existingRoadmap, signature, foundedYear } = await buildKnowledge(admin, orgId);
@@ -179,7 +171,7 @@ export async function GET(req: Request) {
     .eq('org_id', orgId).eq('status', 'pending').order('date', { ascending: true, nullsFirst: false });
 
   return NextResponse.json({ available: true, suggestions: pending ?? [] });
-}
+});
 
 async function runSuggestionPass(
   admin: SupabaseClient, apiKey: string, orgId: string, items: KnowledgeItem[],

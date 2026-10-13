@@ -12,8 +12,9 @@ import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { entityFraudDisputeAvailable } from '@/lib/entity-fraud-dispute-capability';
 import { crossOrgFraudBlockSourceAvailable } from '@/lib/cross-org-fraud-capability';
+import { withActingOrg, authorizeActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const POST = withActingOrg(async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -32,8 +33,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { data: entity, error: entityErr } = await admin.from('entities')
     .select('id, org_id, hard_filter_status').eq('id', id).maybeSingle();
   if (entityErr || !entity) return NextResponse.json({ ok: false, error: entityErr?.message ?? 'Entity not found.' }, { status: 404 });
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).eq('org_id', entity.org_id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
+  const acting = await authorizeActingOrg(req, user, entity.org_id, sb);
+  if (!acting) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
   if (entity.hard_filter_status !== 'resolved_blocked') {
     return NextResponse.json({ ok: false, error: 'This entity has no pending fraud report to dispute.' }, { status: 409 });
   }
@@ -99,4 +100,4 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (updateErr) return NextResponse.json({ ok: false, error: updateErr.message }, { status: 500 });
 
   return NextResponse.json({ ok: true });
-}
+});

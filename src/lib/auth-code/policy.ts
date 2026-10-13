@@ -3,6 +3,7 @@
 // component and from the server alike, so the form and the route can never disagree about
 // what a valid input is.
 import { checkPassword } from '@/lib/password-policy';
+import { safeRedirectPath } from '@/lib/auth-redirect';
 
 export const CODE_LENGTH = 6;
 /** Wrong guesses allowed per code. The sixth is refused: a new code is required. */
@@ -65,7 +66,13 @@ export function readProfile(body: Record<string, unknown>): RegistrationProfile 
   };
 }
 
-export function profileProblem(p: RegistrationProfile): string | null {
+/**
+ * `strict` (the 904 test page) asks for all four fields. The real sign-up pages (Prompt 911) collect what their own
+ * form collects — an invite has no name, a founder's country is optional — and finish their profile themselves after
+ * the code, so there only the account itself (email + password) is checked here.
+ */
+export function profileProblem(p: RegistrationProfile, strict = true): string | null {
+  if (!strict) return null;
   if (!p.fullName) return 'Please enter your name.';
   if (!p.startup) return 'Please enter your startup.';
   if (!p.country) return 'Please enter your country.';
@@ -73,9 +80,9 @@ export function profileProblem(p: RegistrationProfile): string | null {
   return null;
 }
 
-export function registrationProblem(email: string, p: RegistrationProfile, password: string): string | null {
+export function registrationProblem(email: string, p: RegistrationProfile, password: string, strict = true): string | null {
   if (!isValidEmailShape(email)) return 'Please enter a valid email address.';
-  const profile = profileProblem(p);
+  const profile = profileProblem(p, strict);
   if (profile) return profile;
   if (!checkPassword(password).valid) return 'That password does not meet the requirements.';
   return null;
@@ -84,4 +91,23 @@ export function registrationProblem(email: string, p: RegistrationProfile, passw
 /** The ONE sentence shown for a successful request, whether or not an account exists. */
 export function codeSentMessage(email: string): string {
   return `We sent a code to ${email}.`;
+}
+
+// --- Prompt 911: what a registration may carry besides the profile -----------------------------------------------------
+
+/** What the account is for. Only one value is accepted from the browser; anything else is ignored. */
+export const REGISTRATION_INTENTS = ['incubator_member'] as const;
+export type RegistrationIntent = (typeof REGISTRATION_INTENTS)[number];
+
+export interface RegistrationExtras {
+  intent: RegistrationIntent | null;
+  strict: boolean;
+  /** Where the email link brings the person back to (a validated path of this site), or null = the platform. */
+  redirectPath: string | null;
+}
+
+export function readExtras(body: Record<string, unknown>): RegistrationExtras {
+  const intent = REGISTRATION_INTENTS.find((i) => i === body.intent) ?? null;
+  // Only the 904 test page asks for the strict (all four fields) check; everything else is lenient.
+  return { intent, strict: body.strict === true, redirectPath: safeRedirectPath(body.redirectPath) };
 }

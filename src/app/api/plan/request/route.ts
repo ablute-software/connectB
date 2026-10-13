@@ -10,8 +10,9 @@ import { can, type OrgRole } from '@/lib/permissions';
 import { PLAN_TIERS, encodePlanRequest } from '@/lib/plans';
 import type { PlanTier } from '@/lib/types';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { withoutViewer } from '@/lib/acting-org';
 
-export async function POST(req: Request) {
+export const POST = withoutViewer(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -43,4 +44,4 @@ export async function POST(req: Request) {
   // A missing-column error means migration 0028 hasn't been applied yet.
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
-}
+});

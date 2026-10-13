@@ -7,8 +7,9 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
+import { withoutViewer } from '@/lib/acting-org';
 
-export async function POST(req: Request, { params }: { params: { token: string } }) {
+export const POST = withoutViewer(async function POST(req: Request, { params }: { params: { token: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -50,4 +51,4 @@ export async function POST(req: Request, { params }: { params: { token: string }
 
   await admin.from('org_invitations').update({ status: 'accepted', accepted_at: new Date().toISOString() }).eq('id', invite.id);
   return NextResponse.json({ ok: true, org_id: invite.org_id });
-}
+});

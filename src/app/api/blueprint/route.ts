@@ -23,10 +23,10 @@ import { gapReconciliationsAvailable, gapQuestionsAvailable } from '@/lib/docume
 import { runReconciliationForOrg, readReconcilableDocuments } from '@/lib/reconciliation';
 import { FAST_ROUTE_LOCK_WAIT_MS } from '@/lib/reconciliation-lock';
 import { markReadinessTrainFirstUsed } from '@/lib/readiness-usage';
+import { withActingOrg, resolveActingOrg, isViewerRequest } from '@/lib/acting-org';
 
-async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
-  const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
-  return (data?.org_id as string | undefined) ?? null;
+async function resolveOrg(req: Request, sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
+  return (await resolveActingOrg(req, { id: userId }, sb)).orgId;
 }
 
 // As lacunas precisam de saber quem são os founders (G3b) e o estágio
@@ -57,7 +57,7 @@ async function gapContext(admin: SupabaseClient, orgId: string) {
   };
 }
 
-export async function GET() {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const empty = { available: false, claims: [], gaps: [], analysis: null };
@@ -68,8 +68,12 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
   if (!(await claimsAvailable())) return NextResponse.json(empty);
 
-  const orgId = await resolveOrg(sb, user.id);
+  const orgId = await resolveOrg(req, sb, user.id);
   if (!orgId) return NextResponse.json(empty);
+  // Prompt 904 — this GET also RUNS the reconciliation engine (it takes a lock, may call a model, links
+  // documents to claims). A Developer Viewer session only reads what is already stored: reconciliation is
+  // the founder's own engine, run on the founder's own page loads.
+  const isViewerSession = await isViewerRequest(req, sb);
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   let claims = await readExistingClaims(admin, orgId);
@@ -95,7 +99,7 @@ export async function GET() {
   // budget here would kill the whole panel load — a worse outcome than the
   // duplicated run the lock prevents. See FAST_ROUTE_LOCK_WAIT_MS.
   let reconciliationSkipped = false;
-  if (await gapReconciliationsAvailable()) {
+  if (!isViewerSession && await gapReconciliationsAvailable()) {
     const outcome = await runReconciliationForOrg(admin, apiKey, orgId, { waitBudgetMs: FAST_ROUTE_LOCK_WAIT_MS });
     reconciliationSkipped = !!outcome.skipped;
     if (outcome.ran && outcome.autoLinked > 0) {
@@ -229,13 +233,13 @@ export async function GET() {
       }),
     analysis,
   });
-}
+});
 
 // POST — arranca uma análise: ingere as fontes, propõe os claims novos.
 // Idempotente no que importa: um átomo já aceite ou já rejeitado não volta
 // a ser proposto (newAtoms), e um proposto que ainda lá esteja também não
 // duplica, porque a comparação é sobre TODOS os claims existentes.
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' });
@@ -248,7 +252,7 @@ export async function POST(req: Request) {
   if (viewerBlock) return viewerBlock;
   if (!(await claimsAvailable())) return NextResponse.json({ ok: false, error: 'not configured' });
 
-  const orgId = await resolveOrg(sb, user.id);
+  const orgId = await resolveOrg(req, sb, user.id);
   if (!orgId) return NextResponse.json({ ok: false, error: 'No organization.' }, { status: 403 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
@@ -289,4 +293,4 @@ export async function POST(req: Request) {
   await markReadinessTrainFirstUsed(admin, orgId);
 
   return NextResponse.json({ ok: true, proposed: atoms.length, analysisId });
-}
+});

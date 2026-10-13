@@ -22,7 +22,6 @@
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { assertNotViewer } from '@/lib/developer-viewer';
 import { documentExtractionsAvailable } from '@/lib/document-extraction-capability';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { logAiCall } from '@/lib/ai-cost-log';
@@ -30,6 +29,7 @@ import { providerErrorMessage } from '@/lib/ai-provider-error';
 import {
   UPDATE_SUGGEST_SYSTEM, UPDATE_SUGGEST_TOOL_SCHEMA, toUpdateSuggestion,
 } from '@/lib/network-update-suggest';
+import { withActingOrg, resolveActingOrg, viewerReadOnlyResponse } from '@/lib/acting-org';
 
 export const maxDuration = 60;
 
@@ -85,21 +85,21 @@ async function buildKnowledge(admin: SupabaseClient, orgId: string): Promise<str
   return items.slice(0, MAX_ITEMS);
 }
 
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!url || !serviceKey || !apiKey) return NextResponse.json({ ok: true, available: false });
 
   const sb = await serverClient();
-  const viewerBlock = await assertNotViewer(sb, req);
-  if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Founders only.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Founders only.' }, { status: 403 });
+  const orgId = acting.orgId as string;
+  // A GET that spends a model call: in a Developer Viewer session it is refused exactly like a write.
+  if (acting.mode === 'viewer') return viewerReadOnlyResponse();
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const items = await buildKnowledge(admin, orgId);
@@ -161,4 +161,4 @@ export async function GET(req: Request) {
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }
-}
+});

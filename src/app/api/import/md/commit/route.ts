@@ -14,6 +14,7 @@ import {
 import { matchPerson } from '@/lib/structured-import';
 import { entitiesSourceExpandedAvailable } from '@/lib/entities-source-expanded-capability';
 import type { MdImportPlan } from '@/lib/md-history-import';
+import { withActingOrg } from '@/lib/acting-org';
 
 const TEMA_A_FIELDS = new Set(['website', 'email_domain']);
 // A section without a knowable date is still real history — this
@@ -24,7 +25,7 @@ const UNKNOWN_DATE_PLACEHOLDER = '2018-01-01T00:00:00.000Z';
 
 interface ConfirmedPerson { entityKey: string; name: string; role?: string }
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const { batchId, plan, confirmedPeople } = await req.json() as {
     batchId?: string; plan?: MdImportPlan; confirmedPeople?: ConfirmedPerson[];
   };
@@ -154,7 +155,7 @@ export async function POST(req: Request) {
   return NextResponse.json({
     ok: true, entitiesCreated, entitiesUpdated, interactionsCreated, interactionsSkipped, peopleCreated, conflictsQueued,
   });
-}
+});
 
 function estadoClassification(estado: string): string {
   if (estado === 'NÃO') return 'pass';

@@ -18,6 +18,7 @@ import { logAiCall } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { resolveBadgeVerification } from '@/lib/company-badges';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 const NOT_CONFIGURED_MSG = 'AI-assisted badge verification isn’t available in your workspace yet.';
 
@@ -105,7 +106,7 @@ async function callClaude(params: {
   return { foundCredibleConfirmation: !!input.found_credible_confirmation, foundContradiction: !!input.found_contradiction, note: input.note ?? '' };
 }
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export const POST = withActingOrg(async function POST(req: Request, { params }: { params: { id: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' });
@@ -116,9 +117,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
-  const orgId = member.org_id as string;
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  const orgId = acting.orgId as string;
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const { data: badge } = await admin.from('company_badges').select('*').eq('id', params.id).eq('org_id', orgId).maybeSingle();
@@ -157,4 +158,4 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }
-}
+});

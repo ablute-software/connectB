@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { serverClient } from '@/lib/supabase-server';
 import { decryptToken } from '@/lib/crypto';
 import { revokeGoogleToken } from '@/lib/google-oauth';
+import { withoutViewer } from '@/lib/acting-org';
 
-export async function POST() {
+export const POST = withoutViewer(async function POST() {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
@@ -15,4 +16,4 @@ export async function POST() {
   const { error } = await sb.from('email_connections').delete().eq('user_id', user.id).eq('provider', 'gmail');
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
-}
+});

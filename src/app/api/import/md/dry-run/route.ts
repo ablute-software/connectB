@@ -5,8 +5,9 @@
 import { NextResponse } from 'next/server';
 import { serverClient } from '@/lib/supabase-server';
 import { buildMdImportPlan, type MdSection } from '@/lib/md-history-import';
+import { withActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const { batchId } = await req.json() as { batchId?: string };
   if (!batchId) return NextResponse.json({ ok: false, error: 'batchId required' }, { status: 400 });
 
@@ -28,4 +29,4 @@ export async function POST(req: Request) {
 
   const plan = buildMdImportPlan(extraction.sections, { entities: entities ?? [], interactions: interactions ?? [] });
   return NextResponse.json({ ok: true, plan });
-}
+});

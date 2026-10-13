@@ -10,10 +10,10 @@ import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { orgMarketRingsAvailable } from '@/lib/market-data-capability';
 import { proposeMarketRings, hasAnyKnowledge, vaultCitation, parseVaultCitation, RING_ORDER, type RingKey, type SizingFact } from '@/lib/market-rings';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
-async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
-  const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
-  return (data?.org_id as string | undefined) ?? null;
+async function resolveOrg(req: Request, sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
+  return (await resolveActingOrg(req, { id: userId }, sb)).orgId;
 }
 
 // Prompt 373 §A — "comes from the already-extracted documents + org
@@ -86,7 +86,7 @@ async function readSizingFacts(admin: SupabaseClient, orgId: string): Promise<Si
   return facts;
 }
 
-export async function GET() {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ available: false, rings: [] });
@@ -96,7 +96,7 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
   if (!(await orgMarketRingsAvailable())) return NextResponse.json({ available: false, rings: [] });
 
-  const orgId = await resolveOrg(sb, user.id);
+  const orgId = await resolveOrg(req, sb, user.id);
   if (!orgId) return NextResponse.json({ available: false, rings: [] });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
@@ -122,9 +122,9 @@ export async function GET() {
       return { ...r, source_document_name: citation ? nameById.get(citation.documentId) ?? null : null };
     }),
   });
-}
+});
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' });
@@ -136,7 +136,7 @@ export async function POST(req: Request) {
   if (viewerBlock) return viewerBlock;
   if (!(await orgMarketRingsAvailable())) return NextResponse.json({ ok: false, error: 'not configured' });
 
-  const orgId = await resolveOrg(sb, user.id);
+  const orgId = await resolveOrg(req, sb, user.id);
   if (!orgId) return NextResponse.json({ ok: false, error: 'No organization.' }, { status: 403 });
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
@@ -217,4 +217,4 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
-}
+});

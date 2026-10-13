@@ -5,52 +5,61 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
+import { resolveActingOrg, withActingOrg } from '@/lib/acting-org';
+import { canManageRoundUpdate } from '@/lib/round-updates';
 
 // Prompt 894 — never checked the viewer cookie, so a Developer Viewer
 // session saw the developer's own org's updates instead of the org being
 // viewed. Safe to keep reading via `sb` (not admin): migration 0119 already
 // grants is_ablute_developer() a read policy on round_updates.
-export async function GET(req: Request) {
+//
+// Prompt 906 §B — each row also says whether THIS caller may edit or delete it
+// (owner/admin of the org, or the author — the same rule ./[id]/route.ts
+// enforces), so the card offers the buttons only to people the server will
+// let through. Never true in a Developer Viewer session: `acting.role` is null
+// there, and the author check needs a role too.
+export const GET = withActingOrg(async function GET(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
-  let orgId = await readVerifiedViewerOrgId(sb, req);
-  if (!orgId) {
-    const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-    orgId = (member?.org_id as string | undefined) ?? null;
-  }
+  const acting = await resolveActingOrg(req, user, sb);
+  const orgId = acting.orgId;
   if (!orgId) return NextResponse.json({ error: 'Not a member of any org.' }, { status: 403 });
   const { data: updates } = await sb.from('round_updates').select('*').eq('org_id', orgId).order('created_at', { ascending: false });
-  return NextResponse.json({ updates: updates ?? [] });
-}
+  return NextResponse.json({
+    updates: (updates ?? []).map((u) => ({
+      ...u,
+      can_edit: acting.mode === 'member' && canManageRoundUpdate({ role: acting.role, userId: user.id, createdBy: u.created_by as string | null }),
+    })),
+  });
+});
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as { title?: string; body?: string };
   const { title, body: updateBody } = body;
   if (!title?.trim() || !updateBody?.trim()) return NextResponse.json({ ok: false, error: 'title and body are required.' }, { status: 400 });
 
   const { data: update, error } = await sb.from('round_updates')
-    .insert({ org_id: member.org_id, title: title.trim(), body: updateBody.trim(), created_by: user.id })
+    .insert({ org_id: acting.orgId, title: title.trim(), body: updateBody.trim(), created_by: user.id })
     .select('id').single();
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   let emailedCount = 0;
   if (resendConfigured && url && serviceKey) {
     const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-    const { data: org } = await admin.from('orgs').select('name').eq('id', member.org_id).single();
+    const { data: org } = await admin.from('orgs').select('name').eq('id', acting.orgId).single();
     const { data: grants } = await admin.from('access_grants').select('grantee_email, invited_email, confirmed_at, revoked_at, expires_at')
-      .eq('org_id', member.org_id).is('revoked_at', null);
+      .eq('org_id', acting.orgId).is('revoked_at', null);
     const now = new Date();
     const emails = new Set((grants ?? [])
       .filter((g) => (!g.expires_at || new Date(g.expires_at as string) > now) && (!g.invited_email || g.confirmed_at))
@@ -69,4 +78,4 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json({ ok: true, id: update.id, emailedCount });
-}
+});

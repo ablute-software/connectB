@@ -9,6 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { NetworkActorKind, NetworkConnection, NetworkInvite, NetworkInviteContextKind, NetworkGroup, NetworkGroupKind, NetworkGroupMember } from './types';
 import { canonicalPair, canCreateGroup, canAddGroupMember, type DeliveryRow, type GroupMembershipRow } from './network';
 import { checkNetworkContent } from './network-content-policy';
+import type { ActingOrg } from './acting-org';
 
 export interface ResolvedActor {
   actorId: string;
@@ -33,7 +34,21 @@ export interface ResolvedActor {
 // see the migration's own header comment for why this is the identity used,
 // and its real consequence (an investor needs a MatchDeal profile to
 // participate in My Network at all).
-export async function resolveActorId(admin: SupabaseClient, userId: string): Promise<ResolvedActor | null> {
+//
+// Prompt 904 — `acting` is resolveActingOrg()'s answer for this request. In a Developer
+// Viewer session the actor is the VIEWED org's founder actor (never the developer's own
+// network identity, and never an investor identity); in every other case the argument is
+// ignored and the lookup below is exactly what it always was.
+export async function resolveActorId(
+  admin: SupabaseClient,
+  userId: string,
+  acting?: Pick<ActingOrg, 'mode' | 'orgId'>,
+): Promise<ResolvedActor | null> {
+  if (acting?.mode === 'viewer') {
+    if (!acting.orgId) return null;
+    const { data: viewed } = await admin.from('network_actors').select('id').eq('org_id', acting.orgId).maybeSingle();
+    return viewed ? { actorId: viewed.id as string, kind: 'founder', orgId: acting.orgId } : null;
+  }
   const { data: member } = await admin.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
   if (member) {
     const { data: actor } = await admin.from('network_actors').select('id').eq('org_id', member.org_id).maybeSingle();

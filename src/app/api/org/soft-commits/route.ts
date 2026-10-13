@@ -3,44 +3,40 @@
 // round progress bar.
 import { NextResponse } from 'next/server';
 import { serverClient } from '@/lib/supabase-server';
-import { readVerifiedViewerOrgId } from '@/lib/developer-viewer';
+import { resolveActingOrg, withActingOrg } from '@/lib/acting-org';
 
 // Prompt 894 — never checked the viewer cookie, so a Developer Viewer
 // session saw the developer's own org's soft commits instead of the org
 // being viewed. Safe to keep reading via `sb` (not admin): migration 0119
 // already grants is_ablute_developer() a read policy on
 // investor_soft_commits.
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
-  let orgId = await readVerifiedViewerOrgId(sb, req);
-  if (!orgId) {
-    const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-    orgId = (member?.org_id as string | undefined) ?? null;
-  }
+  const orgId = (await resolveActingOrg(req, user, sb)).orgId;
   if (!orgId) return NextResponse.json({ error: 'Not a member of any org.' }, { status: 403 });
   const { data: commits } = await sb.from('investor_soft_commits').select('*').eq('org_id', orgId).order('created_at', { ascending: false });
   return NextResponse.json({ commits: commits ?? [] });
-}
+});
 
-export async function PATCH(req: Request) {
+export const PATCH = withActingOrg(async function PATCH(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
-  const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as { id?: string; confirmed?: boolean };
   const { id, confirmed } = body;
   if (!id || confirmed === undefined) return NextResponse.json({ ok: false, error: 'id and confirmed are required.' }, { status: 400 });
 
   const { data: commit } = await sb.from('investor_soft_commits').select('org_id').eq('id', id).maybeSingle();
-  if (!commit || commit.org_id !== member.org_id) return NextResponse.json({ ok: false, error: 'Soft commit not found.' }, { status: 404 });
+  if (!commit || commit.org_id !== acting.orgId) return NextResponse.json({ ok: false, error: 'Soft commit not found.' }, { status: 404 });
 
   const { error } = await sb.from('investor_soft_commits')
     .update({ confirmed_by_founder: confirmed, confirmed_at: confirmed ? new Date().toISOString() : null })
     .eq('id', id);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
-}
+});

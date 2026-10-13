@@ -18,11 +18,12 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { can, type OrgRole } from '@/lib/permissions';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 const TABLES = ['ai_reviews', 'review_runs'] as const;
 type HistoryTable = (typeof TABLES)[number];
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -35,9 +36,9 @@ export async function POST(req: Request) {
   const viewerBlock = await assertNotViewer(sb, req);
   if (viewerBlock) return viewerBlock;
 
-  const { data: member } = await sb.from('org_members').select('org_id, role').eq('user_id', user.id).maybeSingle();
-  if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
-  if (!can(member.role as OrgRole, 'delete_review_history')) {
+  const acting = await resolveActingOrg(req, user, sb);
+  if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  if (!can(acting.role as OrgRole, 'delete_review_history')) {
     return NextResponse.json({ ok: false, error: 'Only the owner or an admin can delete history entries.' }, { status: 403 });
   }
 
@@ -54,7 +55,7 @@ export async function POST(req: Request) {
   // adivinhado — o service role passa por cima da RLS, portanto este scope
   // tem de ser explícito aqui.
   const { data: deleted, error } = await admin.from(table as HistoryTable)
-    .delete().eq('id', id).eq('org_id', member.org_id as string).select('id');
+    .delete().eq('id', id).eq('org_id', acting.orgId as string).select('id');
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   // Zero linhas = o id não existe OU é de outra org. As duas respondem igual,
   // de propósito: distingui-las diria a um atacante que o id existe algures.
@@ -62,4 +63,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Entry not found.' }, { status: 404 });
   }
   return NextResponse.json({ ok: true });
-}
+});

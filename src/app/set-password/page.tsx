@@ -5,20 +5,27 @@
 // `next` — user_metadata.password_set stays false, so the SAME prompt
 // resurfaces next time they sign in by link, without ever blocking them
 // (D1: the magic link itself never goes away as an option).
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { browserClient } from '@/lib/supabase';
+import { browserClient, authEnabled } from '@/lib/supabase';
+import { confirmDestination } from '@/lib/auth-redirect';
 import { LogoLockup } from '@/components/Logo';
 import { AuthShell } from '@/components/auth/AuthShell';
 import { PasswordInput } from '@/components/auth/PasswordInput';
 import { PasswordRequirementsIndicator } from '@/components/auth/PasswordRequirementsIndicator';
 import { checkPassword } from '@/lib/password-policy';
 import { useTermsGateStatus } from '@/lib/terms-status';
+import { authErrorText } from '@/lib/auth-errors';
+import { AuthMessage } from '@/components/auth/AuthMessage';
 
 function SetPasswordInner() {
   const sp = useSearchParams();
-  const next = sp.get('next') ?? '/portal';
+  // Prompt 911: `next` is followed only if it is a path of this site (it used to be assigned as given). Absent: the investor portal, as
+  // before — except for an account that already has its password (below), which just goes on to the platform.
+  const nextParam = sp.get('next');
+  const [alreadySet, setAlreadySet] = useState<boolean | null>(null);
+  const next = nextParam ? confirmDestination(nextParam, typeof window === 'undefined' ? 'https://www.sherlockdeal.com' : window.location.origin, '/portal') : alreadySet ? '/' : '/portal';
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
@@ -31,6 +38,21 @@ function SetPasswordInner() {
   // §D) — null while loading, so the checkbox doesn't flash in/out.
   const needsTerms = useTermsGateStatus();
   const [agreedToTerms, setAgreedToTerms] = useState(false);
+
+  // Prompt 911: an account that already has its password (password_set: true — e.g. it confirmed with the 6-digit code, which applies the
+  // password the person typed) is never asked for another one. null while the session is being read.
+  useEffect(() => {
+    if (!authEnabled) { setAlreadySet(false); return; }
+    let live = true;
+    browserClient().auth.getUser()
+      .then(({ data }) => { if (live) setAlreadySet(data.user?.user_metadata?.password_set === true); })
+      .catch(() => { if (live) setAlreadySet(false); });
+    return () => { live = false; };
+  }, []);
+  // Nothing left to ask (no password to set, no Terms to accept): straight on.
+  useEffect(() => {
+    if (alreadySet === true && needsTerms === false) window.location.href = next;
+  }, [alreadySet, needsTerms, next]);
 
   const requirementsMet = checkPassword(password).valid;
   // needsTerms === null (still loading) blocks both buttons too, same as
@@ -55,7 +77,7 @@ function SetPasswordInner() {
       // client-side indicator above didn't catch, that error is shown
       // verbatim, not replaced with our own wording.
       const { error } = await sb.auth.updateUser({ password, data: { password_set: true } });
-      if (error) { setErr(error.message); return; }
+      if (error) { setErr(authErrorText(error, { serverText: error.message })); return; }
       await acceptTermsIfNeeded();
       window.location.href = next;
     } finally {
@@ -80,18 +102,30 @@ function SetPasswordInner() {
         <div className="mb-1 flex items-center gap-2 text-2xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
           <LogoLockup size={28} accentClassName="text-[#2a7f8e]" />
         </div>
-        <h1 className="mb-1 text-base font-semibold text-gray-900">Set a password so you can sign in faster next time</h1>
-        <p className="mb-4 text-sm text-gray-500">You can always still sign in with an emailed link instead — this is optional.</p>
+        {alreadySet === null && <p className="py-4 text-sm text-gray-400" data-testid="set-password-loading">Just a moment…</p>}
+        {alreadySet === true && needsTerms !== true && <p className="py-4 text-sm text-gray-500" data-testid="set-password-skip">Your password is already set — taking you in…</p>}
+        {alreadySet === true && needsTerms === true && (
+          <>
+            <h1 className="mb-1 text-base font-semibold text-gray-900">One last step</h1>
+            <p className="mb-2 text-sm text-gray-500" data-testid="set-password-already">Your password is already set.</p>
+          </>
+        )}
+        {alreadySet === false && (
+          <>
+            <h1 className="mb-1 text-base font-semibold text-gray-900">Set a password so you can sign in faster next time</h1>
+            <p className="mb-4 text-sm text-gray-500">You can always still sign in with an emailed link instead — this is optional.</p>
 
-        <label className="mb-1 block text-xs font-medium text-gray-500">New password</label>
-        <PasswordInput autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••••"
-          className="rounded-xl border border-gray-300 px-3 py-2 text-sm" />
-        <PasswordRequirementsIndicator password={password} />
+            <label className="mb-1 block text-xs font-medium text-gray-500">New password</label>
+            <PasswordInput autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••••"
+              className="rounded-xl border border-gray-300 px-3 py-2 text-sm" />
+            <PasswordRequirementsIndicator password={password} />
 
-        <label className="mb-1 mt-3 block text-xs font-medium text-gray-500">Confirm password</label>
-        <PasswordInput autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="••••••••••"
-          onKeyDown={(e) => e.key === 'Enter' && canSubmit && void submit()}
-          className="rounded-xl border border-gray-300 px-3 py-2 text-sm" />
+            <label className="mb-1 mt-3 block text-xs font-medium text-gray-500">Confirm password</label>
+            <PasswordInput autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="••••••••••"
+              onKeyDown={(e) => e.key === 'Enter' && canSubmit && void submit()}
+              className="rounded-xl border border-gray-300 px-3 py-2 text-sm" />
+          </>
+        )}
 
         {/* Prompt 404 §C.1 — only when this user hasn't accepted the
             current Terms version yet; same required block/visual as
@@ -99,7 +133,7 @@ function SetPasswordInner() {
             (that one's signup-only). Nothing renders while needsTerms is
             still loading (null) — the screen looks exactly like it does
             today until the check resolves either way. */}
-        {needsTerms === true && (
+        {alreadySet !== null && needsTerms === true && (
           <label className="mt-3 flex items-start gap-2 rounded-xl border border-gray-200 bg-gray-50/50 px-3 py-2.5 text-sm text-gray-700">
             <input type="checkbox" checked={agreedToTerms} onChange={(e) => setAgreedToTerms(e.target.checked)}
               className="mt-0.5 accent-[#0E7490]" />
@@ -108,15 +142,25 @@ function SetPasswordInner() {
           </label>
         )}
 
-        {err && <p className="mt-2 text-xs text-[#B00000]">{err}</p>}
+        {err && <p className="mt-2 text-xs text-[#B00000]"><AuthMessage text={err} /></p>}
 
-        <button disabled={busy || !canSubmit} onClick={() => void submit()}
-          className="mt-4 w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
-          {busy ? 'Saving…' : 'Set password'}
-        </button>
-        <button onClick={() => void skip()} disabled={busy || !canSkip} className="mt-2 block w-full text-center text-xs text-gray-400 hover:underline disabled:opacity-40">
-          Skip for now
-        </button>
+        {alreadySet === false && (
+          <>
+            <button disabled={busy || !canSubmit} onClick={() => void submit()}
+              className="mt-4 w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
+              {busy ? 'Saving…' : 'Set password'}
+            </button>
+            <button onClick={() => void skip()} disabled={busy || !canSkip} className="mt-2 block w-full text-center text-xs text-gray-400 hover:underline disabled:opacity-40">
+              Skip for now
+            </button>
+          </>
+        )}
+        {alreadySet === true && needsTerms === true && (
+          <button onClick={() => void skip()} disabled={busy || !canSkip} data-testid="set-password-continue"
+            className="mt-4 w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
+            {busy ? 'Continuing…' : 'Continue'}
+          </button>
+        )}
       </div>
     </AuthShell>
   );

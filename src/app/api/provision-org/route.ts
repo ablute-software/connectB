@@ -10,6 +10,7 @@ import { PLAN_TO_MATCHDEAL_TIER, normalizePlan } from '@/lib/plans';
 import { acquisitionSourceAvailable } from '@/lib/acquisition-source-capability';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
 import { findActorIdByOrgId, materializeEmailInvitesForNewActor } from '@/lib/network-db';
+import { withoutViewer } from '@/lib/acting-org';
 
 // Prompt 335 §D1 — the cold-start hook: a brand-new founder's own email may
 // already have pending network_email_invites rows (someone invited them by
@@ -53,7 +54,7 @@ async function materializeNetworkInvitesIfAny(admin: SupabaseClient, orgId: stri
 // never actually been exercised by a real provisioning call.
 const OWNER_EMAILS = ['ablutecompany@gmail.com'];
 
-export async function POST(req: NextRequest) {
+export const POST = withoutViewer(async function POST(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -211,4 +212,4 @@ export async function POST(req: NextRequest) {
 
   await materializeNetworkInvitesIfAny(admin, org.id, email);
   return NextResponse.json({ ok: true, org_id: org.id });
-}
+});

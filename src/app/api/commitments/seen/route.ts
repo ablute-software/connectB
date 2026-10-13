@@ -6,8 +6,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
+import { withoutViewer } from '@/lib/acting-org';
 
-export async function POST() {
+export const POST = withoutViewer(async function POST() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -22,4 +23,4 @@ export async function POST() {
   const { error } = await admin.from('org_members').update({ commitments_seen: true }).eq('user_id', user.id);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
-}
+});

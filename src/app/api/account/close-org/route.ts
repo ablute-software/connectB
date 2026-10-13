@@ -16,8 +16,9 @@ import { computePurgeAfter, orgNameMatches } from '@/lib/account-security';
 import {
   cancelStripeSubscription, notifyOrgClosed, orgMemberEmails, recordSecurityEvent, requestOrigin, serviceAdmin, terminateSessions, verifyCurrentPassword,
 } from '@/lib/account-security-server';
+import { withoutViewer } from '@/lib/acting-org';
 
-export async function POST(req: Request) {
+export const POST = withoutViewer(async function POST(req: Request) {
   const admin = serviceAdmin();
   if (!admin) return NextResponse.json({ ok: false, error: 'Not available in this workspace.' }, { status: 200 });
   const sb = await serverClient();
@@ -77,4 +78,4 @@ export async function POST(req: Request) {
   });
 
   return NextResponse.json({ ok: true, purgeAfter, sessionsEnded, emailsSent, stripe });
-}
+});

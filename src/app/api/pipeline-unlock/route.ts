@@ -3,18 +3,19 @@
 // pipeline-unlock-server.ts (shared with the Backoffice Startups table,
 // Block C.1, so both surfaces read the exact same number). This route's own
 // job is just the one write side-effect: an idempotent, system-derived
-// profile_completed_at stamp the first time the B.2 gate passes — guarded
-// by assertNotViewer so a developer viewing a startup read-only never
-// triggers it.
+// profile_completed_at stamp the first time the B.2 gate passes — and the
+// derived catalog_quota floor raise below. Both are skipped in a Developer
+// Viewer session (Prompt 904: acting.mode === 'viewer'): a developer reading a
+// startup's pipeline must never change a row of it.
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { assertNotViewer, readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { isProfileGateComplete, missingProfileGateFields } from '@/lib/pipeline-unlock';
 import { computeDeliverable, computeVisiblePipelineSize, raiseCatalogQuotaFloor } from '@/lib/pipeline-unlock-server';
 import { pipelineUnlockAnchorsAvailable } from '@/lib/pipeline-unlock-capability';
+import { resolveActingOrg, withActingOrg } from '@/lib/acting-org';
 
-export async function GET(req: NextRequest) {
+export const GET = withActingOrg(async function GET(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -31,12 +32,10 @@ export async function GET(req: NextRequest) {
   // below, so it has to be the verified one: an unverified cookie here
   // pointed `select('*')` on orgs, and the profile_completed_at write, at
   // any org id the caller could name.
-  let orgId = await readVerifiedViewerOrgId(sb, req);
-  if (!orgId) {
-    const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
-    orgId = member?.org_id ?? null;
-  }
+  const acting = await resolveActingOrg(req, user, sb);
+  const orgId = acting.orgId;
   if (!orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+  const isViewerSession = acting.mode === 'viewer';
 
   // Prompt 536 §1 — read once and keep the row: `missing` (which of the nine
   // gate fields are still empty) is what the Pipeline shows instead of a
@@ -48,9 +47,8 @@ export async function GET(req: NextRequest) {
 
   const anchorsAvailable = await pipelineUnlockAnchorsAvailable();
   if (anchorsAvailable) {
-    if (org && isProfileGateComplete(org) && !org.profile_completed_at) {
-      const viewerBlock = await assertNotViewer(sb, req);
-      if (!viewerBlock) await admin.from('orgs').update({ profile_completed_at: new Date().toISOString() }).eq('id', orgId);
+    if (org && isProfileGateComplete(org) && !org.profile_completed_at && !isViewerSession) {
+      await admin.from('orgs').update({ profile_completed_at: new Date().toISOString() }).eq('id', orgId);
     }
   }
 
@@ -62,7 +60,7 @@ export async function GET(req: NextRequest) {
   // just change" moment the badge above reacts to. No-ops cheaply when
   // gateComplete is false (catalogQuotaTarget is 0) or the target isn't
   // higher than what's already stored.
-  await raiseCatalogQuotaFloor(admin, orgId, catalogQuotaTarget);
+  if (!isViewerSession) await raiseCatalogQuotaFloor(admin, orgId, catalogQuotaTarget);
 
   // Prompt 536 §3 — how many investors the founder could unlock RIGHT NOW,
   // computed after the floor has been raised so the number reflects what
@@ -94,4 +92,4 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json({ ok: true, gateComplete, visible, eligiblePoolSize, catalogQuotaTarget, deliverable, unlimited, missing, anchorsAvailable });
-}
+});

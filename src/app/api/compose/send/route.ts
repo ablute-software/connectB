@@ -7,8 +7,9 @@ import { NextResponse } from 'next/server';
 import { serverClient } from '@/lib/supabase-server';
 import { getEmailConnection } from '@/lib/email-connection';
 import { sendGmailMessage } from '@/lib/google-oauth';
+import { withActingOrg } from '@/lib/acting-org';
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
@@ -25,4 +26,4 @@ export async function POST(req: Request) {
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }
-}
+});

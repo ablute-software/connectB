@@ -31,9 +31,10 @@ import {
   founderMessageEligibleFirms, resolveFounderEntityToEligibleFirm,
 } from '@/lib/deal-messages';
 import { notifyInvestorFirmOfFounderMessage } from '@/lib/deal-messages-founder-notify';
-import { assertNotViewer, resolveViewedOrg, resolveViewedOrgId } from '@/lib/developer-viewer';
+import { assertNotViewer } from '@/lib/developer-viewer';
+import { resolveActingOrg, withActingOrg } from '@/lib/acting-org';
 
-export async function GET(req: Request) {
+export const GET = withActingOrg(async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ threads: [] }, { status: 200 });
@@ -45,7 +46,9 @@ export async function GET(req: Request) {
   if (!(await dealMessagesAvailable())) return NextResponse.json({ threads: [] });
 
   // Prompt 902 — the viewed org in a Developer Viewer session, the caller's own otherwise.
-  const { orgId, viewer } = await resolveViewedOrg(sb, req, user.id);
+  const acting = await resolveActingOrg(req, user, sb);
+  const orgId = acting.orgId;
+  const viewer = acting.mode === 'viewer';
   if (!orgId) return NextResponse.json({ threads: [] });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
@@ -98,9 +101,9 @@ export async function GET(req: Request) {
       entityId: entityByCatalogId.get(t.investor_catalog_entity_id as string) ?? null,
     })),
   });
-}
+});
 
-export async function POST(req: Request) {
+export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -113,7 +116,7 @@ export async function POST(req: Request) {
   if (viewerBlock) return viewerBlock;
   if (!(await dealMessagesAvailable())) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
 
-  const orgId = await resolveViewedOrgId(sb, req, user.id);
+  const orgId = (await resolveActingOrg(req, user, sb)).orgId;
   if (!orgId) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as { investorCatalogEntityId?: string; body?: string; links?: unknown; documentIds?: string[] };
@@ -148,4 +151,4 @@ export async function POST(req: Request) {
   await notifyInvestorFirmOfFounderMessage(admin, { orgId, investorCatalogEntityId: body.investorCatalogEntityId });
 
   return NextResponse.json({ ok: true, threadId: thread.id });
-}
+});
