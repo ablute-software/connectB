@@ -2,6 +2,7 @@
 // Prompt 914 — composes scripts/verify-effective-plan-914.sql: the rolled-back rehearsal of migration 20261013170000_effective_plan.sql.
 //
 //   head.sql  +  the migration, verbatim  +  mid.sql  +  the parity cases GENERATED from src/lib/effective-plan-cases.json  +  tail.sql
+//   (and, inside tail.sql, the rollback script verbatim: scripts/rollback-effective-plan-914.sql, itself generated from the migration)
 //
 // The point of generating the cases: the TypeScript test (effective-plan.test.ts) and the SQL rehearsal must run THE SAME LIST of
 // situations, or "TypeScript and SQL return the same plan" is a claim about two different lists. Edit the JSON, run this, commit both;
@@ -51,15 +52,21 @@ export function generateParity(cases) {
   return parts.join('\n') + '\n';
 }
 
+// The rollback script is embedded the same way the migration is, between its own markers in tail.sql (the way back is rehearsed too).
+const ROLLBACK_SLOT = '  -- >>> ROLLBACK (verbatim) >>>\n  -- <<< ROLLBACK <<<\n';
+
 export function compose() {
   const cases = JSON.parse(read('src/lib/effective-plan-cases.json'));
   const migration = read('supabase/migrations/20261013170000_effective_plan.sql').replace(/\s+$/, '');
+  const rollback = read('scripts/rollback-effective-plan-914.sql').replace(/\s+$/, '');
+  const tail = read('scripts/effective-plan-rehearsal/tail.sql');
+  if (!tail.includes(ROLLBACK_SLOT)) throw new Error('tail.sql lost the ROLLBACK slot');
   return read('scripts/effective-plan-rehearsal/head.sql')
     + migration + '\n'
     + '  -- <<< MIGRATION <<<\n'
     + read('scripts/effective-plan-rehearsal/mid.sql')
     + generateParity(cases)
-    + read('scripts/effective-plan-rehearsal/tail.sql');
+    + tail.replace(ROLLBACK_SLOT, `  -- >>> ROLLBACK (verbatim) >>>\n${rollback}\n  -- <<< ROLLBACK <<<\n`);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

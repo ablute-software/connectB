@@ -102,6 +102,20 @@
     has_function_privilege('authenticated', 'public.ai_wallet_status(uuid,text)', 'execute')::text || '|' ||
     has_function_privilege('authenticated', 'public.charge_ai_action(uuid,text)', 'execute')::text);
 
+  -- 7b. THE WAY BACK. The rollback script (generated from the migration itself, embedded verbatim) run on top of the migration, in the same
+  -- transaction: it must restore both wallet functions to production's old text byte for byte, keep their grants, and leave no effective_plan().
+  -- A rollback that has never run is a hope, not a rollback.
+  -- >>> ROLLBACK (verbatim) >>>
+  -- <<< ROLLBACK <<<
+  perform pg_temp.zz_check('R1 after the rollback script both wallet functions are byte-for-byte production''s old text again', 'true|true',
+    (pg_get_functiondef('public.ai_wallet_status(uuid,text)'::regprocedure) = v_old_def_status)::text || '|' ||
+    (pg_get_functiondef('public.charge_ai_action(uuid,text)'::regprocedure) = v_old_def_charge)::text);
+  perform pg_temp.zz_check('R1 their grants are still the old ones', 'true|true',
+    ((select p.proacl::text from pg_proc p where p.oid = 'public.ai_wallet_status(uuid,text)'::regprocedure) = v_old_acl_status)::text || '|' ||
+    ((select p.proacl::text from pg_proc p where p.oid = 'public.charge_ai_action(uuid,text)'::regprocedure) = v_old_acl_charge)::text);
+  perform pg_temp.zz_check('R1 effective_plan() is gone', '0',
+    (select count(*) from pg_proc p where p.proname = 'effective_plan' and p.pronamespace = 'public'::regnamespace)::text);
+
   -- 8. THE ANSWER
   select string_agg(
            case when mode = 'info' then 'INFO ' when (mode = 'exact' and expected is not distinct from got) then 'PASS ' else 'FAIL ' end

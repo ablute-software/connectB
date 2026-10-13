@@ -319,12 +319,13 @@ describe('deliverMonthlyForOrg — Prompt 914: the increment follows the plan on
     expect(pLimit).toBe(10);
   });
 
-  it.each([
+  const lifts: [string, Parameters<typeof makeFakeAdmin>[0], string, number][] = [
     ['a trial with no end date', { redemptions: [trial({ endsInDays: null })] }, 'idea', 53],
     ['a platform badge whose free tier is motherfunding', { badges: [badge()] }, 'idea', 53],
     ['a garage voucher on an idea org lifts it one tier: +25', { redemptions: [trial({ plans: ['garage'] })] }, 'idea', 28],
-  ] as const)('%s', async (_label, over, plan, newQuota) => {
-    const { result } = await run(over as Parameters<typeof makeFakeAdmin>[0], plan, 3);
+  ];
+  it.each(lifts)('%s', async (_label, over, plan, newQuota) => {
+    const { result } = await run(over, plan, 3);
     expect(result.newQuota).toBe(newQuota);
   });
 

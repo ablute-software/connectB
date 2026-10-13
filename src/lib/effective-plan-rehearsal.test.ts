@@ -15,6 +15,9 @@ const migration = norm(readFileSync(path.join(root, 'supabase/migrations/2026101
 const script = norm(readFileSync(path.join(root, 'scripts/verify-effective-plan-914.sql'), 'utf8'));
 const START = '-- >>> MIGRATION (verbatim) >>>';
 const END = '-- <<< MIGRATION <<<';
+const RB_START = '-- >>> ROLLBACK (verbatim) >>>';
+const RB_END = '-- <<< ROLLBACK <<<';
+const rollback = norm(readFileSync(path.join(root, 'scripts/rollback-effective-plan-914.sql'), 'utf8')).trim();
 const executable = script.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
 
 describe('scripts/verify-effective-plan-914.sql', () => {
@@ -24,6 +27,18 @@ describe('scripts/verify-effective-plan-914.sql', () => {
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     expect(script.slice(start + START.length, end).trim()).toBe(migration);
+  });
+
+  it('embeds the rollback script exactly, between its two markers — the way back is rehearsed on production data too', () => {
+    const start = script.indexOf(RB_START);
+    const end = script.indexOf(RB_END);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(script.slice(start + RB_START.length, end).trim()).toBe(rollback);
+    // ...and it runs AFTER every check that needs the new functions, and is itself checked (R1)
+    expect(start).toBeGreaterThan(script.indexOf("'P2 the wallet functions stay callable"));
+    expect(script).toContain("'R1 after the rollback script both wallet functions are byte-for-byte production''s old text again'");
+    expect(script).toContain("'R1 effective_plan() is gone'");
   });
 
   it('is exactly what the composer produces from the templates, the migration and the shared cases (no hand edits, no stale cases)', async () => {
@@ -37,8 +52,8 @@ describe('scripts/verify-effective-plan-914.sql', () => {
     expect(executable.trimEnd().endsWith('$rehearsal$;')).toBe(true);
     // the last statement before the closing tag is the exception that carries the result and rolls everything back
     expect(executable).toMatch(/raise exception E'REHEARSAL_RESULT[^;]*;\s*end\s*\$rehearsal\$;\s*$/);
-    // no transaction control anywhere in the executable text
-    expect(executable).not.toMatch(/\b(commit|rollback|savepoint)\b/i);
+    // no transaction-control STATEMENT anywhere in the executable text (the word may appear inside a string: the R1 check names the rollback)
+    expect(executable).not.toMatch(/(^|;)\s*(commit|rollback|savepoint|release)\b/im);
   });
 
   it('runs every case of the shared list that the database can hold, and says which it skips', () => {
@@ -67,6 +82,24 @@ describe('scripts/verify-effective-plan-914.sql', () => {
     // the app path: role authenticated, with a control that the function itself is refused to that role
     expect(script).toContain("execute 'set local role authenticated'");
     expect(script).toContain("'P1 control: as authenticated effective_plan() itself is refused");
+  });
+});
+
+describe('scripts/rollback-effective-plan-914.sql', () => {
+  it('is exactly what the rollback composer derives from the migration (never typed by hand)', async () => {
+    const composer = await import(/* @vite-ignore */ pathToFileURL(path.join(root, 'scripts/compose-effective-plan-rollback.mjs')).href);
+    expect(composer.composeRollback().trim()).toBe(rollback);
+  });
+
+  it('puts production\'s old text back: no Prompt 914 block, no call to effective_plan() from either function, the unqualified exemption columns, and drops the function last', () => {
+    const code = rollback.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+    expect(code).not.toContain('-- >>> Prompt 914');
+    expect(code).not.toMatch(/effective_plan\(p_org_id\)/);
+    expect(code).not.toContain('orgs.is_test');
+    expect(code.match(/\(is_test or is_internal\)/g)).toHaveLength(2);
+    expect(code).toContain('create or replace function public.ai_wallet_status');
+    expect(code).toContain('create or replace function public.charge_ai_action');
+    expect(code.trimEnd().endsWith('drop function if exists public.effective_plan(uuid);')).toBe(true);
   });
 });
 
