@@ -23,6 +23,7 @@ declare
   r record;
   v_total int := 0; v_diffs jsonb := '[]'::jsonb; v_dist text;
   v_old text; v_new text; v_old2 boolean; v_new2 boolean; v_hat boolean; v_unexplained int := 0;
+  v_susp uuid; v_plain uuid; v_auth_alex text; v_auth_susp text; v_auth_plain text; v_auth_ctl text;
   v_out text; v_pass int; v_fail int;
 begin
   create temp table zz_res (seq serial primary key, name text, expected text, got text, mode text);
@@ -391,6 +392,8 @@ grant execute on function public.moderation_release_org_member(uuid, uuid, text,
     v_old2 := public.zz_old_is_account_suspended();  v_new2 := public.is_account_suspended();
     v_total := v_total + 1;
     insert into zz_dist(state) values (v_new);
+    if v_new = 'suspended' and v_old = 'suspended' and v_susp is null then v_susp := r.id; end if;
+    if v_new = 'active' and v_old = 'active' and v_plain is null then v_plain := r.id; end if;
     if v_old is distinct from v_new or v_old2 is distinct from v_new2 then
       v_hat := public.account_has_live_hat();
       v_diffs := v_diffs || jsonb_build_object('user', r.email, 'access_state', v_old || ' -> ' || v_new, 'is_account_suspended', v_old2::text || ' -> ' || v_new2::text,
@@ -404,6 +407,28 @@ grant execute on function public.moderation_release_org_member(uuid, uuid, text,
   perform pg_temp.zz_info('D0 users in production / their door answer with the NEW functions', v_total || ' users: ' || coalesce(v_dist, '-'));
   perform pg_temp.zz_info('D1 users whose door answer changes with the migration, TODAY (' || jsonb_array_length(v_diffs) || ')', v_diffs::text);
   perform pg_temp.zz_check('D1 every one of them changes only from blocked to let-in, and only because they hold a live hat (nobody else moves)', '0', v_unexplained::text);
+
+  -- 2b. THE PATH THE MIDDLEWARE REALLY TAKES: the user's own session, i.e. role 'authenticated'. The new helper is revoked from that
+  -- role on purpose and is reached only through the two SECURITY DEFINER functions; if that did not work, every signed-in page
+  -- request would raise, and the middleware fails OPEN on an error - the door would silently stop blocking anybody. Proved here, with
+  -- a control that shows the role switch is real (the helper itself is refused to 'authenticated').
+  perform pg_temp.zz_as('d3375dde-a76f-4930-92de-af0f6651a850'::uuid);
+  execute 'set local role authenticated';
+  v_auth_alex := public.account_access_state();
+  execute 'reset role';
+  perform pg_temp.zz_as(v_susp);
+  execute 'set local role authenticated';
+  v_auth_susp := public.account_access_state() || '/' || public.is_account_suspended()::text;
+  execute 'reset role';
+  perform pg_temp.zz_as(v_plain);
+  execute 'set local role authenticated';
+  v_auth_plain := public.account_access_state() || '/' || public.is_account_suspended()::text;
+  begin perform public.account_has_live_hat(); v_auth_ctl := 'NO ERROR'; exception when insufficient_privilege then v_auth_ctl := sqlstate; end;
+  execute 'reset role';
+  perform pg_temp.zz_check('D2 AS ROLE authenticated (the middleware path): the case that changes', 'active', v_auth_alex);
+  perform pg_temp.zz_check('D2 AS ROLE authenticated: a user who is blocked today is still blocked (state/is_account_suspended)', 'suspended/true', v_auth_susp);
+  perform pg_temp.zz_check('D2 AS ROLE authenticated: an ordinary user is still let in', 'active/false', v_auth_plain);
+  perform pg_temp.zz_check('D2 control: as authenticated the helper itself is refused (so the three lines above really ran as that role)', '42501', v_auth_ctl);
 
   -- 3. THE REAL CASE: alexandrameira.ablute@gmail.com / Caramel Biscuit
   select m.org_id, o.name into v_org, v_orgname from public.org_members m join public.orgs o on o.id = m.org_id where m.user_id = v_alex;

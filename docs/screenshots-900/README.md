@@ -4,7 +4,7 @@ Taken with `npm run dev:verify` (demo mode; `/api/me` → `verifyIdentity` = thi
 Browser pane. Throwaway pages (deleted afterwards, never committed) mount the REAL Startups page — so the REAL tab strip, the REAL Orgs table and
 the REAL `ClosedDeletedTab` — and the endpoints they call were stood in for by a throwaway API route that runs the REAL loader
 (`loadClosedAccounts`) over an in-memory database of `zz-test` fixtures. **What the stand-in does for the two actions is TypeScript applying the
-effect of the SQL functions; the SQL itself is proved separately, on production data, by `scripts/verify-closed-deleted-900.sql` (62 PASS / 0 FAIL,
+effect of the SQL functions; the SQL itself is proved separately, on production data, by `scripts/verify-closed-deleted-900.sql` (66 PASS / 0 FAIL,
 rolled back).** The real routes — including the platform-admin gate — are proved by vitest. No real customer data appears in these captures
 (the case is re-created with `zz-test-caramel-biscuit` / `alexandra@zz-test.example`), and nothing here ran against production.
 
