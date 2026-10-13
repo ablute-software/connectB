@@ -65,7 +65,7 @@ export default function InvitePage({ params }: { params: { token: string } }) {
     if (!invite) return;
     setBusy(true); setMsg('');
     try {
-      const sent = await registerWithCode({ email: invite.email, password });
+      const sent = await registerWithCode({ email: invite.email, password, redirectPath: `/invite/${token}` });
       if (sent.kind === 'sent') {
         const at = Date.now();
         writePending({ flow: 'invite', scope: token, email: invite.email, sentAt: at, fields: {} });
@@ -75,7 +75,7 @@ export default function InvitePage({ params }: { params: { token: string } }) {
       if (sent.kind === 'error') { setMsg(sent.text); return; }
       // kind === 'off': AUTH_CODE_MODE=off — the link-only flow this page always had.
       const sb = browserClient();
-      const { error } = await sb.auth.signUp({ email: invite.email, password });
+      const { error } = await sb.auth.signUp({ email: invite.email, password, options: { emailRedirectTo: `${window.location.origin}/invite/${token}` } });
       if (error) { reportAuthEmailFailure({ email: invite.email, action: 'invite_signup', error }); setMsg(authErrorText(error)); return; }
       const res = await fetch(`/api/invite/${token}/accept`, { method: 'POST' });
       const body = await res.json();
@@ -103,7 +103,7 @@ export default function InvitePage({ params }: { params: { token: string } }) {
         <div className="w-full max-w-sm rounded-2xl border border-gray-100 bg-white p-7 shadow-sm" data-testid="invite-code-step">
           <div className="mb-4 text-2xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>{BRAND_NAME}</div>
           <EmailCodeConfirm
-            email={codeEmail} password={password} sentAt={sentAt}
+            email={codeEmail} password={password} sentAt={sentAt} redirectPath={`/invite/${token}`}
             onVerified={() => acceptAfterCode()}
             onResent={(at) => { setSentAt(at); writePending({ flow: 'invite', scope: token, email: codeEmail, sentAt: at, fields: {} }); }}
             onChangeEmail={() => { clearPending('invite'); setStep('form'); setMsg(''); }}

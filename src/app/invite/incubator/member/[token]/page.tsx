@@ -80,7 +80,7 @@ export default function IncubatorMemberInvitePage({ params }: { params: { token:
       if (!check?.ok) { setMsg(check?.error === 'rate_limited' ? 'Too many attempts — wait a minute and try again.' : 'We could not check the invite right now. Try again.'); return; }
       if (!check.matches) { setMsg(inviteEmailMismatchText(check.invitedEmailMasked ?? p?.invitedEmailMasked ?? null, orgName)); return; }
 
-      const sent = await registerWithCode({ email: email.trim(), password, intent: 'incubator_member' });
+      const sent = await registerWithCode({ email: email.trim(), password, intent: 'incubator_member', redirectPath: PENDING_MEMBER_INVITE_PATH });
       if (sent.kind === 'sent') {
         const at = Date.now();
         writePending({ flow: 'member', scope: token, email: email.trim(), sentAt: at, fields: {} });
@@ -94,7 +94,9 @@ export default function IncubatorMemberInvitePage({ params }: { params: { token:
         email: email.trim(), password,
         options: {
           data: { password_set: true, signup_intent: 'incubator_member' },
-          emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(PENDING_MEMBER_INVITE_PATH)}`,
+          // Straight to the page that accepts every pending team invite for the confirmed address: the email link goes through
+          // /auth/confirm (Prompt 911), which follows this URL as a path of the site, not through the PKCE callback.
+          emailRedirectTo: `${window.location.origin}${PENDING_MEMBER_INVITE_PATH}`,
         },
       });
       if (error) { reportAuthEmailFailure({ email: email.trim(), action: 'invite_signup', error }); setMsg(authErrorText(error)); return; }
@@ -136,7 +138,7 @@ export default function IncubatorMemberInvitePage({ params }: { params: { token:
   if (step === 'code') {
     return box(
       <EmailCodeConfirm
-        email={email.trim()} password={password} sentAt={sentAt}
+        email={email.trim()} password={password} sentAt={sentAt} redirectPath={PENDING_MEMBER_INVITE_PATH}
         onVerified={() => acceptAfterCode()}
         onResent={(at) => { setSentAt(at); writePending({ flow: 'member', scope: token, email: email.trim(), sentAt: at, fields: {} }); }}
         onChangeEmail={() => { clearPending('member'); setStep('form'); setMsg(''); }}

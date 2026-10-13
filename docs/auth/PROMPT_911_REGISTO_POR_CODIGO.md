@@ -2,7 +2,7 @@
 
 **Branch:** `claude/911-signup-code`, a partir de `main` (não leva nada do 909). **Migração:** `20261013100100_auth_email_failures.sql`
 (uma tabela nova, aditiva; teste seco revertido e depois **aplicada em produção a 13/10/2026**). **Variáveis novas:** nenhuma.
-Registo de configurações atualizado (`docs/ops/CONFIG_REGISTRY.md`: `AUTH_CODE_MODE`, SMTP, §2.1, Pendentes).
+Registo de configurações atualizado (`docs/ops/CONFIG_REGISTRY.md`: `AUTH_CODE_MODE`, SMTP, OTP, URLs, template provisório, §2.1, a regra "só `feito` depois de um teste real", Pendentes).
 
 ## O que se passava
 1. Desde 12/10 às 10:11 UTC o SMTP do Supabase Auth (Resend) recusa tudo: `550 "The sherlockdeal.com domain is not verified"`.
@@ -34,7 +34,7 @@ certo → segue como antes. O link do email continua a funcionar (`/auth/confirm
 link, em `localStorage`, durante 30 minutos, o que o código vale). Recarregar volta à caixa do código para esse email, com tudo
 preenchido; a caixa pede a palavra-passe outra vez (nunca é guardada). "Change email" volta ao formulário, ainda preenchido.
 
-**`AUTH_CODE_MODE`.** Omisso = `on`, **para todos**. Escrever `off` é o travão de emergência: as rotas respondem 404 e cada página
+**`AUTH_CODE_MODE`.** Omisso = `on`, **para todos**; **a allowlist do 904 foi reformada** (o valor `allowlist` que a produção tinha definido vale `on`: descobri-o depois do primeiro deploy, porque `/api/auth-code/register` respondia 404 a um email fora da lista, e mudei o código em vez de pedir uma edição no painel). Escrever `off` é o travão de emergência: as rotas respondem 404 e cada página
 cai no fluxo só por link que tinha (o teste "`AUTH_CODE_MODE=off` volta ao link" prova-o). Qualquer outro valor vale `on`, de
 propósito: uma gralha não pode desligar o código em silêncio, porque o email já o traz.
 
@@ -60,10 +60,13 @@ não por este SMTP) continua a ser "enviámos", e portanto **durante uma avaria*
 Só existe enquanto o remetente está em baixo; a alternativa era ninguém saber. A falha do email "já tem conta" fica **registada mas
 não mostrada**, pela mesma razão.
 
-## C. Template "Confirm signup" (colar no Supabase, depois do deploy)
-**O texto não muda em relação ao do 904 (§A4), que o Nuno colou a 09/10.** Se o do painel já é este, não há nada a colar. Subject:
+## C. Template "Confirm signup" final (colar no Supabase, **depois** do deploy)
 
-`Your Sherlock Deal confirmation code: {{ .Token }}`
+**Mudou em relação ao do 904 e ao provisório de 13/10:** o link já não leva a um destino fixo (`next=%2Fset-password` / `next=%2F`):
+leva ao destino **de cada registo**, com `next={{ .RedirectTo }}`. Funciona para os dois casos: quem escreve o código na página e quem
+confirma pelo link. O `{{ .RedirectTo }}` é o `emailRedirectTo` que cada caminho de registo dá ao Supabase (tabela abaixo).
+
+Subject: `Your Sherlock Deal confirmation code: {{ .Token }}`
 
 ```html
 <div style="font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; color: #111827;">
@@ -78,7 +81,7 @@ não mostrada**, pela mesma razão.
     Prefer a link? You can also confirm with one click:
   </p>
   <p style="margin: 0 0 20px;">
-    <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=signup&next=%2Fset-password"
+    <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=signup&next={{ .RedirectTo }}"
        style="display: inline-block; background: #0E7490; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 600; padding: 10px 18px; border-radius: 8px;">
       Confirm my email
     </a>
@@ -89,15 +92,34 @@ não mostrada**, pela mesma razão.
 </div>
 ```
 
-O template "Reset password" não muda. **Ordem:** o template com o código **já está no painel** desde 09/10, por isso o que faltava era
-a página ter onde o pôr: **primeiro o deploy** (feito antes de te pedir nada), **depois** o teste. Se um dia se trocar o template
-por um sem código, fazê-lo só depois de o deploy estar em produção.
+Se preferires o botão **antes** do código (como no provisório), troca a ordem dos dois blocos; o resto não muda. O template "Reset password" não muda.
 
-**O que o link faz** (para quem prefere o link ao código): confirma o email e leva a `/set-password`, porque a conta nasce com uma
-palavra-passe aleatória inutilizável (a escolhida só é aplicada depois do código, para ninguém poder registar o email de outra
-pessoa com uma palavra-passe sua). Quem se registou em `/signup` e confirmou **pelo link** não passa pelo passo de provisionar a
-organização com o formulário completo: a conta tem nome, startup, país e cargo (vão nos metadados), e o resto do formulário
-(website, setor, ronda…) não. É o comportamento do 904, mantido; o caminho normal é o código.
+**Para onde volta cada caminho** (`emailRedirectTo`, definido em **todos**; o servidor monta a URL completa a partir de um caminho validado do site, nunca de um endereço dado pelo browser):
+
+| Caminho | `emailRedirectTo` | Onde o link do email aterra |
+|---|---|---|
+| Registo normal (`/signup`) | `https://www.sherlockdeal.com/` (a plataforma) | a plataforma. Um registo vindo de um convite de incubadora volta a `/invite/incubator/continue` |
+| Convite de equipa | `…/invite/<token>` | o próprio convite (já com sessão: "Accept & join") |
+| Convite de membro de incubadora | `…/invite/incubator/member/pending` | a página que aceita os convites pendentes desse email |
+| Registo por uma call (**907**) | o caminho da call e da página onde o candidato estava, ex. `/call/<token>/form/3` | essa mesma página. O 907 só tem de passar `redirectPath` ao `registerWithCode`: a rota aceita qualquer caminho **do site** sem `&` nem `#` (o template põe-no sem codificar), e o reenvio do código leva o mesmo |
+| Recurso "só por link" (`AUTH_CODE_MODE=off`) | o mesmo de cada página, definido no `signUp` do browser | idem |
+
+**`/auth/confirm` já não segue o `next` como vem.** O `{{ .RedirectTo }}` é uma URL completa dentro de um parâmetro; a página reduz-no
+ao **caminho do site** (só aceita `www.sherlockdeal.com`, `sherlockdeal.com` e `connect-b-delta.vercel.app`) e qualquer outro destino cai
+no padrão. O Supabase só preenche `{{ .RedirectTo }}` com URLs da lista de Redirect URLs; este é o segundo ferrolho. Se o `emailRedirectTo`
+não estiver na lista, o Supabase usa o Site URL e o link volta à raiz (não parte nada).
+
+**E quem confirma pelo link em vez de escrever o código?** A conta nasce com uma palavra-passe aleatória (a escolhida só é aplicada depois do
+código, para ninguém poder registar o email de outra pessoa com uma palavra-passe sua). Por isso, **depois de confirmar pelo link** de um
+registo (`type=signup`), se a conta ainda não tem `password_set`, o `/auth/confirm` leva a `/set-password?next=<destino>` (saltável) e daí ao destino.
+
+**`/set-password` — pedido de 13/10.** Se a conta **já tem a palavra-passe definida** (`password_set: true`), a página **não pede outra** e segue
+para o destino (`next`, ou a plataforma `/`). Se ainda faltar aceitar os Termos, mostra só essa caixa e "Continue". O destino `next` passou a
+seguir-se **só se for um caminho do site** (antes atribuía-se tal como vinha).
+
+**Ordem:** o template provisório do Nuno funciona para o registo normal e para a confirmação pelo link; o final só é preciso para o registo por uma
+call voltar à call. **Primeiro o deploy** (já feito quando leres isto), **depois colar o final**. Colar o final antes do deploy também não parte
+nada, mas o link voltaria a `/` até as páginas definirem o destino.
 
 ## Em produção, depois do deploy (o Nuno clica, eu confirmo nos logs do Auth e na base)
 **Antes de tudo:** o SMTP tem de estar corrigido no painel (ver Pendentes do registo). Sem isso o passo 1 mostra a frase de falha de
@@ -134,7 +156,7 @@ Na árvore commitada de `claude/911-signup-code` (todas por código de saída):
 |---|---|
 | `npx tsc --noEmit` | **EXIT=0** |
 | `npx eslint --no-eslintrc --config .eslintrc.json --ext .js,.jsx,.ts,.tsx src` | **EXIT=0** — 0 erros, 252 avisos (os mesmos de antes; nenhum novo) |
-| `npx vitest run` | **EXIT=0** — 345 ficheiros, **5374 testes** (na árvore já fundida com a `main` de 13/10) |
+| `npx vitest run` | **EXIT=0** — 350 ficheiros, **5438 testes** (na árvore já fundida com a `main` de 13/10, com o aditamento do `emailRedirectTo` e do `/set-password`) |
 | `npm run build` (`NODE_OPTIONS=--max-old-space-size=6144`) | **EXIT=0** — as 6 rotas novas/tocadas (`/api/auth-code/{register,resend,verify,status}`, `/api/auth-failures/report`, `/api/backoffice/auth-email-failures`) saem **ƒ (dinâmicas)** |
 
 **Testes novos (`auth-errors`, `client`, `pending-storage`, `failure-log`, `EmailCodeConfirm`, `auth-failures/report`, `auth-code-paths-911`):**

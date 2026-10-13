@@ -61,9 +61,24 @@ describe('the default (variable unset) is ON: every email may register with a co
   it('ignores an intent it does not know (the browser cannot make an account something else) and defaults to lenient', async () => {
     await register(post('/api/auth-code/register', { ...FORM, intent: 'platform_admin' }));
     const [, input] = requestCode.mock.calls[0];
-    expect(input.ctx).toEqual({ intent: null });
+    expect(input.ctx).toEqual({ intent: null, redirectTo: 'https://www.sherlockdeal.com/' });
     expect(input.strict).toBe(false);
   });
+  it('hands the service the full emailRedirectTo of the path that registered: origin + a validated path, the platform by default', async () => {
+    await register(post('/api/auth-code/register', { ...FORM, redirectPath: '/invite/abc' }));
+    expect(requestCode.mock.calls[0][1].ctx.redirectTo).toBe('https://www.sherlockdeal.com/invite/abc');
+    await register(post('/api/auth-code/register', { ...FORM }));
+    expect(requestCode.mock.calls[1][1].ctx.redirectTo).toBe('https://www.sherlockdeal.com/');
+    // a path that is not a plain path of this site is ignored, never followed
+    await register(post('/api/auth-code/register', { ...FORM, redirectPath: 'https://evil.example/x' }));
+    expect(requestCode.mock.calls[2][1].ctx.redirectTo).toBe('https://www.sherlockdeal.com/');
+  });
+
+  it('a resend carries the same redirect, so the new email returns to the same place', async () => {
+    await resend(post('/api/auth-code/resend', { email: FORM.email, redirectPath: '/call/x/form/3' }));
+    expect(requestCode.mock.calls[0][1].ctx.redirectTo).toBe('https://www.sherlockdeal.com/call/x/form/3');
+  });
+
   it('only the 904 test page asks for the strict check', async () => {
     await register(post('/api/auth-code/register', { ...FORM, strict: true }));
     expect(requestCode.mock.calls[0][1].strict).toBe(true);
@@ -72,10 +87,11 @@ describe('the default (variable unset) is ON: every email may register with a co
   });
 });
 
-describe('allowlist mode', () => {
+// Production had AUTH_CODE_MODE=allowlist set by the 904 test; since 911 that value is retired and simply means on, for everybody.
+describe('the retired "allowlist" value (production had it set) is just ON', () => {
   beforeEach(() => { process.env.AUTH_CODE_MODE = 'allowlist'; process.env.AUTH_CODE_TEST_EMAILS = 'ana@example.com'; });
 
-  it('lets a listed email through (normalised) and passes the client IP and the profile on', async () => {
+  it('lets an email through (normalised) and passes the client IP and the profile on', async () => {
     const res = await register(post('/api/auth-code/register', FORM, { 'x-forwarded-for': '203.0.113.9, 10.0.0.1' }));
     expect(res.status).toBe(200);
     expect(requestCode).toHaveBeenCalledTimes(1);
@@ -87,10 +103,10 @@ describe('allowlist mode', () => {
     expect(opts).toEqual({ allowCreate: true });
   });
 
-  it('refuses an unlisted email with 404, without calling the service', async () => {
+  it('lets an email that was NOT on the old list through too: the code is for everybody', async () => {
     const res = await register(post('/api/auth-code/register', { ...FORM, email: 'stranger@example.com' }));
-    expect(res.status).toBe(404);
-    expect(requestCode).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(requestCode).toHaveBeenCalledTimes(1);
   });
 
   it('resend never creates an account', async () => {
@@ -106,8 +122,9 @@ describe('allowlist mode', () => {
     expect(verifyRegistrationCode.mock.calls[0][1]).toMatchObject({ email: 'ana@example.com', code: '123456' });
   });
 
-  it('survives a body that is not JSON (404 for the empty email, never a crash)', async () => {
+  it('survives a body that is not JSON (it reaches the service as an empty email, which the service refuses — never a crash)', async () => {
     const req = new NextRequest(new URL('/api/auth-code/register', 'https://www.sherlockdeal.com'), { method: 'POST', body: 'nope' });
-    expect((await register(req)).status).toBe(404);
+    expect((await register(req)).status).toBeLessThan(500);
+    expect(requestCode.mock.calls[0][1]).toMatchObject({ email: '' });
   });
 });

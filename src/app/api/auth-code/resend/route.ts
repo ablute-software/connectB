@@ -2,8 +2,9 @@
 // enforces the 60 s gap and the hourly cap. A new code invalidates the previous one.
 import { NextResponse, type NextRequest } from 'next/server';
 import { clientIp } from '@/lib/guest-link-security';
+import { redirectUrl } from '@/lib/auth-redirect';
 import { authCodeAllows } from '@/lib/auth-code/mode';
-import { normalizeEmail } from '@/lib/auth-code/policy';
+import { normalizeEmail, readExtras } from '@/lib/auth-code/policy';
 import { requestCode } from '@/lib/auth-code/service';
 import { adminClientOrNull, makeSupabasePorts } from '@/lib/auth-code/supabase-ports';
 
@@ -16,7 +17,7 @@ export async function POST(req: NextRequest) {
 
   const result = await requestCode(
     makeSupabasePorts(admin),
-    { email, profile: { fullName: '', startup: '', country: '', role: '' }, ip: clientIp(req), ctx: { intent: null } },
+    { email, profile: { fullName: '', startup: '', country: '', role: '' }, ip: clientIp(req), ctx: { intent: null, redirectTo: redirectUrl(new URL(req.url).origin, readExtras(body).redirectPath) } },
     { allowCreate: false },
   );
   return NextResponse.json(result.body, { status: result.status });

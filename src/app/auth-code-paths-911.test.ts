@@ -70,6 +70,40 @@ describe('every account-creating path', () => {
   });
 });
 
+describe('every path says where the email link brings the person back to (emailRedirectTo)', () => {
+  const EXPECT: Record<string, { code: RegExp; legacy: RegExp }> = {
+    'src/app/signup/page.tsx': { code: /redirectPath: afterSignup/, legacy: /emailRedirectTo: `\$\{window\.location\.origin\}\$\{afterSignup\}`/ },
+    'src/app/invite/[token]/page.tsx': { code: /redirectPath: `\/invite\/\$\{token\}`/, legacy: /emailRedirectTo: `\$\{window\.location\.origin\}\/invite\/\$\{token\}`/ },
+    'src/app/invite/incubator/member/[token]/page.tsx': { code: /redirectPath: PENDING_MEMBER_INVITE_PATH/, legacy: /emailRedirectTo: `\$\{window\.location\.origin\}\$\{PENDING_MEMBER_INVITE_PATH\}`/ },
+  };
+  for (const [file, e] of Object.entries(EXPECT)) {
+    it(file, () => {
+      const src = read(file);
+      expect(src).toMatch(e.code);   // the code flow: the server builds emailRedirectTo from this path
+      expect(src).toMatch(e.legacy); // the link-only fallback sets it itself
+      expect(src).toMatch(/<EmailCodeConfirm[\s\S]*?redirectPath=/); // a resend returns to the same place
+    });
+  }
+
+  it('the legacy incubator member fallback no longer goes through the PKCE callback (the new template links to /auth/confirm)', () => {
+    expect(read('src/app/invite/incubator/member/[token]/page.tsx')).not.toContain('/auth/callback?next=');
+  });
+
+  it('/auth/confirm follows next only as a path of this site, and offers a password to a link-confirmed code account', () => {
+    const src = read('src/app/auth/confirm/page.tsx');
+    expect(src).toContain('confirmDestination(');
+    expect(src).toMatch(/password_set !== true/);
+    expect(src).toContain('/set-password?next=');
+  });
+
+  it('/set-password never asks an account that already has its password for another, and follows next only as a path of this site', () => {
+    const src = read('src/app/set-password/page.tsx');
+    expect(src).toMatch(/password_set === true/);
+    expect(src).toContain('confirmDestination(');
+    expect(src).not.toMatch(/window\.location\.href = (nextParam|sp\.get)/);
+  });
+});
+
 describe('no authentication screen prints a raw provider error', () => {
   const SCREENS = [
     'src/app/signup/page.tsx', 'src/app/login/page.tsx', 'src/app/forgot-password/page.tsx', 'src/app/reset-password/page.tsx',

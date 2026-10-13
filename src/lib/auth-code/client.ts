@@ -28,8 +28,10 @@ export type RegisterOutcome =
 
 export async function registerWithCode(input: {
   email: string; password: string; profile?: Partial<RegistrationProfile>; intent?: RegistrationIntent;
+  /** Where the link in the email brings the person back to: a path of this site (omitted = the platform). */
+  redirectPath?: string;
 }): Promise<RegisterOutcome> {
-  const r = await postJson('/api/auth-code/register', { email: input.email, password: input.password, ...EMPTY_PROFILE, ...input.profile, intent: input.intent });
+  const r = await postJson('/api/auth-code/register', { email: input.email, password: input.password, ...EMPTY_PROFILE, ...input.profile, intent: input.intent, redirectPath: input.redirectPath });
   if (!r) return { kind: 'error', text: NETWORK_TEXT };
   if (r.status === 404) return { kind: 'off' };
   if (r.status === 200 && r.json.ok === true) {
@@ -43,8 +45,8 @@ export type ResendOutcome =
   | { kind: 'sent'; resendAfterSeconds: number }
   | { kind: 'error'; text: string; retryAfterSeconds?: number };
 
-export async function resendRegistrationCode(email: string): Promise<ResendOutcome> {
-  const r = await postJson('/api/auth-code/resend', { email });
+export async function resendRegistrationCode(email: string, redirectPath?: string): Promise<ResendOutcome> {
+  const r = await postJson('/api/auth-code/resend', { email, redirectPath });
   if (!r) return { kind: 'error', text: NETWORK_TEXT };
   if (r.status === 200 && r.json.ok === true) return { kind: 'sent', resendAfterSeconds: asNumber(r.json.resendAfterSeconds) ?? 60 };
   const info = describeAuthError({ status: r.status, code: asText(r.json.code), message: asText(r.json.error) }, { serverText: asText(r.json.error) });

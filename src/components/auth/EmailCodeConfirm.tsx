@@ -12,13 +12,15 @@ import { checkPassword } from '@/lib/password-policy';
 
 export interface CodeVerified { userId: string | null; passwordSet: boolean; warning?: string }
 
-export function EmailCodeConfirm({ email, password: initialPassword, sentAt, message, onVerified, onChangeEmail, onResent }: {
+export function EmailCodeConfirm({ email, password: initialPassword, sentAt, message, redirectPath, onVerified, onChangeEmail, onResent }: {
   email: string;
   /** What the person typed in the form. Empty after a reload (it is never stored): the box asks for it again. */
   password: string;
   /** When the code was sent (ms), so the resend countdown is right after a reload too. */
   sentAt: number;
   message?: string;
+  /** The same path the first email was sent with: a new email must bring the person back to the same place. */
+  redirectPath?: string;
   /** Runs once the code is right and the browser is signed in. A returned string is shown as an error. */
   onVerified: (v: CodeVerified) => Promise<string | void> | string | void;
   onChangeEmail: () => void;
@@ -60,7 +62,7 @@ export function EmailCodeConfirm({ email, password: initialPassword, sentAt, mes
   async function resend() {
     setBusy(true); setError(''); setNotice('');
     try {
-      const r = await resendRegistrationCode(email);
+      const r = await resendRegistrationCode(email, redirectPath);
       const at = Date.now();
       if (r.kind === 'sent') {
         setCode('');

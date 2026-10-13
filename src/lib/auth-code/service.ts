@@ -31,8 +31,11 @@ import { SEND_FAILED_TEXT, describeAuthError } from '@/lib/auth-errors';
 export type AuthFailureAction = 'signup' | 'resend_code' | 'signup_already_registered';
 export interface AuthFailureRecord { email: string; action: AuthFailureAction; error: unknown }
 
-/** What the account needs besides the profile: what it is for (an incubator team member, say). */
-export type RegistrationContext = Pick<RegistrationExtras, 'intent'>;
+/**
+ * What the account needs besides the profile: what it is for (an incubator team member, say) and the FULL url the email link
+ * returns to (emailRedirectTo) — the platform, a team invite, or (Prompt 907) the call and page the applicant was on.
+ */
+export type RegistrationContext = Pick<RegistrationExtras, 'intent'> & { redirectTo?: string };
 
 export interface SendReservation { allowed: boolean; reason?: 'too_early' | 'hourly_cap'; retryAfterSeconds: number }
 export interface AttemptReservation { allowed: boolean; reason?: 'no_code' | 'locked'; attemptsLeft: number }

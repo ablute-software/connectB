@@ -3,6 +3,7 @@
 // that has no account, an unconfirmed one and a confirmed one (see service.ts).
 import { NextResponse, type NextRequest } from 'next/server';
 import { clientIp } from '@/lib/guest-link-security';
+import { redirectUrl } from '@/lib/auth-redirect';
 import { authCodeAllows } from '@/lib/auth-code/mode';
 import { normalizeEmail, readExtras, readProfile } from '@/lib/auth-code/policy';
 import { requestCode } from '@/lib/auth-code/service';
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest) {
   const extras = readExtras(body);
   const result = await requestCode(
     makeSupabasePorts(admin),
-    { email, profile: readProfile(body), password: typeof body.password === 'string' ? body.password : '', ip: clientIp(req), ctx: { intent: extras.intent }, strict: extras.strict },
+    { email, profile: readProfile(body), password: typeof body.password === 'string' ? body.password : '', ip: clientIp(req), ctx: { intent: extras.intent, redirectTo: redirectUrl(new URL(req.url).origin, extras.redirectPath) }, strict: extras.strict },
     { allowCreate: true },
   );
   return NextResponse.json(result.body, { status: result.status });

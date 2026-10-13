@@ -1,12 +1,12 @@
 // Prompt 904 Part B / Prompt 911 — the switch in front of the routes. Since 911 the DEFAULT is open (the code is how everybody
-// registers) and only an explicit `off` closes it.
+// registers), only an explicit `off` closes it, and there is no allowlist any more.
 import { describe, expect, it } from 'vitest';
-import { authCodeAllows, authCodeMode, authCodeTestEmails } from './mode';
+import { authCodeAllows, authCodeMode } from './mode';
 import { codeSentMessage, isValidCode, isValidEmailShape, normalizeEmail, readProfile, sanitizeCodeInput } from './policy';
 
 describe('AUTH_CODE_MODE', () => {
   it('is ON when unset, empty or unrecognised — a typo must never silently switch the code flow off', () => {
-    for (const v of [undefined, '', 'maybe', 'true', 'onn']) {
+    for (const v of [undefined, '', 'maybe', 'true', 'onn', 'on', ' ON ']) {
       const env = { AUTH_CODE_MODE: v };
       expect(authCodeMode(env)).toBe('on');
       expect(authCodeAllows('anyone@example.com', env)).toBe(true);
@@ -21,24 +21,11 @@ describe('AUTH_CODE_MODE', () => {
     }
   });
 
-  it('tolerates case and stray spaces in the value', () => {
-    expect(authCodeMode({ AUTH_CODE_MODE: ' ON ' })).toBe('on');
-    expect(authCodeMode({ AUTH_CODE_MODE: 'Allowlist' })).toBe('allowlist');
-  });
-
-  it('allowlist lets in only the listed emails, case-insensitively', () => {
-    const env = { AUTH_CODE_MODE: 'allowlist', AUTH_CODE_TEST_EMAILS: ' Nuno@Example.com , other@example.com ' };
-    expect(authCodeTestEmails(env)).toEqual(['nuno@example.com', 'other@example.com']);
-    expect(authCodeAllows('NUNO@example.com', env)).toBe(true);
-    expect(authCodeAllows('stranger@example.com', env)).toBe(false);
-  });
-
-  it('an empty allowlist lets nobody in', () => {
-    expect(authCodeAllows('a@example.com', { AUTH_CODE_MODE: 'allowlist' })).toBe(false);
-  });
-
-  it('on lets everybody in', () => {
-    expect(authCodeAllows('a@example.com', { AUTH_CODE_MODE: 'on' })).toBe(true);
+  it('the retired "allowlist" value (production had it set) now means on, for everybody — and the test emails are ignored', () => {
+    for (const env of [{ AUTH_CODE_MODE: 'allowlist' }, { AUTH_CODE_MODE: 'Allowlist', AUTH_CODE_TEST_EMAILS: 'nuno@example.com' }]) {
+      expect(authCodeMode(env)).toBe('on');
+      expect(authCodeAllows('stranger@example.com', env)).toBe(true);
+    }
   });
 });
 

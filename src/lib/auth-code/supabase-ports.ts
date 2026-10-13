@@ -73,6 +73,8 @@ export function makeSupabasePorts(admin: SupabaseClient): AuthCodePorts {
         email,
         password: throwawayPassword(),
         options: {
+          // Where the link in the email brings the person back to ("{{ .RedirectTo }}" in the Confirm signup template).
+          emailRedirectTo: ctx.redirectTo,
           data: {
             full_name: profile.fullName, org_name: profile.startup, country: profile.country, title: profile.role,
             // An incubator team member's account is born with this, so the invite flow recognises it (Prompt I-01c).
@@ -86,8 +88,8 @@ export function makeSupabasePorts(admin: SupabaseClient): AuthCodePorts {
       if (error) throw error;
     },
 
-    async resendCode(email, _ctx) {
-      const { error } = await anonClient().auth.resend({ type: 'signup', email });
+    async resendCode(email, ctx) {
+      const { error } = await anonClient().auth.resend({ type: 'signup', email, options: { emailRedirectTo: ctx.redirectTo } });
       if (error) throw error;
     },
 

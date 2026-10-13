@@ -3,6 +3,7 @@
 // component and from the server alike, so the form and the route can never disagree about
 // what a valid input is.
 import { checkPassword } from '@/lib/password-policy';
+import { safeRedirectPath } from '@/lib/auth-redirect';
 
 export const CODE_LENGTH = 6;
 /** Wrong guesses allowed per code. The sixth is refused: a new code is required. */
@@ -98,10 +99,15 @@ export function codeSentMessage(email: string): string {
 export const REGISTRATION_INTENTS = ['incubator_member'] as const;
 export type RegistrationIntent = (typeof REGISTRATION_INTENTS)[number];
 
-export interface RegistrationExtras { intent: RegistrationIntent | null; strict: boolean }
+export interface RegistrationExtras {
+  intent: RegistrationIntent | null;
+  strict: boolean;
+  /** Where the email link brings the person back to (a validated path of this site), or null = the platform. */
+  redirectPath: string | null;
+}
 
 export function readExtras(body: Record<string, unknown>): RegistrationExtras {
   const intent = REGISTRATION_INTENTS.find((i) => i === body.intent) ?? null;
   // Only the 904 test page asks for the strict (all four fields) check; everything else is lenient.
-  return { intent, strict: body.strict === true };
+  return { intent, strict: body.strict === true, redirectPath: safeRedirectPath(body.redirectPath) };
 }

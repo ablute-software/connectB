@@ -317,7 +317,7 @@ function FounderSignupForm() {
     try {
       if (!(await inviteEmailConfirmed())) return;
       // Prompt 911 — the normal way: the email is confirmed with a code typed on this page.
-      const sent = await registerWithCode({ email, password, profile: { fullName: name, startup: org, country, role: title } });
+      const sent = await registerWithCode({ email, password, profile: { fullName: name, startup: org, country, role: title }, redirectPath: afterSignup });
       if (sent.kind === 'sent') {
         const at = Date.now();
         writePending({
@@ -336,7 +336,7 @@ function FounderSignupForm() {
       // first-login /set-password screen.
       const { data, error } = await sb.auth.signUp({
         email, password,
-        options: { data: { full_name: name, org_name: org, password_set: true } },
+        options: { data: { full_name: name, org_name: org, password_set: true }, emailRedirectTo: `${window.location.origin}${afterSignup}` },
       });
       if (error) { reportAuthEmailFailure({ email, action: 'signup', error }); setMsg(authErrorText(error)); return; }
       const userId = data.user?.id;
@@ -402,7 +402,7 @@ function FounderSignupForm() {
             <LogoLockup size={28} accentClassName="text-[#2a7f8e]" />
           </div>
           <EmailCodeConfirm
-            email={email} password={password} sentAt={sentAt}
+            email={email} password={password} sentAt={sentAt} redirectPath={afterSignup}
             onVerified={(v) => afterCodeVerified(v.userId)}
             onResent={(at) => { setSentAt(at); writePending({ flow: 'signup', scope: 'signup', email, sentAt: at, fields: { org, website, sector, stage, roundTarget, country, oneLiner, howHeard, name, title, phone, linkedin, wantsNewsletter, agreedToTerms } }); }}
             onChangeEmail={() => { clearPending('signup'); setStep('form'); setMsg(''); }}
