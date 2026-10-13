@@ -821,9 +821,10 @@ Cada notificação sai **por email e dentro da plataforma**, reutilizando o meca
 | 0 | Envio de email (Resend e Supabase Auth), registo com palavra-passe e código, seats de planos custom e código promocional preso à entidade. **Prompt 904** |
 | 1 | Separador Calls; General; Phases (estrutura); Form; link e ecrã da call; registo e entrada; pré-preenchimento; gravação; submissão; área do candidato; notificações base |
 | 2 | Eligibility (regras, documentos, subtabs, correções e dataset); fila de processamento; duplicados; reportar problema |
-| 3 | Categorias e permissões; distribuição; construtor de grelha (manual); avaliação; conflitos; prazos dos avaliadores |
+| 1C | **Antecipado do 3 e do 5 (Nuno, 12/10/2026, Prompt 909):** eliminar e arquivar uma call; importar o formulário de outra call; tab Team (categorias ao nível da organização, as 9 permissões, equipa da call com seats, ajustes individuais, conflitos declarados à partida; "Configure call" e "Manage team & permissions" já aplicadas no servidor); importação por IA de regulamento, formulário e grelha, em rascunho (§5.3); **I5 (Adenda 1):** pré-visualização livre, modo de teste do formulário e "Validate form and settings" (validar não publica) |
+| 3 | Distribuição; construtor de grelha (manual); avaliação; "Declare conflict" em cada candidatura; prazos dos avaliadores; as outras 7 permissões passam a ser aplicadas. (Categorias, permissões e conflitos à partida: ver 1C.) |
 | 4 | Seriação (mínimos, cotas, vagas); passagem de fase; decisão final; publicação; contestações; painéis |
-| 5 | Importação por IA de regulamento, formulário e grelha (documentos da entidade) |
+| 5 | ~~Importação por IA de regulamento, formulário e grelha~~ — **entregue na Etapa 1C (Prompt 909)**; fica o que a importação guarda em texto (regras de elegibilidade, critérios de avaliação) para serem configurados nas Etapas 2 e 3 |
 
 Cada etapa é entregue funcional e verificada antes da seguinte, e fica escondida atrás de um interruptor até estar pronta. Depois da etapa 5, revêem-se os detalhes que tenham ficado de fora.
 

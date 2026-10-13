@@ -74,7 +74,7 @@ Sem `NEXT_PUBLIC_APP_URL` os links dos emails (convites, Stripe, "Open your work
 | Nome | Valor | Estado | Quem decidiu e quando | Fonte |
 |---|---|---|---|---|
 | `ANTHROPIC_API_KEY` | definido | feito | Nuno. Prova: 696 chamadas em `ai_call_log`, a última a 08/10 | observado |
-| `AI_REVIEW_MODEL` | **sem decisão registada.** Opcional: sem ela o código usa `claude-sonnet-4-5` | pendente | — | `src/app/api/ai-review/route.ts:318` |
+| `AI_REVIEW_MODEL` | **sem decisão registada.** Opcional: sem ela o código usa `claude-sonnet-4-5`. Desde o Prompt 909 também lê o modelo da importação de calls por documentos (mesmo cliente e mesma `ANTHROPIC_API_KEY`; **nenhuma variável nova**) | pendente | — | `src/app/api/ai-review/route.ts:318`; `src/lib/calls/ai-import/anthropic.ts` |
 | `AI_CLASSIFY_MODEL` | **sem decisão registada.** Opcional: sem ela o código usa `claude-haiku-4-5` | pendente | — | `src/app/api/classify-interaction/route.ts:10` |
 
 ### 1.5 Segurança de ficheiros, Gmail, privacidade

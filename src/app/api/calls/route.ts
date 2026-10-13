@@ -2,8 +2,9 @@
 // CALLS_MODE is explicitly "off" (Prompt 908: the emergency brake); only members of the promoting entity see
 // anything; only its owners/admins create.
 import { NextResponse, type NextRequest } from 'next/server';
-import { authCalls, pickPromoter } from '@/lib/calls/access';
+import { authCalls, configurableCallIds, pickPromoter } from '@/lib/calls/access';
 import { createCall, listPromoterCalls, loadCall } from '@/lib/calls/store';
+import { bootstrapTeam } from '@/lib/calls/team-store';
 import { effectiveStatus } from '@/lib/calls/lifecycle';
 import { syncStatus } from '@/lib/calls/state';
 
@@ -18,9 +19,14 @@ export async function GET(req: NextRequest) {
   const now = new Date();
   const calls = await Promise.all(cards.map(async (c) => {
     const call = effectiveStatus(c.call, now) !== c.call.status ? await syncStatus(auth.admin, c.call, now) : c.call;
-    return { ...call, effectiveStatus: effectiveStatus(call, now), applications: c.applications, fields: c.fields, phases: c.phases };
+    return { ...call, effectiveStatus: effectiveStatus(call, now), applications: c.applications, applicationsTotal: c.applicationsTotal, fields: c.fields, phases: c.phases };
   }));
-  return NextResponse.json({ ok: true, promoter: { kind: promoter.kind, id: promoter.id, name: promoter.name, canManage: promoter.canManage }, calls });
+  // Per call: may this person configure it (the menu offers Duplicate, Archive and Delete only then)?
+  const configurable = await configurableCallIds(auth.admin, promoter, auth.userId, calls);
+  return NextResponse.json({
+    ok: true, promoter: { kind: promoter.kind, id: promoter.id, name: promoter.name, canManage: promoter.canManage },
+    calls: calls.map((c) => ({ ...c, canConfigure: configurable.has(c.id) })),
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -35,5 +41,7 @@ export async function POST(req: NextRequest) {
   const name = (typeof body.name === 'string' ? body.name.trim().slice(0, 200) : '') || 'Untitled call';
   const created = await createCall(auth.admin, { kind: promoter.kind, promoterId: promoter.id, userId: auth.userId, name });
   const call = (await loadCall(auth.admin, created.id)) ?? created;
+  // The organisation's first category ("Administrator", with every permission) if it has none, and the creator in it.
+  await bootstrapTeam(auth.admin, call, auth.userId);
   return NextResponse.json({ ok: true, call });
 }

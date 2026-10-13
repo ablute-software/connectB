@@ -19,7 +19,7 @@ export function rowToCall(r: Row): Call {
     timezone: s(r.timezone) ?? 'Europe/Lisbon', visibility: (r.visibility === 'unlisted' ? 'unlisted' : 'listed') as CallVisibility,
     limitUnit: (r.limit_unit === 'legal_entity' ? 'legal_entity' : 'project') as LimitUnit, allowMultiple: r.allow_multiple === true,
     contentLanguage: s(r.content_language) ?? 'en', currency: s(r.currency) ?? 'EUR', status, linkToken: s(r.link_token),
-    configVersion: Number(r.config_version ?? 1), validatedAt: s(r.validated_at), publishedAt: s(r.published_at), closedAt: s(r.closed_at),
+    configVersion: Number(r.config_version ?? 1), validatedAt: s(r.validated_at), publishedAt: s(r.published_at), closedAt: s(r.closed_at), archivedAt: s(r.archived_at),
     duplicatedFrom: s(r.duplicated_from), createdBy: r.created_by as string, createdAt: r.created_at as string, updatedAt: r.updated_at as string,
   };
 }

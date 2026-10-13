@@ -3,8 +3,8 @@
 // on the status the caller saw (two clicks cannot both succeed), records the event, and returns the new state.
 import { NextResponse } from 'next/server';
 import { authCall } from '@/lib/calls/access';
-import { closeEarly, confirmCall, editConfiguration, extendDeadline, publishCall, readiness, type Transition } from '@/lib/calls/lifecycle';
-import { generateLinkToken, loadFields, loadPhases, logCallEvent, snapshotConfig, transitionCall } from '@/lib/calls/store';
+import { archiveCall, closeEarly, confirmCall, deleteProblem, editConfiguration, extendDeadline, publishCall, readiness, type Transition } from '@/lib/calls/lifecycle';
+import { countApplications, deleteCallIfEmpty, generateLinkToken, loadFields, loadPhases, logCallEvent, snapshotConfig, transitionCall } from '@/lib/calls/store';
 import { buildCallState, syncStatus } from '@/lib/calls/state';
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
@@ -14,6 +14,21 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const now = new Date();
   // Look at the call as it is NOW (a scheduled call may have opened since the editor loaded).
   const call = await syncStatus(auth.admin, auth.call, now);
+
+  // Delete (Prompt 909): the call and everything of it go, a record of who/what/when stays. Not a state change.
+  if (body.action === 'delete') {
+    const apps = await countApplications(auth.admin, call.id);
+    const problem = deleteProblem(call.status, apps.total);
+    if (problem) return NextResponse.json({ ok: false, error: problem }, { status: 409 });
+    const res = await deleteCallIfEmpty(auth.admin, call, auth.userId, auth.promoter.name);
+    if (!res.ok) {
+      const error = res.reason === 'not_found' ? 'This call no longer exists.'
+        : res.reason === 'has_applications' ? deleteProblem('draft', 1)!
+        : res.reason === 'status' ? deleteProblem('open', 0)! : 'The call could not be deleted. Please try again.';
+      return NextResponse.json({ ok: false, error }, { status: 409 });
+    }
+    return NextResponse.json({ ok: true, deleted: true, name: call.name });
+  }
 
   let transition: Transition;
   switch (body.action) {
@@ -26,6 +41,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     case 'publish': transition = publishCall(call, generateLinkToken(), now); break;
     case 'extend': transition = extendDeadline(call, String(body.closesAt ?? ''), now); break;
     case 'close': transition = closeEarly(call, now); break;
+    case 'archive': transition = archiveCall(call, auth.userId, now); break;
     default: return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
   }
   if (!transition.ok) return NextResponse.json({ ok: false, error: transition.error }, { status: 409 });

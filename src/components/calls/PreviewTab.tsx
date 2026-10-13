@@ -1,7 +1,8 @@
 'use client';
-// Prompt 905 — Calls editor, tab "Preview & confirm" (spec §8). Left: the form exactly as a candidate sees it,
-// page by page, with the conditions working and nothing saved. Right: a summary of what is configured, what is still
-// missing, and the life of the call — Confirm, Edit configuration, Publish, extend the deadline, close early — and,
+// Prompt 905 / 909 — Calls editor, tab "Preview & validate" (spec §8). Left: the form, either as a FREE preview (every page
+// and question reachable, nothing enforced) or, with "Test the form", in test mode (exactly as an applicant must fill it,
+// nothing saved or sent). Right: a summary of what is configured, what is still
+// missing, and the life of the call — Validate form and settings, Edit configuration, Publish, extend the deadline, close early — and,
 // once published, the call's link with a Copy button.
 import { useRef, useState } from 'react';
 import { formatInZone, utcToWall, wallToUtcIso } from '@/lib/calls/tz';
@@ -9,12 +10,13 @@ import { callLink } from '@/lib/calls/link';
 import { CONTENT_LANGUAGES, type Call, type CallPhase, type FormField } from '@/lib/calls/types';
 import type { CallSummary, EditorTab, ReadinessIssue, availableActions } from '@/lib/calls/lifecycle';
 import { FormPreview } from './FormPreview';
+import { FormTest } from './FormTest';
 import { StatusBadge } from './StatusBadge';
 import type { CallStatus } from '@/lib/calls/types';
 
-const TAB_NAMES: Record<EditorTab, string> = { general: 'General', phases: 'Phases', form: 'Form', preview: 'Preview' };
+const TAB_NAMES: Record<EditorTab, string> = { general: 'General', phases: 'Phases', form: 'Form', preview: 'Preview', team: 'Team' };
 
-export type LifecycleAction = 'confirm' | 'edit' | 'publish' | 'extend' | 'close';
+export type LifecycleAction = 'confirm' | 'edit' | 'publish' | 'extend' | 'close' | 'archive';
 
 // The URL builder lives in lib/calls/link.ts (the back-office Calls page uses the very same one); re-exported here
 // so existing imports keep working.
@@ -26,6 +28,7 @@ export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summ
   onJump: (tab: EditorTab) => void; onAction: (a: LifecycleAction, extra?: { closesAt?: string }) => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [extendWall, setExtendWall] = useState('');
   const link = call.linkToken ? callLink(origin, call.linkToken) : null;
   const lang = CONTENT_LANGUAGES.find((l) => l.code === call.contentLanguage)?.label ?? call.contentLanguage;
@@ -57,7 +60,20 @@ export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summ
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]" data-testid="preview-tab">
-      <FormPreview fields={fields} currency={call.currency} title={call.name} />
+      <div className="space-y-3">
+        {canManage && fields.length > 0 && (
+          <div className="flex items-center justify-between gap-3" data-testid="test-switch">
+            <p className="text-xs text-gray-500">{testing ? 'Filling it in exactly as an applicant must.' : 'Just looking. To go through it as an applicant must, test the form.'}</p>
+            {!testing && (
+              <button type="button" onClick={() => setTesting(true)} data-testid="test-form"
+                className="shrink-0 rounded-lg border border-[#0E7490] px-3 py-1.5 text-sm font-medium text-[#0E7490] hover:bg-[#E8F4F8]">Test the form</button>
+            )}
+          </div>
+        )}
+        {testing && canManage
+          ? <FormTest fields={fields} currency={call.currency} title={call.name} onExit={() => setTesting(false)} />
+          : <FormPreview fields={fields} currency={call.currency} title={call.name} />}
+      </div>
 
       <div className="space-y-4">
         <section className="rounded-lg border border-gray-200 bg-white p-4" aria-label="Summary">
@@ -95,13 +111,16 @@ export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summ
 
         {canManage && (
           <section className="space-y-3 rounded-lg border border-gray-200 bg-white p-4" aria-label="Status actions" data-testid="lifecycle">
-            <h3 className="text-sm font-semibold text-gray-900">Confirm and publish</h3>
+            <h3 className="text-sm font-semibold text-gray-900">Validate and publish</h3>
             {call.status === 'draft' && (
               <>
                 <button type="button" disabled={busy || !actions.canConfirm} onClick={() => onAction('confirm')} data-testid="confirm"
-                  className="w-full rounded-lg bg-[#0E7490] px-3 py-2 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">Confirm</button>
-                <p className="text-[11px] text-gray-400">Confirming locks the form. Until the call opens you can always use “Edit configuration”, which withdraws the confirmation.</p>
+                  className="w-full rounded-lg bg-[#0E7490] px-3 py-2 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">Validate form and settings</button>
+                <p className="text-[11px] text-gray-400">Validating locks the configuration. The call stays unpublished until you click Publish. Until the call opens you can always use “Edit configuration”, which withdraws the validation.</p>
               </>
+            )}
+            {call.status === 'validated' && (
+              <p className="text-[11px] text-gray-500" data-testid="validated-note">Validated. The call is not published yet: there is no link and nobody can apply until you click Publish.</p>
             )}
             {actions.canPublish && (
               <button type="button" disabled={busy} onClick={() => onAction('publish')} data-testid="publish"

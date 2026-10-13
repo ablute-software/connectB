@@ -4,8 +4,12 @@
 //   2. a signed-in user;
 //   3. membership of a promoting entity: an investor firm (matchdeal_investor_members) or an ecosystem
 //      organisation (incubator_members);
-//   4. for anything that writes, the role: owner/admin of an investor firm, owner/manager of an ecosystem
-//      organisation (the highest roles each side has; finer permission categories arrive in Stage 3);
+//   4. for anything that writes, the PERMISSION in this call's team (Prompt 909): "Configure call" to edit, confirm,
+//      publish, delete and archive; "Manage team & permissions" to edit the team. The owner of the organisation
+//      always has everything, so nobody is ever locked out of a call. Creating a call keeps the role rule
+//      (owner/admin of a firm, owner/manager of an ecosystem organisation): there is no call yet to hold a team.
+//      A call that predates the team (905/908) gets its team the first time a person who could manage it by role
+//      opens it, so nothing that worked yesterday stops working;
 //   5. for a given call, that it belongs to a promoter the caller is a member of. A call of another entity answers
 //      404, never 403: its existence is not revealed.
 import 'server-only';
@@ -16,6 +20,9 @@ import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 import { resolveIncubatorMember } from '@/lib/incubator-access-core';
 import { callsAllowedFor, callsMode } from './mode';
 import { loadCall, promoterName } from './store';
+import { ALL_PERMISSIONS, NO_PERMISSIONS, type PermissionSet } from './permissions';
+import { memberPermissions, type TeamState, type TeamMember } from './team-rules';
+import { bootstrapTeam, callOrg, loadCallTeam, loadCategories, loadTeamsOfCalls } from './team-store';
 import type { Call, PromoterKind } from './types';
 
 export interface Promoter {
@@ -23,8 +30,10 @@ export interface Promoter {
   id: string;
   name: string;
   role: string;
-  /** May create and edit calls (Stage 1: the top roles of each side). */
+  /** May CREATE calls (the top roles of each side). Per call, what counts is callPermissions(). */
   canManage: boolean;
+  /** Per call only (set by authCall): may edit the team of this call. */
+  canManageTeam?: boolean;
 }
 
 export const INVESTOR_MANAGE_ROLES = ['owner', 'admin'];
@@ -77,17 +86,57 @@ export function pickPromoter(promoters: Promoter[], kind: string | null | undefi
   return promoters.length === 1 ? promoters[0] : null;
 }
 
-export interface CallAuth extends CallsAuth { call: Call; promoter: Promoter }
+/** What a person may do in ONE call: the owner everything; a team member what their category and adjustments say; nothing otherwise. */
+export function callPermissions(promoter: Pick<Promoter, 'kind' | 'role'>, userId: string, team: TeamState): PermissionSet {
+  if (promoter.role === 'owner') return { ...ALL_PERMISSIONS };
+  const mine = memberPermissions(team, userId);
+  if (mine) return mine;
+  // A call that predates the team: the role rule stands until its team exists (authCall creates it on first look).
+  if (team.members.length === 0 && canManageRole(promoter.kind, promoter.role)) return { ...ALL_PERMISSIONS };
+  return { ...NO_PERMISSIONS };
+}
 
-/** Switch + session + THIS call, which must belong to one of the caller's promoters (and, to write, they must manage). */
-export async function authCall(callId: string, opts: { write?: boolean } = {}): Promise<CallsGate<CallAuth>> {
+export interface CallAuth extends CallsAuth { call: Call; promoter: Promoter; perms: PermissionSet; team: TeamState }
+
+const forbid = (what: string) => ({ error: NextResponse.json({ ok: false, error: `You do not have the “${what}” permission on this call.` }, { status: 403 }) });
+
+/**
+ * Switch + session + THIS call, which must belong to one of the caller's promoters. To write (`write` or
+ * `need: 'configure'`) they must have "Configure call" in it; to edit the team (`need: 'team'`), "Manage team &
+ * permissions". The returned promoter carries the answers for THIS call (canManage, canManageTeam).
+ */
+export async function authCall(callId: string, opts: { write?: boolean; need?: 'configure' | 'team' } = {}): Promise<CallsGate<CallAuth>> {
   const auth = await authCalls();
   if (auth.error) return auth;
   const call = await loadCall(auth.admin, callId);
   const promoter = call ? auth.promoters.find((p) => p.kind === call.promoterKind && p.id === call.promoterId) : undefined;
   if (!call || !promoter) return { error: notFound() };
-  if (opts.write && !promoter.canManage) {
-    return { error: NextResponse.json({ ok: false, error: 'Only the owners and administrators of your organisation can change a call.' }, { status: 403 }) };
+
+  let members = await loadCallTeam(auth.admin, call.id);
+  if (members.length === 0 && canManageRole(promoter.kind, promoter.role)) {
+    await bootstrapTeam(auth.admin, call, auth.userId, { alsoActor: true });
+    members = await loadCallTeam(auth.admin, call.id);
   }
-  return { ...auth, call, promoter };
+  const team: TeamState = { categories: await loadCategories(auth.admin, callOrg(call)), members };
+  const perms = callPermissions(promoter, auth.userId, team);
+
+  const need = opts.need ?? (opts.write ? 'configure' : null);
+  if (need === 'configure' && !perms.configure_call) return forbid('Configure call');
+  if (need === 'team' && !perms.manage_team) return forbid('Manage team & permissions');
+  return { ...auth, call, perms, team, promoter: { ...promoter, canManage: perms.configure_call, canManageTeam: perms.manage_team } };
+}
+
+/** For the list of calls: which of them the caller may configure (one set of queries, not one per card). */
+export async function configurableCallIds(
+  admin: SupabaseClient, promoter: Promoter, userId: string, calls: Pick<Call, 'id' | 'promoterKind' | 'promoterId'>[],
+): Promise<Set<string>> {
+  if (calls.length === 0) return new Set();
+  if (promoter.role === 'owner') return new Set(calls.map((c) => c.id));
+  const [categories, teams] = await Promise.all([loadCategories(admin, { kind: promoter.kind, id: promoter.id }), loadTeamsOfCalls(admin, calls.map((c) => c.id))]);
+  const out = new Set<string>();
+  for (const c of calls) {
+    const members: TeamMember[] = teams.get(c.id) ?? [];
+    if (callPermissions(promoter, userId, { categories, members }).configure_call) out.add(c.id);
+  }
+  return out;
 }
