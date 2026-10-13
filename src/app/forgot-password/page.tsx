@@ -5,6 +5,7 @@ import { browserClient, authEnabled } from '@/lib/supabase';
 import { LogoLockup } from '@/components/Logo';
 import { AuthShell } from '@/components/auth/AuthShell';
 import { getMagicLinkSent, setMagicLinkSent, clearMagicLinkSent } from '@/lib/magic-link-storage';
+import { ForgotPasswordSent } from '@/components/auth/ForgotPasswordSent';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
@@ -52,11 +53,7 @@ export default function ForgotPasswordPage() {
             Demo mode — authentication is not configured. <Link href="/pipeline" className="underline">Enter the app</Link>.
           </div>
         ) : sent ? (
-          <div className="rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700">
-            <p>If {email} has an account, we&apos;ve sent a reset link.</p>
-            <p className="mt-1 text-gray-500">Open the link on this same device and browser you used to request it — requesting again before you click it will invalidate this one.</p>
-            <button onClick={startOver} className="mt-1 text-gray-400 hover:underline">Not you? Start over</button>
-          </div>
+          <ForgotPasswordSent email={email} onStartOver={startOver} />
         ) : (
           <>
             <label className="mb-1 block text-xs font-medium text-gray-500">Email</label>
