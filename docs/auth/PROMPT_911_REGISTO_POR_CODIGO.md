@@ -134,7 +134,7 @@ Na árvore commitada de `claude/911-signup-code` (todas por código de saída):
 |---|---|
 | `npx tsc --noEmit` | **EXIT=0** |
 | `npx eslint --no-eslintrc --config .eslintrc.json --ext .js,.jsx,.ts,.tsx src` | **EXIT=0** — 0 erros, 252 avisos (os mesmos de antes; nenhum novo) |
-| `npx vitest run` | **EXIT=0** — 341 ficheiros, **5313 testes** |
+| `npx vitest run` | **EXIT=0** — 345 ficheiros, **5374 testes** (na árvore já fundida com a `main` de 13/10) |
 | `npm run build` (`NODE_OPTIONS=--max-old-space-size=6144`) | **EXIT=0** — as 6 rotas novas/tocadas (`/api/auth-code/{register,resend,verify,status}`, `/api/auth-failures/report`, `/api/backoffice/auth-email-failures`) saem **ƒ (dinâmicas)** |
 
 **Testes novos (`auth-errors`, `client`, `pending-storage`, `failure-log`, `EmailCodeConfirm`, `auth-failures/report`, `auth-code-paths-911`):**
