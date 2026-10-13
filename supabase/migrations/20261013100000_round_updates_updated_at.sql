@@ -1,6 +1,9 @@
 -- Prompt 906 §B — a round update can now be edited, so it has to say WHEN.
 --
--- NOT YET APPLIED to production: waiting for Nuno's "sim". REHEARSED on 13/10/2026 against production inside a DO
+-- APPLIED to production on 13/10/2026 with Nuno's "sim" (ledger: version 20261013103823, name round_updates_updated_at;
+-- afterwards: column nullable with no default, exactly one trigger with the definition below, function SECURITY INVOKER
+-- with search_path = '', RLS on, both policies intact, the 2 real rows still NULL, no new advisor lint).
+-- Before that it was REHEARSED on 13/10/2026 against production inside a DO
 -- block that always ends in RAISE EXCEPTION (so nothing, DDL included, can persist): the column did not exist; the 2
 -- real rows keep updated_at NULL; an UPDATE that changes nothing does not stamp; changing the body stamps (after
 -- created_at); changing only the title stamps; a new row is born NULL; exactly one trigger; the function is SECURITY
