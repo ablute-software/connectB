@@ -4,7 +4,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { clientIp } from '@/lib/guest-link-security';
 import { authCodeAllows } from '@/lib/auth-code/mode';
-import { normalizeEmail, readProfile } from '@/lib/auth-code/policy';
+import { normalizeEmail, readExtras, readProfile } from '@/lib/auth-code/policy';
 import { verifyRegistrationCode } from '@/lib/auth-code/service';
 import { adminClientOrNull, makeSupabasePorts } from '@/lib/auth-code/supabase-ports';
 
@@ -21,6 +21,7 @@ export async function POST(req: NextRequest) {
     password: typeof body.password === 'string' ? body.password : '',
     profile: readProfile(body),
     ip: clientIp(req),
+    strict: readExtras(body).strict,
   });
   return NextResponse.json(result.body, { status: result.status });
 }

@@ -100,16 +100,37 @@ ou `pendente`. Caminhos no painel entre parênteses. **SMTP, rate limits, OTP e 
 | Nome | Valor | Estado | Quem decidiu e quando | Fonte |
 |---|---|---|---|---|
 | Confirmação de email ligada | ligada | feito | início de 08/2026 | DECISIONS L3952 (Prompt 538, 02/09/2026) |
-| SMTP próprio (Authentication → Emails → SMTP Settings) | ligado, via Resend: host `smtp.resend.com`, porta `465`, utilizador `resend`, palavra-passe = API key do Resend (**não escrever aqui**), remetente `noreply@sherlockdeal.com` | feito | Nuno, feito no painel (decidido 02/09, 30/09 e 09/10/2026; **confirmado pelo Nuno em 09/10**). Já não é um pendente: a nota de 30/09 (confirmação a cair em spam) está resolvida por isto | DECISIONS L4078, L9470; 904A §A2; confirmado pelo Nuno em 09/10 |
+| SMTP próprio (Authentication → Emails → SMTP Settings) | ligado, via Resend: host `smtp.resend.com`, porta `465`, utilizador `resend`, palavra-passe = API key do Resend (**não escrever aqui**), remetente `noreply@sherlockdeal.com`. **A chave tem de ser da conta do Resend onde `sherlockdeal.com` está verificado** (ver §2.1) | **pendente** (a corrigir) | Nuno, feito no painel (decidido 02/09, 30/09 e 09/10/2026). **Desde 12/10 às 10:11 UTC o SMTP recusa tudo** (`550 "The sherlockdeal.com domain is not verified"`): a chave posta no painel é de uma conta onde o domínio não está verificado. O Nuno está a corrigir no painel (13/10/2026); passa a `feito` quando a confirmação do Prompt 911 chegar ao email | DECISIONS L4078, L9470; 904A §A2; logs de Auth de 12/10 (Prompt 911) |
 | Limite de envio de emails (Authentication → Rate Limits) | **≥ 300 por hora** | feito | Nuno, feito no painel; **confirmado pelo Nuno em 09/10** | 904A §A2/A3; confirmado pelo Nuno em 09/10 |
 | Limite de verificações de token | **≥ 150 por 5 min por IP** (o Supabase vê sempre o IP do Vercel) | feito | idem | 904A §A2; confirmado pelo Nuno em 09/10 |
 | Comprimento do código OTP (Sign In / Providers → Email) | **6** | feito | idem | 904A §A2; confirmado pelo Nuno em 09/10 |
 | Validade do código OTP | **1800 s** | feito | idem | 904A §A2; confirmado pelo Nuno em 09/10 |
-| Template "Confirm signup" (Authentication → Emails → Templates) | o texto de 904A §A4 (assunto `Your Sherlock Deal confirmation code: {{ .Token }}`) | feito | Nuno, colado no painel; **confirmado pelo Nuno em 09/10** | 904A §A4; confirmado pelo Nuno em 09/10 |
+| Template "Confirm signup" (Authentication → Emails → Templates) | o texto de 904A §A4 (assunto `Your Sherlock Deal confirmation code: {{ .Token }}`). **O Prompt 911 não o altera**: o texto final está repetido em `docs/auth/PROMPT_911_REGISTO_POR_CODIGO.md`, para colar de novo se o do painel for diferente | feito | Nuno, colado no painel; **confirmado pelo Nuno em 09/10** | 904A §A4; confirmado pelo Nuno em 09/10; 911 §C |
 | Leaked password protection | **ligar, mas requer o plano Pro do Supabase.** Hoje desligada (o advisor de segurança dá `auth_leaked_password_protection` como aviso, visto a 09/10) | pendente | Notada em 904A como "para a Parte B"; ligar depende de o projeto estar no Pro (decisão do Nuno sobre o plano) | 904A §A2; Nuno 12/10 (requer Pro); advisor observado |
 | Site URL | `https://www.sherlockdeal.com` (o template do 904 usa `{{ .SiteURL }}/auth/confirm`) | desconhecido | Nunca registado o valor. Em 24/07/2026 viu-se que os links gerados voltam ao Site URL de produção e não ao localhost | DECISIONS L1910; 904A §A4 |
 | Redirect URLs (allowlist) | `https://www.sherlockdeal.com/**` (rotas usadas: `/auth/callback`, `/auth/confirm`, `/reset-password`, `/set-password`) | desconhecido | idem. O localhost **não** está na lista (24/07/2026) | DECISIONS L1910; `src/app/auth/*` |
 | Plano do Supabase (Pro?) | por confirmar. Só no Pro se pode reencaminhar o IP do cliente nas verificações | desconhecido | — | 904A §A3 |
+
+### 2.1 Como confirmar que o SMTP do Auth funciona (Prompt 911)
+
+O Supabase não mostra "o SMTP falhou" num ecrã: a falha só aparece nos **logs de Auth**. Dois sítios, por ordem de rapidez:
+
+1. **No próprio produto:** `/backoffice/email-delivery` → secção **"Sign-up and recovery emails that failed"** (Prompt 911). Mostra cada
+   falha de registo ou de recuperação com a resposta do fornecedor, e um aviso vermelho se houve alguma nas últimas 24 horas.
+   Uma falha de **recuperação** é registada pela própria página (o browser chama o Supabase diretamente); uma de **registo** é vista
+   pelo servidor. Guarda 90 dias.
+2. **No Supabase → Logs → Auth** (ou `auth_logs` na API de logs): procurar `"error_code":"unexpected_failure"` com `gomail`. O
+   sinal de que o SMTP está mal é uma linha `request completed` com `status: 500` em `/signup`, `/recover` ou `/resend`, e
+   `error` = `gomail: could not send email 1: 550 …`. O sinal de que está bem é a mesma ação com `status: 200` e **nenhum**
+   `gomail` nessa hora. Os logs de Auth só guardam **um dia**.
+
+**Regra: a chave do Resend posta no SMTP do Supabase tem de ser da conta onde `sherlockdeal.com` está verificado** (Resend →
+Domains → `sherlockdeal.com` → Verified). A de 12/10 era de outra conta; o `550` diz exatamente isso ("The sherlockdeal.com domain
+is not verified"). A chave do Vercel (`RESEND_API_KEY`, §1.2) e a do SMTP do Supabase são **duas chaves diferentes** e podem estar em
+contas diferentes: confirmar as duas.
+
+**Registo de falhas (tabela `auth_email_failures`, migração `20261013100000`, aplicada em 13/10/2026):** email, ação, estado HTTP,
+código e texto do erro, hora. Só o serviço lhe chega (RLS sem políticas); lê-se no Backoffice.
 
 ---
 
@@ -129,8 +150,8 @@ ou `pendente`. Caminhos no painel entre parênteses. **SMTP, rate limits, OTP e 
 
 | Nome | Valor | Estado | Quem decidiu e quando | Fonte |
 |---|---|---|---|---|
-| `AUTH_CODE_MODE` | `off` (ou ausente) = rotas e página respondem 404 · `allowlist` = só `AUTH_CODE_TEST_EMAILS` · `on` = todos. **Hoje em produção não é `off`** (`/api/auth-code/status` responde 200 a 12/10); se é `allowlist` ou `on`, não consigo ver | feito | Claude/Nuno 09/10/2026 (904: fora por omissão, o Nuno liga com `allowlist`) | 904B; observado |
-| `AUTH_CODE_TEST_EMAILS` | emails separados por vírgula (um novo e um de conta existente, para o teste em produção) | desconhecido | Nuno 09/10/2026 | 904B |
+| `AUTH_CODE_MODE` | **omisso = `on`: todos os registos confirmam o email por código de 6 dígitos na própria página** (`/signup`, convite, convite de membro de incubadora), com o link do email como alternativa. **Escrever `off` é o travão de emergência:** as rotas respondem 404 e as páginas voltam ao fluxo só por link (a mesma regra do `CALLS_MODE`). `allowlist` continua a existir só para testes. Qualquer outro valor (gralha incluída) vale `on`, de propósito. **Não definir.** Hoje em produção: `/api/auth-code/status` respondia 200 a 12/10, por isso **não é `off`**; se está em `allowlist`, não consigo ver (ver Pendentes) | feito | Nuno 13/10/2026 (Prompt 911: "passa a valer para todos"; antes, 904: fora por omissão). **Substitui o 904** (omisso = `off`) | 911 §A; `src/lib/auth-code/mode.ts` |
+| `AUTH_CODE_TEST_EMAILS` | **não definir** (só conta com `AUTH_CODE_MODE=allowlist`) | feito | Nuno 13/10/2026 (911: já não depende da allowlist). Se estiver definida no Vercel, não faz mal com `AUTH_CODE_MODE` omisso | 911 §A; `src/lib/auth-code/mode.ts` |
 | `CALLS_MODE` | **não definir.** Sem a variável as Calls estão **ligadas** para quem cumpre as regras de papel. `off` = travão de emergência (tudo 404). `allowlist` = restrição opcional | feito | Nuno 12/10/2026 ("nunca foi definido"); desde o Prompt 908 (em produção a 12/10, `buildId nN9bLqb702dsY2jO63klI`) o omisso vale `on`. **Substitui o 905** (omisso = `off`). Ver **C3** | DECISIONS (entrada do 908); `src/lib/calls/mode.ts` |
 | `CALLS_TEST_EMAILS` | **não definir** (só conta com `CALLS_MODE=allowlist`) | feito | idem | `src/lib/calls/mode.ts` |
 
@@ -167,9 +188,15 @@ Supabase sobre SMTP, rate limits, OTP e template ficaram `feito` (confirmado pel
 2. **Vercel → connect-b → Settings → Environment Variables** (§1): confirmar que estão definidas, **sem trocar valores
    já decididos**: `RESEND_REPLY_TO` = `sherlockdeal.com@gmail.com` (alternativa sem painel: `/backoffice/email-delivery`
    mostra `replyToInEffect`); `NEXT_PUBLIC_APP_URL` = `https://www.sherlockdeal.com`. Depois, redeploy.
-3. **Vercel** (§4): confirmar se `AUTH_CODE_MODE` está em `allowlist` ou `on` e que `AUTH_CODE_TEST_EMAILS` tem os dois
-   endereços de teste (um novo e um de conta existente). **Com o painel do Supabase já confirmado, é só isto que
-   falta para eu fazer o teste do código em produção e o cenário C7.**
+3. **Vercel** (§4): **não definir `AUTH_CODE_MODE`** (omisso = `on`, o código para todos). Se existir no painel com o valor
+   `allowlist`, **apagá-la** (ou pô-la em `on`), senão o registo de quem não está na lista cai no fluxo só por link. Se existir
+   `AUTH_CODE_TEST_EMAILS`, pode ficar (já não conta). Depois, redeploy.
+3b. **Supabase → Authentication → Emails → SMTP Settings** (§2, §2.1): **a chave posta ali tem de ser a da conta do Resend onde
+   `sherlockdeal.com` está verificado.** O Nuno está a corrigir (13/10); depois de corrigido, dizer-me "feito" e eu confirmo nos
+   logs de Auth e no registo de falhas.
+3c. **Caixa de suporte** (§2.1): as mensagens de erro dizem "write to us at `support@sherlockdeal.com`" (constante
+   `AUTH_SUPPORT_EMAIL` em `src/lib/auth-errors.ts`). **Confirmar que essa caixa existe e é lida**; se for outra, diz-me qual e
+   muda-se numa linha. (Não há decisão registada: `SUPPORT_NOTIFY_EMAIL` e `NEXT_PUBLIC_PRIVACY_EMAIL` continuam por decidir.)
 4. **Vercel** (§1.2): decidir `SUPPORT_NOTIFY_EMAIL` (o endereço da caixa que recebe os pedidos de acesso de
    investidores) e `NEXT_PUBLIC_PRIVACY_EMAIL` (o contacto de privacidade). Sem valor decidido, não há nada para pôr.
 5. **Resend → Billing** (§3): ativar o plano **Pro** antes da primeira call real (≈ 1 000 emails por call). Continua por

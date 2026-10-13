@@ -5,6 +5,8 @@ import { browserClient, authEnabled } from '@/lib/supabase';
 import { LogoLockup } from '@/components/Logo';
 import { AuthShell } from '@/components/auth/AuthShell';
 import { getMagicLinkSent, setMagicLinkSent, clearMagicLinkSent } from '@/lib/magic-link-storage';
+import { authErrorText } from '@/lib/auth-errors';
+import { reportAuthEmailFailure } from '@/lib/auth-code/client';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
@@ -28,7 +30,9 @@ export default function ForgotPasswordPage() {
       const { error } = await sb.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent('/reset-password')}`,
       });
-      if (error) { setMsg(error.message); return; }
+      // Prompt 911 — recovery stays by link, as it was; only what is SHOWN changes: a sentence instead of the provider's raw
+      // text (or "{}"), and a send failure is reported to the failure registry in Backoffice.
+      if (error) { reportAuthEmailFailure({ email, action: 'recover', error }); setMsg(authErrorText(error)); return; }
       setMagicLinkSent(email);
       setSent(true);
     } finally { setBusy(false); }

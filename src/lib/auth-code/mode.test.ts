@@ -1,11 +1,20 @@
-// Prompt 904 Part B — the switch in front of the routes. Default must be closed.
+// Prompt 904 Part B / Prompt 911 — the switch in front of the routes. Since 911 the DEFAULT is open (the code is how everybody
+// registers) and only an explicit `off` closes it.
 import { describe, expect, it } from 'vitest';
 import { authCodeAllows, authCodeMode, authCodeTestEmails } from './mode';
 import { codeSentMessage, isValidCode, isValidEmailShape, normalizeEmail, readProfile, sanitizeCodeInput } from './policy';
 
 describe('AUTH_CODE_MODE', () => {
-  it('is off when unset, empty or unrecognised — and off allows nobody', () => {
+  it('is ON when unset, empty or unrecognised — a typo must never silently switch the code flow off', () => {
     for (const v of [undefined, '', 'maybe', 'true', 'onn']) {
+      const env = { AUTH_CODE_MODE: v };
+      expect(authCodeMode(env)).toBe('on');
+      expect(authCodeAllows('anyone@example.com', env)).toBe(true);
+    }
+  });
+
+  it('only an explicit "off" is the emergency brake, and off allows nobody (case and spaces tolerated)', () => {
+    for (const v of ['off', ' OFF ', 'Off']) {
       const env = { AUTH_CODE_MODE: v };
       expect(authCodeMode(env)).toBe('off');
       expect(authCodeAllows('anyone@example.com', env)).toBe(false);
