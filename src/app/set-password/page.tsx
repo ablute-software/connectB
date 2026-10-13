@@ -15,6 +15,7 @@ import { PasswordInput } from '@/components/auth/PasswordInput';
 import { PasswordRequirementsIndicator } from '@/components/auth/PasswordRequirementsIndicator';
 import { checkPassword } from '@/lib/password-policy';
 import { useTermsGateStatus } from '@/lib/terms-status';
+import { authErrorText } from '@/lib/auth-errors';
 
 function SetPasswordInner() {
   const sp = useSearchParams();
@@ -55,7 +56,7 @@ function SetPasswordInner() {
       // client-side indicator above didn't catch, that error is shown
       // verbatim, not replaced with our own wording.
       const { error } = await sb.auth.updateUser({ password, data: { password_set: true } });
-      if (error) { setErr(error.message); return; }
+      if (error) { setErr(authErrorText(error, { serverText: error.message })); return; }
       await acceptTermsIfNeeded();
       window.location.href = next;
     } finally {

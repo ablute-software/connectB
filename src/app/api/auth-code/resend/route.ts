@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
 
   const result = await requestCode(
     makeSupabasePorts(admin),
-    { email, profile: { fullName: '', startup: '', country: '', role: '' }, ip: clientIp(req) },
+    { email, profile: { fullName: '', startup: '', country: '', role: '' }, ip: clientIp(req), ctx: { intent: null } },
     { allowCreate: false },
   );
   return NextResponse.json(result.body, { status: result.status });

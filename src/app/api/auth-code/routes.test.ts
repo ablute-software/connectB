@@ -36,7 +36,9 @@ beforeEach(() => {
 });
 afterEach(() => { delete process.env.AUTH_CODE_MODE; delete process.env.AUTH_CODE_TEST_EMAILS; });
 
-describe('the switch is off by default: the routes do not exist', () => {
+// Prompt 911: the code is how EVERYBODY registers now. Only an explicit AUTH_CODE_MODE=off is the emergency brake.
+describe('AUTH_CODE_MODE=off (the emergency brake): the routes do not exist', () => {
+  beforeEach(() => { process.env.AUTH_CODE_MODE = 'off'; });
   it.each([
     ['register', () => register(post('/api/auth-code/register', FORM))],
     ['resend', () => resend(post('/api/auth-code/resend', { email: FORM.email }))],
@@ -46,6 +48,27 @@ describe('the switch is off by default: the routes do not exist', () => {
     expect(res.status).toBe(404);
     expect(requestCode).not.toHaveBeenCalled();
     expect(verifyRegistrationCode).not.toHaveBeenCalled();
+  });
+});
+
+describe('the default (variable unset) is ON: every email may register with a code', () => {
+  it('lets any email through, and passes on only what the route is meant to carry', async () => {
+    const res = await register(post('/api/auth-code/register', { ...FORM, email: 'stranger@example.com', intent: 'incubator_member', strict: false }));
+    expect(res.status).toBe(200);
+    const [, input] = requestCode.mock.calls[0];
+    expect(input).toMatchObject({ email: 'stranger@example.com', ctx: { intent: 'incubator_member' }, strict: false });
+  });
+  it('ignores an intent it does not know (the browser cannot make an account something else) and defaults to lenient', async () => {
+    await register(post('/api/auth-code/register', { ...FORM, intent: 'platform_admin' }));
+    const [, input] = requestCode.mock.calls[0];
+    expect(input.ctx).toEqual({ intent: null });
+    expect(input.strict).toBe(false);
+  });
+  it('only the 904 test page asks for the strict check', async () => {
+    await register(post('/api/auth-code/register', { ...FORM, strict: true }));
+    expect(requestCode.mock.calls[0][1].strict).toBe(true);
+    await verify(post('/api/auth-code/verify', { ...FORM, code: '123456', strict: true }));
+    expect(verifyRegistrationCode.mock.calls[0][1].strict).toBe(true);
   });
 });
 

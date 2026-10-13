@@ -18,7 +18,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { PasswordInput } from '@/components/auth/PasswordInput';
 import { PasswordRequirementsIndicator } from '@/components/auth/PasswordRequirementsIndicator';
 import { checkPassword } from '@/lib/password-policy';
-import { CODE_LENGTH, RESEND_MIN_INTERVAL_SECONDS, sanitizeCodeInput } from '@/lib/auth-code/policy';
+import { RESEND_MIN_INTERVAL_SECONDS } from '@/lib/auth-code/policy';
+import { CodeStepView, resendLabel } from '@/components/auth/CodeStep';
+
+export { resendLabel };
 
 export type EmailCodeStage = 'form' | 'code' | 'startup' | 'done';
 
@@ -29,10 +32,6 @@ export type EmailCodeField = keyof EmailCodeValues;
 
 const INPUT = 'w-full rounded-xl border border-gray-300 px-3 py-2 text-sm';
 const BUTTON = 'w-full rounded-lg bg-[#0E7490] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40';
-
-export function resendLabel(secondsLeft: number): string {
-  return secondsLeft > 0 ? `Resend code in ${secondsLeft}s` : 'Send a new code';
-}
 
 export function EmailCodeSignupView({
   stage, values, busy, error, notice, resendIn, codeMessage,
@@ -78,40 +77,12 @@ export function EmailCodeSignupView({
       )}
 
       {stage === 'code' && (
-        <div className="space-y-3">
-          <h1 className="text-lg font-semibold text-gray-900">Enter your code</h1>
-          <p className="text-sm text-gray-600" data-testid="code-message">{codeMessage}</p>
-          <p className="text-xs text-gray-400">Check your spam folder if it does not arrive. The code is valid for 30 minutes.</p>
-          <input
-            inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]*" maxLength={CODE_LENGTH + 2}
-            placeholder="123456" aria-label="6-digit code" data-testid="code-input"
-            className="w-full rounded-xl border border-gray-300 px-3 py-3 text-center text-2xl font-semibold tracking-[0.5em]"
-            value={values.code} disabled={busy}
-            onChange={(e) => onChange('code', sanitizeCodeInput(e.target.value))}
-            onKeyDown={(e) => { if (e.key === 'Enter' && values.code.length === CODE_LENGTH && passwordOk && !busy) onSubmitCode(); }}
-          />
-          {/* After a reload the password is gone on purpose (it is never stored). */}
-          {values.password === '' && (
-            <div>
-              <PasswordInput autoComplete="new-password" placeholder="Choose your password *" className="rounded-xl border border-gray-300 px-3 py-2 text-sm" {...field('password')} />
-            </div>
-          )}
-          {values.password !== '' && !passwordOk && (
-            <PasswordRequirementsIndicator password={values.password} />
-          )}
-          {notice && <p role="status" className="text-xs text-emerald-700">{notice}</p>}
-          {error && <p role="alert" className="text-xs text-[#B00000]">{error}</p>}
-          <button type="button" onClick={onSubmitCode} disabled={busy || values.code.length !== CODE_LENGTH || !passwordOk} className={BUTTON}>
-            {busy ? 'Checking…' : 'Confirm'}
-          </button>
-          <div className="flex items-center justify-between text-xs">
-            <button type="button" onClick={onResend} disabled={busy || resendIn > 0} data-testid="resend"
-              className="font-medium text-[#0E7490] hover:underline disabled:cursor-not-allowed disabled:text-gray-400 disabled:no-underline">
-              {resendLabel(resendIn)}
-            </button>
-            <button type="button" onClick={onBack} disabled={busy} className="text-gray-500 hover:underline">Use another email</button>
-          </div>
-        </div>
+        <CodeStepView
+          email={values.email} code={values.code} password={values.password} busy={busy} error={error} notice={notice}
+          resendIn={resendIn} message={codeMessage}
+          onCodeChange={(c) => onChange('code', c)} onPasswordChange={(p) => onChange('password', p)}
+          onSubmit={onSubmitCode} onResend={onResend} onChangeEmail={onBack}
+        />
       )}
 
       {stage === 'startup' && (
@@ -222,7 +193,7 @@ export function EmailCodeSignup({ checkSessionOnMount = false, onDone }: {
     setBusy(true); setError(''); setNotice('');
     try {
       const { status, json } = await postJson('/api/auth-code/register', {
-        email: values.email, fullName: values.fullName, startup: values.startup, country: values.country, role: values.role, password: values.password,
+        email: values.email, fullName: values.fullName, startup: values.startup, country: values.country, role: values.role, password: values.password, strict: true,
       });
       if (status === 200 && json.ok) {
         const sentAt = Date.now();
@@ -249,7 +220,7 @@ export function EmailCodeSignup({ checkSessionOnMount = false, onDone }: {
     try {
       const { status, json } = await postJson('/api/auth-code/verify', {
         email: values.email, code: values.code, password: values.password,
-        fullName: values.fullName, startup: values.startup, country: values.country, role: values.role,
+        fullName: values.fullName, startup: values.startup, country: values.country, role: values.role, strict: true,
       });
       if (status === 200 && json.ok) {
         writeStored(null);

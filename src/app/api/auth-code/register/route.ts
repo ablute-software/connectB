@@ -4,21 +4,22 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { clientIp } from '@/lib/guest-link-security';
 import { authCodeAllows } from '@/lib/auth-code/mode';
-import { normalizeEmail, readProfile } from '@/lib/auth-code/policy';
+import { normalizeEmail, readExtras, readProfile } from '@/lib/auth-code/policy';
 import { requestCode } from '@/lib/auth-code/service';
 import { adminClientOrNull, makeSupabasePorts } from '@/lib/auth-code/supabase-ports';
 
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const email = normalizeEmail(body.email);
-  // Switch off (the default) = the route does not exist.
+  // Switch off (AUTH_CODE_MODE=off, the emergency brake) = the route does not exist, and the pages fall back to the link flow.
   if (!authCodeAllows(email)) return NextResponse.json({ ok: false }, { status: 404 });
   const admin = adminClientOrNull();
   if (!admin) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 503 });
 
+  const extras = readExtras(body);
   const result = await requestCode(
     makeSupabasePorts(admin),
-    { email, profile: readProfile(body), password: typeof body.password === 'string' ? body.password : '', ip: clientIp(req) },
+    { email, profile: readProfile(body), password: typeof body.password === 'string' ? body.password : '', ip: clientIp(req), ctx: { intent: extras.intent }, strict: extras.strict },
     { allowCreate: true },
   );
   return NextResponse.json(result.body, { status: result.status });

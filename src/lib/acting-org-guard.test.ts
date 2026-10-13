@@ -106,6 +106,7 @@ const EXEMPT_WRITES: { match: RegExp; why: string }[] = [
   { match: /^stripe\/(webhook|investor-checkout|investor-portal)$/, why: 'signed provider webhook / investor-firm billing' },
   { match: /^resend\/webhook$/, why: 'signed provider webhook' },
   { match: /^auth-code\/(register|resend|verify)$/, why: 'sign-in by code: the caller has no session yet' },
+  { match: /^auth-failures\/report$/, why: 'a page reports a refused sign-up/recovery email (Prompt 911): the caller has no session yet' },
   { match: /^gdpr\/request$/, why: 'public privacy request' },
   { match: /^investor-access-request$/, why: 'public lead form' },
   { match: /^plan\/private-detective$/, why: 'public lead form' },
