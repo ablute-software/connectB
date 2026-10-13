@@ -11,6 +11,7 @@ import { createServerClient } from '@supabase/ssr';
 import { shareableCookieDomain } from '@/lib/supabase';
 import { VIEWER_ORG_COOKIE, VIEWER_READ_ONLY_CODE, VIEWER_READ_ONLY_MESSAGE } from '@/lib/developer-viewer-shape';
 import { viewerWriteVerdict } from '@/lib/viewer-write-gate';
+import { isLiveFounderOrg } from '@/lib/founder-hat';
 
 // Prompt 904 Part B: '/api/auth-code' (register / resend / verify / status) is public because its
 // callers have no session yet; each route answers 404 unless AUTH_CODE_MODE allows the email.
@@ -173,8 +174,10 @@ export async function middleware(req: NextRequest) {
     ]);
     let isOpenFounder = false;
     if (loginMember) {
-      const { data: org } = await supabase.from('orgs').select('closed_at').eq('id', loginMember.org_id).maybeSingle();
-      isOpenFounder = !org?.closed_at;
+      // Prompt 900 — a deleted org is no more a founder hat than a closed one (founder-hat.ts, the same predicate
+      // resolveRoleSignals uses; this file cannot import server-only code, which is why it is its own pure module).
+      const { data: org } = await supabase.from('orgs').select('closed_at, moderation_status').eq('id', loginMember.org_id).maybeSingle();
+      isOpenFounder = isLiveFounderOrg(org);
     }
     const home = req.nextUrl.clone();
     home.search = '';

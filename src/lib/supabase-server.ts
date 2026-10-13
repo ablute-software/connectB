@@ -6,6 +6,7 @@ import { cookies, headers } from 'next/headers';
 import { SUPABASE_URL, SUPABASE_ANON, shareableCookieDomain, type Role } from './supabase';
 import { resolveActiveInvestorMember } from './investor-membership';
 import { investorEntityClaimsAvailable } from './investor-entity-claims-capability';
+import { isLiveFounderOrg } from './founder-hat';
 
 export { authEnabled } from './supabase';
 
@@ -135,10 +136,17 @@ export async function resolveRoleSignals(
   // re-creating a user with the same email must not silently reattach them
   // to the account that ended. They fall through to the investor/none
   // branches below, and provisioning gives them a fresh org.
+  //
+  // Prompt 900 — a DELETED org (moderation_status = 'deleted', soft: the row stays) does not count either. This
+  // is only half of what kept a legitimate person out: the door itself (account_access_state() in SQL, behind the
+  // middleware) is what refused to let them in, and the matching change is there (migration 20261013160000). What this
+  // half decides is which workspace a person who DOES get in lands on: a deleted startup is no longer "founder",
+  // so a person who also holds an ecosystem or investor hat resolves as that, instead of as the dead org's founder.
+  // 'suspended' still counts (see founder-hat.ts) — the door blocks it, whatever else the person holds.
   let hasOpenFounderOrg = false;
   if (member) {
-    const { data: org } = await sb.from('orgs').select('closed_at').eq('id', member.org_id).maybeSingle();
-    hasOpenFounderOrg = !org?.closed_at;
+    const { data: org } = await sb.from('orgs').select('closed_at, moderation_status').eq('id', member.org_id).maybeSingle();
+    hasOpenFounderOrg = isLiveFounderOrg(org);
   }
   // An explicit access_grants row (a deliberate act — a founder sharing
   // their data room, or a back-office admin approving an investor access
