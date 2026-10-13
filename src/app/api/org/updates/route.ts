@@ -7,19 +7,32 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 import { resolveActingOrg, withActingOrg } from '@/lib/acting-org';
+import { canManageRoundUpdate } from '@/lib/round-updates';
 
 // Prompt 894 — never checked the viewer cookie, so a Developer Viewer
 // session saw the developer's own org's updates instead of the org being
 // viewed. Safe to keep reading via `sb` (not admin): migration 0119 already
 // grants is_ablute_developer() a read policy on round_updates.
+//
+// Prompt 906 §B — each row also says whether THIS caller may edit or delete it
+// (owner/admin of the org, or the author — the same rule ./[id]/route.ts
+// enforces), so the card offers the buttons only to people the server will
+// let through. Never true in a Developer Viewer session: `acting.role` is null
+// there, and the author check needs a role too.
 export const GET = withActingOrg(async function GET(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
-  const orgId = (await resolveActingOrg(req, user, sb)).orgId;
+  const acting = await resolveActingOrg(req, user, sb);
+  const orgId = acting.orgId;
   if (!orgId) return NextResponse.json({ error: 'Not a member of any org.' }, { status: 403 });
   const { data: updates } = await sb.from('round_updates').select('*').eq('org_id', orgId).order('created_at', { ascending: false });
-  return NextResponse.json({ updates: updates ?? [] });
+  return NextResponse.json({
+    updates: (updates ?? []).map((u) => ({
+      ...u,
+      can_edit: acting.mode === 'member' && canManageRoundUpdate({ role: acting.role, userId: user.id, createdBy: u.created_by as string | null }),
+    })),
+  });
 });
 
 export const POST = withActingOrg(async function POST(req: Request) {

@@ -1,6 +1,6 @@
 # Prompt 911 — registo por código de 6 dígitos em todos os sítios, e erros legíveis (13/10/2026)
 
-**Branch:** `claude/911-signup-code`, a partir de `main` (não leva nada do 909). **Migração:** `20261013100000_auth_email_failures.sql`
+**Branch:** `claude/911-signup-code`, a partir de `main` (não leva nada do 909). **Migração:** `20261013100100_auth_email_failures.sql`
 (uma tabela nova, aditiva; teste seco revertido e depois **aplicada em produção a 13/10/2026**). **Variáveis novas:** nenhuma.
 Registo de configurações atualizado (`docs/ops/CONFIG_REGISTRY.md`: `AUTH_CODE_MODE`, SMTP, §2.1, Pendentes).
 

@@ -24,10 +24,11 @@
 // MatchDeal card keeps its button here, renamed for what it does, and is
 // offered only once investors can already find the startup: it is an extra
 // surface, never the thing standing between a founder and discovery.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { MatchdealMissingField, MatchdealStartupState } from '@/lib/matchdeal-publish';
 import { investorVisibilityCopy, type InvestorVisibilityState } from '@/lib/investor-visibility-state';
+import { subscribeOrgChanged } from '@/lib/org-sync';
 
 export function MatchDealVisibilityBanner() {
   const [status, setStatus] = useState<{
@@ -41,12 +42,18 @@ export function MatchDealVisibilityBanner() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
+  // Prompt 906 §A — same as VisibilityToggle: this list is decided on the server, so it
+  // asks again when the store announces that the org was saved (and only the latest
+  // answer is allowed to write the state).
+  const latestLoad = useRef(0);
   function load() {
+    const mine = ++latestLoad.current;
     fetch('/api/company/visibility?kind=startup', { cache: 'no-store' }).then((r) => r.json()).then((b) => {
-      if (b.ok) setStatus(b);
+      if (mine === latestLoad.current && b.ok) setStatus(b);
     }).catch(() => {});
   }
   useEffect(load, []);
+  useEffect(() => subscribeOrgChanged(load), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function publish() {
     setBusy(true); setErr('');

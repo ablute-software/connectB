@@ -18,6 +18,7 @@ import { findReactivations, reactivationTaskTitle } from './rejection-code-match
 import { STAGE_LABEL, getStage } from './relationship';
 import { matchEntityToCatalog } from './entity-catalog-prefill';
 import { pipelineStageLabel } from './pipeline-taxonomy';
+import { announceOrgChanged } from './org-sync';
 import { StoreCtx, type StoreApi } from './store-context';
 
 const STORAGE_KEY = 'ablute-crm-demo-v3';
@@ -384,6 +385,11 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
         if ('stage' in patch || 'sectors' in patch || 'country' in patch) return applyReactivations(next);
         return next;
       });
+      // Prompt 906 §A — the same sentence the Supabase store says after the
+      // server accepted the write. There is no server here, so "now" — but after
+      // the commit above has rendered, not before it: a listener that asks for
+      // the org state must find the new one (setDb's updater has not run yet).
+      setTimeout(announceOrgChanged, 0);
     },
 
     addCompanyPerson(p) {

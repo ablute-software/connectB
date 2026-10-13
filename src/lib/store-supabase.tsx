@@ -28,6 +28,7 @@ import { revisitTasksToClose } from './exit-effects';
 import { matchEntityToCatalog } from './entity-catalog-prefill';
 import { ensureOrgPersonFromCatalog as materializeOrgPersonFromCatalog, type MaterializeClient } from './catalog-materialize';
 import { pipelineStageLabel } from './pipeline-taxonomy';
+import { announceOrgChanged, newOrgSaveTracker, saveOrgPatch, type OrgSaveTracker } from './org-sync';
 
 type SB = ReturnType<typeof browserClient>;
 
@@ -54,9 +55,10 @@ function fromRow<T>(row: Record<string, unknown>): T {
   return out as T;
 }
 
-function persist(p: PromiseLike<{ error: { message: string } | null }>, label: string) {
+function persist(p: PromiseLike<{ error: { message: string } | null }>, label: string, onSaved?: () => void) {
   Promise.resolve(p).then(({ error }) => {
     if (error) console.error(`[supabase-store] ${label} failed:`, error.message);
+    else onSaved?.();
   });
 }
 
@@ -339,6 +341,9 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
   // not — a signed-out user or org-less account is "done loading", not
   // "still loading"). See store-context.tsx's StoreApi.loading for why.
   const loadingRef = useRef(true);
+  // Prompt 906 §A — which /api/org/update request last wrote each field, so a slow
+  // answer to an OLDER save can never roll back a newer edit of the same field.
+  const orgSavesRef = useRef<OrgSaveTracker>(newOrgSaveTracker());
   const [version, bump] = useReducer((x: number) => x + 1, 0);
 
   function commit(next: Db) {
@@ -887,9 +892,22 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       // so writes go through /api/org/update (service-role after a role
       // check) rather than the browser client — fire-and-forget, the local
       // commit already reflects it optimistically.
-      fetch('/api/org/update', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch),
-      }).then((r) => r.json()).then((b) => { if (!b.ok) console.error('[supabase-store] updateOrg failed:', b.error); }).catch((e) => console.error('[supabase-store] updateOrg failed:', e));
+      //
+      // Prompt 906 §A — but the answer is no longer thrown away. Once the server
+      // says ok, (1) the fields it stored differently from what was typed are
+      // adopted (normally none), and (2) `org:changed` tells the parts of the page
+      // that are derived ON THE SERVER — the "Investors can't find you yet — N
+      // fields missing" banner — to ask again. That banner used to load once, on
+      // mount, and stay wrong for as long as the founder kept /settings open.
+      void saveOrgPatch(patch as Record<string, unknown>, orgSavesRef.current, {
+        post: (body) => fetch('/api/org/update', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body,
+        }).then((r) => r.json()),
+        getLocalOrg: () => dbRef.current.org as unknown as Record<string, unknown>,
+        adopt: (fields) => commit({ ...dbRef.current, org: { ...dbRef.current.org, ...fields } }),
+        announce: announceOrgChanged,
+        onError: (e) => console.error('[supabase-store] updateOrg failed:', e),
+      });
       // Bloco B — the startup itself changed; 'stage'/'sectors' are the
       // two axes this engine understands structurally today.
       // Prompt 852 §G(c) — `country` joins the trigger. rejectionStillClashes'
@@ -918,7 +936,10 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     removeCompanyPerson(id) {
       const prev = dbRef.current;
       commit({ ...prev, companyPeople: prev.companyPeople.filter((p) => p.id !== id) });
-      persist(sb.from('company_people').delete().eq('id', id), 'removeCompanyPerson');
+      // Prompt 906 §A — removing the primary contact makes the database null
+      // orgs.primary_contact_person_id (ON DELETE SET NULL), which the nine-field
+      // gate reads: the banner has to ask again once the delete has landed.
+      persist(sb.from('company_people').delete().eq('id', id), 'removeCompanyPerson', announceOrgChanged);
     },
 
     // Prompt 540 RC1 — `cur`, not `prev`.

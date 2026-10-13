@@ -129,7 +129,7 @@ Domains → `sherlockdeal.com` → Verified). A de 12/10 era de outra conta; o `
 is not verified"). A chave do Vercel (`RESEND_API_KEY`, §1.2) e a do SMTP do Supabase são **duas chaves diferentes** e podem estar em
 contas diferentes: confirmar as duas.
 
-**Registo de falhas (tabela `auth_email_failures`, migração `20261013100000`, aplicada em 13/10/2026):** email, ação, estado HTTP,
+**Registo de falhas (tabela `auth_email_failures`, migração `20261013100100`, aplicada em 13/10/2026):** email, ação, estado HTTP,
 código e texto do erro, hora. Só o serviço lhe chega (RLS sem políticas); lê-se no Backoffice.
 
 ---
