@@ -90,10 +90,17 @@ Subject: `Your Sherlock Deal confirmation code: {{ .Token }}`
   <p style="font-size: 12px; color: #6B7280; margin: 0;">
     If you did not register on Sherlock Deal, you can ignore this email.
   </p>
+  <p style="font-size: 12px; color: #9CA3AF; margin: 16px 0 0;">
+    This is an automated message. Replies are not read. Need help? Contact us at
+    <a href="https://www.sherlockdeal.com/contact" style="color: #6B7280; text-decoration: underline;">sherlockdeal.com/contact</a>
+  </p>
 </div>
 ```
 
-Se preferires o botão **antes** do código (como no provisório), troca a ordem dos dois blocos; o resto não muda. O template "Reset password" não muda.
+**Rodapé (decisão de 13/10, ver "Sessão perdida" abaixo):** o último parágrafo é novo; **põe o mesmo parágrafo, antes do `</div>` final, no
+template "Reset password"** (e em qualquer outro template do Supabase Auth que uses), porque também são emails da plataforma sem Reply-To.
+
+Se preferires o botão **antes** do código (como no provisório), troca a ordem dos dois blocos; o resto não muda. O template "Reset password" só ganha o rodapé acima (o corpo e o link não mudam).
 
 **Para onde volta cada caminho** (`emailRedirectTo`, definido em **todos**; o servidor monta a URL completa a partir de um caminho validado do site, nunca de um endereço dado pelo browser):
 
@@ -122,10 +129,40 @@ seguir-se **só se for um caminho do site** (antes atribuía-se tal como vinha).
 call voltar à call. **Primeiro o deploy** (já feito quando leres isto), **depois colar o final**. Colar o final antes do deploy também não parte
 nada, mas o link voltaria a `/` até as páginas definirem o destino.
 
+## Sessão perdida depois do código — corrigido (13/10/2026)
+**O que o teste real mostrou** (`sherlockdeal.com+codigo2`, logs de Auth às 14:30): SMTP ok, código recebido, conta confirmada, `password_set: true`,
+organização criada e login posterior a funcionar — mas **logo depois do código a pessoa ficava sem sessão** e caía na página inicial: `/verify` 200
+às 14:30:47, a seguir `PUT /admin/users/<id>` (a palavra-passe escolhida) e `/user` **403 "Session not found"** às 14:30:48. **A atualização da
+palavra-passe pela API de admin termina as sessões do utilizador**, incluindo a que o código acabava de abrir.
+
+**Correção:** a palavra-passe passa a ser aplicada com **o cliente da própria sessão** (`auth.updateUser({ password, data })`, o mesmo cliente que
+o `verifyOtp` abriu), que **não termina a sessão em curso**. A regra de segurança mantém-se: a palavra-passe **só** se aplica depois de o código
+ser verificado (um código errado não muda nada nem abre sessão: testado). Só se escrevem nos metadados os campos que o formulário recolheu (um
+convite não tem perfil e uma cadeia vazia já não apaga o que a conta tinha). **Os convites usam exatamente o mesmo mecanismo** (`finalizeAccount`
+é um só), por isso ficam corrigidos também (testado: convite sem perfil mantém a sessão e o `signup_intent`).
+
+**Teste automático** (`supabase-ports.session.test.ts`): modela o Supabase Auth tal como a produção o mostrou (a atualização por admin revoga as
+sessões; a da própria sessão não) e corre as portas reais e o serviço real: **depois do código certo a sessão continua válida e `getUser()`
+devolve a pessoa** (é o que `/api/provision-org` e `/api/invite/…/accept` precisam para a pessoa chegar ao destino); a palavra-passe fica
+aplicada; **a API de admin nunca é chamada para a mudar**; e se a aplicação da palavra-passe falhar (política do projeto), a sessão mantém-se e a
+pessoa é avisada. Inclui o teste que reproduz a causa (o admin revoga a sessão), para o comportamento ficar documentado.
+
+**Limite desta prova:** o modelo é o do que os logs mostraram, não o GoTrue real; a prova final é a tua repetição em produção com
+`sherlockdeal.com+codigo3@gmail.com` (abaixo), em que eu confirmo nos logs de Auth que **não** há `PUT /admin/users` para a palavra-passe e
+que `/user` responde 200.
+
+## Reply-To removido e rodapé "mensagem automática" (13/10/2026)
+Decisão do Nuno: **sem Reply-To por omissão** e, nos emails da plataforma, o rodapé "This is an automated message. Replies are not read. Need
+help? Contact us at sherlockdeal.com/contact" (com ligação a `/contact`). `RESEND_REPLY_TO` **já não é lida**. O rodapé é acrescentado no sítio onde
+todos os emails da plataforma saem (`sendTransactionalEmail`), em HTML e na parte de texto, **uma só vez**; um email que traga o seu próprio
+Reply-To (o "Contact email for applicants" de uma call, Prompt 907+) **mantém-no e não leva esse rodapé**. Quando `support@sherlockdeal.com` tiver
+reencaminhamento passa a ser esse o Reply-To por omissão. Os emails do Supabase Auth são emails da plataforma noutro sítio: o rodapé vai nos
+templates (acima). Registado no `CONFIG_REGISTRY.md`.
+
 ## Em produção, depois do deploy (o Nuno clica, eu confirmo nos logs do Auth e na base)
 **Antes de tudo:** o SMTP tem de estar corrigido no painel (ver Pendentes do registo). Sem isso o passo 1 mostra a frase de falha de
 envio, **que é o comportamento certo** e fica registada no Backoffice.
-1. Registar `sherlockdeal.com+codigo2@gmail.com` em `/signup` (campos todos, termos) e confirmar com o código do email. Eu confirmo:
+1. Registar **`sherlockdeal.com+codigo3@gmail.com`** em `/signup` (campos todos, termos) e confirmar com o código do email. **Depois do código tens de ficar com sessão e chegar à plataforma** (não à página inicial). Eu confirmo:
    - **logs de Auth:** `user_confirmation_requested` com `status: 200` e sem `gomail`; depois `login`/`user_signedup`;
    - **base:** `select email, email_confirmed_at, raw_user_meta_data->>'password_set' from auth.users where email = '…'` → confirmado, `password_set = true`;
    - **organização:** uma linha em `org_members` para esse utilizador e a `orgs` com o nome que escreveste.

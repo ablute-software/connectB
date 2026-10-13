@@ -21,9 +21,10 @@ export function resolvedFromAddress(): string {
   return process.env.RESEND_FROM_EMAIL || `${BRAND_NAME} Support <onboarding@resend.dev>`;
 }
 
-export function resolvedReplyTo(): string | undefined {
-  return process.env.RESEND_REPLY_TO || undefined;
-}
+// Prompt 911 (follow-up, 13/10/2026): there is no resolvedReplyTo() any more. RESEND_REPLY_TO is NOT read: platform emails go out
+// WITHOUT a Reply-To (the owner's inbox must never be shown to users) and say so in the footer (src/lib/email-footer.ts). A Reply-To
+// exists only when the caller gives one explicitly — a call's "Contact email for applicants" — and, once support@sherlockdeal.com has
+// forwarding, that address becomes the default here.
 
 /** `Name <addr@host>` or a bare `addr@host` -> `host`. Null when unparseable. */
 export function domainOfSender(fromValue: string): string | null {

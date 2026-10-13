@@ -19,7 +19,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { domainHealthDiagnosis, summariseByDomain } from '@/lib/email-domain-health';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
-import { resolvedFromAddress, resolvedReplyTo, domainOfSender, isSandboxSender } from '@/lib/email-sender-identity';
+import { resolvedFromAddress, domainOfSender, isSandboxSender } from '@/lib/email-sender-identity';
 
 export interface ResendDomainRow {
   id?: string;
@@ -38,13 +38,13 @@ export async function GET() {
   // cannot report a sender other than the one in effect.
   const from = resolvedFromAddress();
   const fromDomain = domainOfSender(from);
-  const replyTo = resolvedReplyTo() ?? null;
 
   const base = {
     apiKeyPresent: !!apiKey,
     fromInEffect: from,
     fromDomain,
-    replyToInEffect: replyTo,
+    // Prompt 911: platform emails carry no Reply-To by design (src/lib/email-footer.ts); the field stays so the card keeps its shape.
+    replyToInEffect: null,
     fromEnvSet: !!process.env.RESEND_FROM_EMAIL,
   };
 
