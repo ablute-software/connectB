@@ -198,7 +198,7 @@ export function ClosedAccountsView({ accounts, onRelease, onReopen, onOwnerReope
   return (
     <Card title={`Closed & deleted (${shown.length}${shown.length === accounts.length ? '' : ` of ${accounts.length}`})`}>
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name or e-mail…" aria-label="Search closed and deleted accounts"
+        <input autoComplete="off" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name or e-mail…" aria-label="Search closed and deleted accounts"
           className="w-64 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
         <div className="flex gap-1">
           {(Object.keys(FILTER_LABEL) as Filter[]).map((f) => (

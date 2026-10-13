@@ -6,6 +6,10 @@ import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { loadClosedAccounts } from '@/lib/closed-accounts-server';
 
+// A list of live data behind an admin session: never prerendered, whatever the build's environment looks like (a build with the
+// Supabase variables blank reports every GET that only reads cookies through requirePlatformAdmin() as static).
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   const auth = await requirePlatformAdmin();
   if ('error' in auth) return auth.error;

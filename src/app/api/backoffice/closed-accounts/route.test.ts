@@ -13,7 +13,7 @@ vi.mock('@/lib/backoffice-auth', () => ({
     : { error: NextResponse.json({ ok: false, error: 'Platform admin only.' }, { status: 403 }) }),
 }));
 
-import { GET } from './route';
+import { GET, dynamic } from './route';
 import { POST as reopen } from './reopen/route';
 import { POST as release } from './release-email/route';
 
@@ -39,6 +39,10 @@ function post(handler: (req: Request) => Promise<Response>, body: unknown) {
 beforeEach(() => { h.isAdmin = true; });
 
 describe('GET /api/backoffice/closed-accounts', () => {
+  it('is never prerendered at build time', () => {
+    expect(dynamic).toBe('force-dynamic');
+  });
+
   it('is platform admin only', async () => {
     h.isAdmin = false;
     expect((await GET()).status).toBe(403);
