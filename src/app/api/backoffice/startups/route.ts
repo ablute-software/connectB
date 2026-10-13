@@ -10,6 +10,9 @@ import { planAccountsAvailable } from '@/lib/plan-accounts-capability';
 import { accountModerationAvailable } from '@/lib/account-moderation-capability';
 import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import { computeVisiblePipelineSize } from '@/lib/pipeline-unlock-server';
+import { effectivePlansForOrgs } from '@/lib/effective-plan-server';
+import { describePlanOrigin } from '@/lib/effective-plan';
+import { normalizePlan } from '@/lib/plans';
 import type { CompanyPerson, Org } from '@/lib/types';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -111,7 +114,11 @@ export async function GET() {
     if (maxSessionByOrg.size >= orgIdCount || data.length < 1000) break;
   }
 
-  const pipelineSizes = await Promise.all((orgs ?? []).map((org) => computeVisiblePipelineSize(admin, org.id)));
+  // Prompt 914 — one tier per org for everything below that depends on the plan (the pipeline numbers, the AI-credit limit): the plan
+  // the org is on RIGHT NOW (stored ⊕ free trial ⊕ badge), resolved for all of them in two queries, not the stored orgs.plan. The plan
+  // column keeps showing (and editing) the stored plan — it is the subscription — with the effective one beside it when they differ.
+  const effectiveByOrg = await effectivePlansForOrgs(admin, (orgs ?? []).map((o) => ({ id: o.id as string, plan: o.plan as string | null })));
+  const pipelineSizes = await Promise.all((orgs ?? []).map((org) => computeVisiblePipelineSize(admin, org.id, { planTier: effectiveByOrg.get(org.id)?.plan })));
   const pipelineByOrg = new Map((orgs ?? []).map((org, i) => [org.id, pipelineSizes[i]]));
 
   const result = (orgs ?? []).map((org) => {
@@ -144,6 +151,8 @@ export async function GET() {
 
     return {
       orgId: org.id, name: org.name, plan: org.plan, createdAt: org.created_at,
+      effectivePlan: effectiveByOrg.get(org.id)?.plan ?? normalizePlan(org.plan as string | null),
+      planOrigin: describePlanOrigin(effectiveByOrg.get(org.id)?.origin ?? { kind: 'stored' }, (iso) => iso.slice(0, 10)),
       planChangeRequested: (org.plan_change_requested as string | null | undefined) ?? null,
       planChangeRequestedAt: (org.plan_change_requested_at as string | null | undefined) ?? null,
       members: memberCountByOrg.get(org.id) ?? 0,
@@ -156,7 +165,8 @@ export async function GET() {
       aiDraftsThisMonth: (org.ai_drafts_used_this_month as number | null | undefined) ?? 0,
       aiReviewsThisMonth: aiReviewCountByOrg.get(org.id) ?? 0,
       aiCreditsUsed: (org.ai_credits_used_this_period as number | null | undefined) ?? 0,
-      aiCreditsLimit: creditOverrideByOrg.get(org.id) ?? creditLimitByPlan.get(org.plan as string) ?? 0,
+      // Prompt 914 — the limit the wallet really applies (ai_wallet_status() reads effective_plan()), not the stored plan's.
+      aiCreditsLimit: creditOverrideByOrg.get(org.id) ?? creditLimitByPlan.get(effectiveByOrg.get(org.id)?.plan ?? (org.plan as string)) ?? 0,
       isTest: !!(org.is_test as boolean | undefined),
       matchDealStatus,
       moderationStatus: moderationAvailable ? ((org.moderation_status as string | undefined) ?? 'active') : 'active',

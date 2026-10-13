@@ -8,7 +8,10 @@ import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { authEnabled } from '@/lib/supabase';
 import { can, type OrgRole } from '@/lib/permissions';
-import { normalizePlan, planName } from '@/lib/plans';
+import { normalizePlan } from '@/lib/plans';
+import { describePlanOrigin, type PlanOrigin } from '@/lib/effective-plan';
+import { PlanRow } from '@/components/PlanRow';
+import type { PlanTier } from '@/lib/types';
 
 const STAGES = ['pre_seed', 'seed', 'series_a', 'later'] as const;
 
@@ -16,14 +19,21 @@ export function OrganisationCard() {
   const { db, updateOrg } = useStore();
   const org = db.org;
   const [orgRole, setOrgRole] = useState<OrgRole | null>(null);
+  // Prompt 914 — the plan the org is on RIGHT NOW and why, from /api/me (stored ⊕ free trial ⊕ badge). Until it answers (and in demo
+  // mode, which has no server) the row shows the stored plan, which is what it always showed.
+  const [livePlan, setLivePlan] = useState<{ plan: PlanTier; origin: PlanOrigin } | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     if (!authEnabled) return;
-    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then((me) => setOrgRole(me.orgRole ?? null)).catch(() => {});
+    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then((me) => {
+      setOrgRole(me.orgRole ?? null);
+      if (me.plan) setLivePlan({ plan: me.plan as PlanTier, origin: (me.planOrigin as PlanOrigin | undefined) ?? { kind: 'stored' } });
+    }).catch(() => {});
   }, []);
+  const planOriginText = livePlan ? describePlanOrigin(livePlan.origin, (iso) => new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })) : '';
 
   // In demo mode there's no server role; allow editing so the flow is
   // exercisable locally (writes stay in localStorage).
@@ -99,7 +109,7 @@ export function OrganisationCard() {
         <>
           <dl className="grid grid-cols-2 gap-2 text-sm">
             <div><dt className="text-xs text-gray-500">Org</dt><dd>{org.name}</dd></div>
-            <div><dt className="text-xs text-gray-500">Plan</dt><dd>{planName(normalizePlan(org.plan))}</dd></div>
+            <PlanRow plan={livePlan?.plan ?? normalizePlan(org.plan)} originText={planOriginText} />
             <div><dt className="text-xs text-gray-500">Sender</dt><dd>{org.sender_email ?? '—'}</dd></div>
             <div><dt className="text-xs text-gray-500">Website</dt><dd>{org.website ?? '—'}</dd></div>
             <div><dt className="text-xs text-gray-500">Sector</dt><dd>{org.sector ?? '—'}</dd></div>

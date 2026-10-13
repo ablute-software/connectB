@@ -33,6 +33,7 @@ import {
 } from '@/lib/plans';
 import { SECURE_PAYMENT_COPY } from '@/lib/billing';
 import { discountedPriceEur } from '@/lib/promo';
+import { describePlanOrigin, type PlanOrigin } from '@/lib/effective-plan';
 import { can, type OrgRole } from '@/lib/permissions';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { PlatformStatusCard } from '@/components/badges/PlatformStatusCard';
@@ -69,7 +70,7 @@ interface ReferralCode {
 
 export function PlansPanel() {
   const { db } = useStore();
-  const [me, setMe] = useState<{ authEnabled: boolean; plan?: PlanTier; orgRole?: OrgRole; capabilities?: { planAccounts?: boolean; billing?: boolean }; pioneerBadge?: boolean } | null>(null);
+  const [me, setMe] = useState<{ authEnabled: boolean; plan?: PlanTier; planOrigin?: PlanOrigin; orgRole?: OrgRole; capabilities?: { planAccounts?: boolean; billing?: boolean }; pioneerBadge?: boolean } | null>(null);
   const [period, setPeriod] = useState<BillingPeriod>('monthly');
   const [busy, setBusy] = useState<PlanTier | 'portal' | null>(null);
   const [requestedLocal, setRequestedLocal] = useState<{ tier: PlanTier; period: BillingPeriod } | null>(null);
@@ -164,6 +165,13 @@ export function PlansPanel() {
   // correctly server-side — the price line just never read from the same
   // promo data the plan cards below it already use.
   const grantingPromo = activePromos.find((ap) => ap.discount_pct === 100 && ap.applicable_plans.includes(current));
+  // Prompt 914 — WHY `current` is what it is, from the same server rule that decided it (/api/me → effective-plan.ts), so the line under
+  // the plan name can never disagree with the plan name: "free trial via PIONEER_100 until 08 Jan 2027", or the badge that makes it free.
+  // Empty for a plain subscribed (or free) plan. Falls back to the promo list above only when an older server sent no origin.
+  const originText = me?.planOrigin && me.planOrigin.kind !== 'stored'
+    ? describePlanOrigin(me.planOrigin, (iso) => fmtPromoDate(iso) ?? iso)
+    : '';
+  const freeByOrigin = !!me?.planOrigin && me.planOrigin.kind !== 'stored';
 
   const billing = !!me?.capabilities?.billing;
   const requestsEnabled = !!me?.authEnabled && !!me?.capabilities?.planAccounts;
@@ -338,7 +346,7 @@ export function PlansPanel() {
               <img src="/badges/pioneer.png" alt="Pioneer" title="Pioneer — permanent badge"
                 className="h-6 w-6" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
             )}
-            {grantingPromo || badgeFreeTier ? (
+            {grantingPromo || badgeFreeTier || freeByOrigin ? (
               <span className="text-sm font-semibold text-emerald-700">€0/month</span>
             ) : (
               currentRow && <span className="text-sm text-gray-500">{planPriceLabel(currentRow, period)}</span>
@@ -349,7 +357,11 @@ export function PlansPanel() {
               🏅 Pioneer — permanent, survives any plan change. At least {PIONEER_LIFETIME_DISCOUNT_PCT}% off any future paid plan, forever; a better promotion wins.
             </p>
           )}
-          {grantingPromo && (
+          {originText ? (
+            <p className="mt-1 text-xs text-emerald-700" data-testid="plan-origin">
+              {planName(current)} — {originText}
+            </p>
+          ) : grantingPromo && (
             <p className="mt-1 text-xs text-emerald-700">
               Free trial via <b>{grantingPromo.code}</b>
               {fmtPromoDate(grantingPromo.benefit_ends_at) ? ` — until ${fmtPromoDate(grantingPromo.benefit_ends_at)}` : ''}

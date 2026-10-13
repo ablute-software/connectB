@@ -41,6 +41,9 @@ const PERIOD_LABEL: Record<'monthly' | 'annual', string> = { monthly: 'Mensal', 
 
 interface OrgRow {
   orgId: string; name: string; plan: string; createdAt: string;
+  // Prompt 914 — the plan the org is on RIGHT NOW (stored ⊕ free trial ⊕ badge) and the words for why; `plan` stays the stored
+  // subscription (it is what the select below edits). The pipeline and AI-credit numbers on the row run on `effectivePlan`.
+  effectivePlan?: string; planOrigin?: string;
   planChangeRequested: string | null; planChangeRequestedAt: string | null;
   members: number; completenessPct: number; interactionsThisWeek: number; lastLogin: string | null;
   status: 'active' | 'quiet' | 'inactive';
@@ -394,6 +397,13 @@ function StartupsTable() {
                       </div>
                     ) : (
                       <span className="text-gray-500">{planName(normalizePlan(o.plan))}</span>
+                    )}
+                    {/* Prompt 914 — on a free trial or a badge the numbers on this row run on the plan it grants, not on the stored one. */}
+                    {o.effectivePlan && normalizePlan(o.effectivePlan) !== normalizePlan(o.plan) && (
+                      <span title={`${planName(normalizePlan(o.effectivePlan))}: ${o.planOrigin || 'free'} (stored plan: ${planName(normalizePlan(o.plan))})`}
+                        className="mt-0.5 block w-fit rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                        now {planName(normalizePlan(o.effectivePlan))}
+                      </span>
                     )}
                   </td>
                   <td className="pr-3 text-xs text-gray-400 whitespace-nowrap">{o.createdAt.slice(0, 10)}</td>
