@@ -4,6 +4,7 @@ import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { supportAttachmentScanAvailable } from '@/lib/upload-security-capability';
 import { readModerationCase } from '@/lib/network-moderation-db';
 import { networkModerationAvailable } from '@/lib/network-moderation-capability';
+import { resolveTicketAccounts } from '@/lib/support-ticket-account';
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const auth = await requirePlatformAdmin();
@@ -58,5 +59,12 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     ? await readModerationCase(admin, { id: ticket.id as string, category: ticket.category as string, context: (ticket.context as string | null) ?? null })
     : null;
 
-  return NextResponse.json({ ok: true, ticket, events: events ?? [], attachments, moderationCase });
+  // Prompt 907 §B — whose ticket this is: the org (or VC firm) it is linked to and the sender's role there, or "No account"
+  // (and, if the e-mail is an account anyway, which one — "matches account X — not linked").
+  const account = (await resolveTicketAccounts(admin, [{
+    id: ticket.id as string, org_id: (ticket.org_id as string | null) ?? null,
+    user_id: (ticket.user_id as string | null) ?? null, email: (ticket.email as string | null) ?? null,
+  }])).get(ticket.id as string) ?? null;
+
+  return NextResponse.json({ ok: true, ticket, events: events ?? [], attachments, moderationCase, account });
 }
