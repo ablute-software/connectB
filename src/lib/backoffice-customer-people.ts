@@ -51,10 +51,10 @@ export const UNKNOWN_EMAIL = '(unknown)';
 const ROLE_RANK: Record<string, number> = { owner: 0, admin: 1, manager: 2, member: 3 };
 const rank = (role: string | null) => (role != null && role in ROLE_RANK ? ROLE_RANK[role] : 9);
 
-interface AuthFacts { email: string; emailConfirmed: boolean; lastSignInAt: string | null; createdAt: string | null }
+export interface AuthFacts { email: string; emailConfirmed: boolean; lastSignInAt: string | null; createdAt: string | null }
 const NO_USER: AuthFacts = { email: UNKNOWN_EMAIL, emailConfirmed: false, lastSignInAt: null, createdAt: null };
 
-async function authFacts(admin: SupabaseClient, userId: string): Promise<AuthFacts> {
+export async function authFacts(admin: SupabaseClient, userId: string): Promise<AuthFacts> {
   try {
     const { data } = await admin.auth.admin.getUserById(userId);
     const u = data?.user as { email?: string | null; email_confirmed_at?: string | null; confirmed_at?: string | null; last_sign_in_at?: string | null; created_at?: string | null } | null | undefined;

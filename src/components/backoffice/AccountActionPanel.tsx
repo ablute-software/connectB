@@ -26,6 +26,12 @@
 // this panel existed. Undo keeps that older inline shape: it is a recovery
 // action, not a destructive one, and the spec's own scope names only
 // Suspend/Delete for the panel.
+//
+// Prompt 900 — two actions that change who can sign in (Release email, Reopen account) reuse this panel, so it grew four OPTIONAL
+// props and nothing else: `heading` (the list is not always "This removes:"), `lead` (one sentence on what this is about),
+// `confirmPhrase` (the written confirmation: Confirm stays off until that exact text is typed, so a click on the wrong row cannot
+// go through) and `tone` ('restore' for the actions that give something back, in the calmer colour Undo already uses). A caller
+// that passes none of them renders exactly what it rendered before.
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -33,7 +39,19 @@ export type PanelAction = 'suspend' | 'delete' | 'delete_now';
 
 export const ACTION_VERB: Record<PanelAction, string> = { suspend: 'Suspend', delete: 'Delete', delete_now: 'Delete now' };
 
-export function AccountActionPanel({ title, name, cascadeLines, confirmLabel, reasonPlaceholder, onConfirm, onClose, onDone }: {
+/** Confirm is on only with a reason AND, when the caller asked for a written confirmation, that exact phrase (case and edges ignored). */
+export function panelCanConfirm(args: { reason: string; confirmPhrase?: string; typed: string }): boolean {
+  if (args.reason.trim().length === 0) return false;
+  if (!args.confirmPhrase) return true;
+  return args.typed.trim().toLowerCase() === args.confirmPhrase.trim().toLowerCase();
+}
+
+const TONE = {
+  danger: { kicker: 'text-[#B00000]', button: 'bg-[#B00000] hover:bg-[#900000]', required: 'text-[#B00000]' },
+  restore: { kicker: 'text-[#0E7490]', button: 'bg-[#0E7490] hover:bg-[#0B5E75]', required: 'text-[#0E7490]' },
+} as const;
+
+export function AccountActionPanel({ title, name, cascadeLines, confirmLabel, reasonPlaceholder, onConfirm, onClose, onDone, heading, lead, confirmPhrase, tone = 'danger' }: {
   /** Shown as the small uppercase kicker above the name — "Suspend" / "Delete" / "Merge". */
   title: string;
   name: string;
@@ -45,13 +63,22 @@ export function AccountActionPanel({ title, name, cascadeLines, confirmLabel, re
   onConfirm: (reason: string) => Promise<{ ok: boolean; error?: string }>;
   onClose: () => void;
   onDone: () => void;
+  /** Replaces "This removes:" above the list, for the actions that restore or move something. */
+  heading?: string;
+  /** One sentence above the list: who or what this is about. */
+  lead?: string;
+  /** The written confirmation: Confirm stays off until this exact text is typed. */
+  confirmPhrase?: string;
+  tone?: keyof typeof TONE;
 }) {
   const [reason, setReason] = useState('');
+  const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
   if (typeof document === 'undefined') return null;
-  const canConfirm = reason.trim().length > 0;
+  const canConfirm = panelCanConfirm({ reason, confirmPhrase, typed });
+  const colours = TONE[tone];
 
   async function confirm() {
     if (!canConfirm) return;
@@ -68,14 +95,15 @@ export function AccountActionPanel({ title, name, cascadeLines, confirmLabel, re
       <div className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-[#B00000]">{title}</div>
+            <div className={`text-[11px] font-semibold uppercase tracking-wide ${colours.kicker}`}>{title}</div>
             <h2 className="text-base font-bold text-gray-900">{name}</h2>
           </div>
           <button onClick={() => !busy && onClose()} className="text-gray-400 hover:text-gray-600" aria-label="Close">✕</button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
-          <p className="text-sm font-medium text-gray-700">This removes:</p>
+          {lead && <p className="mb-3 text-sm text-gray-700">{lead}</p>}
+          <p className="text-sm font-medium text-gray-700">{heading ?? 'This removes:'}</p>
           <ul className="mt-2 space-y-1.5 text-sm text-gray-600">
             {cascadeLines.map((line, i) => (
               <li key={i} className="flex gap-2"><span className="text-gray-300">—</span><span>{line}</span></li>
@@ -83,11 +111,21 @@ export function AccountActionPanel({ title, name, cascadeLines, confirmLabel, re
           </ul>
 
           <label className="mt-5 block text-sm font-medium text-gray-700">
-            Reason <span className="text-[#B00000]">(required)</span>
+            Reason <span className={colours.required}>(required)</span>
           </label>
           <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={4}
             placeholder={reasonPlaceholder ?? 'Why is this account being suspended/deleted?'}
             className="mt-1.5 w-full rounded-lg border border-gray-300 p-2.5 text-sm" />
+          {confirmPhrase && (
+            <>
+              <label className="mt-4 block text-sm font-medium text-gray-700">
+                Type <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[13px] text-gray-900">{confirmPhrase}</span> to confirm
+              </label>
+              <input value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" spellCheck={false}
+                aria-label="Type the name to confirm"
+                className="mt-1.5 w-full rounded-lg border border-gray-300 p-2.5 text-sm" />
+            </>
+          )}
           {err && <p className="mt-2 text-xs text-[#B00000]">{err}</p>}
         </div>
 
@@ -97,7 +135,7 @@ export function AccountActionPanel({ title, name, cascadeLines, confirmLabel, re
             Cancel
           </button>
           <button onClick={() => void confirm()} disabled={!canConfirm || busy}
-            className="ml-auto rounded-lg bg-[#B00000] px-3.5 py-2 text-sm font-semibold text-white hover:bg-[#900000] disabled:cursor-not-allowed disabled:opacity-40">
+            className={`ml-auto rounded-lg px-3.5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40 ${colours.button}`}>
             {busy ? 'Saving…' : confirmLabel}
           </button>
         </div>

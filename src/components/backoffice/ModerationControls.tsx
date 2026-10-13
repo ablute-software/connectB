@@ -51,8 +51,8 @@ export function ModerationControls({ targetType, targetId, name, status, quarant
   const panel = panelAction && (
     <AccountActionPanel title={ACTION_VERB[panelAction]} name={name}
       cascadeLines={panelAction === 'delete_now'
-        ? ['Skips the remaining quarantine — the account is marked deleted immediately.', ...moderationCascadeLines(targetType)]
-        : moderationCascadeLines(targetType)}
+        ? ['Skips the remaining quarantine — the account is marked deleted immediately.', ...moderationCascadeLines(targetType, 'delete')]
+        : moderationCascadeLines(targetType, panelAction === 'suspend' ? 'suspend' : 'delete')}
       confirmLabel={`Confirm ${ACTION_VERB[panelAction].toLowerCase()}`}
       reasonPlaceholder="Why is this account being suspended/deleted?"
       onConfirm={async (reason) => {
