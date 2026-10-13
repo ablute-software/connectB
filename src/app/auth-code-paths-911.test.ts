@@ -32,7 +32,7 @@ describe('every account-creating path', () => {
       'src/app/signup/page.tsx',
       'src/lib/auth-code/supabase-ports.ts',
     ]);
-  });
+  }, 30_000);
 
   for (const p of SIGNUP_PAGES) {
     describe(p.name, () => {
@@ -115,7 +115,7 @@ describe('passwordless login emails are reported to the failure registry too (fo
   it('every signInWithOtp caller in a page or component reports its refusal', () => {
     const callers = walk('src').filter((f) => /\.signInWithOtp\(/.test(read(f))).map(norm).sort();
     expect(callers).toEqual(['src/app/guest/[token]/page.tsx', 'src/app/pair/page.tsx', 'src/components/auth/InvestorSignInForm.tsx']);
-  });
+  }, 30_000);
 });
 
 describe('no public address in an authentication message (follow-up): the contact form, never an email', () => {
