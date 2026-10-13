@@ -22,9 +22,20 @@ import {
   IP_REQUEST_LIMIT, IP_VERIFY_LIMIT, IP_WINDOW_SECONDS, MAX_SENDS_PER_WINDOW, MAX_WRONG_ATTEMPTS,
   MIN_REQUEST_DURATION_MS, RESEND_MIN_INTERVAL_SECONDS, SEND_WINDOW_SECONDS,
   codeSentMessage, isValidCode, isValidEmailShape, profileProblem, registrationProblem,
-  type RegistrationProfile,
+  type RegistrationExtras, type RegistrationProfile,
 } from './policy';
 import { checkPassword } from '@/lib/password-policy';
+import { SEND_FAILED_TEXT, describeAuthError } from '@/lib/auth-errors';
+
+/** What the failure log records (Prompt 911, B.2). */
+export type AuthFailureAction = 'signup' | 'resend_code' | 'signup_already_registered';
+export interface AuthFailureRecord { email: string; action: AuthFailureAction; error: unknown }
+
+/**
+ * What the account needs besides the profile: what it is for (an incubator team member, say) and the FULL url the email link
+ * returns to (emailRedirectTo) — the platform, a team invite, or (Prompt 907) the call and page the applicant was on.
+ */
+export type RegistrationContext = Pick<RegistrationExtras, 'intent'> & { redirectTo?: string };
 
 export interface SendReservation { allowed: boolean; reason?: 'too_early' | 'hourly_cap'; retryAfterSeconds: number }
 export interface AttemptReservation { allowed: boolean; reason?: 'no_code' | 'locked'; attemptsLeft: number }
@@ -37,9 +48,9 @@ export interface AuthCodePorts {
   markUsed(email: string): Promise<void>;
   userState(email: string): Promise<{ exists: boolean; confirmed: boolean }>;
   /** Create the unconfirmed account (random password) and make Supabase mail the code. */
-  createAccountAndSendCode(email: string, profile: RegistrationProfile): Promise<void>;
+  createAccountAndSendCode(email: string, profile: RegistrationProfile, ctx: RegistrationContext): Promise<void>;
   /** Make Supabase mail a fresh code for an existing UNCONFIRMED account. */
-  resendCode(email: string): Promise<void>;
+  resendCode(email: string, ctx: RegistrationContext): Promise<void>;
   /** Tell the holder of an existing, confirmed account that they already have one. */
   sendAlreadyRegisteredEmail(email: string): Promise<void>;
   /** Ask Supabase to check the code; on success the browser session is established. */
@@ -48,17 +59,21 @@ export interface AuthCodePorts {
   finalizeAccount(userId: string, password: string, profile: RegistrationProfile): Promise<{ ok: boolean; error?: string }>;
   now(): number;
   sleep(ms: number): Promise<void>;
-  /** Server-side log of a provider failure we deliberately do not show (no-oracle). */
+  /** Server-side log of a provider failure. */
   logError(where: string, err: unknown): void;
+  /** Write a failed send to the failure registry shown in Backoffice (Prompt 911). Must never throw. */
+  recordFailure(f: AuthFailureRecord): Promise<void>;
 }
 
 export type RequestResult =
   | { status: 200; body: { ok: true; message: string; resendAfterSeconds: number } }
   | { status: 400; body: { ok: false; code: 'invalid_input'; error: string } }
-  | { status: 429; body: { ok: false; code: 'too_early' | 'hourly_cap' | 'ip_limited'; error: string; retryAfterSeconds: number } };
+  | { status: 429; body: { ok: false; code: 'too_early' | 'hourly_cap' | 'ip_limited'; error: string; retryAfterSeconds: number } }
+  // The email could not be sent (Prompt 911): say so, instead of "we sent a code" about a code that will never arrive.
+  | { status: 503; body: { ok: false; code: 'send_failed'; error: string } };
 
 export type VerifyResult =
-  | { status: 200; body: { ok: true; passwordSet: boolean; warning?: string } }
+  | { status: 200; body: { ok: true; userId: string; passwordSet: boolean; warning?: string } }
   | { status: 400; body: { ok: false; code: 'invalid_input'; error: string } }
   | { status: 400; body: { ok: false; code: 'wrong_code'; error: string; attemptsLeft: number } }
   | { status: 400; body: { ok: false; code: 'new_code_required'; error: string } }
@@ -75,13 +90,14 @@ function waitText(seconds: number): string {
  */
 export async function requestCode(
   ports: AuthCodePorts,
-  input: { email: string; profile: RegistrationProfile; password?: string; ip: string },
+  input: { email: string; profile: RegistrationProfile; password?: string; ip: string; ctx?: RegistrationContext; strict?: boolean },
   opts: { allowCreate: boolean },
 ): Promise<RequestResult> {
+  const ctx: RegistrationContext = input.ctx ?? { intent: null };
   // Malformed input is the caller's own mistake and says nothing about any account, so it
   // may answer immediately (no floor needed) and does not spend a send.
   if (opts.allowCreate) {
-    const problem = registrationProblem(input.email, input.profile, input.password ?? '');
+    const problem = registrationProblem(input.email, input.profile, input.password ?? '', input.strict ?? true);
     if (problem) return { status: 400, body: { ok: false, code: 'invalid_input', error: problem } };
   } else if (!isValidEmailShape(input.email)) {
     return { status: 400, body: { ok: false, code: 'invalid_input', error: 'Please enter a valid email address.' } };
@@ -117,17 +133,41 @@ export async function requestCode(
     });
   }
 
+  let state: { exists: boolean; confirmed: boolean };
   try {
-    const state = await ports.userState(input.email);
-    if (state.exists && state.confirmed) await ports.sendAlreadyRegisteredEmail(input.email);
-    else if (state.exists) await ports.resendCode(input.email);
-    else if (opts.allowCreate) await ports.createAccountAndSendCode(input.email, input.profile);
-    // else: resend for an email with no account — nothing to send, and nothing to say.
+    state = await ports.userState(input.email);
   } catch (err) {
-    // Deliberately not shown: a provider error that only some branches can raise would be an
-    // oracle. The person sees the countdown, and can ask again when it ends.
+    // The state lookup itself failed (database): nothing was sent and nothing is known. Same as before — not shown.
     ports.logError('requestCode', err);
+    return finish({ status: 200 as const, body: { ok: true as const, message: codeSentMessage(input.email), resendAfterSeconds: RESEND_MIN_INTERVAL_SECONDS } });
   }
+
+  if (state.exists && state.confirmed) {
+    // The "you already have an account" email goes through Resend, not through the Auth SMTP. A failure here is recorded
+    // but not shown: showing it would tell the caller that this address already has an account (the no-oracle rule).
+    try { await ports.sendAlreadyRegisteredEmail(input.email); } catch (err) {
+      ports.logError('requestCode', err);
+      await ports.recordFailure({ email: input.email, action: 'signup_already_registered', error: err });
+    }
+  } else if (state.exists || opts.allowCreate) {
+    // The Auth SMTP is the sender here. When it refuses (12/10/2026: "550 ... domain is not verified") the person must
+    // be told, not shown "We sent a code" about a code that will never come. Trade-off, stated: during an outage this
+    // answer differs from the already-registered branch above, so it can tell "not a confirmed account" from "confirmed";
+    // that exists only while the sender is down, and the alternative was a silent failure for everybody.
+    try {
+      if (state.exists) await ports.resendCode(input.email, ctx);
+      else await ports.createAccountAndSendCode(input.email, input.profile, ctx);
+    } catch (err) {
+      ports.logError('requestCode', err);
+      await ports.recordFailure({ email: input.email, action: state.exists ? 'resend_code' : 'signup', error: err });
+      const info = describeAuthError(err);
+      if (info.kind === 'rate_limited') {
+        return finish({ status: 429 as const, body: { ok: false as const, code: 'too_early' as const, error: info.text, retryAfterSeconds: RESEND_MIN_INTERVAL_SECONDS } });
+      }
+      return finish({ status: 503 as const, body: { ok: false as const, code: 'send_failed' as const, error: SEND_FAILED_TEXT } });
+    }
+  }
+  // else: resend for an email with no account — nothing to send, and nothing to say.
 
   return finish({
     status: 200 as const,
@@ -137,12 +177,12 @@ export async function requestCode(
 
 export async function verifyRegistrationCode(
   ports: AuthCodePorts,
-  input: { email: string; code: string; password: string; profile: RegistrationProfile; ip: string },
+  input: { email: string; code: string; password: string; profile: RegistrationProfile; ip: string; strict?: boolean },
 ): Promise<VerifyResult> {
   if (!isValidEmailShape(input.email)) return { status: 400, body: { ok: false, code: 'invalid_input', error: 'Please enter a valid email address.' } };
   if (!isValidCode(input.code)) return { status: 400, body: { ok: false, code: 'invalid_input', error: 'The code has 6 digits.' } };
   if (!checkPassword(input.password).valid) return { status: 400, body: { ok: false, code: 'invalid_input', error: 'That password does not meet the requirements.' } };
-  const profile = profileProblem(input.profile);
+  const profile = profileProblem(input.profile, input.strict ?? true);
   if (profile) return { status: 400, body: { ok: false, code: 'invalid_input', error: profile } };
 
   if (await ports.ipLimited(input.ip, 'verify')) {
@@ -178,10 +218,10 @@ export async function verifyRegistrationCode(
     // instead of pretending the whole thing failed; /set-password finishes the job.
     return {
       status: 200,
-      body: { ok: true, passwordSet: false, warning: done.error ?? 'Your email is confirmed, but we could not save your password. Please choose one on the next screen.' },
+      body: { ok: true, userId: result.userId, passwordSet: false, warning: done.error ?? 'Your email is confirmed, but we could not save your password. Please choose one on the next screen.' },
     };
   }
-  return { status: 200, body: { ok: true, passwordSet: true } };
+  return { status: 200, body: { ok: true, userId: result.userId, passwordSet: true } };
 }
 
 export const AUTH_CODE_LIMITS = {

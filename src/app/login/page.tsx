@@ -12,6 +12,7 @@ import { AuthShell } from '@/components/auth/AuthShell';
 import { AccountNotice } from '@/components/auth/AccountNotice';
 import { InvestorSignInForm } from '@/components/auth/InvestorSignInForm';
 import { PasswordInput } from '@/components/auth/PasswordInput';
+import { authErrorText } from '@/lib/auth-errors';
 
 function LoginInner() {
   const sp = useSearchParams();
@@ -46,7 +47,7 @@ function LoginInner() {
     try {
       const sb = browserClient();
       const { error } = await sb.auth.signInWithPassword({ email, password });
-      if (error) { setMsg(error.message); return; }
+      if (error) { setMsg(authErrorText(error, { serverText: error.message })); return; }
       window.location.href = next;
     } finally { setBusy(false); }
   }

@@ -11,7 +11,8 @@ import {
   MAX_SENDS_PER_WINDOW, MAX_WRONG_ATTEMPTS, MIN_REQUEST_DURATION_MS, RESEND_MIN_INTERVAL_SECONDS,
   SEND_WINDOW_SECONDS,
 } from './policy';
-import { requestCode, verifyRegistrationCode, type AuthCodePorts } from './service';
+import { requestCode, verifyRegistrationCode, type AuthCodePorts, type AuthFailureRecord } from './service';
+import { SEND_FAILED_TEXT } from '@/lib/auth-errors';
 
 const PROFILE = { fullName: 'Ana Test', startup: 'zz-test-startup', country: 'Portugal', role: 'CEO' };
 const PASSWORD = 'Correct-Horse-9!';
@@ -19,7 +20,10 @@ const CODE_TTL_MS = 30 * 60 * 1000;
 
 interface Mail { kind: 'code' | 'already-registered'; email: string; code?: string }
 
-function world(opts: { ipLimited?: boolean; createFails?: boolean; finalizeFails?: boolean } = {}) {
+// What Supabase Auth answered on 12/10/2026 when the SMTP refused: HTTP 500, unexpected_failure.
+const SMTP_REFUSED = Object.assign(new Error('gomail: could not send email 1: 550 "The sherlockdeal.com domain is not verified"'), { status: 500, code: 'unexpected_failure' });
+
+function world(opts: { ipLimited?: boolean; createFails?: boolean | Error; resendFails?: boolean; alreadyRegisteredFails?: boolean; finalizeFails?: boolean } = {}) {
   let clock = 1_700_000_000_000;
   let nextCode = 100000;
   const sendState = new Map<string, { lastSent: number | null; winStart: number | null; winCount: number; wrong: number; needsNew: boolean }>();
@@ -27,6 +31,7 @@ function world(opts: { ipLimited?: boolean; createFails?: boolean; finalizeFails
   const otp = new Map<string, { code: string; expiresAt: number }>();
   const mails: Mail[] = [];
   const errors: string[] = [];
+  const failures: AuthFailureRecord[] = [];
   const sleeps: number[] = [];
   let verifyCalls = 0;
   const calls = { reserveAttempt: 0 };
@@ -64,12 +69,12 @@ function world(opts: { ipLimited?: boolean; createFails?: boolean; finalizeFails
     async markUsed(email) { const r = sendState.get(email); if (r) { r.needsNew = true; r.wrong = 0; } },
     async userState(email) { const u = users.get(email); return { exists: !!u, confirmed: !!u?.confirmed }; },
     async createAccountAndSendCode(email) {
-      if (opts.createFails) throw new Error('smtp: rate limit exceeded');
+      if (opts.createFails) throw opts.createFails instanceof Error ? opts.createFails : new Error('smtp: rate limit exceeded');
       users.set(email, { id: `user-${users.size + 1}`, confirmed: false, finalized: false });
       issue(email);
     },
-    async resendCode(email) { issue(email); },
-    async sendAlreadyRegisteredEmail(email) { mails.push({ kind: 'already-registered', email }); },
+    async resendCode(email) { if (opts.resendFails) throw SMTP_REFUSED; issue(email); },
+    async sendAlreadyRegisteredEmail(email) { if (opts.alreadyRegisteredFails) throw new Error('already-registered email not sent: boom'); mails.push({ kind: 'already-registered', email }); },
     async verifyCode(email, code) {
       verifyCalls += 1;
       const live = otp.get(email);
@@ -87,10 +92,11 @@ function world(opts: { ipLimited?: boolean; createFails?: boolean; finalizeFails
     now: () => clock,
     async sleep(ms) { sleeps.push(ms); clock += ms; },
     logError: (where, err) => { errors.push(`${where}: ${err instanceof Error ? err.message : String(err)}`); },
+    async recordFailure(f) { failures.push(f); },
   };
 
   return {
-    ports, users, otp, mails, errors, sleeps, calls,
+    ports, users, otp, mails, errors, failures, sleeps, calls,
     advance(ms: number) { clock += ms; },
     get verifyCalls() { return verifyCalls; },
     get clock() { return clock; },
@@ -191,13 +197,54 @@ describe('no oracle — an email with an account looks exactly like one without'
     expect(again.body).toMatchObject({ code: 'too_early' });
   });
 
-  it('a provider failure does not change what the person is told (and is logged for us)', async () => {
-    const ok = world();
-    const failing = world({ createFails: true });
-    const a = await ok.register('x@example.com');
-    const b = await failing.register('x@example.com');
-    expect(b).toEqual(a);
-    expect(failing.errors).toEqual(['requestCode: smtp: rate limit exceeded']);
+  // Prompt 911: a refused email is no longer hidden behind "We sent a code" — nothing will arrive, and the person has to know.
+  it('an email the sender refuses is told plainly (503, readable), logged for us and recorded in the failure registry', async () => {
+    const w = world({ createFails: SMTP_REFUSED });
+    const r = await w.register('x@example.com');
+    expect(r.status).toBe(503);
+    expect(r.body).toEqual({ ok: false, code: 'send_failed', error: SEND_FAILED_TEXT });
+    expect(JSON.stringify(r.body)).not.toMatch(/gomail|550|resend\.com|{}/);
+    expect(w.errors).toHaveLength(1);
+    expect(w.failures).toEqual([{ email: 'x@example.com', action: 'signup', error: SMTP_REFUSED }]);
+  });
+  it('a rate limit from the sender is told as a wait, not as an outage', async () => {
+    const w = world({ createFails: true }); // "smtp: rate limit exceeded"
+    const r = await w.register('x@example.com');
+    expect(r.status).toBe(429);
+    expect(r.body).toMatchObject({ ok: false, code: 'too_early', error: 'Too many attempts. Please wait a few minutes.' });
+  });
+  it('a refused RESEND is told and recorded as a resend failure', async () => {
+    const w = world({ resendFails: true });
+    await w.register('a@example.com');
+    w.advance(61_000);
+    const r = await w.resend('a@example.com');
+    expect(r.status).toBe(503);
+    expect(w.failures.map((f) => f.action)).toEqual(['resend_code']);
+  });
+  it('a failure of the "you already have an account" email is recorded but NOT shown (it would reveal the account)', async () => {
+    const failing = world({ alreadyRegisteredFails: true });
+    await failing.register('known@example.com');
+    await failing.verify('known@example.com', failing.lastCode('known@example.com'));
+    failing.advance(61_000);
+    const again = await failing.register('known@example.com');
+    expect(again.status).toBe(200);
+    expect(failing.failures.map((f) => f.action)).toEqual(['signup_already_registered']);
+  });
+  it('without profile fields the lenient check still needs a real email and a password, and says what is wrong with them', async () => {
+    const w = world();
+    const noProfile = { fullName: '', startup: '', country: '', role: '' };
+    const ok = await requestCode(w.ports, { email: 'invitee@example.com', profile: noProfile, password: PASSWORD, ip: '1.1.1.1', strict: false }, { allowCreate: true });
+    expect(ok.status).toBe(200);
+    const strict = await requestCode(w.ports, { email: 'other@example.com', profile: noProfile, password: PASSWORD, ip: '1.1.1.1' }, { allowCreate: true });
+    expect(strict.status).toBe(400);
+    const weak = await requestCode(w.ports, { email: 'third@example.com', profile: noProfile, password: 'short', ip: '1.1.1.1', strict: false }, { allowCreate: true });
+    expect(weak).toMatchObject({ status: 400, body: { code: 'invalid_input', error: 'That password does not meet the requirements.' } });
+  });
+  it('a verified registration returns the id of the account, so the page can finish provisioning it', async () => {
+    const w = world();
+    await w.register('p@example.com');
+    const r = await w.verify('p@example.com', w.lastCode('p@example.com'));
+    expect(r).toMatchObject({ status: 200, body: { ok: true, userId: 'user-1', passwordSet: true } });
   });
 });
 
@@ -250,7 +297,7 @@ describe('verify — wrong, expired, used, replaced', () => {
     const w = world();
     await w.register('a@example.com');
     const r = await w.verify('a@example.com', w.lastCode('a@example.com'));
-    expect(r).toEqual({ status: 200, body: { ok: true, passwordSet: true } });
+    expect(r).toEqual({ status: 200, body: { ok: true, userId: 'user-1', passwordSet: true } });
     expect(w.users.get('a@example.com')).toMatchObject({ confirmed: true, finalized: true });
   });
 

@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import { browserClient } from '@/lib/supabase';
 import { getMagicLinkSent, setMagicLinkSent, clearMagicLinkSent } from '@/lib/magic-link-storage';
 import { PasswordInput } from './PasswordInput';
+import { authErrorText } from '@/lib/auth-errors';
 
 export function InvestorSignInForm({ next, linkFailed }: { next: string; linkFailed: boolean }) {
   const [email, setEmail] = useState('');
@@ -48,7 +49,7 @@ export function InvestorSignInForm({ next, linkFailed }: { next: string; linkFai
     try {
       const sb = browserClient();
       const { error } = await sb.auth.signInWithPassword({ email, password });
-      if (error) { setMsg(error.message); return; }
+      if (error) { setMsg(authErrorText(error, { serverText: error.message })); return; }
       window.location.href = next;
     } finally { setBusy(false); }
   }
@@ -73,7 +74,7 @@ export function InvestorSignInForm({ next, linkFailed }: { next: string; linkFai
           shouldCreateUser: true,
         },
       });
-      if (error) { setMsg(error.message); return; }
+      if (error) { setMsg(authErrorText(error, { serverText: error.message })); return; }
       setMagicLinkSent(email);
       setLinkSent(true);
     } finally { setBusy(false); }
@@ -84,7 +85,7 @@ export function InvestorSignInForm({ next, linkFailed }: { next: string; linkFai
     try {
       const sb = browserClient();
       const { data, error } = await sb.auth.verifyOtp({ email, token: code, type: 'email' });
-      if (error) { setCodeErr(error.message); return; }
+      if (error) { setCodeErr(authErrorText(error, { serverText: error.message })); return; }
       clearMagicLinkSent();
       // D2 — same first-time-password offer for the manual-code path as the
       // link-click path (auth/callback/route.ts). This is the fix for item

@@ -14,10 +14,21 @@
 //    never the token — which accepts every pending team invite for the
 //    confirmed address (incubator_accept_pending_member_invites);
 //  - "I already have an account" signs in with next = that same pending page.
+//
+// Prompt 911: the email of the new account is confirmed with a 6-digit code typed on this same page (EmailCodeConfirm, the
+// 904 mechanism), the account being born with signup_intent = 'incubator_member' on the server; the right code signs the
+// browser in and the invite is accepted. The link in the email still works (it lands on /set-password, the account having
+// a throw-away password until then). A reload comes back to the code box. AUTH_CODE_MODE=off falls back to the link flow above.
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { browserClient, authEnabled } from '@/lib/supabase';
 import { PasswordInput } from '@/components/auth/PasswordInput';
+import { PasswordRequirementsIndicator } from '@/components/auth/PasswordRequirementsIndicator';
+import { EmailCodeConfirm } from '@/components/auth/EmailCodeConfirm';
+import { checkPassword } from '@/lib/password-policy';
+import { registerWithCode, reportAuthEmailFailure } from '@/lib/auth-code/client';
+import { clearPending, readPending, writePending } from '@/lib/auth-code/pending-storage';
+import { authErrorText } from '@/lib/auth-errors';
 import { incubatorErrorText, inviteEmailMismatchText } from '@/lib/incubators';
 import { PENDING_MEMBER_INVITE_PATH } from '@/lib/landing-redirect';
 
@@ -31,6 +42,14 @@ export default function IncubatorMemberInvitePage({ params }: { params: { token:
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  // Prompt 911 — the code step (and its resend clock after a reload).
+  const [step, setStep] = useState<'form' | 'code'>('form');
+  const [sentAt, setSentAt] = useState(0);
+
+  useEffect(() => {
+    const pending = readPending('member', token);
+    if (pending) { setEmail(pending.email); setSentAt(pending.sentAt); setStep('code'); }
+  }, [token]);
 
   useEffect(() => {
     fetch(`/api/invite/incubator/member/${encodeURIComponent(token)}`).then((r) => r.json()).then(setP).catch(() => setP({ ok: false }));
@@ -61,21 +80,44 @@ export default function IncubatorMemberInvitePage({ params }: { params: { token:
       if (!check?.ok) { setMsg(check?.error === 'rate_limited' ? 'Too many attempts — wait a minute and try again.' : 'We could not check the invite right now. Try again.'); return; }
       if (!check.matches) { setMsg(inviteEmailMismatchText(check.invitedEmailMasked ?? p?.invitedEmailMasked ?? null, orgName)); return; }
 
+      const sent = await registerWithCode({ email: email.trim(), password, intent: 'incubator_member', redirectPath: PENDING_MEMBER_INVITE_PATH });
+      if (sent.kind === 'sent') {
+        const at = Date.now();
+        writePending({ flow: 'member', scope: token, email: email.trim(), sentAt: at, fields: {} });
+        setSentAt(at); setStep('code');
+        return;
+      }
+      if (sent.kind === 'error') { setMsg(sent.text); return; }
+      // kind === 'off': AUTH_CODE_MODE=off — the link flow this page always had.
       const sb = browserClient();
       const { data, error } = await sb.auth.signUp({
         email: email.trim(), password,
         options: {
           data: { password_set: true, signup_intent: 'incubator_member' },
-          emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(PENDING_MEMBER_INVITE_PATH)}`,
+          // Straight to the page that accepts every pending team invite for the confirmed address: the email link goes through
+          // /auth/confirm (Prompt 911), which follows this URL as a path of the site, not through the PKCE callback.
+          emailRedirectTo: `${window.location.origin}${PENDING_MEMBER_INVITE_PATH}`,
         },
       });
-      if (error) { setMsg(error.message); return; }
+      if (error) { reportAuthEmailFailure({ email: email.trim(), action: 'invite_signup', error }); setMsg(authErrorText(error)); return; }
       if (!data.session) {
         setMsg('Account created. Confirm your email — the link brings you straight into the Ecosystem workspace.');
         return;
       }
       await accept();
     } finally { setBusy(false); }
+  }
+
+  // The code was right: the browser is signed in as the new account — accept the invite, as the link flow did.
+  async function acceptAfterCode(): Promise<string | void> {
+    clearPending('member');
+    try {
+      const r = await fetch(`/api/invite/incubator/member/${encodeURIComponent(token)}/accept`, { method: 'POST' }).then((x) => x.json());
+      if (!r.ok) return r.error === 'email_mismatch' ? inviteEmailMismatchText(p?.invitedEmailMasked ?? null, orgName) : (r.message ?? incubatorErrorText(r.error));
+    } catch {
+      return 'We could not reach the server. Check your connection and try again.';
+    }
+    window.location.href = '/ecosystem';
   }
 
   async function signOut() {
@@ -92,6 +134,17 @@ export default function IncubatorMemberInvitePage({ params }: { params: { token:
   if (p.demo) return box(<p className="text-sm text-amber-800">Demo mode — team invites need a connected database.</p>);
   if (!p.ok || !p.incubator) return box(<p className="text-sm text-gray-700">{incubatorErrorText(p.error ?? 'invite_not_found')}</p>);
   if (p.status !== 'invited') return box(<p className="text-sm text-gray-700">{incubatorErrorText(p.status === 'closed' ? 'incubator_closed' : `invite_${p.status}`)}</p>);
+
+  if (step === 'code') {
+    return box(
+      <EmailCodeConfirm
+        email={email.trim()} password={password} sentAt={sentAt} redirectPath={PENDING_MEMBER_INVITE_PATH}
+        onVerified={() => acceptAfterCode()}
+        onResent={(at) => { setSentAt(at); writePending({ flow: 'member', scope: token, email: email.trim(), sentAt: at, fields: {} }); }}
+        onChangeEmail={() => { clearPending('member'); setStep('form'); setMsg(''); }}
+      />,
+    );
+  }
 
   return box(
     <div>
@@ -117,10 +170,11 @@ export default function IncubatorMemberInvitePage({ params }: { params: { token:
             <input type="email" className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm" placeholder="Your email *"
               value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
             <p className="text-[11px] text-gray-500">Use the address the invite was sent to{p.invitedEmailMasked ? ` (${p.invitedEmailMasked})` : ''}.</p>
-            <PasswordInput className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm" placeholder="Password (8+ characters) *"
+            <PasswordInput className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm" placeholder="Password *"
               value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+            <PasswordRequirementsIndicator password={password} />
             <button className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
-              disabled={busy || !email.trim() || password.length < 8} onClick={createAndAccept}>Create and accept</button>
+              disabled={busy || !email.trim() || !checkPassword(password).valid} onClick={createAndAccept}>Create and accept</button>
           </div>
         </div>
       )}

@@ -27,12 +27,15 @@ import { browserClient, authEnabled } from '@/lib/supabase';
 import { LogoLockup } from '@/components/Logo';
 import { AuthShell } from '@/components/auth/AuthShell';
 import type { EmailOtpType } from '@supabase/supabase-js';
+import { confirmDestination } from '@/lib/auth-redirect';
 
 function ConfirmInner() {
   const sp = useSearchParams();
   const tokenHash = sp.get('token_hash');
   const type = sp.get('type') as EmailOtpType | null;
-  const next = sp.get('next') ?? '/pipeline';
+  // Prompt 911: the sign-up template sends next={{ .RedirectTo }}, a FULL url; it is reduced to a path of this site, and anything
+  // that is not ours becomes the default (src/lib/auth-redirect.ts). Evaluated in the handler, where the page's origin is known.
+  const rawNext = sp.get('next');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
@@ -40,8 +43,9 @@ function ConfirmInner() {
     if (!tokenHash || !type) return;
     setBusy(true); setErr('');
     try {
+      const next = confirmDestination(rawNext, window.location.origin);
       const sb = browserClient();
-      const { error } = await sb.auth.verifyOtp({ token_hash: tokenHash, type });
+      const { data, error } = await sb.auth.verifyOtp({ token_hash: tokenHash, type });
       if (error) {
         // Same fallback contract /auth/callback already uses: bounce back
         // to wherever `next` says with `linkFailed=1`, so that page's own
@@ -50,6 +54,12 @@ function ConfirmInner() {
         const url = new URL(next, window.location.origin);
         url.searchParams.set('linkFailed', '1');
         window.location.href = url.toString();
+        return;
+      }
+      // An account created by the 6-digit-code flow is born with a throw-away password and only gets the typed one once the CODE is
+      // verified. Someone who confirmed with the LINK instead has not chosen one yet: offer it (skippable), then on to where they were going.
+      if (type === 'signup' && data?.user && data.user.user_metadata?.password_set !== true) {
+        window.location.href = `/set-password?next=${encodeURIComponent(next)}`;
         return;
       }
       window.location.href = next;
