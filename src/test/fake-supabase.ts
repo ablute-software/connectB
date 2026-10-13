@@ -11,7 +11,10 @@
 // filtering must say so with its fixture rows and opt in); any other builder method
 // is accepted and ignored, so a route that uses an exotic filter still runs.
 // update / insert / delete / upsert are recorded in `db.writes` (and applied to
-// nothing — a test asserts on the record, never on the resulting table).
+// nothing — a test asserts on the record, never on the resulting table) UNLESS the
+// test opts in with `db.applyWrites = true` (Prompt 906): then insert / update /
+// delete really change `tables` and answer with the affected rows, which is what a
+// create → edit → delete → read-back test needs. upsert stays record-only.
 // maybeSingle()/single() return the first match, which is enough for the
 // one-membership-per-user fixtures here.
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -36,6 +39,10 @@ export interface FakeDb {
   authUsers?: Record<string, { email: string }>;
   /** Every rpc the routes called, in order (name + args) — a viewer test asserts no write rpc ran. */
   rpcCalls?: { name: string; args: unknown }[];
+  /** Opt in: insert / update / delete change `tables` (default: they are only recorded in `writes`). */
+  applyWrites?: boolean;
+  /** Models a database trigger: called with the row as it is after an applied update, and as it was before. */
+  afterUpdate?: Record<string, (after: Row, before: Row) => void>;
 }
 
 export function fakeDb(tables: Record<string, Row[]>): FakeDb {
@@ -101,6 +108,25 @@ function builder(db: FakeDb, table: string): any {
   const run = (): Row[] => {
     const rows = (db.tables[table] ?? []).filter((r) => predicates.every((p) => p(r)));
     if (op) db.writes.push({ table, op, values, eqs: [...eqs] });
+    if (!db.applyWrites || !op) return rows;
+    if (op === 'insert') {
+      const created = ((Array.isArray(values) ? values : [values]) as Row[])
+        .map((v) => ({ id: crypto.randomUUID(), created_at: new Date().toISOString(), ...v }));
+      (db.tables[table] ??= []).push(...created);
+      return created;
+    }
+    if (op === 'update') {
+      for (const r of rows) {
+        const before = { ...r };
+        Object.assign(r, values as Row);
+        db.afterUpdate?.[table]?.(r, before);
+      }
+      return rows;
+    }
+    if (op === 'delete') {
+      db.tables[table] = (db.tables[table] ?? []).filter((r) => !rows.includes(r));
+      return rows;
+    }
     return rows;
   };
 

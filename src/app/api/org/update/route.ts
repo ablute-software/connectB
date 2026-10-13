@@ -67,6 +67,18 @@ const EDITABLE = [
   'intro_problem', 'intro_solution',
 ] as const;
 
+// Prompt 906 §A — what the database holds for the columns this route is allowed to
+// write, handed back with the answer so the page can show the stored value rather
+// than assume its own optimistic copy. Only EDITABLE columns: the founder's browser
+// does not get the rest of the row (plan, credits, suspension stamps, bcc_email …)
+// from here, however much of it the service-role read below happened to select.
+function storedEditableColumns(row: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!row) return null;
+  const out: Record<string, unknown> = {};
+  for (const k of EDITABLE) if (k in row) out[k] = row[k];
+  return out;
+}
+
 export const POST = withActingOrg(async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -132,5 +144,5 @@ export const POST = withActingOrg(async function POST(req: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, org: storedEditableColumns(freshOrg as Record<string, unknown> | null) });
 });
