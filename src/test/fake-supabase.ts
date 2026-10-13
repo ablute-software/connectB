@@ -36,7 +36,7 @@ export interface FakeDb {
   /** Named rpc answers, for both the session and the service client. A function receives the args. */
   rpc?: Record<string, unknown | ((args: unknown) => unknown)>;
   /** auth.admin.getUserById lookups. */
-  authUsers?: Record<string, { email: string }>;
+  authUsers?: Record<string, { email: string; email_confirmed_at?: string | null; last_sign_in_at?: string | null; created_at?: string }>;
   /** Every rpc the routes called, in order (name + args) — a viewer test asserts no write rpc ran. */
   rpcCalls?: { name: string; args: unknown }[];
   /** Opt in: insert / update / delete change `tables` (default: they are only recorded in `writes`). */
@@ -193,7 +193,7 @@ function rpcAnswer(db: FakeDb, name: string, args: unknown): { data: unknown; er
 function adminAuth(db: FakeDb) {
   return {
     admin: {
-      getUserById: async (id: string) => ({ data: { user: db.authUsers?.[id] ? { id, email: db.authUsers[id].email } : null }, error: null }),
+      getUserById: async (id: string) => ({ data: { user: db.authUsers?.[id] ? { id, ...db.authUsers[id] } : null }, error: null }),
     },
   };
 }
