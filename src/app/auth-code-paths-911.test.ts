@@ -104,6 +104,34 @@ describe('every path says where the email link brings the person back to (emailR
   });
 });
 
+describe('passwordless login emails are reported to the failure registry too (follow-up)', () => {
+  for (const file of ['src/components/auth/InvestorSignInForm.tsx', 'src/app/guest/[token]/page.tsx', 'src/app/pair/page.tsx']) {
+    it(file, () => {
+      const src = read(file);
+      expect(src).toMatch(/signInWithOtp\(/);
+      expect(src).toMatch(/reportAuthEmailFailure\(\{ email[^}]*action: 'login'/);
+    });
+  }
+  it('every signInWithOtp caller in a page or component reports its refusal', () => {
+    const callers = walk('src').filter((f) => /\.signInWithOtp\(/.test(read(f))).map(norm).sort();
+    expect(callers).toEqual(['src/app/guest/[token]/page.tsx', 'src/app/pair/page.tsx', 'src/components/auth/InvestorSignInForm.tsx']);
+  });
+});
+
+describe('no public address in an authentication message (follow-up): the contact form, never an email', () => {
+  const FILES = [
+    ...walk('src/components/auth'), ...walk('src/lib/auth-code'), 'src/lib/auth-errors.ts',
+    'src/app/signup/page.tsx', 'src/app/login/page.tsx', 'src/app/forgot-password/page.tsx', 'src/app/reset-password/page.tsx', 'src/app/set-password/page.tsx',
+    'src/app/invite/[token]/page.tsx', 'src/app/invite/incubator/member/[token]/page.tsx',
+  ].map(norm);
+  it('no email address of the platform or its owner appears in the code of those screens (comments aside)', () => {
+    for (const f of FILES) {
+      const code = read(f).split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+      expect(code, f).not.toMatch(/[\w.+-]+@(sherlockdeal|ablute)\.(com|pt)|sherlockdeal\.com@gmail/);
+    }
+  });
+});
+
 describe('no authentication screen prints a raw provider error', () => {
   const SCREENS = [
     'src/app/signup/page.tsx', 'src/app/login/page.tsx', 'src/app/forgot-password/page.tsx', 'src/app/reset-password/page.tsx',

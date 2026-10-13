@@ -15,6 +15,7 @@ export const ACTION_LABELS: Record<string, string> = {
   signup: 'Sign-up code / confirmation',
   resend_code: 'Resend of the code',
   recover: 'Password recovery',
+  login: 'Passwordless login (link / code)',
   invite_signup: 'Invite sign-up',
   signup_already_registered: '"You already have an account" email',
 };
@@ -30,7 +31,7 @@ export function AuthEmailFailuresView({ rows, last24h, peopleLast24h, error }: {
     <section className="mt-6" aria-label="Failed sign-up and recovery emails" data-testid="auth-email-failures">
       <h2 className="text-sm font-semibold text-gray-900">Sign-up and recovery emails that failed</h2>
       <p className="mt-1 text-xs text-gray-500">
-        The emails Supabase Auth sends (the sign-up code and confirmation, password recovery). Every refusal is recorded here with the
+        The emails Supabase Auth sends (the sign-up code and confirmation, password recovery, the passwordless login link and code). Every refusal is recorded here with the
         provider&rsquo;s own answer, kept for 90 days.
       </p>
       {error && <p className="mt-2 text-sm text-[#B00000]">{error}</p>}

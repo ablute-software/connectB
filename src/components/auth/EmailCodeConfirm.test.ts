@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { CodeStepView } from './CodeStep';
 import { EmailCodeConfirm } from './EmailCodeConfirm';
 import { AuthEmailFailuresView, type AuthFailureRow } from '@/components/backoffice/AuthEmailFailuresPanel';
+import { AuthMessage } from './AuthMessage';
 import { SEND_FAILED_TEXT } from '@/lib/auth-errors';
 
 const noop = () => {};
@@ -54,6 +55,23 @@ describe('the code step (spec A, flow 2)', () => {
     expect(html).toContain('We sent a code to ana@example.com.');
     expect(html).toContain('Change email');
     expect(html).toContain('Choose your password *');
+  });
+});
+
+describe('"contact us" is a link to the contact form, not an address', () => {
+  it('the send-failed message links to /contact and prints no email', () => {
+    const html = renderToStaticMarkup(createElement(AuthMessage, { text: SEND_FAILED_TEXT }));
+    expect(html).toContain('<a href="/contact"');
+    expect(html).toContain('>contact us</a>');
+    expect(html).toContain('If it keeps failing, ');
+    expect(html).not.toContain('@');
+    expect(html).not.toContain('mailto:');
+  });
+  it('a message without the phrase is plain text', () => {
+    expect(renderToStaticMarkup(createElement(AuthMessage, { text: 'Too many attempts. Please wait a few minutes.' }))).toBe('Too many attempts. Please wait a few minutes.');
+  });
+  it('the code step shows the link when the send failed', () => {
+    expect(view({ error: SEND_FAILED_TEXT })).toContain('href="/contact"');
   });
 });
 

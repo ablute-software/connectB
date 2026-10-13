@@ -29,6 +29,7 @@ import { checkPassword } from '@/lib/password-policy';
 import { registerWithCode, reportAuthEmailFailure } from '@/lib/auth-code/client';
 import { clearPending, readPending, writePending } from '@/lib/auth-code/pending-storage';
 import { authErrorText } from '@/lib/auth-errors';
+import { AuthMessage } from '@/components/auth/AuthMessage';
 import { incubatorErrorText, inviteEmailMismatchText } from '@/lib/incubators';
 import { PENDING_MEMBER_INVITE_PATH } from '@/lib/landing-redirect';
 
@@ -178,7 +179,7 @@ export default function IncubatorMemberInvitePage({ params }: { params: { token:
           </div>
         </div>
       )}
-      {msg && <p className="mt-3 text-sm text-red-600">{msg}</p>}
+      {msg && <p className="mt-3 text-sm text-red-600"><AuthMessage text={msg} /></p>}
     </div>,
   );
 }

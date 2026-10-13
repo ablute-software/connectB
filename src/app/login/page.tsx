@@ -13,6 +13,7 @@ import { AccountNotice } from '@/components/auth/AccountNotice';
 import { InvestorSignInForm } from '@/components/auth/InvestorSignInForm';
 import { PasswordInput } from '@/components/auth/PasswordInput';
 import { authErrorText } from '@/lib/auth-errors';
+import { AuthMessage } from '@/components/auth/AuthMessage';
 
 function LoginInner() {
   const sp = useSearchParams();
@@ -91,7 +92,7 @@ function LoginInner() {
           Forgot your password?
         </Link>
 
-        {msg && <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700">{msg}</div>}
+        {msg && <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700"><AuthMessage text={msg} /></div>}
 
         <div className="mt-5 border-t border-gray-100 pt-4 text-center text-xs text-gray-500">
           {investorMode ? (
