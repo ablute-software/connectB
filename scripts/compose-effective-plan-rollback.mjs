@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Prompt 914 — composes scripts/rollback-effective-plan-914.sql: how to put the two wallet functions back EXACTLY as production had them
 // before migration 20261013170000_effective_plan.sql, should the migration ever have to be undone.
 //

@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Prompt 914 — composes scripts/verify-effective-plan-914.sql: the rolled-back rehearsal of migration 20261013170000_effective_plan.sql.
 //
 //   head.sql  +  the migration, verbatim  +  mid.sql  +  the parity cases GENERATED from src/lib/effective-plan-cases.json  +  tail.sql
