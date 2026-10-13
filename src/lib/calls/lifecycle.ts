@@ -105,7 +105,7 @@ export type Transition = Patch | Refusal;
 const refuse = (error: string): Refusal => ({ ok: false, error });
 
 export function confirmCall(call: Call, issues: ReadinessIssue[], actor: string, now: Date = new Date()): Transition {
-  if (call.status !== 'draft') return refuse('Only a draft can be confirmed.');
+  if (call.status !== 'draft') return refuse('Only a draft can be validated.');
   if (issues.length > 0) return refuse(`Not ready yet: ${issues[0].message}`);
   return { ok: true, event: 'call_confirmed', patch: { status: 'validated', validated_at: now.toISOString(), validated_by: actor }, detail: { configVersion: call.configVersion } };
 }
@@ -120,7 +120,7 @@ export function editConfiguration(call: Call): Transition {
 
 /** Publish a confirmed call: it gets its link, and is Scheduled (opens by itself) or Open. */
 export function publishCall(call: Call, linkToken: string, now: Date = new Date()): Transition {
-  if (call.status !== 'validated') return refuse(call.status === 'draft' ? 'Confirm the call before publishing it.' : 'This call is already published.');
+  if (call.status !== 'validated') return refuse(call.status === 'draft' ? 'Validate the form and settings before publishing the call.' : 'This call is already published.');
   if (!call.opensAt || !call.closesAt) return refuse('The call needs opening and closing dates.');
   if (Date.parse(call.closesAt) <= now.getTime()) return refuse('The closing date is in the past.');
   const opensNow = Date.parse(call.opensAt) <= now.getTime();

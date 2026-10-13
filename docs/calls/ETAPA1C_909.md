@@ -1,9 +1,9 @@
-# Calls, Etapa 1C — Prompt 909: eliminar e arquivar, importar formulário, equipa e importação por IA
+# Calls, Etapa 1C — Prompt 909: eliminar e arquivar, importar formulário, equipa, importação por IA e pré-visualização livre
 
 **Branch:** `claude/909-calls-team-import`. **Migração:** `20261012150000_calls_team_archive_import.sql` — **já aplicada em
 produção** (aditiva, pré-autorizada, depois de teste seco revertido; só acrescenta colunas, 6 tabelas e 1 função, por isso o
 código antigo continua a funcionar). **Não está em `main`:** falta o OK do Nuno ao merge. Capturas em
-[`screenshots-909/`](screenshots-909/). Sem variáveis novas (usa a `ANTHROPIC_API_KEY` e o modelo que a plataforma já usa).
+[`screenshots-909/`](screenshots-909/). Sem variáveis novas (usa a `ANTHROPIC_API_KEY` e o modelo que a plataforma já usa). A **Adenda 1 (I5)** não toca na base de dados: é só código, por isso não há migração nem passo de base de dados para ela.
 
 ## O que o Nuno já pode clicar (depois do merge e do deploy)
 
@@ -19,6 +19,16 @@ Na firma "ablute_ — Internal QA" (conta `alexandrameira@ablute.pt`, owner):
    person*, muda uma permissão só para ele. Tenta também tirar a tua própria categoria de administrador: a plataforma recusa.
 4. **Importar de documentos:** "+ New call" → *Import from documents* → vê o aviso e os formatos → carrega o regulamento (PDF
    com texto, Word ou Excel) → revê a proposta (Accept / Edit / Discard, "Accept all" por secção) → **Apply**.
+
+5. **Pré-visualização livre (I5):** abre qualquer call → Preview & validate. Percorre o formulário **sem responder a nada**
+   (Next, Back, ou os números das páginas): vês todas as perguntas, as obrigatórias marcadas, as regras por baixo de cada
+   campo ("Digits only", "PDF only, max 10 MB") e, nas condicionais, "Shown when … = …". Liga **Show as an applicant would see it**
+   e as condicionais só aparecem quando a resposta as chama.
+6. **Modo de teste (I5):** **Test the form** → a faixa amarela diz "Test mode — nothing is saved or submitted". Carrega em Next
+   sem responder: não avança e diz o que falta. Preenche até ao fim e vê o "Final check". **Exit test** volta à pré-visualização.
+   Funciona com a call em rascunho, validada, agendada ou aberta.
+7. **Validar sem publicar (I5):** **Validate form and settings** → o estado passa a "Validated · not published"; não há link,
+   nem agendamento, nem a call abre. Só **Publish and get the link** faz isso.
 
 Eu verifico na base depois de cada passo (ver "Verificação em produção" no fim).
 
@@ -78,13 +88,48 @@ com a frase do bloqueio). Fica um evento a dizer de onde veio.
 - **Guardar e auditar:** os documentos ficam na call como *Source documents* (visíveis à equipa, apagáveis); fica registado quem
   importou, tokens, custo estimado e modelo (`call_import_runs`, `ai_call_log` e um evento). Só com a configuração desbloqueada.
 
+### I5 — Pré-visualização livre, modo de teste e "Validate form and settings" (Adenda 1)
+Só código, sem base de dados. A lógica é pura e testada (`src/lib/calls/preview-logic.ts`); os ecrãs são `FormPreview.tsx`
+(livre) e `FormTest.tsx` (teste).
+- **Pré-visualização livre.** Antes validava-se cada página ao carregar em Next, por isso não se via a página 2 sem preencher a 1.
+  Agora **todas as páginas e todas as perguntas** estão acessíveis (Next/Back sem bloqueio e um salto direto a qualquer página);
+  nada é exigido nem validado. Por baixo de cada campo lê-se o que o candidato vai encontrar (obrigatório, só dígitos, "PDF only,
+  max N MB", limite de caracteres/palavras, "pré-preenchido do perfil") e, numa pergunta condicional, **quando aparece**. O
+  interruptor **Show as an applicant would see it** aplica as condições ao que se escreve ali. Continua a dizer "Preview — nothing
+  is saved". O mesmo componente serve a pré-visualização do formulário a importar (I2), que passa a ser livre também.
+- **Modo de teste ("Test the form").** O formulário **como o candidato o vai preencher**: obrigatórias exigidas, condições ao vivo,
+  as validações de cada campo (as mesmas funções que o servidor usa), **Next bloqueado** enquanto falta algo na página (diz o
+  quê), e no fim a **verificação final** com a lista do que falta, cada item com a sua página e "Go to the page". Faixa fixa "Test
+  mode — nothing is saved or submitted". **Nada sai do browser:** as respostas vivem no estado do componente, não há pedido ao
+  servidor, nem armazenamento, nem candidatura, nem contagem; desaparecem ao sair. (Teste automático: o código do componente
+  não contém `fetch`, `callsApi`, `localStorage`…; e no browser, durante um teste completo, **zero pedidos a `/api/calls`**.)
+  Disponível a quem pode configurar a call, **em qualquer estado**.
+- **"Validate form and settings".** O botão que se chamava "Confirm" passa a chamar-se assim, com a frase "Validating locks the
+  configuration. The call stays unpublished until you click Publish." O estado passa a ler-se **"Validated · not published"**
+  (no distintivo, na lista e no backoffice). **Validar não publica:** não dá link, não agenda e não abre a call; só **Publish**
+  o faz (testado: a validação não escreve `link_token` nem `published_at`). Mudou também o texto visível: "Preview & validate"
+  (era "Preview & confirm"), "This call is validated…", "Validate the form and settings before publishing the call.", e o
+  backoffice diz "Validated"/"Not validated yet.". Por dentro nada muda: o estado continua a ser `validated` e os eventos do
+  histórico continuam a chamar-se `call_confirmed`/`call_unconfirmed`, para o histórico antigo continuar legível.
+
 ### Ajuste ao 907 (feito aqui, porque o 907 ainda não existe)
 As calls de **firmas de teste** (`is_test`) não aparecem em "Open calls" a startups reais: só a contas de teste e a quem tem o link
 (`src/lib/calls/visibility.ts`, testado). O 907 lista com esta função.
 
 ## Verificações (por código de saída, na árvore commitada)
 
-Ver o fim deste ficheiro (preenchido no commit final).
+Na árvore commitada de `claude/909-calls-team-import` (todas por código de saída):
+
+| Verificação | Resultado |
+|---|---|
+| `npx tsc --noEmit` | **EXIT=0** |
+| `npx eslint --no-eslintrc --config .eslintrc.json --ext .js,.jsx,.ts,.tsx src` | **EXIT=0** — 0 erros, 252 avisos (os que já existiam; nenhum nos ficheiros novos) |
+| `npx vitest run` | **EXIT=0** — 340 ficheiros, **5219 testes** |
+| `npm run build` (`NODE_OPTIONS=--max-old-space-size=6144`) | **EXIT=0** — todas as rotas `/api/calls/*` e `/api/backoffice/calls` saem **ƒ (dinâmicas)** |
+
+I5 trouxe 14 testes novos (`calls-909-i5-preview.test.ts`) e ajustou 2 existentes (a pré-visualização livre mostra as
+condicionais; o texto "Not validated yet."). Capturas 11 a 13 em `screenshots-909/`: página 2 da
+pré-visualização livre com a nota "Shown when …", o modo de teste bloqueado, e o estado "Validated · not published".
 
 ## O que NÃO foi provado, e porquê
 - **Em produção:** não há sessão minha lá; os passos acima são do Nuno. Verifico depois na base (abaixo).
@@ -97,6 +142,17 @@ Ver o fim deste ficheiro (preenchido no commit final).
 - **As capturas** mostram os ecrãs reais com um backend simulado dentro da página (o modo demo não tem Supabase); provam o ecrã e a
   navegação, não as rotas, que estão cobertas pelos testes.
 - O botão **Copy** de links e a leitura da área de transferência não foram tocados.
+
+## Passos de produção da Adenda 1 (I5) — para o Nuno
+Não há migração nem variável nova. Depois do deploy (confirmo o `buildId` novo antes de te dizer que está live):
+1. Abre a "zz-test call 908" → **Preview & validate**. Sem responder a nada: carrega em **Next** até à última página e usa os
+   números das páginas. Confirma que vês as perguntas obrigatórias marcadas, as regras por baixo e, na condicional, "Shown when …".
+2. Liga **Show as an applicant would see it** e responde "Yes" à pergunta que controla a condicional: ela aparece; com "No", some.
+3. **Test the form** (a faixa amarela). Carrega em **Next** sem responder: não avança. Responde e vai até ao **Final check**.
+   **Exit test.** Confirmo depois, na base, que **não nasceu nenhuma candidatura**: o número de linhas das candidaturas dessa call fica igual.
+4. Se a call estiver em rascunho e sem pendentes: **Validate form and settings** → o estado diz "Validated · not published", **sem link**.
+   Confirmo na base: `select status, link_token, published_at from calls where id = '<id>'` → `validated`, `null`, `null`.
+   **Edit configuration** desfaz a validação. (Não carregues em Publish se não queres a call agendada.)
 
 ## Verificação em produção (o que eu corro depois de cada clique do Nuno)
 1. `select * from call_deletions order by deleted_at desc` (a call eliminada, quem e quando) e que `calls` já não a tem.

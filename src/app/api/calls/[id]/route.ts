@@ -17,7 +17,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
 
   if (auth.call.status !== 'draft') {
-    return NextResponse.json({ ok: false, code: 'locked', error: 'This call is confirmed. Use “Edit configuration” to change it.' }, { status: 409 });
+    return NextResponse.json({ ok: false, code: 'locked', error: 'This call is validated. Use “Edit configuration” to change it.' }, { status: 409 });
   }
   const parsed = parseGeneralPatch(body, auth.call);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 });

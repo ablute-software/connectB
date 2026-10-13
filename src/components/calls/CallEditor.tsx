@@ -35,7 +35,7 @@ const TABS: { key: EditorTab | 'eligibility' | 'team' | 'evaluation'; label: str
   { key: 'eligibility', label: 'Eligibility', soon: true },
   { key: 'team', label: 'Team & distribution' },
   { key: 'evaluation', label: 'Evaluation', soon: true },
-  { key: 'preview', label: 'Preview & confirm' },
+  { key: 'preview', label: 'Preview & validate' },
 ];
 
 export function CallEditor({ callId, onBack, startImport = false }: { callId: string; onBack: () => void; startImport?: boolean }) {
@@ -213,7 +213,7 @@ export function CallEditor({ callId, onBack, startImport = false }: { callId: st
   const reason = !server.canManage
     ? 'You can view this call, but you do not have the “Configure call” permission on it. Ask the call’s administrators.'
     : call.status === 'draft' ? null
-    : call.status === 'validated' || call.status === 'scheduled' ? 'This call is confirmed, so its configuration is locked. Use “Edit configuration” in Preview & confirm to change it.'
+    : call.status === 'validated' || call.status === 'scheduled' ? 'This call is validated, so its configuration is locked. Use “Edit configuration” in Preview & validate to change it.'
     : 'This call is open or closed: questions and options can no longer change.';
 
   return (

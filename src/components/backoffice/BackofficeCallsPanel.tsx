@@ -130,9 +130,9 @@ export function BackofficeCallsTable({ rows, origin, initialOpen = null }: { row
                             )}
                           </div>
                           <div>
-                            <h3 className="text-sm font-semibold text-gray-900">Confirmed</h3>
+                            <h3 className="text-sm font-semibold text-gray-900">Validated</h3>
                             <p className="mt-1 text-gray-700" data-testid="confirmed">
-                              {r.validatedAt ? <>{personLabel(r.validatedBy)} · {formatInZone(r.validatedAt, r.timezone)}</> : <span className="text-gray-400">Not confirmed yet.</span>}
+                              {r.validatedAt ? <>{personLabel(r.validatedBy)} · {formatInZone(r.validatedAt, r.timezone)}</> : <span className="text-gray-400">Not validated yet.</span>}
                             </p>
                             <h3 className="mt-3 text-sm font-semibold text-gray-900">Published</h3>
                             <p className="mt-1 text-gray-700" data-testid="published">

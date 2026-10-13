@@ -79,7 +79,7 @@ describe('the expanded row', () => {
   });
   it('an unconfirmed, unpublished call says so', () => {
     const html = render([draft], 'c2');
-    expect(html).toContain('Not confirmed yet.');
+    expect(html).toContain('Not validated yet.');
     expect(html).toContain('Not published yet.');
     expect(html).toContain('No fields yet.');
   });
