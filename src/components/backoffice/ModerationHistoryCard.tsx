@@ -1,17 +1,20 @@
 'use client';
 // Prompt 123 Block C.2 — the "History" subtab shared by Startups and
 // Investors: every suspend/undo/delete action recorded, newest first.
+// Prompt 900 — and every REOPEN (an account deleted by moderation put back to active, moderation_reopen_org).
 import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui';
 import type { ModerationTargetType } from '@/lib/account-moderation';
 
+// 'reopen' is written only by moderation_reopen_org (SQL). It is deliberately NOT part of account-moderation.ts's ModerationAction:
+// applyModerationAction treats any action it does not know as a DELETE, so the type that feeds it must never be able to say 'reopen'.
 interface Action {
-  id: string; targetType: ModerationTargetType; targetId: string; action: 'suspend' | 'undo' | 'delete';
+  id: string; targetType: ModerationTargetType; targetId: string; action: 'suspend' | 'undo' | 'delete' | 'reopen';
   justification: string; actorEmail: string; createdAt: string; quarantineUntil: string | null;
 }
 
 const ACTION_STYLE: Record<Action['action'], string> = {
-  suspend: 'bg-amber-50 text-amber-700', undo: 'bg-emerald-50 text-emerald-700', delete: 'bg-red-50 text-red-700',
+  suspend: 'bg-amber-50 text-amber-700', undo: 'bg-emerald-50 text-emerald-700', delete: 'bg-red-50 text-red-700', reopen: 'bg-cyan-50 text-cyan-700',
 };
 
 export function ModerationHistoryCard({ targetType, nameById }: { targetType: ModerationTargetType; nameById: Map<string, string> }) {

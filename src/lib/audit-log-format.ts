@@ -137,6 +137,11 @@ export function describeAuditEvent(row: AuditLogRow, admin: string): string {
       return `${str(detail.orgName) ?? 'An org'} was closed by its owner ${str(detail.ownerEmail) ?? ''} — kept until ${str(detail.purgeAfter)?.slice(0, 10) ?? '?'}, ${detail.sessionsEnded ?? '?'} session(s) ended, ${detail.emailsSent ?? '?'} member(s) emailed`;
     case 'org_reopened':
       return `${admin} reopened ${str(detail.orgName) ?? 'an org'} inside its retention window — "${str(detail.reason) ?? ''}"`;
+    // Prompt 900 — written by the two SQL functions (moderation_reopen_org / moderation_release_org_member), not by a route.
+    case 'org_moderation_reopened':
+      return `${admin} reopened ${str(detail.orgName) ?? 'an account'} (it had been deleted by moderation)${str(detail.reason) ? ` — "${str(detail.reason)}"` : ''}`;
+    case 'org_member_released':
+      return `${admin} released ${str(detail.email) ?? 'a member'} from ${str(detail.orgName) ?? 'a closed or deleted account'} so the e-mail can be used elsewhere${str(detail.reason) ? ` — "${str(detail.reason)}"` : ''}${detail.closedByThisRelease === true ? ' — it was the last member, so the account was closed' : ''}`;
     case 'platform_badge_granted': {
       const badge = str(detail.badge)?.replace(/_/g, ' ') ?? 'platform';
       const why = str(detail.justification);
