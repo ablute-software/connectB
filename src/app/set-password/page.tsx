@@ -17,6 +17,7 @@ import { PasswordRequirementsIndicator } from '@/components/auth/PasswordRequire
 import { checkPassword } from '@/lib/password-policy';
 import { useTermsGateStatus } from '@/lib/terms-status';
 import { authErrorText } from '@/lib/auth-errors';
+import { AuthMessage } from '@/components/auth/AuthMessage';
 
 function SetPasswordInner() {
   const sp = useSearchParams();
@@ -141,7 +142,7 @@ function SetPasswordInner() {
           </label>
         )}
 
-        {err && <p className="mt-2 text-xs text-[#B00000]">{err}</p>}
+        {err && <p className="mt-2 text-xs text-[#B00000]"><AuthMessage text={err} /></p>}
 
         {alreadySet === false && (
           <>

@@ -74,7 +74,7 @@ Sem `NEXT_PUBLIC_APP_URL` os links dos emails (convites, Stripe, "Open your work
 | Nome | Valor | Estado | Quem decidiu e quando | Fonte |
 |---|---|---|---|---|
 | `ANTHROPIC_API_KEY` | definido | feito | Nuno. Prova: 696 chamadas em `ai_call_log`, a última a 08/10 | observado |
-| `AI_REVIEW_MODEL` | **sem decisão registada.** Opcional: sem ela o código usa `claude-sonnet-4-5` | pendente | — | `src/app/api/ai-review/route.ts:318` |
+| `AI_REVIEW_MODEL` | **sem decisão registada.** Opcional: sem ela o código usa `claude-sonnet-4-5`. Desde o Prompt 909 também lê o modelo da importação de calls por documentos (mesmo cliente e mesma `ANTHROPIC_API_KEY`; **nenhuma variável nova**) | pendente | — | `src/app/api/ai-review/route.ts:318`; `src/lib/calls/ai-import/anthropic.ts` |
 | `AI_CLASSIFY_MODEL` | **sem decisão registada.** Opcional: sem ela o código usa `claude-haiku-4-5` | pendente | — | `src/app/api/classify-interaction/route.ts:10` |
 
 ### 1.5 Segurança de ficheiros, Gmail, privacidade
@@ -121,13 +121,23 @@ ou `pendente`. Caminhos no painel entre parênteses. **SMTP, rate limits, OTP e 
 | Redirect URLs (allowlist) | `https://www.sherlockdeal.com/**`, `https://sherlockdeal.com/**`, `https://connect-b-delta.vercel.app/**` (rotas usadas: `/auth/callback`, `/auth/confirm`, `/reset-password`, `/set-password`, e agora o destino de cada registo: `/`, `/invite/<token>`, `/invite/incubator/member/pending`, `/call/…`). **O `emailRedirectTo` que o código envia tem de estar nesta lista, senão o Supabase troca-o pelo Site URL** (e o link volta à raiz) | feito | Nuno, 13/10/2026. O localhost **não** está na lista | Nuno 13/10; DECISIONS L1910; `src/lib/auth-redirect.ts` |
 | Plano do Supabase (Pro?) | por confirmar. Só no Pro se pode reencaminhar o IP do cliente nas verificações | desconhecido | — | 904A §A3 |
 
+### 2.2 Contacto de suporte: não há endereço público (Nuno, 13/10/2026)
+
+**Não existe um endereço de suporte público até `support@sherlockdeal.com` ter reencaminhamento** (hoje não tem). Por isso:
+- as mensagens de erro de autenticação **não mostram nenhum endereço**: em vez de "write to us at …" dizem "If it keeps failing, contact us" e
+  "contact us" é uma ligação a **`/contact`**, o formulário de contacto (`src/lib/auth-errors.ts`: `CONTACT_PATH`, `CONTACT_PHRASE`;
+  `src/components/auth/AuthMessage.tsx`). Um teste proíbe qualquer endereço da plataforma ou do dono no código desses ecrãs;
+- **`sherlockdeal.com@gmail.com` nunca deve aparecer a utilizadores.** Atenção: é o valor decidido de `RESEND_REPLY_TO` (§1.2), e um
+  `Reply-To` **vê-se** quando alguém responde a um email da plataforma. É uma tensão com esta regra, **por decidir** (ver o relatório do 911):
+  não a alterei, porque o valor está decidido desde 06/08 e 02/09.
+
 ### 2.1 Como confirmar que o SMTP do Auth funciona (Prompt 911)
 
 O Supabase não mostra "o SMTP falhou" num ecrã: a falha só aparece nos **logs de Auth**. Dois sítios, por ordem de rapidez:
 
 1. **No próprio produto:** `/backoffice/email-delivery` → secção **"Sign-up and recovery emails that failed"** (Prompt 911). Mostra cada
-   falha de registo ou de recuperação com a resposta do fornecedor, e um aviso vermelho se houve alguma nas últimas 24 horas.
-   Uma falha de **recuperação** é registada pela própria página (o browser chama o Supabase diretamente); uma de **registo** é vista
+   falha de registo, de recuperação **ou de login sem palavra-passe** (link/código do investor, pré-visualização de convidado, `/pair`) com a resposta do fornecedor, e um aviso vermelho se houve alguma nas últimas 24 horas.
+   Uma falha de **recuperação ou de login** é registada pela própria página (o browser chama o Supabase diretamente); uma de **registo** é vista
    pelo servidor. Guarda 90 dias.
 2. **No Supabase → Logs → Auth** (ou `auth_logs` na API de logs): procurar `"error_code":"unexpected_failure"` com `gomail`. O
    sinal de que o SMTP está mal é uma linha `request completed` com `status: 500` em `/signup`, `/recover` ou `/resend`, e
@@ -139,7 +149,7 @@ Domains → `sherlockdeal.com` → Verified). A de 12/10 era de outra conta; o `
 is not verified"). A chave do Vercel (`RESEND_API_KEY`, §1.2) e a do SMTP do Supabase são **duas chaves diferentes** e podem estar em
 contas diferentes: confirmar as duas.
 
-**Registo de falhas (tabela `auth_email_failures`, migração `20261013100100`, aplicada em 13/10/2026):** email, ação, estado HTTP,
+**Registo de falhas (tabela `auth_email_failures`, migrações `20261013100100` e `20261013110000` — esta acrescenta a ação `login` —, aplicadas em 13/10/2026):** email, ação, estado HTTP,
 código e texto do erro, hora. Só o serviço lhe chega (RLS sem políticas); lê-se no Backoffice.
 
 ---
@@ -204,9 +214,8 @@ Supabase sobre SMTP, rate limits, OTP e template ficaram `feito` (confirmado pel
    já não contam: o código vale para todos. Quando tiveres o painel aberto, podes apagar as duas por arrumação; só `AUTH_CODE_MODE=off`
    (escrito) faz alguma coisa (o travão de emergência).
 3b. ~~Supabase → SMTP~~ — **feito pelo Nuno a 13/10** com uma chave nova da conta de `sherlockdeal.com@gmail.com`; recuperação confirmada a 200 às 09:38. Falta só a prova do **registo por código** (passo 1 de produção do 911).
-3c. **Caixa de suporte** (§2.1): as mensagens de erro dizem "write to us at `support@sherlockdeal.com`" (constante
-   `AUTH_SUPPORT_EMAIL` em `src/lib/auth-errors.ts`). **Confirmar que essa caixa existe e é lida**; se for outra, diz-me qual e
-   muda-se numa linha. (Não há decisão registada: `SUPPORT_NOTIFY_EMAIL` e `NEXT_PUBLIC_PRIVACY_EMAIL` continuam por decidir.)
+3c. ~~Caixa de suporte~~ — **decidido pelo Nuno a 13/10:** não há endereço público; as mensagens ligam ao formulário `/contact` (§2.2).
+   Quando `support@sherlockdeal.com` tiver reencaminhamento, diz-me e passa a poder mostrar-se (muda-se numa constante).
 4. **Vercel** (§1.2): decidir `SUPPORT_NOTIFY_EMAIL` (o endereço da caixa que recebe os pedidos de acesso de
    investidores) e `NEXT_PUBLIC_PRIVACY_EMAIL` (o contacto de privacidade). Sem valor decidido, não há nada para pôr.
 5. **Resend → Billing** (§3): ativar o plano **Pro** antes da primeira call real (≈ 1 000 emails por call). Continua por

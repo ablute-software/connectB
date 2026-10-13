@@ -53,7 +53,27 @@ export async function promoterName(admin: SupabaseClient, kind: PromoterKind, id
   return ((data as Row | null)?.name as string | undefined) ?? 'Your organisation';
 }
 
-export interface CallCard { call: Call; applications: number; fields: number; phases: number }
+export interface CallCard { call: Call; applications: number; applicationsTotal: number; fields: number; phases: number }
+
+/** Applications of a call by state. Only the numbers: the answers are never read here. */
+export async function countApplications(admin: SupabaseClient, callId: string): Promise<{ submitted: number; inProgress: number; withdrawn: number; total: number }> {
+  const { data } = await admin.from('call_applications').select('status').eq('call_id', callId);
+  const rows = (data ?? []) as Row[];
+  const n = (st: string) => rows.filter((r) => r.status === st).length;
+  return { submitted: n('submitted'), inProgress: n('draft'), withdrawn: n('withdrawn'), total: rows.length };
+}
+
+/**
+ * Delete a call that nobody applied to, with the record of who deleted what and when (it survives the call). One
+ * transaction in SQL under a row lock, so a late application cannot slip in between the check and the delete.
+ */
+export async function deleteCallIfEmpty(
+  admin: SupabaseClient, call: Call, actor: string, promoterDisplayName: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const { data, error } = await admin.rpc('delete_call_if_empty', { p_call: call.id, p_actor: actor, p_promoter_name: promoterDisplayName });
+  if (error || !data) return { ok: false, reason: 'error' };
+  return data.ok === true ? { ok: true } : { ok: false, reason: String(data.reason ?? 'error') };
+}
 
 export async function listPromoterCalls(admin: SupabaseClient, kind: PromoterKind, promoterId: string): Promise<CallCard[]> {
   const col = kind === 'incubator' ? 'incubator_id' : 'catalog_entity_id';
@@ -62,7 +82,7 @@ export async function listPromoterCalls(admin: SupabaseClient, kind: PromoterKin
   if (calls.length === 0) return [];
   const ids = calls.map((c) => c.id);
   const [{ data: apps }, { data: fields }, { data: phases }] = await Promise.all([
-    admin.from('call_applications').select('call_id').in('call_id', ids).eq('status', 'submitted'),
+    admin.from('call_applications').select('call_id, status').in('call_id', ids),
     admin.from('call_form_fields').select('call_id').in('call_id', ids),
     admin.from('call_phases').select('call_id').in('call_id', ids),
   ]);
@@ -71,8 +91,11 @@ export async function listPromoterCalls(admin: SupabaseClient, kind: PromoterKin
     for (const r of (rows ?? []) as Row[]) m.set(r.call_id as string, (m.get(r.call_id as string) ?? 0) + 1);
     return m;
   };
-  const a = count(apps); const f = count(fields); const p = count(phases);
-  return calls.map((call) => ({ call, applications: a.get(call.id) ?? 0, fields: f.get(call.id) ?? 0, phases: p.get(call.id) ?? 0 }));
+  const allApps = (apps ?? []) as Row[];
+  const a = count(allApps.filter((r) => r.status === 'submitted'));
+  const total = count(allApps);
+  const f = count(fields); const p = count(phases);
+  return calls.map((call) => ({ call, applications: a.get(call.id) ?? 0, applicationsTotal: total.get(call.id) ?? 0, fields: f.get(call.id) ?? 0, phases: p.get(call.id) ?? 0 }));
 }
 
 export async function createCall(

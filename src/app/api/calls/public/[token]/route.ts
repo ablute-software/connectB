@@ -18,7 +18,8 @@ export async function GET(_req: Request, { params }: { params: { token: string }
 
   const found = params.token.length >= 16 && params.token.length <= 64 ? await loadCallByToken(admin, params.token) : null;
   // A call that was taken back to draft ("Edit configuration") keeps its link but must not be advertised.
-  if (!found || found.status === 'draft') return NextResponse.json({ ok: false }, { status: 404 });
+  // An archived call (Prompt 909) is no longer advertised either.
+  if (!found || found.status === 'draft' || found.status === 'archived') return NextResponse.json({ ok: false }, { status: 404 });
   const call = await syncStatus(admin, found);
   const opens = formatDayInZone(call.opensAt, call.timezone);
   return NextResponse.json({

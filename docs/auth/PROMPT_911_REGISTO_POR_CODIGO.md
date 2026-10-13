@@ -40,11 +40,12 @@ propósito: uma gralha não pode desligar o código em silêncio, porque o email
 
 ## B. Erros legíveis e alerta interno
 - **Uma função** (`src/lib/auth-errors.ts`) transforma qualquer erro numa frase, e **nenhum** ecrã de autenticação mostra já um objeto,
-  JSON ou `{}`. Falha de envio: *"We couldn't send the email right now. Please try again in a few minutes. If it keeps failing, write
-  to us at support@sherlockdeal.com."* · limite: *"Too many attempts. Please wait a few minutes."* · código errado/expirado: a frase do 904
+  JSON ou `{}`. Falha de envio: *"We couldn't send the email right now. Please try again in a few minutes. If it keeps failing, contact us."* (**"contact us"
+  é uma ligação ao formulário `/contact`; nenhuma mensagem mostra um endereço**, decisão do Nuno de 13/10: não há endereço de suporte público
+  até `support@sherlockdeal.com` ter reencaminhamento, e `sherlockdeal.com@gmail.com` nunca aparece a utilizadores) · limite: *"Too many attempts. Please wait a few minutes."* · código errado/expirado: a frase do 904
   (com as tentativas que restam) · o resto: uma frase genérica com o código do erro em letra pequena. Aplicada ao registo, ao convite,
   à recuperação, ao login, ao set-password, ao reset-password e ao acesso de investidor.
-- **Registo de falhas:** cada falha de envio (registo, reenvio, recuperação, convite) fica em `auth_email_failures` (email, ação,
+- **Registo de falhas:** cada falha de envio (registo, reenvio, recuperação, convite e — desde o aditamento 3, de 13/10 — **login sem palavra-passe**: link/código do investor, pré-visualização de convidado e `/pair`) fica em `auth_email_failures` (email, ação,
   erro, hora) e vê-se em **Backoffice → Email delivery → "Sign-up and recovery emails that failed"**, com um aviso vermelho se houve
   alguma nas últimas 24 horas e quantas pessoas. A recuperação é pelo browser, por isso a própria página comunica a recusa a uma
   rota pública (só regista falhas de envio e limites, ação de uma lista fixa, limitada por IP, resposta sempre igual). Guarda 90 dias.

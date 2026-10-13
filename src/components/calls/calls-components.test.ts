@@ -21,7 +21,7 @@ const field = (over: Partial<FormField> & Pick<FormField, 'id' | 'kind'>): FormF
 const call = (over: Partial<Call> = {}): Call => ({
   id: 'c1', promoterKind: 'incubator', promoterId: 'i1', name: 'Seed Call', description: null, opensAt: '2027-02-01T09:00:00.000Z',
   closesAt: '2027-03-31T16:00:00.000Z', timezone: 'Europe/Lisbon', visibility: 'listed', limitUnit: 'project', allowMultiple: false,
-  contentLanguage: 'en', currency: 'EUR', status: 'draft', linkToken: null, configVersion: 1, validatedAt: null, publishedAt: null, closedAt: null,
+  contentLanguage: 'en', currency: 'EUR', status: 'draft', linkToken: null, configVersion: 1, validatedAt: null, publishedAt: null, closedAt: null, archivedAt: null,
   duplicatedFrom: null, createdBy: 'u', createdAt: '', updatedAt: '', ...over,
 });
 
@@ -76,7 +76,7 @@ describe('inputs per type', () => {
 });
 
 describe('the preview', () => {
-  it('says nothing is saved, starts on page 1 and hides what its condition hides', () => {
+  it('says nothing is saved, starts on page 1 and shows conditional questions with their rule', () => {
     const fields = [
       field({ id: 'a', kind: 'yes_no', label: 'Incorporated?', options: [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }], page: 1, position: 0 }),
       field({ id: 'b', kind: 'date', label: 'When?', page: 1, position: 1, condition: { fieldId: 'a', operator: 'equals', value: 'yes' } }),
@@ -86,7 +86,10 @@ describe('the preview', () => {
     expect(html).toContain('Preview — nothing is saved');
     expect(html).toContain('Page 1 of 2');
     expect(html).toContain('Incorporated?');
-    expect(html).not.toContain('When?');
+    // I5: the free preview shows EVERYTHING (conditions are only written down); the switch applies them.
+    expect(html).toContain('When?');
+    expect(html).toContain('Shown when “Incorporated?” = Yes');
+    expect(html).toContain('Show as an applicant would see it');
     expect(html).toContain('Next');
   });
   it('an empty form says how to start', () => {
@@ -117,7 +120,7 @@ describe('tabs', () => {
   });
 });
 
-describe('Preview & confirm', () => {
+describe('Preview & validate', () => {
   const fields = [field({ id: 'q', kind: 'short_text', label: 'Startup name' })];
   const phases = [{ id: 'p', position: 0, name: 'Review', startsOn: null, endsOn: null }];
   const render = (c: Call, over: Record<string, unknown> = {}) => {

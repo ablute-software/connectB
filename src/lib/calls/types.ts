@@ -92,7 +92,7 @@ export type CallStatus = (typeof CALL_STATUSES)[number];
 
 export const CALL_STATUS_LABELS: Record<CallStatus, string> = {
   draft: 'Draft',
-  validated: 'Confirmed',
+  validated: 'Validated · not published',
   scheduled: 'Scheduled',
   open: 'Open',
   closed: 'Closed',
@@ -125,6 +125,8 @@ export interface Call {
   validatedAt: string | null;
   publishedAt: string | null;
   closedAt: string | null;
+  /** Prompt 909: set when the call is archived (status 'archived'). */
+  archivedAt: string | null;
   duplicatedFrom: string | null;
   createdBy: string;
   createdAt: string;

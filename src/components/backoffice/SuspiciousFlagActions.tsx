@@ -62,7 +62,10 @@ export function SuspiciousFlagActions({ flagId, targetType, companyName, hasEmai
   const panel = (suspendPanel || deletePanel) && (
     <AccountActionPanel
       title={suspendPanel ? 'Suspend' : 'Delete'} name={companyName}
-      cascadeLines={moderationCascadeLines(targetType)}
+      cascadeLines={suspendPanel
+        ? moderationCascadeLines(targetType, 'suspend')
+        // "Delete + block email": the e-mail goes on the blocked list too, and that one locks the person out whatever else they hold.
+        : [...moderationCascadeLines(targetType, 'delete'), 'Also puts the e-mail on file on the blocked list — that person cannot sign in at all, whatever else they hold.']}
       confirmLabel={suspendPanel ? `Confirm suspend (${suspendPanel.label})` : 'Confirm delete'}
       reasonPlaceholder="Why is this account being suspended/deleted?"
       onConfirm={async (reason) => {

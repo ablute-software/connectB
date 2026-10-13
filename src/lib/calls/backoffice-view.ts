@@ -34,13 +34,14 @@ export const KIND_LABELS: Record<PromoterKind, string> = { catalog_entity: 'Inve
 const norm = (s: string | null | undefined) => (s ?? '').trim().toLowerCase();
 const time = (iso: string | null | undefined) => { const t = Date.parse(iso ?? ''); return Number.isNaN(t) ? 0 : t; };
 
-export interface CallFilter { q?: string | null; status?: CallStatus | '' | null }
+export interface CallFilter { q?: string | null; status?: CallStatus | '' | null; showArchived?: boolean }
 
-/** Search by organisation or call name; filter by status. */
+/** Search by organisation or call name; filter by status. Archived calls are hidden unless asked for (or filtered to). */
 export function filterCallRows(rows: BackofficeCallRow[], f: CallFilter): BackofficeCallRow[] {
   const q = norm(f.q);
   return rows.filter((r) => {
     if (f.status && r.status !== f.status) return false;
+    if (!f.showArchived && f.status !== 'archived' && r.status === 'archived') return false;
     if (q && !norm(r.organisation.name).includes(q) && !norm(r.name).includes(q)) return false;
     return true;
   });

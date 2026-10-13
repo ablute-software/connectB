@@ -47,9 +47,10 @@ export function BackofficeCallsTable({ rows, origin, initialOpen = null }: { row
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<CallStatus | ''>('');
   const [sort, setSort] = useState<CallSort>('created');
+  const [showArchived, setShowArchived] = useState(false);
   const [open, setOpen] = useState<string | null>(initialOpen);
 
-  const shown = sortCallRows(filterCallRows(rows, { q, status }), sort);
+  const shown = sortCallRows(filterCallRows(rows, { q, status, showArchived }), sort);
 
   return (
     <div className="space-y-3">
@@ -68,6 +69,10 @@ export function BackofficeCallsTable({ rows, origin, initialOpen = null }: { row
             className="mt-0.5 block rounded-lg border border-gray-300 px-2 py-1 text-sm">
             {(Object.keys(CALL_SORT_LABELS) as CallSort[]).map((k) => <option key={k} value={k}>{CALL_SORT_LABELS[k]}</option>)}
           </select></label>
+        <label className="flex items-center gap-1.5 pb-1 text-xs text-gray-600">
+          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} aria-label="Show archived" />
+          Show archived
+        </label>
         <span className="pb-1 text-xs text-gray-400">{shown.length} of {rows.length}</span>
       </div>
 
@@ -125,9 +130,9 @@ export function BackofficeCallsTable({ rows, origin, initialOpen = null }: { row
                             )}
                           </div>
                           <div>
-                            <h3 className="text-sm font-semibold text-gray-900">Confirmed</h3>
+                            <h3 className="text-sm font-semibold text-gray-900">Validated</h3>
                             <p className="mt-1 text-gray-700" data-testid="confirmed">
-                              {r.validatedAt ? <>{personLabel(r.validatedBy)} · {formatInZone(r.validatedAt, r.timezone)}</> : <span className="text-gray-400">Not confirmed yet.</span>}
+                              {r.validatedAt ? <>{personLabel(r.validatedBy)} · {formatInZone(r.validatedAt, r.timezone)}</> : <span className="text-gray-400">Not validated yet.</span>}
                             </p>
                             <h3 className="mt-3 text-sm font-semibold text-gray-900">Published</h3>
                             <p className="mt-1 text-gray-700" data-testid="published">

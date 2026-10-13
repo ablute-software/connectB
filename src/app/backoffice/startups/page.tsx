@@ -18,17 +18,23 @@
 // Pipeline (reuses pipeline-unlock.ts's own formula, never recalculated
 // separately) · Stage · AI drafts this month · AI reviews this month, plus
 // sortable columns, search, and a History subtab (Block C.2).
+//
+// Prompt 900 — accounts that ENDED (closed_at set, or deleted by moderation) no longer sit in the Orgs list among the live ones: they
+// have their own tab, "Closed & deleted", with the people still attached to each and the two actions for getting one of them out of
+// a dead account (Release email / Reopen account). Nothing is hidden by that (Prompt 184 §4): this tab says how many moved and links
+// to them. The owner-closure "Reopen…" that used to live in the Status cell here (Prompt 602) lives in the new tab with its account.
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { sortRows, sortIndicator } from '@/lib/table-sort';
 import { Card, Tabs } from '@/components/ui';
 import { PLANS, planName, normalizePlan, parsePlanRequest } from '@/lib/plans';
-import { daysUntilPurge } from '@/lib/account-security';
+import { isDeadOrg } from '@/lib/closed-accounts';
 import type { PlanTier } from '@/lib/types';
 import { ViewerEntryName } from '@/components/backoffice/ViewerEntryName';
 import { HorizontalScroller } from '@/components/backoffice/HorizontalScroller';
 import { ModerationControls } from '@/components/backoffice/ModerationControls';
 import { ModerationHistoryCard } from '@/components/backoffice/ModerationHistoryCard';
+import { ClosedDeletedTab } from '@/components/backoffice/ClosedDeletedTab';
 import { NetworkStrikesTab } from '@/components/backoffice/NetworkStrikesTab';
 import { AccountStatusFilter } from '@/components/backoffice/AccountStatusFilter';
 import { PlatformBadgeControls, type AdminBadgeRow } from '@/components/backoffice/PlatformBadgeControls';
@@ -205,7 +211,7 @@ function AiCreditsCell({ orgId, used, limit, isTest, customPlans, onChanged }: {
   );
 }
 
-function StartupsTable() {
+function StartupsTable({ onOpenClosed }: { onOpenClosed: () => void }) {
   const [orgs, setOrgs] = useState<OrgRow[] | null>(null);
   const [planManagement, setPlanManagement] = useState(false);
   const [moderationAvailable, setModerationAvailable] = useState(false);
@@ -251,19 +257,6 @@ function StartupsTable() {
   }
   useEffect(load, []);
 
-  // Prompt 602 §C — reopen an owner-closed account inside its window.
-  async function reopen(orgId: string, name: string) {
-    const reason = window.prompt(`Reopen ${name}? State who asked and through which channel (audited):`);
-    if (!reason || reason.trim().length < 4) return;
-    setSavingId(orgId);
-    try {
-      const res = await fetch('/api/backoffice/reopen-org', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ orgId, reason }) });
-      const body = await res.json();
-      if (!body.ok) { setErr(body.error ?? 'Could not reopen.'); return; }
-      load();
-    } finally { setSavingId(null); }
-  }
-
   async function setPlan(orgId: string, tier: PlanTier) {
     setSavingId(orgId);
     try {
@@ -291,7 +284,8 @@ function StartupsTable() {
   }
 
   const filteredSorted = useMemo(() => {
-    let list = orgs ?? [];
+    // Prompt 900 — the accounts that ended are in the Closed & deleted tab.
+    let list = (orgs ?? []).filter((o) => !isDeadOrg(o));
     if (q) list = list.filter((o) => o.name.toLowerCase().includes(q.toLowerCase()));
     list = list.filter((o) => matchesAccountFilter(statusFilter, { moderationStatus: o.moderationStatus, isInternal: o.isInternal }));
     return sortRows(list, sortKey, sortDir);
@@ -308,7 +302,8 @@ function StartupsTable() {
   if (err) return <p className="text-sm text-[#B00000]">{err}</p>;
   if (!orgs) return <p className="text-sm text-gray-400">Loading…</p>;
 
-  const pending = orgs.filter((o) => o.planChangeRequested);
+  const pending = orgs.filter((o) => o.planChangeRequested && !isDeadOrg(o));
+  const deadCount = orgs.filter(isDeadOrg).length;
   const columns = COLUMNS;
 
   return (
@@ -346,6 +341,12 @@ function StartupsTable() {
             onChange={(next) => setTableState({ filters: { ...tableState.filters, status: next === 'all' ? '' : next } })} />
           <p className="ml-auto text-xs text-gray-500">Counts and computed scores only — never entity/person names or pipeline content.</p>
         </div>
+        {deadCount > 0 && (
+          <p className="mb-3 text-xs text-gray-500">
+            {deadCount} closed or deleted {deadCount === 1 ? 'account is' : 'accounts are'} not listed here — {deadCount === 1 ? 'it is' : 'they are'} in{' '}
+            <button onClick={onOpenClosed} className="font-medium text-[#0E7490] hover:underline">Closed &amp; deleted</button>.
+          </p>
+        )}
         <HorizontalScroller>
           <table className="w-full text-sm">
             <thead>
@@ -413,20 +414,6 @@ function StartupsTable() {
                   <td className="pr-3 text-xs text-gray-400 whitespace-nowrap">{o.lastLogin ? o.lastLogin.slice(0, 10) : 'never'}</td>
                   <td className="pr-3">
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_STYLE[o.status]}`}>{o.status}</span>
-                    {/* Prompt 602 §C — closed by the owner: the retention clock, and
-                        Reopen while it runs (on the owner's request via support). */}
-                    {o.closedAt && (
-                      <div className="mt-1 text-[11px] text-gray-600">
-                        <span className="rounded-full bg-gray-200 px-1.5 py-0.5 font-semibold text-gray-700">closed{o.closedReason === 'owner' ? ' by owner' : o.closedReason ? ` (${o.closedReason})` : ''}</span>
-                        {o.closedReason === 'owner' && (
-                          <span className="ml-1">
-                            {daysUntilPurge(o.purgeAfter, new Date()) > 0
-                              ? <>{daysUntilPurge(o.purgeAfter, new Date())}d to purge · <button onClick={() => reopen(o.orgId, o.name)} disabled={savingId === o.orgId} className="text-[#0E7490] hover:underline disabled:opacity-40">Reopen…</button></>
-                              : 'retention window ended — not reopenable from the app'}
-                          </span>
-                        )}
-                      </div>
-                    )}
                   </td>
                   <td className="pr-3 text-gray-600">{o.filesInVault}</td>
                   <td className="pr-3 text-gray-600 whitespace-nowrap">{o.visiblePipelineSize} / {o.eligiblePoolSize}</td>
@@ -501,7 +488,7 @@ function StartupsTable() {
 // Prompt 531 §9 — Strikes joins Orgs and History as a third tab here rather
 // than as a new back-office area: My Network moderation is startup
 // moderation, and the request is explicit that it belongs inside Startups.
-type StartupsTab = 'orgs' | 'strikes' | 'history';
+type StartupsTab = 'orgs' | 'closed' | 'strikes' | 'history';
 
 export default function BackofficeStartupsPage() {
   return (
@@ -521,9 +508,11 @@ function BackofficeStartupsContent() {
   const [tab, setTab] = useState<StartupsTab>('orgs');
   const [orgs, setOrgs] = useState<OrgRow[] | null>(null);
 
-  useEffect(() => {
+  const refreshOrgs = useCallback(() => {
     fetch('/api/backoffice/startups').then((r) => r.json()).then((body) => { if (body.ok) setOrgs(body.orgs); }).catch(() => {});
-  }, [tab]);
+  }, []);
+  useEffect(refreshOrgs, [tab, refreshOrgs]);
+  const closedCount = (orgs ?? []).filter(isDeadOrg).length;
 
   const nameById = useMemo(() => new Map((orgs ?? []).map((o) => [o.orgId, o.name])), [orgs]);
 
@@ -531,8 +520,9 @@ function BackofficeStartupsContent() {
     <div className="space-y-5">
       <h1 className="text-lg font-bold">Startups</h1>
       <Tabs active={tab} onChange={(v) => setTab(v as StartupsTab)}
-        items={[{ key: 'orgs', label: 'Orgs' }, { key: 'strikes', label: 'Strikes' }, { key: 'history', label: 'History' }]} />
-      {tab === 'orgs' && <StartupsTable />}
+        items={[{ key: 'orgs', label: 'Orgs' }, { key: 'closed', label: orgs ? `Closed & deleted (${closedCount})` : 'Closed & deleted' }, { key: 'strikes', label: 'Strikes' }, { key: 'history', label: 'History' }]} />
+      {tab === 'orgs' && <StartupsTable onOpenClosed={() => setTab('closed')} />}
+      {tab === 'closed' && <ClosedDeletedTab onChanged={refreshOrgs} />}
       {tab === 'strikes' && <NetworkStrikesTab />}
       {tab === 'history' && <ModerationHistoryCard targetType="org" nameById={nameById} />}
     </div>

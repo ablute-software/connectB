@@ -20,6 +20,7 @@ import { PasswordRequirementsIndicator } from '@/components/auth/PasswordRequire
 import { checkPassword } from '@/lib/password-policy';
 import { RESEND_MIN_INTERVAL_SECONDS } from '@/lib/auth-code/policy';
 import { CodeStepView, resendLabel } from '@/components/auth/CodeStep';
+import { AuthMessage } from '@/components/auth/AuthMessage';
 
 export { resendLabel };
 
@@ -69,7 +70,7 @@ export function EmailCodeSignupView({
           <input autoComplete="organization-title" placeholder="Your role *" className={INPUT} {...field('role')} />
           <PasswordInput autoComplete="new-password" placeholder="Password *" className="rounded-xl border border-gray-300 px-3 py-2 text-sm" {...field('password')} />
           <PasswordRequirementsIndicator password={values.password} />
-          {error && <p role="alert" className="text-xs text-[#B00000]">{error}</p>}
+          {error && <p role="alert" className="text-xs text-[#B00000]"><AuthMessage text={error} /></p>}
           <button type="button" onClick={onSubmitForm} disabled={!formReady} className={BUTTON}>
             {busy ? 'Sending code…' : 'Create account'}
           </button>
@@ -91,7 +92,7 @@ export function EmailCodeSignupView({
           <p className="text-sm text-gray-600">Your email is confirmed. One last step: tell us about your startup.</p>
           <input autoComplete="organization" placeholder="Startup name *" className={INPUT} {...field('startup')} />
           <input autoComplete="country-name" placeholder="Country *" className={INPUT} {...field('country')} />
-          {error && <p role="alert" className="text-xs text-[#B00000]">{error}</p>}
+          {error && <p role="alert" className="text-xs text-[#B00000]"><AuthMessage text={error} /></p>}
           <button type="button" onClick={onCreateStartup} disabled={busy || !values.startup.trim() || !values.country.trim()} className={BUTTON}>
             {busy ? 'Creating…' : 'Create startup'}
           </button>

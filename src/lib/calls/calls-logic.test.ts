@@ -357,7 +357,7 @@ describe('the life of a call', () => {
     id: 'c1', promoterKind: 'catalog_entity', promoterId: 'e1', name: 'Seed Call', description: null,
     opensAt: '2026-11-01T09:00:00.000Z', closesAt: '2026-12-01T17:00:00.000Z', timezone: 'Europe/Lisbon', visibility: 'listed',
     limitUnit: 'project', allowMultiple: false, contentLanguage: 'en', currency: 'EUR', status: 'draft', linkToken: null,
-    configVersion: 1, validatedAt: null, publishedAt: null, closedAt: null, duplicatedFrom: null, createdBy: 'u1',
+    configVersion: 1, validatedAt: null, publishedAt: null, closedAt: null, archivedAt: null, duplicatedFrom: null, createdBy: 'u1',
     createdAt: NOW.toISOString(), updatedAt: NOW.toISOString(), ...over,
   });
   const phases: CallPhase[] = [{ id: 'p1', position: 0, name: 'Review', startsOn: null, endsOn: null }];

@@ -6,6 +6,7 @@ import { LogoLockup } from '@/components/Logo';
 import { AuthShell } from '@/components/auth/AuthShell';
 import { getMagicLinkSent, setMagicLinkSent, clearMagicLinkSent } from '@/lib/magic-link-storage';
 import { authErrorText } from '@/lib/auth-errors';
+import { AuthMessage } from '@/components/auth/AuthMessage';
 import { reportAuthEmailFailure } from '@/lib/auth-code/client';
 import { ForgotPasswordSent } from '@/components/auth/ForgotPasswordSent';
 
@@ -71,7 +72,7 @@ export default function ForgotPasswordPage() {
           </>
         )}
 
-        {msg && <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700">{msg}</div>}
+        {msg && <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700"><AuthMessage text={msg} /></div>}
 
         <div className="mt-5 border-t border-gray-100 pt-4 text-center text-xs text-gray-500">
           <Link href="/login" className="font-medium text-[#0E7490] hover:underline">Back to sign in</Link>

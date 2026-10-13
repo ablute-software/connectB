@@ -2,7 +2,7 @@
 // screens is fed through the one function that writes the sentence.
 import { describe, expect, it } from 'vitest';
 import {
-  AUTH_SUPPORT_EMAIL, EXPIRED_CODE_TEXT, GENERIC_TEXT, NETWORK_TEXT, RATE_LIMITED_TEXT, SEND_FAILED_TEXT, WRONG_CODE_TEXT,
+  CONTACT_PATH, CONTACT_PHRASE, EXPIRED_CODE_TEXT, GENERIC_TEXT, NETWORK_TEXT, RATE_LIMITED_TEXT, SEND_FAILED_TEXT, WRONG_CODE_TEXT,
   authErrorText, clipForLog, describeAuthError,
 } from './auth-errors';
 
@@ -40,14 +40,18 @@ describe('never a raw object', () => {
 });
 
 describe('the sentences (spec B.1)', () => {
-  it('an email that could not be sent: try again in a few minutes, and who to write to', () => {
+  it('an email that could not be sent: try again in a few minutes, and contact us (a link to the form, never an address)', () => {
     for (const e of [SMTP_500, SMTP_500_REAL, { status: 500 }, { code: 'unexpected_failure' }, new Error('gomail: could not send email 1: 550')]) {
       const info = describeAuthError(e);
       expect(info.kind).toBe('send_failed');
       expect(info.text).toBe(SEND_FAILED_TEXT);
     }
     expect(SEND_FAILED_TEXT).toContain('try again in a few minutes');
-    expect(SEND_FAILED_TEXT).toContain(AUTH_SUPPORT_EMAIL);
+    expect(SEND_FAILED_TEXT).toBe("We couldn't send the email right now. Please try again in a few minutes. If it keeps failing, contact us.");
+    expect(SEND_FAILED_TEXT).toContain(CONTACT_PHRASE);
+    expect(CONTACT_PATH).toBe('/contact');
+    // The platform has no public support address, and the owner's inbox must never reach a user.
+    expect(SEND_FAILED_TEXT).not.toMatch(/@/);
   });
 
   it('too many requests: wait a few minutes', () => {

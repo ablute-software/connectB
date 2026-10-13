@@ -6,8 +6,8 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { clipForLog } from '@/lib/auth-errors';
 
-export type AuthFailureAction = 'signup' | 'resend_code' | 'recover' | 'invite_signup' | 'signup_already_registered';
-export const AUTH_FAILURE_ACTIONS: readonly AuthFailureAction[] = ['signup', 'resend_code', 'recover', 'invite_signup', 'signup_already_registered'];
+export type AuthFailureAction = 'signup' | 'resend_code' | 'recover' | 'invite_signup' | 'signup_already_registered' | 'login';
+export const AUTH_FAILURE_ACTIONS: readonly AuthFailureAction[] = ['signup', 'resend_code', 'recover', 'invite_signup', 'signup_already_registered', 'login'];
 
 /** Personal data (an email address): kept this long, and no longer. */
 export const AUTH_FAILURE_RETENTION_DAYS = 90;

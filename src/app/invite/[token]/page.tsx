@@ -18,6 +18,7 @@ import { checkPassword } from '@/lib/password-policy';
 import { registerWithCode, reportAuthEmailFailure } from '@/lib/auth-code/client';
 import { clearPending, readPending, writePending } from '@/lib/auth-code/pending-storage';
 import { authErrorText } from '@/lib/auth-errors';
+import { AuthMessage } from '@/components/auth/AuthMessage';
 
 type Invite = { org_name: string; role: string; email: string; status: string };
 type Me = { user: { id: string; email?: string } | null };
@@ -167,7 +168,7 @@ export default function InvitePage({ params }: { params: { token: string } }) {
           )
         )}
 
-        {msg && <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700">{msg}</div>}
+        {msg && <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700"><AuthMessage text={msg} /></div>}
       </div>
     </div>
   );
