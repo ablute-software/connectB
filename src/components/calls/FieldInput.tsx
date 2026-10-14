@@ -7,8 +7,10 @@ import { DEFAULT_MAX_FILE_MB, platformMappingLabel, type AnswerValue, type FormF
 
 const BASE = 'block w-full rounded-lg border px-3 py-2 text-sm disabled:bg-gray-50';
 
-export function FieldInput({ field, value, error, currency, disabled, onChange }: {
+export function FieldInput({ field, value, error, currency, disabled, onChange, fileControl }: {
   field: FormField; value: AnswerValue; error?: string; currency: string; disabled?: boolean; onChange: (v: AnswerValue) => void;
+  /** Prompt 907: the applicant's own document control (upload / Vault), replacing the editor preview's plain file input. */
+  fileControl?: React.ReactNode;
 }) {
   const border = error ? 'border-[#B00000]' : 'border-gray-300';
   const id = `f-${field.id}`;
@@ -87,7 +89,7 @@ export function FieldInput({ field, value, error, currency, disabled, onChange }
     }
     case 'file': {
       const file = value && typeof value === 'object' && !Array.isArray(value) ? value : null;
-      control = (
+      control = fileControl ?? (
         <div>
           <input id={id} type="file" accept="application/pdf,.pdf" disabled={disabled} data-testid="file-input"
             className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-[#E8F4F8] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-[#0E7490]"
@@ -114,7 +116,7 @@ export function FieldInput({ field, value, error, currency, disabled, onChange }
         {field.label}{field.required && <span className="ml-0.5 text-[#B00000]" aria-label="required">*</span>}
       </p>
       {field.instruction && <p className="mt-0.5 text-xs text-gray-500">{field.instruction}</p>}
-      {mapped && <p className="mt-0.5 text-[11px] text-[#0E7490]">🔗 Prefilled from your profile ({mapped}) — you can edit it</p>}
+      {mapped && !disabled && <p className="mt-0.5 text-[11px] text-[#0E7490]">🔗 Prefilled from your profile ({mapped}) — you can edit it</p>}
       <div className="mt-1.5">{control}</div>
       {error && <p role="alert" className="mt-1 text-xs text-[#B00000]" data-testid="field-error">{error}</p>}
     </div>

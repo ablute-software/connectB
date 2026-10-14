@@ -78,6 +78,10 @@ function check(table: string, row: Row, all: Row[]) {
   }
   if (table === 'call_declared_conflicts' && (typeof row.company_name !== 'string' || row.company_name.trim() === '')) throw new Violation('call_declared_conflicts_company_name_check');
   if (table === 'call_phases' && (typeof row.name !== 'string' || row.name.trim() === '')) throw new Violation('call_phases_name_check');
+  // Prompt 907: the unique constraints of the applicant side.
+  if (table === 'call_notices' && all.some((r) => r !== row && r.user_id === row.user_id && r.dedupe_key === row.dedupe_key)) throw new Violation('call_notices_user_id_dedupe_key_key', '23505');
+  if (table === 'call_application_submissions' && all.some((r) => r !== row && r.application_id === row.application_id && (r.idempotency_key === row.idempotency_key || r.version === row.version))) throw new Violation('call_application_submissions_unique', '23505');
+  if (table === 'call_applications' && row.reference && all.some((r) => r !== row && r.reference === row.reference)) throw new Violation('call_applications_reference_uidx', '23505');
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -96,7 +100,8 @@ function builder(db: CallsDb, table: string): any {
       if (op === 'insert' || op === 'upsert') {
         const out: Row[] = [];
         for (const v of Array.isArray(values) ? values : [values]) {
-          const existing = op === 'upsert' ? rows.find((r) => r[onConflict || 'id'] === v[onConflict || 'id']) : undefined;
+          const keys = (onConflict || 'id').split(',').map((k) => k.trim());
+          const existing = op === 'upsert' ? rows.find((r) => keys.every((k) => r[k] === v[k])) : undefined;
           if (existing) { const next = { ...existing, ...v }; check(table, next, rows.filter((r) => r !== existing)); Object.assign(existing, v); out.push(existing); continue; }
           const row: Row = { ...(DEFAULTS[table]?.(db) ?? {}), ...v };
           if (row.id === undefined && table !== 'call_events') row.id = uuid(db);
@@ -244,6 +249,7 @@ export function fakeCallsAdmin(db: CallsDb, storage: FakeStorage = { objects: ne
       from: () => ({
         upload: async (path: string, body: Uint8Array | Buffer, opts?: { contentType?: string }) => { storage.objects.set(path, { bytes: new Uint8Array(body), contentType: opts?.contentType }); return { data: { path }, error: null }; },
         remove: async (paths: string[]) => { for (const p of paths) storage.objects.delete(p); return { data: paths, error: null }; },
+        list: async () => ({ data: [], error: null }),
         createSignedUrl: async (path: string) => (storage.objects.has(path) ? { data: { signedUrl: `https://storage.test/signed/${path}?t=1` }, error: null } : { data: null, error: { message: 'not found' } }),
         copy: async (from: string, to: string) => {
           const o = storage.objects.get(from);

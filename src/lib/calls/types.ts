@@ -145,5 +145,5 @@ export const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'BRL'] as const;
 
 /** An answer, by field id. Text: string; number: digits; date: YYYY-MM-DD; yes/no: 'yes'|'no'; single: option id;
  *  multiple: option ids; file: {fileName,size} (the upload itself belongs to Stage 906). */
-export type AnswerValue = string | string[] | { fileName: string; size: number; mime?: string } | null | undefined;
+export type AnswerValue = string | string[] | { fileName: string; size: number; mime?: string; fileId?: string; source?: 'upload' | 'vault' } | null | undefined;
 export type Answers = Record<string, AnswerValue>;
