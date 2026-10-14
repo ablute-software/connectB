@@ -10202,7 +10202,7 @@ Com o código curto da Adenda 1 (`PD-XXXX-XXXX`, 40 bits) o resgate não tinha l
 
 **Aterragem em `main` (13/10/2026, depois do "sim" do Nuno).** `origin/main` não se mexeu desde a aterragem do 906 (`43d5dd9e`), por isso o branch entrou por fast-forward, sem fusão e sem refazer os checks: o código a publicar é o que foi verificado (os últimos commits são só documentação e capturas). Push directo para `main`, sem passar por um preview do branch, para não correr o motor do cron contra produção mais uma vez. Sem migração. `buildId` de produção antes do push: `1n1OaHsHmx9HDkgzJvZ02` (o do 906).
 
-## Prompt 907 — Calls, Etapa 1B: o lado do candidato (14/10/2026, branch `claude/907-calls-candidate`)
+## Prompt 907 — Calls, Etapa 1B: o lado do candidato (14/10/2026; I1 a I4 em `main`, I5 no branch `claude/907-i5`)
 
 Relatório e lista do que clicar em `docs/calls/ETAPA1B_907.md`; capturas em `docs/calls/screenshots-907/`. Migração `20261014100000_calls_applicant_side.sql` já aplicada (aditiva). **Sem variáveis nem crons novos.**
 
@@ -10214,7 +10214,7 @@ Relatório e lista do que clicar em `docs/calls/ETAPA1B_907.md`; capturas em `do
 
 **O link só resolve calls publicadas e com formulário**; tudo o resto é 404 sem explicação (mudou os testes do 905/909).
 
-**Prazo e avisos (I5).** A prorrogação avisa por email e na app quem tem rascunho — a entidade fica com um número, nunca com quem. O lembrete de 48 h vai só a rascunhos, uma vez por prazo, no cron diário (sem cron novo, por causa do limite da Hobby: sai 24–48 h antes) e logo que a pessoa abre a sua área Calls. **"Contact email for applicants"** é o Reply-To dos emails dessa call; sem ele não há Reply-To (a decisão de 13/10 sem fallback global). O campo grava-se à parte e a qualquer momento: não mexe na versão da configuração.
+**Prazo e avisos (I5).** A prorrogação avisa por email e na app quem tem rascunho — a entidade fica com um número, nunca com quem. O lembrete de 48 h vai só a rascunhos, uma vez por prazo, no cron diário (sem cron novo, por causa do limite da Hobby: sai 24–48 h antes) e logo que a pessoa abre a sua área Calls. **"Contact email for applicants"** é o Reply-To dos emails dessa call; sem ele não há Reply-To (a decisão de 13/10 sem fallback global). O campo grava-se à parte e a qualquer momento: não mexe na versão da configuração. **Acertos pós-911:** com Contact email, é o `reply_to` dos emails dessa call (e não leva a frase "replies are not read"); sem ele não há Reply-To e fica só o rodapé automático central; `RESEND_REPLY_TO` não é lido. A allowlist do código (`AUTH_CODE_MODE`) foi retirada no 911: qualquer `sherlockdeal.com+...@gmail.com` serve para testar. Todos os links dos emails (recibo, lembrete, novo prazo) são absolutos (`https://www.sherlockdeal.com/call/<token>`) pelo mesmo `APP_URL` dos outros emails, com `https://` garantido (`emailLinkFor`); testado através do mailer real.
 
 **Limites ditos:** nada exercido por mim com sessão, email ou modelo reais; chave de entidade legal aproximada (sem NIF); elegibilidade em frases só na Etapa 2.
 

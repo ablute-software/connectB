@@ -62,10 +62,19 @@ export async function createNotice(admin: SupabaseClient, n: {
   return { created: true, id: (data as { id: string }).id };
 }
 
+/**
+ * The link an email carries: ALWAYS absolute (an email has no origin to resolve a relative path against), built from the same `APP_URL` the other
+ * platform emails use. A base set without its scheme gets `https://`; with no token it is the site's root.
+ */
+export function emailLinkFor(call: Pick<Call, 'linkToken'>, base: string = APP_URL): string {
+  const origin = /^https?:\/\//i.test(base) ? base : `https://${base.replace(/^\/+/, '')}`;
+  return call.linkToken ? callLink(origin, call.linkToken) : origin.replace(/\/$/, '');
+}
+
 /** Send the email of a notice and record the outcome on its row. Never throws: a failed email must not undo the event it reports. */
 export async function emailNotice(admin: SupabaseClient, noticeId: string | null, to: string, call: Pick<Call, 'contactEmail' | 'linkToken'>, content: NoticeContent): Promise<boolean> {
   try {
-    const url = call.linkToken ? callLink(APP_URL, call.linkToken) : APP_URL;
+    const url = emailLinkFor(call);
     const res = await sendTransactionalEmail({
       to, subject: content.title,
       html: transactionalTemplate({ heading: esc(content.title), body: esc(content.body), ctaLabel: content.ctaLabel, ctaUrl: url }),
