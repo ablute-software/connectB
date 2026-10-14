@@ -26,7 +26,7 @@ export interface CallState {
   issues: ReadinessIssue[];
   summary: CallSummary;
   actions: ReturnType<typeof availableActions>;
-  applications: { submitted: number; inProgress: number; withdrawn: number; total: number };
+  applications: { submitted: number; total: number };
   events: CallEvent[];
 }
 

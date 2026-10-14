@@ -14,7 +14,7 @@ import { FormTest } from './FormTest';
 import { StatusBadge } from './StatusBadge';
 import type { CallStatus } from '@/lib/calls/types';
 
-const TAB_NAMES: Record<EditorTab, string> = { general: 'General', phases: 'Phases', form: 'Form', preview: 'Preview', team: 'Team' };
+const TAB_NAMES: Record<EditorTab, string> = { general: 'General', phases: 'Phases', form: 'Form', preview: 'Preview', team: 'Team', submissions: 'Submissions' };
 
 export type LifecycleAction = 'confirm' | 'edit' | 'publish' | 'extend' | 'close' | 'archive';
 
