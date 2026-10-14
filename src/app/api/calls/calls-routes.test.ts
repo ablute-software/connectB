@@ -439,23 +439,25 @@ describe('the public link', () => {
   }
   const pub = async (token: string) => read(await publicGet(json('GET'), { params: { token } }));
 
-  it('shows the header and "Applications open on [date]" — and no ids, no form, no draft', async () => {
+  it('shows the header and "Opens on [date]" (Prompt 907) — and no ids, no form, no draft', async () => {
     const { token } = await published();
     currentUser = null; // a candidate: no account
     const { status, body } = await pub(token);
     expect(status).toBe(200);
     expect(body).toMatchObject({ ok: true, name: 'Seed Call', promoter: 'zz-test-firm', status: 'scheduled' });
-    expect(body.message).toMatch(/^Applications open on \d{2} \w{3} \d{4}\.$/);
+    expect(body.message).toMatch(/^Opens on \d{2} \w{3} \d{4}$/);
     expect(JSON.stringify(body)).not.toMatch(/call_id|fields|created_by|linkToken/);
   });
 
   it('says it is open once it opens, and closed once it closes', async () => {
     const { call, token } = await published();
     db.tables.calls[0].opens_at = inDays(-1);
-    expect((await pub(token)).body).toMatchObject({ status: 'open', message: 'Applications are open.' });
+    expect((await pub(token)).body).toMatchObject({ status: 'open', message: null }); // open: the registration box, no sentence
     db.tables.calls[0].closes_at = inDays(-0.5);
     db.tables.calls[0].opens_at = inDays(-2);
-    expect((await pub(token)).body).toMatchObject({ status: 'closed', message: 'This call is closed.' });
+    const closed = (await pub(token)).body;
+    expect(closed).toMatchObject({ status: 'closed' });
+    expect(closed.message).toMatch(/^Applications closed on \d{2} \w{3} \d{4}$/);
     expect(call.id).toBeTruthy();
   });
 

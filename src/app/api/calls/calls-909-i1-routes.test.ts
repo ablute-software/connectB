@@ -87,6 +87,7 @@ describe('Delete call', () => {
   it('the link stops working once the call is deleted', async () => {
     const { id } = await newCall();
     Object.assign(row(id), { status: 'scheduled', opens_at: new Date(Date.now() + 5 * 86_400_000).toISOString(), closes_at: new Date(Date.now() + 30 * 86_400_000).toISOString(), link_token: 'tok-gone-0123456789abcd' });
+    db.tables.call_form_fields.push({ id: 'f-link', call_id: id, kind: 'short_text', label: 'Q', page: 1, position: 0 }); // a link with no form is a 404 (Prompt 907)
     expect((await publicGet(json('GET'), { params: { token: 'tok-gone-0123456789abcd' } })).status).toBe(200);
     await act(id, 'delete');
     expect((await publicGet(json('GET'), { params: { token: 'tok-gone-0123456789abcd' } })).status).toBe(404);

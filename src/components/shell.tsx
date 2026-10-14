@@ -55,7 +55,7 @@ function tourKeysForPath(path: string | null): string[] {
 
 type Me = {
   authEnabled: boolean; user: { id: string; email?: string } | null; role: string;
-  capabilities?: { ai: boolean; companyCanon: boolean; needsReviewAi: boolean; documentDetails: boolean; ndaSystem: boolean; entityContactFields: boolean; reviewRuns: boolean; permissionMatrix: boolean; documentOrdering: boolean; documentVersions: boolean; reawakening: boolean; planAccounts: boolean; billing: boolean };
+  capabilities?: { ai: boolean; companyCanon: boolean; needsReviewAi: boolean; documentDetails: boolean; ndaSystem: boolean; entityContactFields: boolean; reviewRuns: boolean; permissionMatrix: boolean; documentOrdering: boolean; documentVersions: boolean; reawakening: boolean; planAccounts: boolean; billing: boolean; calls?: boolean };
   // Prompt 123 Block A — Developer Viewer session, if any.
   viewer?: { orgId: string; orgName: string | null } | null;
   // Prompt I-01 §B.4 — every workspace this account can open.
@@ -105,10 +105,12 @@ type Me = {
 //      not a separately-styled afterItems block; kept OUT of this NAV
 //      array itself so it never reaches mobileNavItems, which is built from
 //      the same array — see sidebarItems' own construction below)
-const NAV: { href: string; label: string; icon: string; requiresCapability?: 'companyCanon'; group: number }[] = [
+const NAV: { href: string; label: string; icon: string; requiresCapability?: 'companyCanon' | 'calls'; group: number }[] = [
   { href: '/settings', label: 'about your company', icon: '⋯', group: 1 },
   { href: '/documents', label: 'Vault Data Room', icon: '▣', group: 1 },
   { href: '/pipeline', label: 'Pipeline', icon: '▤', group: 2 },
+  // Prompt 907 (I4): open calls from investors and ecosystem organisations, and the startup's applications. Behind the Calls switch.
+  { href: '/calls', label: 'Calls', icon: '◍', requiresCapability: 'calls', group: 2 },
   { href: '/tasks', label: 'Tasks', icon: '☀', group: 2 },
   { href: '/agenda', label: 'Agenda', icon: '◔', group: 2 },
   { href: '/network', label: 'My Network', icon: '⬡', group: 3 },

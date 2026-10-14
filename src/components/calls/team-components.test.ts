@@ -19,9 +19,9 @@ describe('the permission switches', () => {
     expect(html).toMatch(/data-testid="x-configure_call"[^>]*checked/);
     expect(html).not.toMatch(/data-testid="x-manage_team"[^>]*checked/);
   });
-  it('seven say "Used from the next stage"; the two enforced now do not', () => {
+  it('six say "Used from the next stage"; the three enforced now do not (Prompt 907: View all applications opens the Submissions list)', () => {
     const html = render();
-    expect((html.match(/Used from the next stage/g) ?? []).length).toBe(7);
+    expect((html.match(/Used from the next stage/g) ?? []).length).toBe(6);
     const configure = html.slice(html.indexOf('Configure call'), html.indexOf('Manage team'));
     expect(configure).not.toContain('Used from the next stage');
   });

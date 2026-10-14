@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { SOURCE_KIND_LABELS, type SourceKind } from '@/lib/calls/ai-import/limits';
 import { callsApi } from './api';
 
-interface Doc { id: string; kind: SourceKind; fileName: string; sizeBytes: number; pages: number | null; createdAt: string }
+interface Doc { id: string; kind: SourceKind; mimeType?: string; fileName: string; sizeBytes: number; pages: number | null; createdAt: string; publicToApplicants?: boolean }
 
 export function SourceDocumentsPanel({ callId, canConfigure, locked, reloadKey, onImport }: {
   callId: string; canConfigure: boolean; locked: boolean; reloadKey: number; onImport: () => void;
@@ -21,6 +21,14 @@ export function SourceDocumentsPanel({ callId, canConfigure, locked, reloadKey, 
     setDocs(r.body.documents); setFound(r.body.foundLater);
   }, [callId]);
   useEffect(() => { void load(); }, [load, reloadKey]);
+
+  // Prompt 907 (I1): the regulation PDF the call's link offers to applicants. Only a regulation that is a PDF can be shown.
+  async function togglePublic(d: Doc, on: boolean) {
+    setError('');
+    const r = await callsApi.setSourceDocumentPublic(callId, d.id, on);
+    if (!r.ok) { setError(r.body.error ?? 'Could not change that.'); return; }
+    await load();
+  }
 
   async function remove(d: Doc) {
     if (!window.confirm(`Delete “${d.fileName}” from this call? What was already applied from it stays.`)) return;
@@ -46,7 +54,15 @@ export function SourceDocumentsPanel({ callId, canConfigure, locked, reloadKey, 
           {docs.map((d) => (
             <li key={d.id} className="flex items-center justify-between gap-2 py-1.5">
               <span><b className="text-gray-900">{d.fileName}</b> <span className="text-gray-500">· {SOURCE_KIND_LABELS[d.kind]} · {(d.sizeBytes / 1024).toFixed(0)} KB{d.pages ? ` · ${d.pages} page${d.pages === 1 ? '' : 's'}` : ''}</span></span>
-              {canConfigure && <button type="button" className="text-[#B00000] hover:underline" onClick={() => void remove(d)}>Delete</button>}
+              <span className="flex items-center gap-3">
+                {canConfigure && d.kind === 'regulation' && d.mimeType === 'application/pdf' && (
+                  <label className="flex items-center gap-1 text-gray-600" title="Shown on the call's link, to everyone who has it">
+                    <input type="checkbox" checked={d.publicToApplicants === true} onChange={(e) => void togglePublic(d, e.target.checked)} data-testid="show-to-applicants" />
+                    Show to applicants
+                  </label>
+                )}
+                {canConfigure && <button type="button" className="text-[#B00000] hover:underline" onClick={() => void remove(d)}>Delete</button>}
+              </span>
             </li>
           ))}
         </ul>

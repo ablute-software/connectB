@@ -2,9 +2,10 @@
 // Pure and client-safe: the editor draws the toggles from PERMISSIONS, the server decides with the same functions.
 //
 // Nine permissions, switched on and off for a whole CATEGORY of the organisation. A person in a call may have
-// individual adjustments over their category (hidden in the UI until the box is opened). Two are enforced by the
-// server already — Configure call and Manage team & permissions; the other seven are stored and shown, and marked
-// "Used from the next stage" until evaluation and distribution exist.
+// individual adjustments over their category (hidden in the UI until the box is opened). Three are enforced by the
+// server already — Configure call, Manage team & permissions and (since Prompt 907) View all applications, which
+// opens the read-only list of SUBMITTED applications; the other six are stored and shown, and marked "Used from the
+// next stage" until evaluation and distribution exist.
 
 export const PERMISSION_KEYS = [
   'configure_call', 'manage_team', 'view_all_applications', 'evaluate_assigned', 'correct_eligibility',
@@ -19,7 +20,7 @@ export const PERMISSIONS: readonly PermissionInfo[] = [
   { key: 'configure_call', label: 'Configure call', enforced: true,
     hint: 'Edit General, Phases and Form; confirm, publish, delete and archive the call.' },
   { key: 'manage_team', label: 'Manage team & permissions', enforced: true, hint: 'Edit the Team tab.' },
-  { key: 'view_all_applications', label: 'View all applications', enforced: false, hint: 'Off: only the applications assigned to the person.' },
+  { key: 'view_all_applications', label: 'View all applications', enforced: true, hint: 'Open the list of submitted applications and read each one. Off: only the applications assigned to the person (assignment arrives with distribution).' },
   { key: 'evaluate_assigned', label: 'Evaluate assigned applications', enforced: false, hint: 'Score the applications assigned to the person.' },
   { key: 'correct_eligibility', label: 'Correct eligibility & document validity', enforced: false, hint: 'Overrule an automatic eligibility or document decision.' },
   { key: 'view_colleagues_evaluations', label: 'View colleagues’ evaluations after completing own', enforced: false, hint: 'Only after the person has finished their own evaluation.' },

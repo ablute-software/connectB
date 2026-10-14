@@ -19,6 +19,7 @@ import { SaveStatus, type SaveState } from './SaveStatus';
 import { StatusBadge } from './StatusBadge';
 import { CallDangerZone } from './CallDangerZone';
 import { TeamTab } from './TeamTab';
+import { SubmissionsTab } from './SubmissionsTab';
 import { ImportFromDocuments, type ApplyOutcome } from './ImportFromDocuments';
 import { SourceDocumentsPanel } from './SourceDocumentsPanel';
 import type { ProposalFieldItem, ProposalGeneral, ProposalPhaseItem } from '@/lib/calls/ai-import/proposal';
@@ -34,6 +35,7 @@ const TABS: { key: EditorTab | 'eligibility' | 'team' | 'evaluation'; label: str
   { key: 'form', label: 'Form' },
   { key: 'eligibility', label: 'Eligibility', soon: true },
   { key: 'team', label: 'Team & distribution' },
+  { key: 'submissions', label: 'Submissions' },
   { key: 'evaluation', label: 'Evaluation', soon: true },
   { key: 'preview', label: 'Preview & validate' },
 ];
@@ -251,6 +253,7 @@ export function CallEditor({ callId, onBack, startImport = false }: { callId: st
       )}
       {tab === 'phases' && <PhasesTab phases={phases} disabled={readOnly} onChange={editPhases} />}
       {tab === 'team' && <TeamTab callId={callId} />}
+      {tab === 'submissions' && <SubmissionsTab callId={callId} timezone={call.timezone} currency={call.currency} />}
       {tab === 'form' && <FormTab callId={callId} fields={fields} disabled={readOnly} lockedReason={reason} onChange={editFields} onImport={importForm} onImportDocuments={() => setImportDocs(true)} />}
       {importDocs && (
         <ImportFromDocuments callId={callId} timezone={call.timezone} currentFieldCount={fields.length}

@@ -46,7 +46,9 @@ export async function buildCallState(admin: SupabaseClient, call: Call, promoter
     canManageTeam: promoter.canManageTeam === true,
     phases, fields, issues,
     summary: summarise(phases, fields),
-    applications,
+    // Prompt 907: the entity sees what was SUBMITTED and a total (the delete rule needs "has anyone applied?"), never how many are still being
+    // filled in: a draft is the applicant's own until they submit it.
+    applications: { submitted: applications.submitted, total: applications.total },
     actions: availableActions(synced, issues, now, applications.total),
     events,
   };

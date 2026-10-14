@@ -10,7 +10,7 @@ import type { FileFormat, SourceKind } from './limits';
 type Row = Record<string, unknown>;
 const BUCKET = 'data-room';
 
-export interface SourceDocument { id: string; kind: SourceKind; fileName: string; mimeType: string; sizeBytes: number; pages: number | null; uploadedBy: string; createdAt: string }
+export interface SourceDocument { id: string; kind: SourceKind; fileName: string; mimeType: string; sizeBytes: number; pages: number | null; uploadedBy: string; createdAt: string; publicToApplicants: boolean }
 export interface ImportRun {
   id: string; status: 'proposed' | 'applied' | 'discarded'; proposal: Proposal; foundLater: Proposal['foundLater'];
   sourceDocumentIds: string[]; model: string | null; tokensIn: number | null; tokensOut: number | null; costEur: number | null;
@@ -25,6 +25,7 @@ const MIME: Record<FileFormat, string> = {
 const toDoc = (r: Row): SourceDocument => ({
   id: r.id as string, kind: r.kind as SourceKind, fileName: r.file_name as string, mimeType: r.mime_type as string, sizeBytes: Number(r.size_bytes),
   pages: r.pages == null ? null : Number(r.pages), uploadedBy: r.uploaded_by as string, createdAt: r.created_at as string,
+  publicToApplicants: r.public_to_applicants === true,
 });
 const toRun = (r: Row): ImportRun => ({
   id: r.id as string, status: r.status as ImportRun['status'], proposal: r.proposal as Proposal, foundLater: (r.found_later as Proposal['foundLater']) ?? { eligibility: [], evaluation: [] },
@@ -46,6 +47,20 @@ export async function saveSourceDocument(
   }).select('*').single();
   if (error || !data) { await admin.storage.from(BUCKET).remove([path]); return null; }
   return toDoc(data as Row);
+}
+
+/**
+ * Prompt 907 (I1): show a regulation PDF to applicants on the call's link. Only a PDF of kind "regulation" can be public — a previous
+ * form or an evaluation grid is the team's own working material. One regulation is public at a time (the newest choice wins).
+ */
+export async function setSourcePublic(admin: SupabaseClient, callId: string, docId: string, pub: boolean): Promise<{ ok: true } | { ok: false; reason: 'not_found' | 'not_a_regulation_pdf' }> {
+  const { data } = await admin.from('call_source_documents').select('id, kind, mime_type').eq('id', docId).eq('call_id', callId).maybeSingle();
+  const row = data as { kind: string; mime_type: string } | null;
+  if (!row) return { ok: false, reason: 'not_found' };
+  if (pub && (row.kind !== 'regulation' || row.mime_type !== 'application/pdf')) return { ok: false, reason: 'not_a_regulation_pdf' };
+  if (pub) await admin.from('call_source_documents').update({ public_to_applicants: false }).eq('call_id', callId).neq('id', docId);
+  await admin.from('call_source_documents').update({ public_to_applicants: pub }).eq('id', docId).eq('call_id', callId);
+  return { ok: true };
 }
 
 export async function listSourceDocuments(admin: SupabaseClient, callId: string): Promise<SourceDocument[]> {

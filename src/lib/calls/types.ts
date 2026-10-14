@@ -127,6 +127,8 @@ export interface Call {
   closedAt: string | null;
   /** Prompt 909: set when the call is archived (status 'archived'). */
   archivedAt: string | null;
+  /** Prompt 907 (I5): "Contact email for applicants" — when set, the Reply-To of the emails of THIS call. */
+  contactEmail?: string | null;
   duplicatedFrom: string | null;
   createdBy: string;
   createdAt: string;
@@ -143,5 +145,5 @@ export const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'BRL'] as const;
 
 /** An answer, by field id. Text: string; number: digits; date: YYYY-MM-DD; yes/no: 'yes'|'no'; single: option id;
  *  multiple: option ids; file: {fileName,size} (the upload itself belongs to Stage 906). */
-export type AnswerValue = string | string[] | { fileName: string; size: number; mime?: string } | null | undefined;
+export type AnswerValue = string | string[] | { fileName: string; size: number; mime?: string; fileId?: string; source?: 'upload' | 'vault' } | null | undefined;
 export type Answers = Record<string, AnswerValue>;
