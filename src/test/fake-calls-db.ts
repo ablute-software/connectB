@@ -10,6 +10,8 @@ export interface CallsDb {
   users: Map<string, { id: string; email: string }>;
   clock: number;
   seq: number;
+  /** Prompt 907: the server's clock for the functions that read now() (call_accepting, open, submit). Real time when unset. */
+  nowMs?: number;
 }
 
 export function callsDb(): CallsDb {
@@ -19,6 +21,8 @@ export function callsDb(): CallsDb {
     // Prompt 909
     'call_deletions', 'call_team_categories', 'call_team_members', 'call_declared_conflicts', 'call_source_documents', 'call_import_runs',
     'investor_firm_seat_invites',
+    // Prompt 907 (the applicant side)
+    'orgs', 'org_members', 'documents', 'document_versions', 'call_link_access', 'call_application_files', 'call_notices',
   ];
   return { tables: Object.fromEntries(names.map((n) => [n, []])), users: new Map(), clock: Date.UTC(2026, 9, 9, 12, 0, 0), seq: 0 };
 }
@@ -37,14 +41,17 @@ const DEFAULTS: Record<string, (db: CallsDb) => Row> = {
   call_team_categories: () => ({ permissions: {}, catalog_entity_id: null, incubator_id: null }),
   call_team_members: () => ({ permission_overrides: {} }),
   call_declared_conflicts: () => ({ note: null }),
-  call_source_documents: () => ({ kind: 'other', pages: null }),
+  call_source_documents: () => ({ kind: 'other', pages: null, public_to_applicants: false }),
+  call_link_access: () => ({}),
+  call_application_files: () => ({ sha256: null, document_id: null, version_id: null, version_number: null, revoked_at: null, frozen_path: null, frozen_at: null }),
+  call_notices: () => ({ application_id: null, body: null, link_path: null, seen_at: null, email_sent_at: null, email_error: null }),
   call_import_runs: () => ({ source_document_ids: [], status: 'proposed', found_later: {}, model: null, tokens_in: null, tokens_out: null, cost_eur: null, applied_at: null, applied_by: null }),
   call_phases: () => ({ starts_on: null, ends_on: null }),
   call_form_fields: () => ({
     page: 1, position: 0, instruction: null, required: false, options: [], validations: {}, condition: null,
     platform_mapping: null, expected_type: null, max_age_months: null,
   }),
-  call_applications: () => ({ status: 'draft', draft_answers: {}, startup_org_id: null, current_submission_id: null }),
+  call_applications: () => ({ status: 'draft', draft_answers: {}, startup_org_id: null, current_submission_id: null, reference: null, unit_key: null, last_page: null, draft_revision: 0, submitted_at: null }),
   call_events: () => ({ application_id: null, actor_user_id: null, detail: {} }),
 };
 
@@ -133,6 +140,10 @@ function builder(db: CallsDb, table: string): any {
     eq: (c: string, v: unknown) => { preds.push((r) => r[c] === v); return b; },
     neq: (c: string, v: unknown) => { preds.push((r) => r[c] !== v); return b; },
     in: (c: string, vs: unknown[]) => { preds.push((r) => vs.includes(r[c])); return b; },
+    gt: (c: string, v: unknown) => { preds.push((r) => String(r[c] ?? '') > String(v)); return b; },
+    gte: (c: string, v: unknown) => { preds.push((r) => String(r[c] ?? '') >= String(v)); return b; },
+    lt: (c: string, v: unknown) => { preds.push((r) => String(r[c] ?? '') < String(v)); return b; },
+    lte: (c: string, v: unknown) => { preds.push((r) => String(r[c] ?? '') <= String(v)); return b; },
     is: (c: string, v: unknown) => { preds.push((r) => (r[c] ?? null) === v); return b; },
     order: (c: string, o?: { ascending?: boolean }) => { sorts.push({ col: c, asc: o?.ascending !== false }); return b; },
     limit: (n: number) => { max = n; return b; },
@@ -164,12 +175,68 @@ function deleteCallIfEmpty(db: CallsDb, callId: string, actor: string, promoterN
   return { ok: true, call_name: call.name };
 }
 
+const nowOf = (db: CallsDb) => db.nowMs ?? Date.now();
+
+/** call_accepting(), modelled (migration 20261014100000): open or scheduled, opened, and not past its deadline, on the server's clock. */
+function callAccepting(db: CallsDb, callId: string): boolean {
+  const c = db.tables.calls.find((r) => r.id === callId);
+  if (!c || !['open', 'scheduled'].includes(c.status as string)) return false;
+  if (!c.opens_at || Date.parse(c.opens_at as string) > nowOf(db)) return false;
+  return !c.closes_at || Date.parse(c.closes_at as string) > nowOf(db);
+}
+
+/** call_open_application(), modelled: create-or-resume under the per-unit limit. (The advisory lock is the single thread here.) */
+function openApplication(db: CallsDb, a: Record<string, unknown>) {
+  const callId = a.p_call as string; const org = a.p_org as string; const unit = a.p_unit_key as string;
+  const c = db.tables.calls.find((r) => r.id === callId);
+  if (!c) return { ok: false, reason: 'not_found' };
+  const apps = db.tables.call_applications;
+  if (!c.allow_multiple) {
+    const existing = apps.filter((r) => r.call_id === callId && r.unit_key === unit && r.status !== 'withdrawn').sort((x, y) => String(x.created_at).localeCompare(String(y.created_at)))[0];
+    if (existing) {
+      if (existing.startup_org_id !== org) return { ok: false, reason: 'unit_limit' };
+      return { ok: true, application_id: existing.id, created: false, status: existing.status };
+    }
+  } else if (a.p_new !== true) {
+    const draft = apps.filter((r) => r.call_id === callId && r.startup_org_id === org && r.status === 'draft').sort((x, y) => String(y.updated_at ?? y.created_at).localeCompare(String(x.updated_at ?? x.created_at)))[0];
+    if (draft) return { ok: true, application_id: draft.id, created: false, status: draft.status };
+  }
+  if (!callAccepting(db, callId)) return { ok: false, reason: 'not_accepting' };
+  if (a.p_reference && apps.some((r) => r.reference === a.p_reference)) throw new Violation('call_applications_reference_uidx', '23505');
+  const row: Row = { ...(DEFAULTS.call_applications(db)), id: uuid(db), call_id: callId, startup_org_id: org, applicant_user_id: a.p_user, status: 'draft', unit_key: unit, reference: a.p_reference, created_at: tick(db), updated_at: new Date(nowOf(db)).toISOString() };
+  apps.push(row);
+  db.tables.call_events.push({ id: ++db.seq, call_id: callId, application_id: row.id, event: 'application_started', actor_user_id: a.p_user, detail: { reference: a.p_reference }, created_at: tick(db) });
+  return { ok: true, application_id: row.id, created: true, status: 'draft' };
+}
+
+/** call_submit_application(), modelled: idempotent, immutable, on the server's clock, under the per-unit limit. */
+function submitApplication(db: CallsDb, a: Record<string, unknown>) {
+  const app = db.tables.call_applications.find((r) => r.id === a.p_application);
+  if (!app) return { ok: false, reason: 'not_found' };
+  const subs = db.tables.call_application_submissions;
+  const same = subs.find((s) => s.application_id === app.id && s.idempotency_key === a.p_key);
+  if (same) return { ok: true, already: true, submission_id: same.id, version: same.version, submitted_at: same.submitted_at };
+  if (app.status !== 'draft') return { ok: false, reason: 'already_submitted' };
+  const call = db.tables.calls.find((r) => r.id === app.call_id)!;
+  if (!callAccepting(db, call.id as string)) return { ok: false, reason: 'not_accepting' };
+  if (!call.allow_multiple && db.tables.call_applications.some((o) => o.call_id === app.call_id && o.unit_key === app.unit_key && o.id !== app.id && o.status === 'submitted')) return { ok: false, reason: 'unit_limit' };
+  const at = new Date(nowOf(db)).toISOString();
+  const s: Row = { id: uuid(db), application_id: app.id, version: 1, answers: a.p_answers, documents: a.p_documents ?? [], form_snapshot: a.p_form_snapshot, submitted_by: a.p_user, submitted_at: at, idempotency_key: a.p_key };
+  subs.push(s);
+  Object.assign(app, { status: 'submitted', current_submission_id: s.id, submitted_at: at, updated_at: at });
+  db.tables.call_events.push({ id: ++db.seq, call_id: app.call_id, application_id: app.id, event: 'application_submitted', actor_user_id: a.p_user, detail: { reference: app.reference, version: 1 }, created_at: tick(db) });
+  return { ok: true, already: false, submission_id: s.id, version: 1, submitted_at: at };
+}
+
 export interface FakeStorage { objects: Map<string, { bytes: Uint8Array; contentType?: string }> }
 
 export function fakeCallsAdmin(db: CallsDb, storage: FakeStorage = { objects: new Map() }): SupabaseClient {
   return {
     from: (t: string) => builder(db, t),
     rpc: async (name: string, args: Record<string, unknown>) => {
+      if (name === 'call_accepting') return { data: callAccepting(db, args.p_call as string), error: null };
+      if (name === 'call_open_application') { try { return { data: openApplication(db, args), error: null }; } catch (e) { return { data: null, error: { message: (e as Error).message, code: (e as { code?: string }).code } }; } }
+      if (name === 'call_submit_application') return { data: submitApplication(db, args), error: null };
       if (name === 'delete_call_if_empty') return { data: deleteCallIfEmpty(db, args.p_call as string, args.p_actor as string, args.p_promoter_name as string), error: null };
       return { data: null, error: { message: `unknown rpc ${name}` } };
     },
@@ -177,6 +244,13 @@ export function fakeCallsAdmin(db: CallsDb, storage: FakeStorage = { objects: ne
       from: () => ({
         upload: async (path: string, body: Uint8Array | Buffer, opts?: { contentType?: string }) => { storage.objects.set(path, { bytes: new Uint8Array(body), contentType: opts?.contentType }); return { data: { path }, error: null }; },
         remove: async (paths: string[]) => { for (const p of paths) storage.objects.delete(p); return { data: paths, error: null }; },
+        createSignedUrl: async (path: string) => (storage.objects.has(path) ? { data: { signedUrl: `https://storage.test/signed/${path}?t=1` }, error: null } : { data: null, error: { message: 'not found' } }),
+        copy: async (from: string, to: string) => {
+          const o = storage.objects.get(from);
+          if (!o) return { data: null, error: { message: 'not found' } };
+          if (storage.objects.has(to)) return { data: null, error: { message: 'The resource already exists' } };
+          storage.objects.set(to, { ...o }); return { data: { path: to }, error: null };
+        },
         download: async (path: string) => { const o = storage.objects.get(path); return o ? { data: new Blob([Buffer.from(o.bytes)]), error: null } : { data: null, error: { message: 'not found' } }; },
       }),
     },

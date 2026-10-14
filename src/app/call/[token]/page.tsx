@@ -1,33 +1,48 @@
 'use client';
-// Prompt 905 — the page behind a published call's link. PLACEHOLDER: it shows the call's header and one
-// sentence ("Applications open on [date]"). The real applicant screen — registration, the form, submission — is
-// Prompt 906, which replaces this page. With CALLS_MODE "off" (or a token that does not exist) it says the link is
-// not available, like any other dead link.
-import { useEffect, useState } from 'react';
+// Prompt 905 → 907 (I1) — the page behind a published call's link (spec §13). It shows the call's header and, below it, what the person
+// in front of it needs: the registration box (the 904 component with variant="call") with "Already have an account? Sign in" always
+// visible, the startup step for an account that has no startup yet, or their application. The link keeps its memory:
+//   - registering sends the confirmation email's link back to THIS page (emailRedirectTo = /call/<token>);
+//   - "Sign in" goes to /login?next=/call/<token>;
+//   - a draft is reopened where the applicant left it.
+// Public path; the data comes from /api/calls/public/<token>[/session]. A link that does not work (no such call, not published, archived,
+// no form, or Calls switched off) says so like any other dead link and never reveals which.
+import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import { LogoLockup } from '@/components/Logo';
-import { formatInZone } from '@/lib/calls/tz';
-
-interface PublicCall {
-  name: string; description: string | null; promoter: string; opensAt: string | null; closesAt: string | null;
-  timezone: string; status: string; message: string;
-}
+import { EmailCodeSignup } from '@/components/auth/EmailCodeSignup';
+import { CallHeader, type PublicCallInfo } from '@/components/calls/applicant/CallHeader';
+import { ApplicationArea, type CallSession } from '@/components/calls/applicant/ApplicationArea';
 
 export default function CallLinkPage() {
   const { token } = useParams<{ token: string }>();
-  const [call, setCall] = useState<PublicCall | null | undefined>(undefined);
+  const [call, setCall] = useState<PublicCallInfo | null | undefined>(undefined);
+  const [session, setSession] = useState<CallSession | undefined>(undefined);
 
-  useEffect(() => {
-    fetch(`/api/calls/public/${encodeURIComponent(token)}`).then(async (r) => {
+  const loadSession = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/calls/public/${encodeURIComponent(token)}/session`, { cache: 'no-store' });
       const d = await r.json().catch(() => null);
-      setCall(r.ok && d?.ok ? (d as PublicCall) : null);
-    }).catch(() => setCall(null));
+      setSession(r.ok && d?.ok ? (d as CallSession) : { authenticated: false, hasStartup: false });
+    } catch { setSession({ authenticated: false, hasStartup: false }); }
   }, [token]);
 
+  useEffect(() => {
+    fetch(`/api/calls/public/${encodeURIComponent(token)}`, { cache: 'no-store' }).then(async (r) => {
+      const d = await r.json().catch(() => null);
+      setCall(r.ok && d?.ok ? (d as PublicCallInfo) : null);
+      if (r.ok && d?.ok) void loadSession();
+    }).catch(() => setCall(null));
+  }, [token, loadSession]);
+
+  const here = `/call/${token}`;
+  const open = call?.phase === 'open';
+
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
-      <div className="w-full max-w-lg rounded-2xl bg-white p-8 shadow-xl">
-        <div className="mb-6 text-[#0E7490]"><LogoLockup size={26} accentClassName="text-[#2a7f8e]" /></div>
+    <main className="flex min-h-screen items-start justify-center bg-gray-50 p-4 sm:items-center sm:p-6">
+      <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl sm:p-8">
+        <div className="mb-5 text-[#0E7490]"><LogoLockup size={26} accentClassName="text-[#2a7f8e]" /></div>
         {call === undefined ? (
           <p className="text-sm text-gray-400">Loading…</p>
         ) : call === null ? (
@@ -37,14 +52,37 @@ export default function CallLinkPage() {
           </>
         ) : (
           <>
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">{call.promoter}</p>
-            <h1 className="mt-1 text-xl font-bold text-gray-900" data-testid="call-name">{call.name}</h1>
-            {call.description && <p className="mt-3 whitespace-pre-line text-sm text-gray-600">{call.description}</p>}
-            <dl className="mt-5 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-              <dt className="text-gray-400">Opens</dt><dd className="text-gray-800">{formatInZone(call.opensAt, call.timezone)}</dd>
-              <dt className="text-gray-400">Closes</dt><dd className="text-gray-800">{formatInZone(call.closesAt, call.timezone)}</dd>
-            </dl>
-            <p className="mt-6 rounded-lg bg-[#E8F4F8] px-4 py-3 text-sm font-medium text-[#0E7490]" data-testid="call-message">{call.message}</p>
+            <CallHeader call={call} />
+            <div className="mt-6">
+              {session === undefined ? (
+                <p className="text-sm text-gray-400">Loading…</p>
+              ) : !session.authenticated ? (
+                open ? (
+                  <div data-testid="registration">
+                    <div className="flex justify-center">
+                      <EmailCodeSignup variant="call" redirectPath={here} onDone={() => void loadSession()} />
+                    </div>
+                    <p className="mt-4 text-center text-sm text-gray-600">
+                      Already have an account?{' '}
+                      <Link href={`/login?next=${encodeURIComponent(here)}`} className="font-semibold text-[#0E7490] hover:underline" data-testid="signin-link">Sign in</Link>
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-center text-sm text-gray-600">
+                    Already have an account?{' '}
+                    <Link href={`/login?next=${encodeURIComponent(here)}`} className="font-semibold text-[#0E7490] hover:underline" data-testid="signin-link">Sign in</Link>
+                  </p>
+                )
+              ) : !session.hasStartup ? (
+                open ? (
+                  <div data-testid="startup-step" className="flex justify-center">
+                    <EmailCodeSignup variant="call" initialStage="startup" redirectPath={here} onDone={() => void loadSession()} />
+                  </div>
+                ) : null
+              ) : (
+                <ApplicationArea token={token} call={call} session={session} onChanged={() => void loadSession()} />
+              )}
+            </div>
           </>
         )}
       </div>
