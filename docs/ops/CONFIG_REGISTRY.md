@@ -92,6 +92,7 @@ Sem `NEXT_PUBLIC_APP_URL` os links dos emails (convites, Stripe, "Open your work
 | Nome | Valor | Estado | Quem decidiu e quando | Fonte |
 |---|---|---|---|---|
 | `vercel.json` crons | `/api/automations` às `0 9 * * *` (uma vez por dia) | feito | 22/07/2026. **Hobby: no máximo 1 por dia**; um horário sub-diário faz o deploy falhar (`cron_jobs_limits_reached`) | `vercel.json`; `CLAUDE.md` Stack |
+| Lembrete de Calls (48 h antes do fecho) | **sem cron novo**: é mais um passo independente de `/api/automations` (`callDraftReminders` na resposta). Com um cron diário, quem não abre a app recebe o lembrete entre 24 e 48 h antes do prazo; quem abre a área Calls recebe-o logo | feito (código) · por testar em produção | Nuno, 09/10/2026 (spec §23) / Prompt 907, 14/10/2026 | `src/lib/calls/applicant/notices.ts`; `src/app/api/automations/route.ts` |
 | Plano Vercel | Hobby | feito | — | `CLAUDE.md` Stack |
 
 ### 1.7 Só em máquinas de desenvolvimento (não vão para o Vercel)

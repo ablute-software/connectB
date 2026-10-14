@@ -10202,6 +10202,22 @@ Com o código curto da Adenda 1 (`PD-XXXX-XXXX`, 40 bits) o resgate não tinha l
 
 **Aterragem em `main` (13/10/2026, depois do "sim" do Nuno).** `origin/main` não se mexeu desde a aterragem do 906 (`43d5dd9e`), por isso o branch entrou por fast-forward, sem fusão e sem refazer os checks: o código a publicar é o que foi verificado (os últimos commits são só documentação e capturas). Push directo para `main`, sem passar por um preview do branch, para não correr o motor do cron contra produção mais uma vez. Sem migração. `buildId` de produção antes do push: `1n1OaHsHmx9HDkgzJvZ02` (o do 906).
 
+## Prompt 907 — Calls, Etapa 1B: o lado do candidato (14/10/2026, branch `claude/907-calls-candidate`)
+
+Relatório e lista do que clicar em `docs/calls/ETAPA1B_907.md`; capturas em `docs/calls/screenshots-907/`. Migração `20261014100000_calls_applicant_side.sql` já aplicada (aditiva). **Sem variáveis nem crons novos.**
+
+**Uma candidatura por unidade, decidida na base, não no cliente.** `call_open_application` e `call_submit_application` são funções SQL só para `service_role`, com bloqueio consultivo: o limite por unidade (`org:<id>` ou entidade legal normalizada + país) e a submissão **idempotente por chave** valem mesmo com dois pedidos simultâneos. A versão submetida é imutável (o trigger do 905) e o ecrã lê-a daí: mudar o perfil ou o Vault depois não a altera; os documentos são cópias congeladas.
+
+**A entidade nunca vê um rascunho.** O estado da call devolve só `{submitted,total}`; a lista de Submissions é só de submetidas; *View all applications* passou a ser aplicada no servidor (3 das 9 permissões aplicadas, 6 ficam para a Etapa 3).
+
+**O pré-preenchimento nunca pisa o que o candidato editou**: só preenche chaves ausentes, uma vez. Um campo apagado fica como chave vazia (apagar também é editar).
+
+**O link só resolve calls publicadas e com formulário**; tudo o resto é 404 sem explicação (mudou os testes do 905/909).
+
+**Prazo e avisos (I5).** A prorrogação avisa por email e na app quem tem rascunho — a entidade fica com um número, nunca com quem. O lembrete de 48 h vai só a rascunhos, uma vez por prazo, no cron diário (sem cron novo, por causa do limite da Hobby: sai 24–48 h antes) e logo que a pessoa abre a sua área Calls. **"Contact email for applicants"** é o Reply-To dos emails dessa call; sem ele não há Reply-To (a decisão de 13/10 sem fallback global). O campo grava-se à parte e a qualquer momento: não mexe na versão da configuração.
+
+**Limites ditos:** nada exercido por mim com sessão, email ou modelo reais; chave de entidade legal aproximada (sem NIF); elegibilidade em frases só na Etapa 2.
+
 ## Prompt 911 — registo por código de 6 dígitos em todos os sítios, e erros legíveis (13/10/2026, branch `claude/911-signup-code`)
 
 Urgente: desde 12/10 às 10:11 UTC o SMTP do Supabase Auth recusa tudo (`550 "The sherlockdeal.com domain is not verified"`: a chave do Resend posta no painel é de uma conta onde o domínio não está verificado) e o ecrã mostrava `{}`. Relatório em `docs/auth/PROMPT_911_REGISTO_POR_CODIGO.md`. Uma migração aditiva (`auth_email_failures`, aplicada a 13/10), sem variáveis novas.

@@ -160,7 +160,7 @@ export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summ
             </div>
             {copyHint && <p role="status" className="mt-1.5 text-[11px] font-medium text-emerald-900" data-testid="copy-hint">{copyHint}</p>}
             <p className="mt-2 text-[11px] text-emerald-900/70">
-              For now the link opens a page that says when applications open. The full applicant screen — registration and the form — arrives in the next stage.
+              Applicants open this link, register or sign in, and fill in and submit the form. Until the call opens, the page tells them when it does.
             </p>
           </section>
         )}

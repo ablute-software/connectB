@@ -8,6 +8,7 @@ import { resolveActingOrg } from '@/lib/acting-org';
 import { callsMode } from '@/lib/calls/mode';
 import { serviceClient } from '@/lib/calls/applicant/link';
 import { rowToCall } from '@/lib/calls/mappers';
+import { sendDraftReminders } from '@/lib/calls/applicant/notices';
 import { buildOverview, type ApplicationFacts, type CallFacts } from '@/lib/calls/applicant/overview';
 
 export const dynamic = 'force-dynamic';
@@ -23,6 +24,9 @@ export const GET = withActingOrg(async function GET(req: Request) {
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
   const acting = await resolveActingOrg(req, user, sb);
   if (!acting.orgId) return NextResponse.json({ ok: true, startup: false, openCalls: [], mine: [], past: [] });
+
+  // A draft that is less than 48 hours from its deadline is reminded now, for this person, without waiting for the daily job.
+  await sendDraftReminders(admin, new Date(), { userId: user.id }).catch((e) => console.error('[calls] reminder failed:', (e as Error).message));
 
   const [{ data: org }, { data: apps }, { data: access }] = await Promise.all([
     admin.from('orgs').select('id, is_test').eq('id', acting.orgId).maybeSingle(),

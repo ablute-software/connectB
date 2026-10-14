@@ -32,6 +32,7 @@ import { runTechMasterWindowSweep, type TechMasterSweepResult } from '@/lib/plat
 import { computeAndStoreOverviewSnapshot } from '@/lib/metrics-snapshot';
 import { recheckPendingMalwareScans, retroscanNotScannedDocuments, recheckPendingScansGeneric, recheckMatchdealPhotoScans } from '@/lib/upload-security';
 import { runInterestReminderSweep, type InterestReminderSweepResult } from '@/lib/interest-reminder-sweep';
+import { sendDraftReminders } from '@/lib/calls/applicant/notices';
 import {
   malwareScanAvailable, investorVerificationScanAvailable, ndaScanAvailable,
   matchdealPhotoScanAvailable, supportAttachmentScanAvailable, companyMediaScanAvailable,
@@ -190,6 +191,14 @@ export async function GET() {
   // automation: its own dedicated function, not the generic (still
   // unbuilt) automation-rules engine — same pattern as every other real
   // job in this route.
+  // Prompt 907 (I5) — the Calls reminder: applications still a draft less than 48 h before the call closes. Same Hobby-plan rule as the sweeps above (one
+  // daily tick, no second cron): the reminder leaves between 24 and 48 h before the deadline for someone who does not open the app in between.
+  let callDraftReminders: { calls: number; reminded: number } | null = null;
+  try {
+    callDraftReminders = await sendDraftReminders(admin, new Date());
+  } catch (e) {
+    console.error('[automations] call draft-reminder sweep failed:', e);
+  }
   let interestReminderSweep: InterestReminderSweepResult | null = null;
   try {
     interestReminderSweep = await runInterestReminderSweep(admin, new Date());
@@ -280,6 +289,7 @@ export async function GET() {
     retroscanSweep,
     secondaryMalwareScanSweep,
     interestReminderSweep,
+    callDraftReminders,
     reconciliationSweep,
     investorNotifyDigestSweep,
   });
