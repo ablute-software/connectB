@@ -17,7 +17,7 @@ export type ContentBlock =
   | { type: 'text'; text: string }
   | { type: 'document'; source: { type: 'base64'; media_type: 'application/pdf'; data: string } };
 
-export interface ModelRequest { system: string; content: ContentBlock[]; tool: typeof PROPOSE_TOOL }
+export interface ModelRequest { system: string; content: ContentBlock[]; tool: typeof PROPOSE_TOOL; /** Aborts the call (the job's own clock). */ signal?: AbortSignal }
 export interface ModelResponse { input: unknown; usage?: AnthropicUsage; model: string }
 export type ModelCaller = (req: ModelRequest) => Promise<ModelResponse>;
 
@@ -40,8 +40,8 @@ export function buildContent(docs: PreparedDoc[]): ContentBlock[] {
 }
 
 export async function proposeFromDocuments(
-  docs: PreparedDoc[], deps: { callModel: ModelCaller; now?: Date },
+  docs: PreparedDoc[], deps: { callModel: ModelCaller; now?: Date; signal?: AbortSignal },
 ): Promise<{ proposal: Proposal; usage?: AnthropicUsage; model: string }> {
-  const res = await deps.callModel({ system: PROPOSE_SYSTEM_PROMPT, content: buildContent(docs), tool: PROPOSE_TOOL });
+  const res = await deps.callModel({ system: PROPOSE_SYSTEM_PROMPT, content: buildContent(docs), tool: PROPOSE_TOOL, signal: deps.signal });
   return { proposal: sanitizeProposal(res.input, deps.now), usage: res.usage, model: res.model };
 }

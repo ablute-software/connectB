@@ -8,7 +8,7 @@
 import { NextResponse } from 'next/server';
 import { authCall } from '@/lib/calls/access';
 import { fieldItemsToFormFields, sanitizeFieldItems, sanitizeGeneral, sanitizePhases } from '@/lib/calls/ai-import/proposal';
-import { closeRun, loadRun } from '@/lib/calls/ai-import/store';
+import { closeRun, expireStaleRuns, loadRun } from '@/lib/calls/ai-import/store';
 import { parseFieldsPayload } from '@/lib/calls/form-builder';
 import { parseGeneralPatch, parsePhasesPayload } from '@/lib/calls/mappers';
 import { bumpConfig, loadFields, logCallEvent, replaceFields, replacePhases } from '@/lib/calls/store';
@@ -18,12 +18,31 @@ export const dynamic = 'force-dynamic';
 
 const bad = (error: string, status = 400, extra: Record<string, unknown> = {}) => NextResponse.json({ ok: false, error, ...extra }, { status });
 
+/**
+ * The screen's poll while the documents are being read (Adenda 2): where the run is. "reading" carries nothing else; "proposed" carries the proposal;
+ * "failed" carries the sentence for the person. A run still reading long after any function could be alive is closed as failed here.
+ */
+export async function GET(_req: Request, { params }: { params: { id: string; runId: string } }) {
+  const auth = await authCall(params.id);
+  if (auth.error) return auth.error;
+  await expireStaleRuns(auth.admin, auth.call.id);
+  const run = await loadRun(auth.admin, auth.call.id, params.runId);
+  if (!run) return bad('That proposal does not exist.', 404);
+  const base = { id: run.id, status: run.status, startedAt: run.createdAt };
+  if (run.status === 'proposed' || run.status === 'applied') return NextResponse.json({ ok: true, run: { ...base, proposal: run.proposal } });
+  if (run.status === 'failed') return NextResponse.json({ ok: true, run: { ...base, error: run.errorMessage, code: run.errorCode, durationMs: run.durationMs } });
+  return NextResponse.json({ ok: true, run: base });
+}
+
 export async function POST(req: Request, { params }: { params: { id: string; runId: string } }) {
   const auth = await authCall(params.id, { write: true });
   if (auth.error) return auth.error;
   const run = await loadRun(auth.admin, auth.call.id, params.runId);
   if (!run) return bad('That proposal does not exist.', 404);
-  if (run.status !== 'proposed') return bad(run.status === 'applied' ? 'This proposal was already applied.' : 'This proposal was discarded.', 409);
+  if (run.status !== 'proposed') {
+    return bad(run.status === 'applied' ? 'This proposal was already applied.' : run.status === 'discarded' ? 'This proposal was discarded.'
+      : run.status === 'reading' ? 'The documents are still being read.' : 'Reading these documents failed, so there is no proposal.', 409);
+  }
   const b = await req.json().catch(() => ({})) as { action?: string; baseVersion?: number; accepted?: Record<string, unknown>; fieldsMode?: string };
 
   if (b.action === 'discard') {
