@@ -22,6 +22,7 @@ import { TeamTab } from './TeamTab';
 import { SubmissionsTab } from './SubmissionsTab';
 import { ContactEmailField } from './ContactEmailField';
 import { ImportFromDocuments, type ApplyOutcome } from './ImportFromDocuments';
+import { useImportStatus } from './useImportStatus';
 import { SourceDocumentsPanel } from './SourceDocumentsPanel';
 import type { ProposalFieldItem, ProposalGeneral, ProposalPhaseItem } from '@/lib/calls/ai-import/proposal';
 import type { ImportOutcome } from './ImportFormDialog';
@@ -54,6 +55,8 @@ export function CallEditor({ callId, onBack, startImport = false }: { callId: st
   // Prompt 909 (I4): the import from documents dialog (opened from Form, from General, or when a call is created from documents).
   const [importDocs, setImportDocs] = useState(startImport);
   const [docsReload, setDocsReload] = useState(0);
+  // Prompt 909 (Adenda 2b): a reading in progress, or a proposal waiting for review, shown next to the Import buttons.
+  const importStatus = useImportStatus(callId, docsReload);
 
   // The latest local values and the save machinery live in refs: a save in flight must see edits made meanwhile.
   const callRef = useRef<Call | null>(null);
@@ -247,7 +250,7 @@ export function CallEditor({ callId, onBack, startImport = false }: { callId: st
         <>
           <GeneralTab call={call} promoterName={server.promoterName} disabled={readOnly} onChange={editGeneral} />
           <ContactEmailField callId={callId} initial={call.contactEmail ?? null} canConfigure={server.canManage} />
-          <SourceDocumentsPanel callId={callId} canConfigure={server.canManage} locked={readOnly} reloadKey={docsReload} onImport={() => setImportDocs(true)} />
+          <SourceDocumentsPanel callId={callId} canConfigure={server.canManage} locked={readOnly} reloadKey={docsReload} onImport={() => setImportDocs(true)} importStatus={importStatus} />
           <CallDangerZone actions={server.actions} status={server.effectiveStatus} applicationsTotal={server.applications.total}
             canManage={server.canManage} busy={busy} onDelete={() => void removeCall()} onArchive={() => void act('archive')} />
           {actionError && <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{actionError}</p>}
@@ -256,7 +259,7 @@ export function CallEditor({ callId, onBack, startImport = false }: { callId: st
       {tab === 'phases' && <PhasesTab phases={phases} disabled={readOnly} onChange={editPhases} />}
       {tab === 'team' && <TeamTab callId={callId} />}
       {tab === 'submissions' && <SubmissionsTab callId={callId} timezone={call.timezone} currency={call.currency} />}
-      {tab === 'form' && <FormTab callId={callId} fields={fields} disabled={readOnly} lockedReason={reason} onChange={editFields} onImport={importForm} onImportDocuments={() => setImportDocs(true)} />}
+      {tab === 'form' && <FormTab callId={callId} fields={fields} disabled={readOnly} lockedReason={reason} onChange={editFields} onImport={importForm} onImportDocuments={() => setImportDocs(true)} importStatus={importStatus} />}
       {importDocs && (
         <ImportFromDocuments callId={callId} timezone={call.timezone} currentFieldCount={fields.length}
           onClose={() => { setImportDocs(false); setDocsReload((n) => n + 1); }} onApply={applyImport} />

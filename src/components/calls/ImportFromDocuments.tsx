@@ -1,12 +1,14 @@
 'use client';
 // Prompt 909 (I4) — "Import from documents": upload the organisation's OWN documents, read the proposal, and accept,
-// edit or discard each item. Two steps in one dialog:
+// edit or discard each item. Three steps in one dialog:
 //   1. Upload: the formats and limits written out, the privacy notice shown BEFORE anything is sent, a kind per file.
+//   1b. Reading (Adenda 2): the model works in the background; this step polls the run and says it can take up to two minutes. Closing the
+//      dialog does not stop it, and opening it again resumes the wait (or shows the proposal that is ready, or why it failed).
 //   2. Review: what may be out of date and what the form cannot express (said exactly), then General, Phases and
 //      the Form, every item with Accept / Edit / Discard and "Accept all" per section. What is found for later
 //      stages (eligibility, evaluation) is shown as plain text, not configured. NOTHING reaches the call's
 //      configuration except what is Accepted, when "Apply" is pressed.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Proposal, ProposalFieldItem, ProposalGeneral, ProposalPhaseItem } from '@/lib/calls/ai-import/proposal';
 import {
@@ -14,7 +16,18 @@ import {
 } from '@/lib/calls/ai-import/limits';
 import { FIELD_KINDS, FIELD_KIND_LABELS, isChoiceKind, type FieldKind } from '@/lib/calls/types';
 import { formatInZone, utcToWall, wallToUtcIso } from '@/lib/calls/tz';
+import { splitContact } from '@/lib/calls/ai-import/client-errors';
+import { IMPORT_NOTICES_EVENT, afterPoll, onOpen } from '@/lib/calls/ai-import/screen-state';
 import { callsApi } from './api';
+
+const POLL_MS = 3000;
+
+/** A sentence that may end with the contact address: that part is a link. */
+function Sentence({ text }: { text: string }) {
+  const parts = splitContact(text);
+  if (!parts) return <>{text}</>;
+  return <>{parts.before}<a href="/contact" target="_blank" rel="noopener noreferrer" className="underline">sherlockdeal.com/contact</a>{parts.after}</>;
+}
 
 type Decision = 'accepted' | 'discarded';
 export interface ApplyOutcome { ok: boolean; error?: string; summary?: string }
@@ -25,10 +38,16 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
   callId: string; timezone: string; currentFieldCount: number; onClose: () => void;
   onApply: (runId: string, accepted: { general?: ProposalGeneral; phases?: ProposalPhaseItem[]; fields?: ProposalFieldItem[] }, fieldsMode: 'add' | 'replace') => Promise<ApplyOutcome>;
 }) {
-  const [step, setStep] = useState<'upload' | 'review'>('upload');
+  const [step, setStep] = useState<'upload' | 'reading' | 'review'>('upload');
   const [files, setFiles] = useState<{ file: File; kind: SourceKind }[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [httpStatus, setHttpStatus] = useState<number | null>(null);
+  const [readingRunId, setReadingRunId] = useState<string | null>(null);
+  const [readingSince, setReadingSince] = useState<number>(0);
+  const [elapsed, setElapsed] = useState(0);
+  const [waiting, setWaiting] = useState<{ id: string; proposal: Proposal } | null>(null);
+  const alive = useRef(true);
   const [run, setRun] = useState<{ id: string; proposal: Proposal } | null>(null);
 
   // Review state: a decision per item, and the item as edited.
@@ -37,16 +56,58 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
   const [editing, setEditing] = useState<string | null>(null);
   const [fieldsMode, setFieldsMode] = useState<'add' | 'replace'>('add');
 
+  function openReview(id: string, proposal: Proposal) {
+    setRun({ id, proposal });
+    setEdited({ general: { ...proposal.general }, phases: proposal.phases.map((p) => ({ ...p })), fields: proposal.fields.map((f) => ({ ...f, options: [...f.options] })) });
+    setWaiting(null); setStep('review');
+  }
+  function startWaiting(runId: string, since: number) { setReadingRunId(runId); setReadingSince(since); setElapsed(Math.max(0, Math.round((Date.now() - since) / 1000))); setStep('reading'); }
+
+  // On open: a reading still in progress resumes its wait; a proposal that is ready is offered; a failure that happened while the dialog was closed is said.
+  useEffect(() => {
+    alive.current = true;
+    void (async () => {
+      const r = await callsApi.importState(callId);
+      if (!alive.current || !r.ok) return;
+      // Opening the screen is seeing the notices of this call: they are not needed any more.
+      void callsApi.markImportNoticesSeen({ callId }).then(() => window.dispatchEvent(new Event(IMPORT_NOTICES_EVENT)));
+      const d = onOpen(r.body);
+      if (d.kind === 'reading') { startWaiting(d.runId, d.since); return; }
+      setWaiting(d.waiting);
+      if (d.error) setError(d.error);
+    })();
+    return () => { alive.current = false; };
+  }, [callId]);
+
+  // While reading: ask the run, every few seconds, until it is no longer reading.
+  useEffect(() => {
+    if (step !== 'reading' || !readingRunId) return;
+    let misses = 0; let stopped = false;
+    const tick = async () => {
+      const r = await callsApi.importRun(callId, readingRunId);
+      if (stopped || !alive.current) return;
+      setElapsed(Math.max(0, Math.round((Date.now() - readingSince) / 1000)));
+      const next = afterPoll({ ok: r.ok, status: r.status, run: r.body?.run }, misses);
+      if (next.kind === 'wait') { misses = next.misses; return; }
+      if (next.kind === 'review') { openReview(next.id, next.proposal); return; }
+      setError(next.error); setStep('upload');
+    };
+    const timer = setInterval(() => void tick(), POLL_MS);
+    return () => { stopped = true; clearInterval(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, readingRunId, callId, readingSince]);
+
   async function send() {
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setHttpStatus(null);
     const form = new FormData();
     for (const f of files) { form.append('files', f.file); form.append('kinds', f.kind); }
     const r = await callsApi.importFromDocuments(callId, form);
     setBusy(false);
-    if (!r.ok) { setError(r.body.error ?? 'We could not read the documents.'); return; }
-    setRun({ id: r.body.run.id, proposal: r.body.run.proposal });
-    setEdited({ general: { ...r.body.run.proposal.general }, phases: r.body.run.proposal.phases.map((p) => ({ ...p })), fields: r.body.run.proposal.fields.map((f) => ({ ...f, options: [...f.options] })) });
-    setStep('review');
+    if (!r.ok) {
+      if (r.status === 409 && r.body.code === 'busy' && r.body.runId) { startWaiting(r.body.runId, Date.now()); return; }
+      setError(r.body.error ?? ''); setHttpStatus(r.httpStatus); return;
+    }
+    startWaiting(r.body.run.id, Date.now());
   }
 
   const generalKeys = useMemo(() => (edited ? (Object.keys(edited.general) as (keyof ProposalGeneral)[]) : []), [edited]);
@@ -90,7 +151,7 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
             <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900" data-testid="privacy-notice">{IMPORT_PRIVACY_NOTICE}</p>
             <p className="text-xs text-gray-600" data-testid="import-formats">{IMPORT_FORMATS_TEXT}</p>
             <div>
-              <label className="text-xs font-semibold text-gray-700" htmlFor="import-files">Regulation, a previous form and/or an evaluation grid</label>
+              <label className="text-xs font-semibold text-gray-700" htmlFor="import-files">Regulation and/or a previous form</label>
               <input id="import-files" type="file" multiple accept={IMPORT_ACCEPT} className="mt-1 block text-sm" data-testid="import-files"
                 onChange={(e) => setFiles(Array.from(e.target.files ?? []).slice(0, IMPORT_MAX_FILES).map((file) => ({ file, kind: guessKind(file.name) })))} />
             </div>
@@ -106,12 +167,35 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
                 ))}
               </ul>
             )}
-            {error && <p role="alert" className="text-xs text-[#B00000]" data-testid="import-docs-error">{error}</p>}
+            {waiting && (
+              <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-900" data-testid="import-waiting-proposal">
+                A proposal from an earlier reading is waiting for your review.
+                <span className="ml-3 inline-flex gap-3">
+                  <button type="button" className="font-semibold underline" onClick={() => openReview(waiting.id, waiting.proposal)} data-testid="import-review-waiting">Review it</button>
+                  <button type="button" className="text-emerald-800 underline" onClick={async () => { await callsApi.discardImport(callId, waiting.id); setWaiting(null); }}>Discard it</button>
+                </span>
+              </div>
+            )}
+            {error && (
+              <p role="alert" className="text-xs text-[#B00000]" data-testid="import-docs-error">
+                <Sentence text={error} />
+                {httpStatus !== null && <span className="ml-1 text-[10px] text-gray-400" data-testid="import-http-code">(HTTP {httpStatus})</span>}
+              </p>
+            )}
             <div className="flex justify-end gap-2">
               <button type="button" onClick={onClose} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
               <button type="button" disabled={files.length === 0 || busy} onClick={() => void send()} data-testid="import-docs-send"
-                className="rounded-lg bg-[#0E7490] px-4 py-1.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">{busy ? 'Reading the documents…' : 'Read the documents and propose'}</button>
+                className="rounded-lg bg-[#0E7490] px-4 py-1.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">{busy ? 'Sending…' : 'Read the documents and propose'}</button>
             </div>
+          </div>
+        )}
+
+        {step === 'reading' && (
+          <div className="space-y-4 p-8 text-center" data-testid="import-docs-reading" role="status" aria-live="polite">
+            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-gray-200 border-t-[#0E7490]" aria-hidden="true" />
+            <p className="text-sm text-gray-800" data-testid="reading-text">Reading your documents. This can take a minute or two. You can keep using the platform; we&apos;ll let you know when the proposal is ready.</p>
+            <p className="text-[11px] text-gray-400" data-testid="reading-elapsed">{elapsed}s</p>
+            <button type="button" onClick={onClose} data-testid="continue-working" className="rounded-lg bg-[#0E7490] px-4 py-1.5 text-sm font-semibold text-white hover:bg-[#0c637b]">Continue working</button>
           </div>
         )}
 
@@ -204,7 +288,7 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
   );
 }
 
-const guessKind = (name: string): SourceKind => (/grid|criteri|evaluat|score/i.test(name) ? 'grid' : /form|application/i.test(name) ? 'form' : /regulation|rules|call|regulamento/i.test(name) ? 'regulation' : 'other');
+const guessKind = (name: string): SourceKind => (/form|application/i.test(name) ? 'form' : /regulation|rules|call|regulamento/i.test(name) ? 'regulation' : 'other');
 
 const GENERAL_LABEL: Record<keyof ProposalGeneral, string> = {
   name: 'Name', description: 'Description', opensAt: 'Opens', closesAt: 'Closes', timezone: 'Time zone', limitUnit: 'Application limit',

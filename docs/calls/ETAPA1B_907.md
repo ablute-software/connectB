@@ -1,8 +1,8 @@
 # Calls, Etapa 1B — Prompt 907: o lado do candidato
 
-**Branches:** I1 a I4 já em `main` (`claude/907-i1-i4`); **I5 em `claude/907-i5`**, por testar e por fundir.
+**Branches:** I1 a I4 em `main` desde 14/10 (`claude/907-i1-i4`); I5 em `main` desde 15/10 (`claude/907-i5`).
 **Migração:** `20261014100000_calls_applicant_side.sql` — **já aplicada em produção** a 14/10/2026 (aditiva; teste seco revertido antes).
-**I5 não está em `main`:** falta o OK do Nuno depois do teste de I1 a I4. Capturas em [`screenshots-907/`](screenshots-907/).
+**I1 a I5 em `main` por OK do Nuno (15/10/2026).** Capturas em [`screenshots-907/`](screenshots-907/).
 **Variáveis novas:** nenhuma. **Cron novo:** nenhum (o lembrete é mais um passo de `/api/automations`). Ver `docs/ops/CONFIG_REGISTRY.md` §1.6.
 
 ## O que o Nuno pode clicar (depois do merge e do deploy)
