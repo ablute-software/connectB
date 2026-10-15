@@ -1,9 +1,9 @@
 # Calls, Etapa 1B — Prompt 907: o lado do candidato
 
-**Branch:** `claude/907-i1-i4` (I1 `6f59f32a`, I2+I3 `8f27b814`, I4 `4bbe1c5f`). **O I5 (prazo e notificações) vai à parte, no ramo `claude/907-i5`.**
+**Branches:** I1 a I4 em `main` desde 14/10 (`claude/907-i1-i4`); I5 em `main` desde 15/10 (`claude/907-i5`).
 **Migração:** `20261014100000_calls_applicant_side.sql` — **já aplicada em produção** a 14/10/2026 (aditiva; teste seco revertido antes).
-**I1 a I4 em `main` por OK do Nuno (14/10/2026).** Capturas em [`screenshots-907/`](screenshots-907/).
-**Variáveis novas:** nenhuma. **Cron novo:** nenhum.
+**I1 a I5 em `main` por OK do Nuno (15/10/2026).** Capturas em [`screenshots-907/`](screenshots-907/).
+**Variáveis novas:** nenhuma. **Cron novo:** nenhum (o lembrete é mais um passo de `/api/automations`). Ver `docs/ops/CONFIG_REGISTRY.md` §1.6.
 
 ## O que o Nuno pode clicar (depois do merge e do deploy)
 
@@ -18,6 +18,9 @@
 5. **Área da startup.** Menu **Calls**: *Open calls*, *My applications*, *Past applications*; avisos no topo (receção, lembrete, novo prazo).
 6. **Na entidade.** Na call → separador **Submissions**: lista só as submetidas (nunca rascunhos, nem o número deles), abre a
    candidatura em só de leitura e descarrega os documentos.
+7. **Prazo (I5).** Na call aberta → Preview → **Extend deadline**: quem tem rascunho recebe email e aviso; no General →
+   **Contact email for applicants** passa a ser o Reply-To dos emails dessa call.
+
 ## O que mudou
 
 ### I1 — O link da call
@@ -43,6 +46,15 @@ Startup: `/calls` (`ApplicantCalls`), com `buildOverview` puro e testado. Entida
 *View all applications* passa a ser aplicada no servidor (das 9 permissões, 3 são aplicadas; 6 seguem "Used from the next stage").
 O estado da call só devolve `{submitted,total}` — a entidade nunca vê contagens de rascunhos.
 
+### I5 — Prazo e notificações
+- **Prorrogação:** `notifyDeadlineExtended` avisa (aviso na app + email) quem tem **rascunho**; quem já submeteu não. A entidade fica com o
+  evento `deadline_extension_notified` e um número, **nunca quem**. Uma vez por pessoa e prazo (`extended:<app>:<closes_at>`).
+- **Lembrete 48 h:** `sendDraftReminders` — calls abertas a menos de 48 h de fechar, **só rascunhos**, uma vez por prazo
+  (`reminder_48h:<app>:<closes_at>`; uma prorrogação dá novo lembrete). Corre no cron diário (passo independente de `/api/automations`,
+  resultado `callDraftReminders`) e, de imediato, para quem abre a sua área Calls.
+- **Contact email for applicants:** campo no General (opcional, validado, minúsculas), gravado à parte e a qualquer momento
+  (`PUT /api/calls/[id]/contact`); é o `Reply-To` dos emails **dessa** call. Sem ele, os emails saem sem Reply-To e com o rodapé de "replies are not read" (não há fallback global: `RESEND_REPLY_TO` foi removido a 13/10).
+
 ## Componentes reaproveitados
 `EmailCodeSignup`/`CodeStep` (904/911), `FieldInput` (905, agora com `fileControl`), `auth-redirect.ts`, `email-footer.ts`/`resend.ts`
 (911), `access.ts`/`permissions.ts` (909), o trigger de imutabilidade das submissões (905), `withActingOrg` (904).
@@ -51,20 +63,22 @@ O estado da call só devolve `{submitted,total}` — a entidade nunca vê contag
 - `tsc`, `eslint` (0 erros), `vitest` e `build` sobre a árvore final: ver o relatório no chat (códigos de saída).
 - Testes novos: `phase`, `applicant-logic` (25), `overview`, `calls-907-i1-routes`, `calls-907-applicant-routes` (35: memória do link,
   pré-preenchimento, condições no servidor, submissão idempotente com dois pedidos simultâneos, imutabilidade após mudar perfil/Vault,
-  limite por unidade), `calls-907-i4-routes` (8: a entidade nunca vê rascunhos), `calls-907-i1-components`.
+  limite por unidade), `calls-907-i4-routes` (8: a entidade nunca vê rascunhos), `calls-907-i5-routes` (12: prorrogação só a rascunhos,
+  lembrete uma vez e nunca a quem submeteu, Reply-To, validação do email), `calls-907-i1-components`.
 - No ecrã (modo demo, `dev:verify`, com respostas simuladas): cabeçalho + registo, página 3 do formulário com versão nova do Vault,
-  popup do que falta, confirmação e leitura, área Calls (capturas 01–05).
+  popup do que falta, confirmação e leitura, área Calls, campo "Contact email for applicants" (capturas 01–06).
 - Em produção, a partir da minha parte: a migração aplicada com teste seco; **não** tenho sessão de administrador nem de candidato,
   por isso o fluxo real fica para o teste do Nuno (abaixo).
 
 ## O que **não** está provado / limites honestos
-- Nenhum email real, nenhuma sessão real e nenhum modelo real foram exercidos por mim: os envios foram verificados com o Resend simulado. A única notificação desta parte é o recibo da submissão (aviso na app + email, sem Reply-To, com o rodapé automático).
+- Nenhum email real, nenhuma sessão real e nenhum modelo real foram exercidos por mim: os envios foram verificados com o Resend simulado.
 - A chave de "entidade legal" é aproximada (nome legal normalizado + país) porque ainda não há NIF.
 - A elegibilidade em frases ainda não existe (Etapa 2); o telefone "quando a call o exigir" ainda não é configurável.
 - A autorização do Vault guarda-se numa tabela própria (não em `access_grants` da data room), com cópias congeladas na submissão.
+- Com o cron diário da Hobby, o lembrete sai entre 24 e 48 h antes do prazo para quem não abre a app.
 
 ## Passos de produção (para o Nuno, depois do deploy)
-1. Sem passos de painel novos. **Confirma só que `NEXT_PUBLIC_APP_URL` está definido como `https://www.sherlockdeal.com`** (no registo está `desconhecido`): o link do email do recibo é construído com ela.
+1. Sem passos de painel (nenhuma variável nem cron novos).
 2. Teste guiado: ver "O que o Nuno pode clicar", com `sherlockdeal.com+codigo1@gmail.com`; eu confirmo na base
    (`call_applications`, `call_application_files`, `call_notices`, `call_events`) e nos logs do Auth depois de cada passo.
 3. A limpeza dos dados de teste só se fizer com o OK do Nuno.

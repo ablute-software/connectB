@@ -12,6 +12,7 @@ import { APP_URL } from '@/lib/brand';
 import { sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 import { callLink } from '../link';
 import { formatInZone } from '../tz';
+import { rowToCall } from '../mappers';
 import type { Call } from '../types';
 import type { ApplicationRow } from './store';
 
@@ -66,10 +67,19 @@ export async function createNotice(admin: SupabaseClient, n: {
   return { created: true, id: (data as { id: string }).id };
 }
 
+/**
+ * The link an email carries: ALWAYS absolute (an email has no origin to resolve a relative path against), built from the same `APP_URL` the other
+ * platform emails use. A base set without its scheme gets `https://`; with no token it is the site's root.
+ */
+export function emailLinkFor(call: Pick<Call, 'linkToken'>, base: string = APP_URL): string {
+  const origin = /^https?:\/\//i.test(base) ? base : `https://${base.replace(/^\/+/, '')}`;
+  return call.linkToken ? callLink(origin, call.linkToken) : origin.replace(/\/$/, '');
+}
+
 /** Send the email of a notice and record the outcome on its row. Never throws: a failed email must not undo the event it reports. */
 export async function emailNotice(admin: SupabaseClient, noticeId: string | null, to: string, call: Pick<Call, 'contactEmail' | 'linkToken'>, content: NoticeContent): Promise<boolean> {
   try {
-    const url = call.linkToken ? callLink(APP_URL, call.linkToken) : APP_URL;
+    const url = emailLinkFor(call);
     const res = await sendTransactionalEmail({
       to, subject: content.title,
       html: transactionalTemplate({ heading: esc(content.title), body: esc(content.body), ctaLabel: content.ctaLabel, ctaUrl: url }),
@@ -90,6 +100,65 @@ export async function emailNotice(admin: SupabaseClient, noticeId: string | null
 async function emailOf(admin: SupabaseClient, userId: string): Promise<string | null> {
   const { data } = await admin.auth.admin.getUserById(userId);
   return data?.user?.email ?? null;
+}
+
+type Row = Record<string, unknown>;
+const HOUR = 3_600_000;
+/** How long before the deadline a draft is reminded (spec §23). */
+export const REMINDER_HOURS = 48;
+
+/**
+ * The deadline was extended FOR EVERYONE: whoever has a draft that is not submitted is told — the organisation that runs the call never learns
+ * who they are (it only extended the deadline). Once per person and deadline. Returns how many were notified.
+ */
+export async function notifyDeadlineExtended(admin: SupabaseClient, call: Call): Promise<number> {
+  const { data } = await admin.from('call_applications').select('id, applicant_user_id, reference').eq('call_id', call.id).eq('status', 'draft');
+  let n = 0;
+  for (const a of (data ?? []) as Row[]) {
+    const app = { reference: (a.reference as string | null) ?? null };
+    const content = noticeContent('deadline_extended', call, app);
+    const { created, id } = await createNotice(admin, {
+      userId: a.applicant_user_id as string, callId: call.id, applicationId: a.id as string, kind: 'deadline_extended',
+      dedupeKey: `extended:${a.id}:${call.closesAt}`, content, linkPath: call.linkToken ? `/call/${call.linkToken}` : '/',
+    });
+    if (!created) continue;
+    n++;
+    const to = await emailOf(admin, a.applicant_user_id as string);
+    if (to) await emailNotice(admin, id, to, call, content);
+  }
+  return n;
+}
+
+/**
+ * The reminder: an application still a DRAFT when the call is less than 48 hours from closing. Never for a submitted one (only drafts are looked
+ * at), once per person and deadline (an extension earns a new reminder before the new deadline). `userId` limits it to one person's drafts (used when
+ * they open the app, so the reminder does not wait for the daily cron). The cron runs once a day on this plan, so for someone who does not open the
+ * app the reminder leaves between 24 and 48 hours before the deadline. Returns what it did.
+ */
+export async function sendDraftReminders(admin: SupabaseClient, now: Date = new Date(), opts: { userId?: string } = {}): Promise<{ calls: number; reminded: number }> {
+  const from = now.toISOString();
+  const to = new Date(now.getTime() + REMINDER_HOURS * HOUR).toISOString();
+  const { data: calls } = await admin.from('calls').select('*').eq('status', 'open').gt('closes_at', from).lte('closes_at', to);
+  let reminded = 0;
+  const list = (calls ?? []) as Row[];
+  for (const r of list) {
+    const call = rowToCall(r);
+    let q = admin.from('call_applications').select('id, applicant_user_id, reference').eq('call_id', call.id).eq('status', 'draft');
+    if (opts.userId) q = q.eq('applicant_user_id', opts.userId);
+    const { data } = await q;
+    for (const a of (data ?? []) as Row[]) {
+      const content = noticeContent('draft_reminder', call, { reference: (a.reference as string | null) ?? null });
+      const { created, id } = await createNotice(admin, {
+        userId: a.applicant_user_id as string, callId: call.id, applicationId: a.id as string, kind: 'draft_reminder',
+        dedupeKey: `reminder_48h:${a.id}:${call.closesAt}`, content, linkPath: call.linkToken ? `/call/${call.linkToken}` : '/',
+      });
+      if (!created) continue;
+      reminded++;
+      const email = await emailOf(admin, a.applicant_user_id as string);
+      if (email) await emailNotice(admin, id, email, call, content);
+    }
+  }
+  return { calls: list.length, reminded };
 }
 
 /** The receipt: an in-app notice and an email, once, to the person who submitted. */

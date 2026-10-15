@@ -3,6 +3,7 @@
 // on the status the caller saw (two clicks cannot both succeed), records the event, and returns the new state.
 import { NextResponse } from 'next/server';
 import { authCall } from '@/lib/calls/access';
+import { notifyDeadlineExtended } from '@/lib/calls/applicant/notices';
 import { archiveCall, closeEarly, confirmCall, deleteProblem, editConfiguration, extendDeadline, publishCall, readiness, type Transition } from '@/lib/calls/lifecycle';
 import { countApplications, deleteCallIfEmpty, generateLinkToken, loadFields, loadPhases, logCallEvent, snapshotConfig, transitionCall } from '@/lib/calls/store';
 import { buildCallState, syncStatus } from '@/lib/calls/state';
@@ -54,5 +55,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     await snapshotConfig(auth.admin, updated, phases, fields, auth.userId);
   }
   await logCallEvent(auth.admin, updated.id, transition.event, auth.userId, transition.detail ?? {});
+  // Prompt 907 (I5): an extension notifies, by email and in-app, whoever has a draft not yet submitted — without the entity knowing who.
+  if (body.action === 'extend') {
+    const notified = await notifyDeadlineExtended(auth.admin, updated).catch((e) => { console.error('[calls] deadline notices failed:', (e as Error).message); return 0; });
+    if (notified > 0) await logCallEvent(auth.admin, updated.id, 'deadline_extension_notified', null, { applicants: notified });
+  }
   return NextResponse.json(await buildCallState(auth.admin, updated, auth.promoter, now));
 }

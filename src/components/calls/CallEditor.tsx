@@ -20,6 +20,7 @@ import { StatusBadge } from './StatusBadge';
 import { CallDangerZone } from './CallDangerZone';
 import { TeamTab } from './TeamTab';
 import { SubmissionsTab } from './SubmissionsTab';
+import { ContactEmailField } from './ContactEmailField';
 import { ImportFromDocuments, type ApplyOutcome } from './ImportFromDocuments';
 import { useImportStatus } from './useImportStatus';
 import { SourceDocumentsPanel } from './SourceDocumentsPanel';
@@ -248,6 +249,7 @@ export function CallEditor({ callId, onBack, startImport = false }: { callId: st
       {tab === 'general' && (
         <>
           <GeneralTab call={call} promoterName={server.promoterName} disabled={readOnly} onChange={editGeneral} />
+          <ContactEmailField callId={callId} initial={call.contactEmail ?? null} canConfigure={server.canManage} />
           <SourceDocumentsPanel callId={callId} canConfigure={server.canManage} locked={readOnly} reloadKey={docsReload} onImport={() => setImportDocs(true)} importStatus={importStatus} />
           <CallDangerZone actions={server.actions} status={server.effectiveStatus} applicationsTotal={server.applications.total}
             canManage={server.canManage} busy={busy} onDelete={() => void removeCall()} onArchive={() => void act('archive')} />

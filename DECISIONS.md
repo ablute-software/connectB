@@ -10228,9 +10228,9 @@ Relatório em `docs/calls/ADENDA2_909_IMPORTACAO_ASSINCRONA.md`. Migração `202
 
 **Não muda:** só documentos da entidade, com o aviso; nada é aplicado sem revisão; só com a configuração desbloqueada; os mesmos limites de ficheiros e de tokens.
 
-## Prompt 907 — Calls, Etapa 1B: o lado do candidato (14/10/2026, I1 a I4; branch `claude/907-i1-i4`)
+## Prompt 907 — Calls, Etapa 1B: o lado do candidato (14/10/2026; I1 a I4 em `main` a 14/10, I5 a 15/10)
 
-Relatório e lista do que clicar em `docs/calls/ETAPA1B_907.md`; capturas em `docs/calls/screenshots-907/`. Migração `20261014100000_calls_applicant_side.sql` já aplicada (aditiva). **Sem variáveis nem crons novos. Contém I1 a I4; o I5 (prazo e notificações) é um ramo à parte.**
+Relatório e lista do que clicar em `docs/calls/ETAPA1B_907.md`; capturas em `docs/calls/screenshots-907/`. Migração `20261014100000_calls_applicant_side.sql` já aplicada (aditiva). **Sem variáveis nem crons novos.**
 
 **Uma candidatura por unidade, decidida na base, não no cliente.** `call_open_application` e `call_submit_application` são funções SQL só para `service_role`, com bloqueio consultivo: o limite por unidade (`org:<id>` ou entidade legal normalizada + país) e a submissão **idempotente por chave** valem mesmo com dois pedidos simultâneos. A versão submetida é imutável (o trigger do 905) e o ecrã lê-a daí: mudar o perfil ou o Vault depois não a altera; os documentos são cópias congeladas.
 
@@ -10240,7 +10240,7 @@ Relatório e lista do que clicar em `docs/calls/ETAPA1B_907.md`; capturas em `do
 
 **O link só resolve calls publicadas e com formulário**; tudo o resto é 404 sem explicação (mudou os testes do 905/909).
 
-**Recibo da submissão.** Aviso na app e email a quem submeteu, uma vez (chave de deduplicação); sem Reply-To (o do 911) e com o rodapé automático. O prazo e os lembretes (I5) vão num ramo à parte, `claude/907-i5`.
+**Prazo e avisos (I5).** A prorrogação avisa por email e na app quem tem rascunho — a entidade fica com um número, nunca com quem. O lembrete de 48 h vai só a rascunhos, uma vez por prazo, no cron diário (sem cron novo, por causa do limite da Hobby: sai 24–48 h antes) e logo que a pessoa abre a sua área Calls. **"Contact email for applicants"** é o Reply-To dos emails dessa call; sem ele não há Reply-To (a decisão de 13/10 sem fallback global). O campo grava-se à parte e a qualquer momento: não mexe na versão da configuração. **Acertos pós-911:** com Contact email, é o `reply_to` dos emails dessa call (e não leva a frase "replies are not read"); sem ele não há Reply-To e fica só o rodapé automático central; `RESEND_REPLY_TO` não é lido. A allowlist do código (`AUTH_CODE_MODE`) foi retirada no 911: qualquer `sherlockdeal.com+...@gmail.com` serve para testar. Todos os links dos emails (recibo, lembrete, novo prazo) são absolutos (`https://www.sherlockdeal.com/call/<token>`) pelo mesmo `APP_URL` dos outros emails, com `https://` garantido (`emailLinkFor`); testado através do mailer real.
 
 **Limites ditos:** nada exercido por mim com sessão, email ou modelo reais; chave de entidade legal aproximada (sem NIF); elegibilidade em frases só na Etapa 2.
 
