@@ -20,7 +20,7 @@ async function call<T>(url: string, init?: RequestInit): Promise<ApiResult<T>> {
 const send = (method: string, data?: unknown): RequestInit => ({ method, body: data === undefined ? undefined : JSON.stringify(data) });
 
 export type StateBody = { state: ApplicationState; page: number };
-export interface FileBody { file: { id: string; fieldId: string; source: 'upload' | 'vault'; fileName: string; size: number; versionNumber?: number | null; documentId?: string | null }; answer: unknown }
+export interface FileBody { file: { id: string; fieldId: string; entryId?: string | null; source: 'upload' | 'vault'; fileName: string; size: number; versionNumber?: number | null; documentId?: string | null }; answer: unknown }
 export interface SubmitFailure { fieldId: string; label: string; page: number; message: string }
 
 export const applicantApi = {
@@ -28,10 +28,11 @@ export const applicantApi = {
   get: (id: string) => call<StateBody>(`/api/calls/apply/applications/${id}`),
   save: (id: string, body: { answers: Answers; lastPage: number; baseRevision: number }) => call<{ revision: number }>(`/api/calls/apply/applications/${id}`, send('PUT', body)),
   vault: (id: string) => call<{ documents: { id: string; name: string; version: number; sizeBytes: number | null }[] }>(`/api/calls/apply/applications/${id}/vault`),
-  attachUpload: (id: string, fieldId: string, storagePath: string, fileName: string) =>
-    call<FileBody>(`/api/calls/apply/applications/${id}/files`, send('POST', { fieldId, kind: 'upload', storagePath, fileName })),
-  attachVault: (id: string, fieldId: string, documentId: string) =>
-    call<FileBody>(`/api/calls/apply/applications/${id}/files`, send('POST', { fieldId, kind: 'vault', documentId })),
+  // `entryId`: the entry of a repeatable group the file belongs to (Prompt 917); absent for a File question of the form itself.
+  attachUpload: (id: string, fieldId: string, storagePath: string, fileName: string, entryId?: string) =>
+    call<FileBody>(`/api/calls/apply/applications/${id}/files`, send('POST', { fieldId, entryId, kind: 'upload', storagePath, fileName })),
+  attachVault: (id: string, fieldId: string, documentId: string, entryId?: string) =>
+    call<FileBody>(`/api/calls/apply/applications/${id}/files`, send('POST', { fieldId, entryId, kind: 'vault', documentId })),
   removeFile: (id: string, fileId: string) => call<{ revision?: number }>(`/api/calls/apply/applications/${id}/files/${fileId}`, send('DELETE')),
   refreshFile: (id: string, fileId: string) => call<Pick<FileBody, 'file'>>(`/api/calls/apply/applications/${id}/files/${fileId}/refresh`, send('POST')),
   submit: (id: string, key: string, baseRevision: number) =>

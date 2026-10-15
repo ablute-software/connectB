@@ -3,10 +3,11 @@
 // React, no AI (§2.3/§6.5: the page proposal is rules, not a model).
 import { orderFields } from './form-logic';
 import {
-  DEFAULT_MAX_FILE_MB, FIELD_KINDS, MAPPABLE_KINDS, MAX_FILE_MB_CEILING, PLATFORM_MAPPING_KEYS, YES_NO_OPTIONS,
+  DEFAULT_MAX_FILE_MB, FIELD_KINDS, MAPPABLE_KINDS, PLATFORM_MAPPING_KEYS, YES_NO_OPTIONS,
   isChoiceKind, type ConditionOperator, type FieldCondition, type FieldKind, type FieldOption, type FieldValidations,
-  type FormField, type PlatformMappingKey,
+  type FormField, type PlatformMappingKey, type SimpleKind,
 } from './types';
+import { defaultGroupConfig, parseGroupConfig, parseSimpleValidations } from './field-config';
 
 // --- Ids ------------------------------------------------------------------------------------------------------------
 
@@ -29,7 +30,7 @@ export function newField(kind: FieldKind, page = 1, position = 0): FormField {
     id: newFieldId(), page, position, kind, label: kind === 'file' ? UNTITLED_DOCUMENT : UNTITLED, instruction: null, required: false,
     options: kind === 'yes_no' ? YES_NO_OPTIONS.map((o) => ({ ...o }))
       : isChoiceKind(kind) ? [{ id: newOptionId(), label: 'Option 1' }, { id: newOptionId(), label: 'Option 2' }] : [],
-    validations: kind === 'file' ? { maxFileMb: DEFAULT_MAX_FILE_MB } : {},
+    validations: kind === 'file' ? { maxFileMb: DEFAULT_MAX_FILE_MB } : kind === 'group' ? { group: defaultGroupConfig() } : {},
     condition: null, platformMapping: null, expectedType: null, maxAgeMonths: null,
   };
 }
@@ -224,14 +225,13 @@ export function parseFieldsPayload(input: unknown): ParsedFields {
       }).filter((o) => { if (optSeen.has(o.id)) return false; optSeen.add(o.id); return true; });
     }
 
-    const v = (raw.validations && typeof raw.validations === 'object' ? raw.validations : {}) as Record<string, unknown>;
-    const validations: FieldValidations = {};
-    if (kind === 'short_text' || kind === 'long_text') {
-      const ml = clampInt(v.maxLength, 1, 20000); if (ml) validations.maxLength = ml;
-      if (kind === 'long_text') { const mw = clampInt(v.maxWords, 1, 5000); if (mw) validations.maxWords = mw; }
-    }
-    if (kind === 'file') validations.maxFileMb = clampInt(v.maxFileMb, 1, MAX_FILE_MB_CEILING) ?? DEFAULT_MAX_FILE_MB;
-    if (kind === 'number' && v.currency === true) validations.currency = true;
+    // Prompt 917: what a kind is configured with (the formats and number of files of a File, the hint of a Link, the whole configuration of a group).
+    let validations: FieldValidations = {};
+    if (kind === 'group') {
+      const g = parseGroupConfig((raw.validations as Record<string, unknown> | undefined)?.group);
+      if (!g.ok) return { ok: false, error: `“${str(raw.label, 80) || UNTITLED}”: ${g.error}` };
+      validations = { group: g.config };
+    } else validations = parseSimpleValidations(kind as SimpleKind, raw.validations);
 
     let platformMapping: PlatformMappingKey | null = null;
     if (raw.platformMapping != null && raw.platformMapping !== '') {
@@ -267,6 +267,8 @@ export function parseFieldsPayload(input: unknown): ParsedFields {
     if (!controller || (order.get(controller.id) ?? 0) >= (order.get(f.id) ?? 0)) {
       return { ok: false, error: `“${f.label}” has a display condition that must point at a question placed before it.` };
     }
+    // v1: a condition cannot depend on a group (nor on anything inside one: the sub-questions are not questions of the form).
+    if (controller.kind === 'group') return { ok: false, error: `“${f.label}” cannot depend on a repeatable group.` };
     // A value is optional while the condition is being built; when present it must be one of the controller's options.
     if ((c.operator === 'equals' || c.operator === 'not_equals') && c.value && !controller.options.some((o) => o.id === c.value)) {
       return { ok: false, error: `“${f.label}”: the condition's value is not one of “${controller.label}”'s options.` };

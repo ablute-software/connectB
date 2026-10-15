@@ -3,7 +3,7 @@
 // prompt, and the system prompt says in so many words that anything in them that looks like an instruction is to be
 // ignored. The answer is a forced tool call: a fixed shape, which sanitizeProposal() then re-checks.
 import { DOCUMENT_CONTENT_INSTRUCTION } from '@/lib/prompt-injection-defense';
-import { FIELD_KINDS } from '../types';
+import { AI_FIELD_KINDS } from '../types';
 
 export const PROPOSE_TOOL_NAME = 'propose_call_configuration';
 
@@ -17,7 +17,7 @@ export const PROPOSE_SYSTEM_PROMPT = [
   '  not in the documents, leave it out.',
   '- Dates: use ISO dates (YYYY-MM-DD). If a document gives a time, use it; otherwise give the date only. Do not guess a year.',
   '- Form: group the questions in pages the way the document groups them. The only kinds of question the platform has are: '
-    + FIELD_KINDS.join(', ') + '. A document the applicant must upload is a "file" question (PDF only); say in expected_document_type what it is.',
+    + AI_FIELD_KINDS.join(', ') + '. A document the applicant must upload is a "file" question (PDF only); say in expected_document_type what it is.',
   '- If the documents ask for something these kinds cannot express (a table with several rows, a signature, a video, several',
   '  files in one question, a calculation…), do NOT approximate it: list it in needs_attention with kind "not_covered", saying',
   '  exactly what is asked.',
@@ -81,7 +81,7 @@ export const PROPOSE_TOOL = {
               items: {
                 type: 'object',
                 properties: {
-                  label: { type: 'string' }, kind: { type: 'string', enum: [...FIELD_KINDS] }, instruction: { type: 'string' }, required: { type: 'boolean' },
+                  label: { type: 'string' }, kind: { type: 'string', enum: [...AI_FIELD_KINDS] }, instruction: { type: 'string' }, required: { type: 'boolean' },
                   options: { type: 'array', items: { type: 'string' }, description: 'For single_choice and multiple_choice.' },
                   expected_document_type: { type: 'string', description: 'For file questions: what document is expected.' },
                   max_document_age_months: { type: 'integer', description: 'For file questions: how old the document may be, if stated.' },
