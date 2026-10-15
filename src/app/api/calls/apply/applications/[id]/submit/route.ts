@@ -48,7 +48,7 @@ export const POST = withActingOrg(async function POST(req: Request, { params }: 
   const frozen = [];
   for (const f of result.plan.files) {
     const row = files.find((x) => x.id === f.id)!;
-    const to = frozenPath(a.call.id, a.app.id, row.id);
+    const to = frozenPath(a.call.id, a.app.id, row.id, row.fileName);
     if (!(await freezeFile(a.admin, row, to))) {
       return NextResponse.json({ ok: false, code: 'file_missing', error: `We could not read “${row.fileName}”. Please attach it again.`, failures: [{ fieldId: row.fieldId, label: a.fields.find((q) => q.id === row.fieldId)?.label ?? row.fileName, page: 1, message: 'Please attach the document again.' }] }, { status: 409 });
     }

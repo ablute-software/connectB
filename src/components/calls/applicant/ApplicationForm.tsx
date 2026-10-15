@@ -17,10 +17,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { visiblePages, validateAnswer, isAnswered } from '@/lib/calls/form-logic';
+import { fileIdsInAnswers, fileValues, locateFile, maxFilesForTarget, removeFileFromAnswers, setFileInAnswers, subFieldAsField, type FileTarget } from '@/lib/calls/field-config';
 import { finalCheck, type FinalIssue } from '@/lib/calls/preview-logic';
-import type { Answers, AnswerValue } from '@/lib/calls/types';
+import type { Answers, AnswerValue, SimpleAnswer } from '@/lib/calls/types';
 import { applicantApi, type SubmitFailure } from '@/lib/calls/applicant/client';
-import { fileAnswer } from '@/lib/calls/applicant/answers';
+import { fileValue } from '@/lib/calls/applicant/answers';
 import type { ApplicationState } from '@/lib/calls/applicant/store';
 import { formatInZone } from '@/lib/calls/tz';
 import { FieldInput } from '../FieldInput';
@@ -104,28 +105,38 @@ export function ApplicationForm({ initial, initialPage, onSubmitted }: {
 
   function change(id: string, v: AnswerValue) {
     if (!canEdit) return;
+    // An entry of a repeatable group that was removed takes its files with it: they leave the draft and the storage (the files route clears them everywhere).
+    const before = new Set(fileIdsInAnswers(fields, answersRef.current));
     setAnswers((a) => ({ ...a, [id]: v }));
     answersRef.current = { ...answersRef.current, [id]: v };
+    const after = new Set(fileIdsInAnswers(fields, answersRef.current));
+    for (const fid of before) if (!after.has(fid)) { setFiles((all) => all.filter((x) => x.id !== fid)); void applicantApi.removeFile(appId, fid); }
     touch();
   }
 
   // ---- files ----------------------------------------------------------------------------------------------------------------
-  function attached(f: StateFile) {
-    setFiles((all) => [...all.filter((x) => x.fieldId !== f.fieldId), f]);
-    setAnswers((a) => ({ ...a, [f.fieldId]: fileAnswer(f) })); answersRef.current = { ...answersRef.current, [f.fieldId]: fileAnswer(f) };
+  // A file belongs to a question (and, inside a group, to one entry of it): where its answer goes is decided by the shared pure helpers.
+  function attached(f: StateFile, target: FileTarget) {
+    const single = maxFilesForTarget(fields, target) <= 1;
+    // A question that takes one file: the new one replaces the old (same question, same entry). One that takes several: it is added.
+    setFiles((all) => [...all.filter((x) => x.id !== f.id && !(single && x.fieldId === f.fieldId && (x.entryId ?? null) === (f.entryId ?? null))), f]);
+    const next = setFileInAnswers(fields, answersRef.current, target, fileValue(f));
+    answersRef.current = next; setAnswers(next);
     // The server must know the answer points at this file before anything else happens: save now, not on the timer.
     dirty.current = true; void flush(true);
   }
   function removed(fileId: string, revision?: number) {
-    const gone = files.find((x) => x.id === fileId);
     setFiles((all) => all.filter((x) => x.id !== fileId));
-    if (gone) { const { [gone.fieldId]: _drop, ...rest } = answersRef.current; answersRef.current = rest; setAnswers(rest); }
+    const { answers: rest } = removeFileFromAnswers(fields, answersRef.current, fileId);
+    answersRef.current = rest; setAnswers(rest);
     // The route already cleared it in the draft and moved the revision: carry it, so the next save is not taken for a conflict.
     if (typeof revision === 'number') revisionRef.current = revision;
   }
   function updated(f: StateFile) {
     setFiles((all) => all.map((x) => (x.id === f.id ? { ...f } : x)));
-    setAnswers((a) => ({ ...a, [f.fieldId]: fileAnswer(f) }));
+    // The same file, now at the new version: its answer entry is rebuilt wherever it is.
+    const target = locateFile(fields, answersRef.current, f.id);
+    if (target) { const next = setFileInAnswers(fields, answersRef.current, target, fileValue(f)); answersRef.current = next; setAnswers(next); }
   }
 
   // ---- navigation -----------------------------------------------------------------------------------------------------------
@@ -158,7 +169,11 @@ export function ApplicationForm({ initial, initialPage, onSubmitted }: {
   }
 
   if (!current) return <p className="text-sm text-gray-500">This form has no questions.</p>;
-  const fileOf = (fieldId: string) => files.find((f) => f.fieldId === fieldId) ?? null;
+  /** The files an answer points at (each shown with its own Remove): only THIS question's, and inside a group only THIS entry's. */
+  const filesOf = (answer: AnswerValue | SimpleAnswer): StateFile[] => {
+    const ids = new Set(fileValues(answer).map((v) => v.fileId));
+    return files.filter((f) => ids.has(f.id));
+  };
 
   return (
     <section data-testid="application-form" aria-label="Application">
@@ -187,8 +202,12 @@ export function ApplicationForm({ initial, initialPage, onSubmitted }: {
           return (
             <FieldInput key={f.id} field={f} value={v} error={err ?? undefined} currency={initial.call.currency} disabled={!canEdit} onChange={(nv) => change(f.id, nv)}
               fileControl={f.kind === 'file' ? (
-                <FileQuestion field={f} applicationId={appId} orgId={initial.orgId} file={fileOf(f.id)} disabled={!canEdit}
-                  onAttached={attached} onRemoved={removed} onUpdated={updated} />
+                <FileQuestion field={f} applicationId={appId} orgId={initial.orgId} files={filesOf(v)} disabled={!canEdit}
+                  onAttached={(file) => attached(file, { questionId: f.id })} onRemoved={removed} onUpdated={updated} />
+              ) : undefined}
+              fileControlFor={f.kind === 'group' ? (sub, entryId, entryValue) => (
+                <FileQuestion field={subFieldAsField(sub)} entryId={entryId} applicationId={appId} orgId={initial.orgId} files={filesOf(entryValue)} disabled={!canEdit}
+                  onAttached={(file) => attached(file, { questionId: sub.id, groupId: f.id, entryId })} onRemoved={removed} onUpdated={updated} />
               ) : undefined} />
           );
         })}

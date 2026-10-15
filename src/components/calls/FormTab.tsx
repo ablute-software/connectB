@@ -6,6 +6,7 @@
 import { useMemo, useState } from 'react';
 import { ImportFormDialog, type ImportOutcome } from './ImportFormDialog';
 import { ImportStatusPill } from './ImportStatusPill';
+import { FileConfigEditor, GroupEditor, UrlConfigEditor } from './GroupEditor';
 import type { ImportStatus } from '@/lib/calls/ai-import/screen-state';
 import type { ImportMode } from '@/lib/calls/form-import';
 import { orderFields } from '@/lib/calls/form-logic';
@@ -18,7 +19,7 @@ import {
 } from '@/lib/calls/types';
 
 const KIND_ICON: Record<FieldKind, string> = {
-  short_text: 'Aa', long_text: '¶', number: '#', date: '📅', yes_no: '✓✗', single_choice: '◉', multiple_choice: '☑', file: '📄',
+  short_text: 'Aa', long_text: '¶', number: '#', date: '📅', yes_no: '✓✗', single_choice: '◉', multiple_choice: '☑', file: '📄', url: '🔗', email: '@', group: '▦',
 };
 const INPUT = 'block w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm disabled:bg-gray-50 disabled:text-gray-500';
 const LABEL = 'block text-[11px] font-semibold uppercase tracking-wide text-gray-500';
@@ -192,7 +193,8 @@ function FieldPanel({ field, ordered, disabled, onChange, onReplace, onDelete }:
   field: FormField; ordered: FormField[]; disabled: boolean;
   onChange: (patch: Partial<FormField>) => void; onReplace: (f: FormField) => void; onDelete: () => void;
 }) {
-  const earlier = ordered.slice(0, ordered.findIndex((x) => x.id === field.id));
+  // A group cannot be what a condition depends on (version 1), and nothing inside a group is a question of the form.
+  const earlier = ordered.slice(0, ordered.findIndex((x) => x.id === field.id)).filter((x) => x.kind !== 'group');
   const controller = field.condition ? earlier.find((x) => x.id === field.condition!.fieldId) : null;
   const optionControl = controller ? isChoiceKind(controller.kind) || controller.kind === 'yes_no' : false;
   const operators: ConditionOperator[] = optionControl ? ['equals', 'not_equals', 'is_answered', 'is_empty'] : ['is_answered', 'is_empty'];
@@ -206,7 +208,7 @@ function FieldPanel({ field, ordered, disabled, onChange, onReplace, onDelete }:
         </select>
       </div>
       <div>
-        <label className={LABEL} htmlFor="fp-label">{field.kind === 'file' ? 'Document name' : 'Question'}</label>
+        <label className={LABEL} htmlFor="fp-label">{field.kind === 'file' ? 'Document name' : field.kind === 'group' ? 'Title of the group' : 'Question'}</label>
         <textarea id="fp-label" rows={2} autoComplete="off" className={INPUT} value={field.label} disabled={disabled} maxLength={500} onChange={(e) => onChange({ label: e.target.value })} />
       </div>
       <div>
@@ -260,15 +262,15 @@ function FieldPanel({ field, ordered, disabled, onChange, onReplace, onDelete }:
           </label>
         </div>
       )}
+      {field.kind === 'url' && <UrlConfigEditor value={field.validations} disabled={disabled} onChange={(v) => onChange({ validations: v })} />}
+      {field.kind === 'email' && <p className="rounded bg-gray-50 px-2 py-1.5 text-xs text-gray-500">The format of the address is checked. Most useful inside a repeatable group (the email of each team member).</p>}
+      {field.kind === 'group' && field.validations.group && (
+        <GroupEditor value={field.validations.group} disabled={disabled} onChange={(g) => onChange({ validations: { ...field.validations, group: g } })} />
+      )}
       {field.kind === 'file' && (
         <div className="space-y-2">
-          <p className="rounded bg-gray-50 px-2 py-1.5 text-xs text-gray-500">PDF files only.</p>
+          <FileConfigEditor value={field.validations} disabled={disabled} idPrefix="fp" onChange={(v) => onChange({ validations: v })} />
           <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className={LABEL} htmlFor="fp-mb">Max size (MB)</label>
-              <input id="fp-mb" type="number" min={1} max={MAX_FILE_MB_CEILING} autoComplete="off" className={INPUT} disabled={disabled} value={field.validations.maxFileMb ?? DEFAULT_MAX_FILE_MB}
-                onChange={(e) => onChange({ validations: { ...field.validations, maxFileMb: e.target.value ? Number(e.target.value) : undefined } })} />
-            </div>
             <div>
               <label className={LABEL} htmlFor="fp-age">Valid for (months)</label>
               <input id="fp-age" type="number" min={1} autoComplete="off" className={INPUT} disabled={disabled} placeholder="no limit" value={field.maxAgeMonths ?? ''}

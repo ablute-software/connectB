@@ -46,7 +46,7 @@ export function importForm(
     }
     return {
       ...f, id: idMap.get(f.id)!, page, position, condition,
-      options: f.options.map((o) => ({ ...o })), validations: { ...f.validations },
+      options: f.options.map((o) => ({ ...o })), validations: JSON.parse(JSON.stringify(f.validations)) as typeof f.validations,
     };
   });
 

@@ -57,3 +57,19 @@ export function xlsx(sheets: Record<string, string[][]>): Buffer {
   for (const [name, rows] of Object.entries(sheets)) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name);
   return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
 }
+
+// --- Prompt 917 (I1): files of the other formats a File question can take, and what must be refused ----------------------------------------------------
+
+export const zipFiles = zip;
+const OOXML_TYPES = '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>';
+/** A PowerPoint file (only what the platform checks: its content types and its presentation part). */
+export function pptx(): Buffer { return zip({ '[Content_Types].xml': OOXML_TYPES, 'ppt/presentation.xml': '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>' }); }
+/** A real archive: a ZIP is never accepted, however it is named. */
+export function plainZip(): Buffer { return zip({ 'a.txt': 'hello', 'b.txt': 'world' }); }
+/** An archive that only CLAIMS to be a Word file by its name: no word/document.xml inside. */
+export function zipNamedAsOffice(): Buffer { return zip({ '[Content_Types].xml': OOXML_TYPES, 'cv.pdf': 'not a document' }); }
+/** The start of a PNG and of a JPEG: what the platform's detection reads (magic bytes). */
+export const png = (): Buffer => Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('IHDR-padding-for-a-test-image')]);
+export const jpeg = (): Buffer => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('JFIF-padding-for-a-test-image')]);
+/** A Windows executable renamed to look like anything: refused by its bytes. */
+export const exe = (): Buffer => Buffer.concat([Buffer.from('MZ'), Buffer.alloc(64, 1)]);

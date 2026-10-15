@@ -5,7 +5,8 @@
 import { useEffect, useState } from 'react';
 import { formatInZone } from '@/lib/calls/tz';
 import { formatNumberDisplay, visiblePages } from '@/lib/calls/form-logic';
-import type { Answers, AnswerValue, FormField } from '@/lib/calls/types';
+import { entriesOf, fileValues, groupOf, isHttpUrl, subFieldAsField } from '@/lib/calls/field-config';
+import type { Answers, AnswerValue, FormField, SimpleAnswer } from '@/lib/calls/types';
 
 interface Item { applicationId: string; reference: string | null; startup: string; submittedAt: string }
 interface Detail {
@@ -18,11 +19,73 @@ const sizeText = (b: number) => (b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed
 /** An answer as text, for reading (option labels, not ids). Pure; the tests read it. */
 export function answerText(field: FormField, value: AnswerValue, currency: string): string {
   if (value == null || value === '') return '—';
-  if (Array.isArray(value)) return value.map((id) => field.options.find((o) => o.id === id)?.label ?? id).join(', ') || '—';
-  if (typeof value === 'object') return value.fileName;
+  if (field.kind === 'group') { const n = entriesOf(value).length; const g = groupOf(field); return n === 0 ? '—' : `${n} ${(g?.entryLabel ?? 'entry').toLowerCase()}${n === 1 ? '' : ' entries'}`; }
+  if (Array.isArray(value)) {
+    if (field.kind === 'file') return fileValues(value).map((f) => f.fileName).join(', ') || '—';
+    return (value as unknown[]).map((id) => field.options.find((o) => o.id === id)?.label ?? String(id)).join(', ') || '—';
+  }
+  if (typeof value === 'object') return (value as { fileName: string }).fileName;
   if (field.kind === 'yes_no' || field.kind === 'single_choice') return field.options.find((o) => o.id === value)?.label ?? value;
   if (field.kind === 'number') return formatNumberDisplay(value, field.validations.currency ? currency : null);
   return value;
+}
+
+type Doc = Detail['documents'][number];
+
+/** One answer as the entity reads it: option labels, files as downloads, a link that opens in a NEW tab (never embedded, never previewed), a group as its entries. */
+export function AnswerView({ field, value, docs, currency }: { field: FormField; value: AnswerValue | SimpleAnswer; docs: Doc[]; currency: string }) {
+  if (field.kind === 'file') {
+    const refs = fileValues(value);
+    if (refs.length === 0) return <>—</>;
+    return (
+      <ul className="space-y-0.5" data-testid="answer-files">
+        {refs.map((r, i) => {
+          const doc = docs.find((d) => d.fileId === r.fileId);
+          return (
+            <li key={r.fileId ?? i}>
+              {doc ? <a href={doc.url} className="font-medium text-[#0E7490] hover:underline" target="_blank" rel="noreferrer">{doc.fileName}</a> : r.fileName}
+              <span className="ml-2 text-xs text-gray-400">{sizeText(doc?.size ?? r.size)}{doc?.source === 'vault' ? ` · from the Vault (v${doc.versionNumber ?? 1})` : ''}</span>
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
+  if (field.kind === 'url') {
+    const url = typeof value === 'string' ? value.trim() : '';
+    if (!url) return <>—</>;
+    // Only an http(s) link becomes a link; anything else is shown as plain text. It opens in a new tab, without the opener or the referrer.
+    return isHttpUrl(url) ? <a href={url} target="_blank" rel="noopener noreferrer" className="break-all font-medium text-[#0E7490] hover:underline" data-testid="answer-link">{url}</a> : <span className="break-all">{url}</span>;
+  }
+  if (field.kind === 'group') {
+    const g = groupOf(field);
+    const entries = entriesOf(value as AnswerValue);
+    if (!g || entries.length === 0) return <>—</>;
+    const cells = (e: (typeof entries)[number]) => g.subFields.map((s) => <AnswerView key={s.id} field={subFieldAsField(s)} value={e.values[s.id]} docs={docs} currency={currency} />);
+    if (g.display === 'table') {
+      return (
+        <div className="overflow-x-auto" data-testid="answer-group-table">
+          <table className="min-w-full text-left text-sm">
+            <thead className="text-xs text-gray-500"><tr>{g.subFields.map((s) => <th key={s.id} className="py-1 pr-4 font-medium">{s.label}</th>)}</tr></thead>
+            <tbody>{entries.map((e) => <tr key={e.id} className="border-t border-gray-100 align-top">{cells(e).map((c, i) => <td key={i} className="py-1 pr-4">{c}</td>)}</tr>)}</tbody>
+          </table>
+        </div>
+      );
+    }
+    return (
+      <ol className="space-y-2" data-testid="answer-group-cards">
+        {entries.map((e, i) => (
+          <li key={e.id} className="rounded border border-gray-200 px-3 py-2">
+            <p className="text-xs font-semibold text-gray-500">{g.entryLabel} {i + 1}</p>
+            <dl className="mt-1 space-y-0.5">{g.subFields.map((s) => (
+              <div key={s.id} className="grid gap-1 sm:grid-cols-[10rem_1fr]"><dt className="text-xs text-gray-500">{s.label}</dt><dd className="text-sm"><AnswerView field={subFieldAsField(s)} value={e.values[s.id]} docs={docs} currency={currency} /></dd></div>
+            ))}</dl>
+          </li>
+        ))}
+      </ol>
+    );
+  }
+  return <>{answerText(field, value as AnswerValue, currency)}</>;
 }
 
 export function SubmissionsTab({ callId, timezone, currency }: { callId: string; timezone: string; currency: string }) {
@@ -60,20 +123,14 @@ export function SubmissionsTab({ callId, timezone, currency }: { callId: string;
             <div key={p.page}>
               <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Page {i + 1}</h3>
               <dl className="mt-1 divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white">
-                {p.fields.map((f) => {
-                  const doc = open.documents.find((d) => d.fieldId === f.id);
-                  return (
-                    <div key={f.id} className="grid gap-1 px-4 py-2.5 sm:grid-cols-[14rem_1fr]">
-                      <dt className="text-sm text-gray-500">{f.label}</dt>
-                      <dd className="whitespace-pre-line text-sm text-gray-900" data-testid="answer">
-                        {f.kind === 'file' && doc
-                          ? <a href={doc.url} className="font-medium text-[#0E7490] hover:underline" target="_blank" rel="noreferrer">{doc.fileName}</a>
-                          : answerText(f, open.answers[f.id], currency)}
-                        {doc && <span className="ml-2 text-xs text-gray-400">{sizeText(doc.size)}{doc.source === 'vault' ? ` · from the Vault (v${doc.versionNumber ?? 1})` : ''}</span>}
-                      </dd>
-                    </div>
-                  );
-                })}
+                {p.fields.map((f) => (
+                  <div key={f.id} className="grid gap-1 px-4 py-2.5 sm:grid-cols-[14rem_1fr]">
+                    <dt className="text-sm text-gray-500">{f.label}</dt>
+                    <dd className="whitespace-pre-line text-sm text-gray-900" data-testid="answer">
+                      <AnswerView field={f} value={open.answers[f.id]} docs={open.documents} currency={currency} />
+                    </dd>
+                  </div>
+                ))}
               </dl>
             </div>
           ))}

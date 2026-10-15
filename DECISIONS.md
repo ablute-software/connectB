@@ -10202,6 +10202,24 @@ Com o código curto da Adenda 1 (`PD-XXXX-XXXX`, 40 bits) o resgate não tinha l
 
 **Aterragem em `main` (13/10/2026, depois do "sim" do Nuno).** `origin/main` não se mexeu desde a aterragem do 906 (`43d5dd9e`), por isso o branch entrou por fast-forward, sem fusão e sem refazer os checks: o código a publicar é o que foi verificado (os últimos commits são só documentação e capturas). Push directo para `main`, sem passar por um preview do branch, para não correr o motor do cron contra produção mais uma vez. Sem migração. `buildId` de produção antes do push: `1n1OaHsHmx9HDkgzJvZ02` (o do 906).
 
+## Prompt 917, I1 — os tipos de campo que faltam: link, email, ficheiro melhorado e grupo repetível (15/10/2026, branch `claude/917-i1-field-types`)
+
+Relatório em `docs/calls/PROMPT_917_I1_TIPOS_DE_CAMPO.md`. Migração `20261015120000_calls_field_types.sql` (aditiva). Sem variáveis nem dependências novas. **O I2 (a importação a usar os tipos novos e a não se repetir) fica à espera do teste do Nuno.**
+
+**Vêm do formulário real** (`Formulário_2edCall-INNOV-ID_PT_Final-2.pdf`, Adenda 2b do 909): o 6.3 (link de vídeo), o 6.4/6.4.1 (CVs e dados por membro da equipa), o 6.6 ("outros documentos", sem número fixo) e a tabela da concorrência não cabiam em oito tipos.
+
+**Onde vive a configuração.** Em `call_form_fields.validations` (já é `jsonb`): os formatos, o número de ficheiros, a dica do link e o grupo inteiro (nome da entrada, mínimo, máximo, cartões ou tabela, as linhas fixas, os sub-campos). Por isso duplicar uma call, importar o formulário de outra e o retrato do formulário numa submissão levam-nos **sem coluna própria**. As respostas ficam em `jsonb` com estrutura própria (um grupo é uma lista de entradas; vários ficheiros, uma lista). Só se acrescentou: o `kind` aceita `url`, `email`, `group`, e `call_application_files.entry_id` diz a que entrada de um grupo pertence um ficheiro ("um ficheiro por pergunta" passa a "por pergunta e por entrada"; sem isto o CV da segunda pessoa substituiria o da primeira).
+
+**O formato verifica-se pelos bytes.** Usa a deteção que a plataforma já tem (`detectAllowedKind`: assinatura do ficheiro, a extensão tem de concordar) e aperta-a nos Office, que por dentro são zip: só são Word/Excel/PowerPoint se tiverem mesmo `word/document.xml` / `xl/workbook.xml` / `ppt/presentation.xml`, por isso um arquivo renomeado é recusado. **ZIP nunca** (não se verifica nem se analisa); para vários ficheiros há "Allow several files" (até 10) ou um grupo. Um programa chamado `.pdf` e um Word chamado `.pdf` também são recusados.
+
+**Um link guarda-se como foi escrito** (um link a meio de ser escrito tem de sobreviver ao rascunho automático); quem o recusa é a verificação final, no servidor (só `http(s)`). Na tab Submissions abre num separador novo com `rel="noopener noreferrer"`, **sem incorporar nem pré-visualizar**, e só é link se for `http(s)`.
+
+**Grupo.** Não pode ter outro grupo dentro, e as condições não podem depender dele nem de um sub-campo (os dois limites da v1, escritos na spec §6.1). Tabela com linhas fixas: o servidor repõe sempre o texto das primeiras colunas e o número de linhas (mínimo = máximo = as linhas), seja o que for que o browser envie. Cada entrada valida os seus obrigatórios; a mensagem diz a entrada e a pergunta ("Team member 2 — Email: This answer is required."). Remover uma entrada remove os seus ficheiros.
+
+**A importação por IA não muda neste incremento:** continua só com os oito tipos antigos (`AI_FIELD_KINDS`); os novos passam a ser propostos no I2, com as suas regras.
+
+**Limites ditos:** o Vault só oferece PDFs; não vi o ecrã desenhado (o painel do browser recusou o servidor local), por isso o desenho (cartões/tabela, o repetidor) está provado por testes de marcação e de lógica, não à vista.
+
 ## Prompt 909, Adenda 2b — sem grelhas na IA, sem ficar preso ao ecrã, e a leitura em partes (15/10/2026, branch `claude/909-adenda2b-grid-notify-speed`)
 
 Relatório em `docs/calls/ADENDA2B_909_GRELHAS_AVISOS_VELOCIDADE.md`. Migração `20261015100000_calls_import_notices.sql` (aditiva). Dependência nova: `unpdf` (texto de PDF, versão serverless do pdf.js). Sem variáveis novas.

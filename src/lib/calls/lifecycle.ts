@@ -58,6 +58,13 @@ export function readiness(call: Call, phases: CallPhase[], fields: FormField[], 
     if (f.label === UNTITLED || f.label === UNTITLED_DOCUMENT || !f.label.trim()) {
       issues.push({ tab: 'form', message: `A ${f.kind === 'file' ? 'document' : 'question'} still has no text.` });
     }
+    // Prompt 917: a repeatable group's own questions are held to the same standard as the questions of the form.
+    const group = f.kind === 'group' ? f.validations.group : null;
+    if (f.kind === 'group' && (!group || group.subFields.length === 0)) issues.push({ tab: 'form', message: `“${f.label}” (a group) needs at least one question.` });
+    for (const s of group?.subFields ?? []) {
+      if (!s.label.trim() || s.label === UNTITLED) issues.push({ tab: 'form', message: `A question in the group “${f.label}” still has no text.` });
+      if (isChoiceKind(s.kind) && s.options.filter((o) => o.label.trim()).length < 2) issues.push({ tab: 'form', message: `“${s.label}” (in “${f.label}”) needs at least two options.` });
+    }
     if (isChoiceKind(f.kind)) {
       const labelled = f.options.filter((o) => o.label.trim());
       if (labelled.length < 2) issues.push({ tab: 'form', message: `“${f.label}” needs at least two options.` });

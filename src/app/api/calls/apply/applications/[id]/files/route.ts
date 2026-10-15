@@ -5,14 +5,17 @@
 //   kind "vault":  the applicant chose a document of their Vault. The authorisation is recorded IN THE NAME OF THE CALL (never of an
 //                  evaluator) and pins the version that exists now; the submission copies those exact bytes, so a later change in the
 //                  Vault never changes what was submitted. A newer version is offered (with a confirmation) until the application is submitted.
-// One file per question: a new one replaces the old one.
+// One file per question — a new one replaces the old one — unless the question takes several (Prompt 917: up to 10): then each is its own entry, up to that
+// number. The question may be a File question of the form or a File question inside a repeatable group. What it accepts (PDF, Word, Excel, PowerPoint, images) is
+// the entity's choice and is checked on the BYTES; a ZIP is never accepted.
 import { NextResponse } from 'next/server';
 import { withActingOrg } from '@/lib/acting-org';
 import { authApplication } from '@/lib/calls/applicant/auth';
 import { addFile, loadFiles, loadVaultPdf, objectSize, removeFileRow } from '@/lib/calls/applicant/store';
 import { fileAnswer } from '@/lib/calls/applicant/answers';
-import { detectAllowedKind, scanWithVirusTotal, sha256Hex } from '@/lib/upload-security';
-import { DEFAULT_MAX_FILE_MB, MAX_FILE_MB_CEILING } from '@/lib/calls/types';
+import { scanWithVirusTotal, sha256Hex } from '@/lib/upload-security';
+import { fileFormatsOf, fileQuestions, formatsText, maxFileMbOf, maxFilesOf } from '@/lib/calls/field-config';
+import { ZIP_REFUSED, formatOfBytes, isZipName } from '@/lib/calls/applicant/file-format';
 import { logCallEvent } from '@/lib/calls/store';
 
 export const dynamic = 'force-dynamic';
@@ -27,15 +30,23 @@ export const POST = withActingOrg(async function POST(req: Request, { params }: 
   const { data: accepting } = await a.admin.rpc('call_accepting', { p_call: a.call.id });
   if (accepting !== true) return NextResponse.json({ ok: false, code: 'closed', error: 'This call is no longer accepting applications.' }, { status: 409 });
 
-  const body = (await req.json().catch(() => ({}))) as { fieldId?: unknown; kind?: unknown; storagePath?: unknown; fileName?: unknown; documentId?: unknown };
-  const field = a.fields.find((f) => f.id === body.fieldId);
-  if (!field || field.kind !== 'file') return NextResponse.json({ ok: false, error: 'That is not a document question of this call.' }, { status: 400 });
-  const maxMb = Math.min(field.validations.maxFileMb ?? DEFAULT_MAX_FILE_MB, MAX_FILE_MB_CEILING);
+  const body = (await req.json().catch(() => ({}))) as { fieldId?: unknown; entryId?: unknown; kind?: unknown; storagePath?: unknown; fileName?: unknown; documentId?: unknown };
+  const field = fileQuestions(a.fields).find((q) => q.id === body.fieldId);
+  if (!field) return NextResponse.json({ ok: false, error: 'That is not a document question of this call.' }, { status: 400 });
+  const formats = fileFormatsOf(field.validations);
+  const maxFiles = maxFilesOf(field.validations);
+  const maxMb = maxFileMbOf(field.validations);
   const tooBig = (bytes: number) => bytes > maxMb * 1024 * 1024;
 
+  // A File question inside a group has one file (or several) PER ENTRY: the entry says whose it is.
+  const entryId = field.groupId ? (typeof body.entryId === 'string' && /^[A-Za-z0-9_-]{4,64}$/.test(body.entryId) ? body.entryId : null) : null;
+  if (field.groupId && !entryId) return NextResponse.json({ ok: false, error: 'Say which entry this file belongs to.' }, { status: 400 });
+  const previous = (await loadFiles(a.admin, a.app.id)).filter((f) => f.fieldId === field.id && (f.entryId ?? null) === entryId);
+  // Several files: the next one is added, up to the number the question takes. One file: the new one replaces the old.
+  if (maxFiles > 1 && previous.length >= maxFiles) return NextResponse.json({ ok: false, error: `You can attach at most ${maxFiles} files here.` }, { status: 400 });
   // Replace what was there: its row goes (an uploaded object is removed from storage once the new one is in).
-  const previous = (await loadFiles(a.admin, a.app.id)).filter((f) => f.fieldId === field.id);
   const dropPrevious = async () => {
+    if (maxFiles > 1) return;
     for (const p of previous) {
       await removeFileRow(a.admin, a.app.id, p.id);
       if (p.source === 'upload') await a.admin.storage.from(BUCKET).remove([p.storagePath]);
@@ -51,33 +62,37 @@ export const POST = withActingOrg(async function POST(req: Request, { params }: 
     if (dlErr || !blob) return NextResponse.json({ ok: false, error: 'We could not read the uploaded file. Please try again.' }, { status: 400 });
     const bytes = Buffer.from(await blob.arrayBuffer());
     const reject = async (error: string) => { await a.admin.storage.from(BUCKET).remove([path]); return NextResponse.json({ ok: false, error }, { status: 400 }); };
-    if (detectAllowedKind(bytes, name) !== 'pdf' || !name.toLowerCase().endsWith('.pdf')) return reject('Only PDF files are accepted.');
+    if (isZipName(name)) return reject(ZIP_REFUSED);
+    const real = formatOfBytes(bytes, name);
+    if (!real || !formats.includes(real)) return reject(`Only ${formatsText(formats)} files are accepted.`);
     if (tooBig(bytes.length)) return reject(`The file is too large (maximum ${maxMb} MB).`);
     const verdict = await scanWithVirusTotal(bytes);
     if (verdict.status === 'flagged') return reject(`Upload blocked: ${verdict.detail}`);
     const row = await addFile(a.admin, {
-      applicationId: a.app.id, callId: a.call.id, orgId: a.orgId, fieldId: field.id, source: 'upload', fileName: name, size: bytes.length, sha256: sha256Hex(bytes), storagePath: path, userId: a.userId,
+      applicationId: a.app.id, callId: a.call.id, orgId: a.orgId, fieldId: field.id, entryId, source: 'upload', fileName: name, size: bytes.length, sha256: sha256Hex(bytes), storagePath: path, userId: a.userId,
     });
     if (!row) return reject('We could not attach the file. Please try again.');
     await dropPrevious();
-    return NextResponse.json({ ok: true, file: { id: row.id, fieldId: row.fieldId, source: row.source, fileName: row.fileName, size: row.size }, answer: fileAnswer(row) });
+    return NextResponse.json({ ok: true, file: { id: row.id, fieldId: row.fieldId, entryId: row.entryId ?? null, source: row.source, fileName: row.fileName, size: row.size }, answer: fileAnswer(row) });
   }
 
   if (body.kind === 'vault') {
     const documentId = typeof body.documentId === 'string' ? body.documentId : '';
+    // The Vault offers PDFs: only a question that takes PDF can be answered from it.
+    if (!formats.includes('pdf')) return NextResponse.json({ ok: false, error: `The Vault can only provide PDF documents; this question takes ${formatsText(formats)}. Please upload a file.` }, { status: 400 });
     const doc = documentId ? await loadVaultPdf(a.admin, a.orgId, documentId) : null;
     if (!doc) return NextResponse.json({ ok: false, error: 'That document is not available in your Vault as a PDF.' }, { status: 404 });
     const size = doc.sizeBytes ?? (await objectSize(a.admin, doc.storagePath));
     if (size === null) return NextResponse.json({ ok: false, error: 'We could not read the size of that document. Please try another or upload it.' }, { status: 400 });
     if (tooBig(size)) return NextResponse.json({ ok: false, error: `The file is too large (maximum ${maxMb} MB).` }, { status: 400 });
     const row = await addFile(a.admin, {
-      applicationId: a.app.id, callId: a.call.id, orgId: a.orgId, fieldId: field.id, source: 'vault', fileName: doc.name, size, sha256: doc.sha256, storagePath: doc.storagePath,
+      applicationId: a.app.id, callId: a.call.id, orgId: a.orgId, fieldId: field.id, entryId, source: 'vault', fileName: doc.name, size, sha256: doc.sha256, storagePath: doc.storagePath,
       documentId: doc.id, versionId: doc.versionId, versionNumber: doc.version, userId: a.userId,
     });
     if (!row) return NextResponse.json({ ok: false, error: 'We could not attach the document. Please try again.' }, { status: 500 });
     await dropPrevious();
     await logCallEvent(a.admin, a.call.id, 'vault_document_authorised', a.userId, { applicationId: a.app.id, documentId: doc.id, version: doc.version, authorisedFor: 'call' });
-    return NextResponse.json({ ok: true, file: { id: row.id, fieldId: row.fieldId, source: row.source, fileName: row.fileName, size: row.size, versionNumber: row.versionNumber, documentId: row.documentId }, answer: fileAnswer(row) });
+    return NextResponse.json({ ok: true, file: { id: row.id, fieldId: row.fieldId, entryId: row.entryId ?? null, source: row.source, fileName: row.fileName, size: row.size, versionNumber: row.versionNumber, documentId: row.documentId }, answer: fileAnswer(row) });
   }
 
   return NextResponse.json({ ok: false, error: 'kind must be "upload" or "vault".' }, { status: 400 });

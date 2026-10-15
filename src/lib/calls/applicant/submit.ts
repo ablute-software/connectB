@@ -5,6 +5,7 @@
 // could not see is never submitted) and the files those answers stand for.
 import { finalCheck, type FinalIssue } from '../preview-logic';
 import { pruneHiddenAnswers } from '../form-logic';
+import { fileIdsInAnswers } from '../field-config';
 import type { Answers, Call, FormField } from '../types';
 import type { FileRef } from './answers';
 
@@ -20,11 +21,8 @@ export function planSubmission(fields: FormField[], stored: Answers, files: File
   const answers = pruneHiddenAnswers(fields, stored);
   const failures = finalCheck(fields, answers);
   if (failures.length > 0) return { ok: false, failures };
-  const used = new Set<string>();
-  for (const f of fields) {
-    const v = answers[f.id];
-    if (f.kind === 'file' && v && typeof v === 'object' && !Array.isArray(v) && typeof v.fileId === 'string') used.add(v.fileId);
-  }
+  // Every file the submitted answers point at: File questions, several files in one question, and Files inside the entries of a group.
+  const used = new Set<string>(fileIdsInAnswers(fields, answers));
   return { ok: true, plan: { answers, files: files.filter((f) => used.has(f.id)) } };
 }
 
@@ -37,4 +35,5 @@ export function formSnapshot(call: Pick<Call, 'id' | 'name' | 'configVersion' | 
 }
 
 /** Where a file of a submitted application lives for good: a copy that belongs to the submission, independent of the Vault and of the applicant's folder. */
-export const frozenPath = (callId: string, applicationId: string, fileId: string): string => `calls/${callId}/applications/${applicationId}/frozen/${fileId}.pdf`;
+export const frozenPath = (callId: string, applicationId: string, fileId: string, fileName = ''): string =>
+  `calls/${callId}/applications/${applicationId}/frozen/${fileId}${/.[a-z0-9]{1,5}$/i.exec(fileName)?.[0].toLowerCase() ?? '.pdf'}`;

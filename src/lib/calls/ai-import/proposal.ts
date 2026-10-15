@@ -10,7 +10,7 @@
 import { newFieldId, newOptionId } from '../form-builder';
 import { isValidTimeZone, wallToUtcIso } from '../tz';
 import {
-  DEFAULT_MAX_FILE_MB, FIELD_KINDS, YES_NO_OPTIONS, isChoiceKind, type FieldKind, type FormField, type LimitUnit,
+  AI_FIELD_KINDS, DEFAULT_MAX_FILE_MB, YES_NO_OPTIONS, isChoiceKind, type FieldKind, type FormField, type LimitUnit,
 } from '../types';
 
 export const MAX_PROPOSED_FIELDS = 150;
@@ -110,7 +110,7 @@ export function sanitizeFieldItems(raw: unknown, opts: { paged: boolean }): { fi
     if (fields.length >= MAX_PROPOSED_FIELDS) return;
     const o = obj(rawField);
     const label = clean(o.label, 300); if (!label) return;
-    let kind = FIELD_KINDS.includes(o.kind as FieldKind) ? (o.kind as FieldKind) : null;
+    let kind = (AI_FIELD_KINDS as readonly string[]).includes(o.kind as string) ? (o.kind as FieldKind) : null;
     if (!kind) {
       attention.push({ kind: 'not_covered', what: `“${label}”`, why: 'The form has no piece for this kind of question; it was imported as a short text question.' });
       kind = 'short_text';

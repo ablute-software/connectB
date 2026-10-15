@@ -106,7 +106,7 @@ export interface FileRow extends FileRef {
 
 const toFile = (r: Row): FileRow => ({
   id: r.id as string, fieldId: r.field_id as string, source: r.source as 'upload' | 'vault', fileName: r.file_name as string, size: Number(r.size_bytes),
-  versionNumber: r.version_number == null ? null : Number(r.version_number), documentId: (r.document_id as string | null) ?? null,
+  versionNumber: r.version_number == null ? null : Number(r.version_number), documentId: (r.document_id as string | null) ?? null, entryId: (r.entry_id as string | null) ?? null,
   storagePath: r.storage_path as string, sha256: (r.sha256 as string | null) ?? null, versionId: (r.version_id as string | null) ?? null,
   frozenPath: (r.frozen_path as string | null) ?? null, revokedAt: (r.revoked_at as string | null) ?? null, orgId: r.org_id as string,
 });
@@ -153,12 +153,12 @@ export async function loadVaultPdf(admin: SupabaseClient, orgId: string, documen
 
 export async function addFile(admin: SupabaseClient, f: {
   applicationId: string; callId: string; orgId: string; fieldId: string; source: 'upload' | 'vault'; fileName: string; size: number; sha256: string | null;
-  storagePath: string; documentId?: string | null; versionId?: string | null; versionNumber?: number | null; userId: string;
+  storagePath: string; documentId?: string | null; versionId?: string | null; versionNumber?: number | null; userId: string; entryId?: string | null;
 }): Promise<FileRow | null> {
-  // One file per question: a new one replaces the old (the old one's row goes; an uploaded object is removed by the caller).
+  // One file per question (per entry, inside a group): a new one replaces the old (the old one's row goes; an uploaded object is removed by the caller).
   const { data, error } = await admin.from('call_application_files').insert({
     application_id: f.applicationId, call_id: f.callId, org_id: f.orgId, field_id: f.fieldId, source: f.source, file_name: f.fileName.slice(0, 200), size_bytes: f.size,
-    sha256: f.sha256, storage_path: f.storagePath, document_id: f.documentId ?? null, version_id: f.versionId ?? null, version_number: f.versionNumber ?? null, created_by: f.userId,
+    sha256: f.sha256, storage_path: f.storagePath, document_id: f.documentId ?? null, version_id: f.versionId ?? null, version_number: f.versionNumber ?? null, created_by: f.userId, entry_id: f.entryId ?? null,
   }).select('*').single();
   return error || !data ? null : toFile(data as Row);
 }
@@ -269,7 +269,7 @@ export async function buildApplicationState(
     application: { id: app.id, reference: app.reference, status: app.status, lastPage: app.lastPage, revision: app.revision, submittedAt: app.submittedAt },
     answers: sanitizeAnswers(fields, app.answers, files),
     fields,
-    files: files.map((f) => ({ id: f.id, fieldId: f.fieldId, source: f.source, fileName: f.fileName, size: f.size, versionNumber: f.versionNumber, documentId: f.documentId, ...(newer[f.id] ? { newer: newer[f.id] } : {}) })),
+    files: files.map((f) => ({ id: f.id, fieldId: f.fieldId, entryId: f.entryId ?? null, source: f.source, fileName: f.fileName, size: f.size, versionNumber: f.versionNumber, documentId: f.documentId, ...(newer[f.id] ? { newer: newer[f.id] } : {}) })),
     orgId: app.orgId ?? '',
     canEdit: app.status === 'draft' && accepting === true,
     call: { name: call.name, currency: call.currency, timezone: call.timezone, opensAt: call.opensAt, closesAt: call.closesAt, promoter },

@@ -8,10 +8,8 @@
 // Pure and client-safe, so the rules are tested without a browser.
 import { visibleFields, visiblePages, validateAnswers, validatePage } from './form-logic';
 import { orderFields } from './form-logic';
-import {
-  DEFAULT_MAX_FILE_MB, MAX_FILE_MB_CEILING, MAX_NUMBER_DIGITS, platformMappingLabel,
-  type Answers, type FormField,
-} from './types';
+import { MAX_NUMBER_DIGITS, URL_HINT_LABELS, platformMappingLabel, type Answers, type FormField } from './types';
+import { fileFormatsOf, formatsText, groupMin, groupOf, maxFileMbOf, maxFilesOf } from './field-config';
 
 // --- What is written under a field ------------------------------------------------------------------------------------
 
@@ -34,10 +32,25 @@ export function validationHints(field: FormField): string[] {
     case 'single_choice': out.push('Choose one'); break;
     case 'multiple_choice': out.push('Choose one or more'); break;
     case 'file': {
-      const mb = Math.min(field.validations.maxFileMb ?? DEFAULT_MAX_FILE_MB, MAX_FILE_MB_CEILING);
-      out.push(`PDF only, max ${mb} MB`);
+      const mb = maxFileMbOf(field.validations);
+      const n = maxFilesOf(field.validations);
+      out.push(`${formatsText(fileFormatsOf(field.validations))} only, max ${mb} MB${n > 1 ? ` each, up to ${n} files` : ''}`);
       if (field.expectedType) out.push(`Expected: ${field.expectedType}`);
       if (field.maxAgeMonths) out.push(`Issued within the last ${field.maxAgeMonths} month${field.maxAgeMonths === 1 ? '' : 's'}`);
+      break;
+    }
+    case 'url':
+      out.push('A link starting with http:// or https://');
+      if (field.validations.urlHint) out.push(`Expected: a ${URL_HINT_LABELS[field.validations.urlHint].toLowerCase()}`);
+      break;
+    case 'email': out.push('A valid email address'); break;
+    case 'group': {
+      const g = groupOf(field);
+      if (g) {
+        const min = groupMin(field, g);
+        out.push(g.presetRows.length > 0 ? `${g.presetRows.length} fixed rows` : `${min > 0 ? `${min} to ` : 'Up to '}${g.max} ${g.entryLabel.toLowerCase()} entries`);
+        out.push(g.display === 'table' ? 'Shown as a table' : 'Shown as cards');
+      }
       break;
     }
   }

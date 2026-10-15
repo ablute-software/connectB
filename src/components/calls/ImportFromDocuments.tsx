@@ -14,7 +14,7 @@ import type { Proposal, ProposalFieldItem, ProposalGeneral, ProposalPhaseItem } 
 import {
   IMPORT_ACCEPT, IMPORT_FORMATS_TEXT, IMPORT_MAX_FILES, IMPORT_PRIVACY_NOTICE, SOURCE_KINDS, SOURCE_KIND_LABELS, type SourceKind,
 } from '@/lib/calls/ai-import/limits';
-import { FIELD_KINDS, FIELD_KIND_LABELS, isChoiceKind, type FieldKind } from '@/lib/calls/types';
+import { AI_FIELD_KINDS, FIELD_KIND_LABELS, isChoiceKind, type FieldKind } from '@/lib/calls/types';
 import { formatInZone, utcToWall, wallToUtcIso } from '@/lib/calls/tz';
 import { splitContact } from '@/lib/calls/ai-import/client-errors';
 import { IMPORT_NOTICES_EVENT, afterPoll, onOpen } from '@/lib/calls/ai-import/screen-state';
@@ -357,7 +357,7 @@ function FieldEditor({ f, onChange }: { f: ProposalFieldItem; onChange: (f: Prop
       <input autoComplete="off" aria-label="Question" className={`${INPUT} w-full`} value={f.label} onChange={(e) => onChange({ ...f, label: e.target.value })} />
       <span className="flex flex-wrap items-center gap-2">
         <select aria-label="Kind" className={INPUT} value={f.kind} onChange={(e) => onChange({ ...f, kind: e.target.value as FieldKind })}>
-          {FIELD_KINDS.map((k) => <option key={k} value={k}>{FIELD_KIND_LABELS[k]}</option>)}
+          {AI_FIELD_KINDS.map((k) => <option key={k} value={k}>{FIELD_KIND_LABELS[k]}</option>)}
         </select>
         <label className="flex items-center gap-1"><input type="checkbox" checked={f.required} onChange={(e) => onChange({ ...f, required: e.target.checked })} /> Required</label>
       </span>

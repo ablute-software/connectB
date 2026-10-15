@@ -2,10 +2,19 @@
 // side (906). Pure types and constants, no I/O, importable from client and server alike
 // (docs/calls/SPEC_CALLS_V2.md §5, §6, §8).
 
+// Prompt 917 (I1): url, email and group are new. The first eight are the original kinds; a group is the only kind that holds other questions.
+/** What the AI import may propose for now (Prompt 917, I1): the original kinds. The new ones are offered to the import in the next increment (I2), with their rules. */
+export const AI_FIELD_KINDS = ['short_text', 'long_text', 'number', 'date', 'yes_no', 'single_choice', 'multiple_choice', 'file'] as const;
+
 export const FIELD_KINDS = [
-  'short_text', 'long_text', 'number', 'date', 'yes_no', 'single_choice', 'multiple_choice', 'file',
+  'short_text', 'long_text', 'number', 'date', 'yes_no', 'single_choice', 'multiple_choice', 'file', 'url', 'email', 'group',
 ] as const;
 export type FieldKind = (typeof FIELD_KINDS)[number];
+/** The kinds a question INSIDE a group may be: everything except another group (one level only in v1). */
+export const SIMPLE_KINDS = [
+  'short_text', 'long_text', 'number', 'date', 'yes_no', 'single_choice', 'multiple_choice', 'file', 'url', 'email',
+] as const;
+export type SimpleKind = (typeof SIMPLE_KINDS)[number];
 
 export const FIELD_KIND_LABELS: Record<FieldKind, string> = {
   short_text: 'Short text',
@@ -15,7 +24,10 @@ export const FIELD_KIND_LABELS: Record<FieldKind, string> = {
   yes_no: 'Yes/No',
   single_choice: 'Single choice',
   multiple_choice: 'Multiple choice',
-  file: 'File (PDF)',
+  file: 'File',
+  url: 'Link (URL)',
+  email: 'Email',
+  group: 'Repeatable group',
 };
 
 export const CHOICE_KINDS: readonly FieldKind[] = ['single_choice', 'multiple_choice'];
@@ -49,6 +61,15 @@ export const CONDITION_OPERATOR_LABELS: Record<ConditionOperator, string> = {
 /** Show this field only if the (earlier) field `fieldId` matches. `value` is an option id ('yes'/'no' for Yes/No). */
 export interface FieldCondition { fieldId: string; operator: ConditionOperator; value?: string | null }
 
+/** What a File question accepts. The entity chooses; the platform checks the real format of the bytes, never the extension alone. ZIP is never accepted. */
+export const FILE_FORMAT_KEYS = ['pdf', 'word', 'excel', 'powerpoint', 'image'] as const;
+export type FileFormatKey = (typeof FILE_FORMAT_KEYS)[number];
+export const MAX_FILES_CEILING = 10;
+/** A hint for the applicant about what link is expected; not a restriction. */
+export const URL_HINTS = ['video', 'website', 'other'] as const;
+export type UrlHint = (typeof URL_HINTS)[number];
+export const URL_HINT_LABELS: Record<UrlHint, string> = { video: 'Video (YouTube, Vimeo…)', website: 'Website', other: 'Other' };
+
 export interface FieldValidations {
   /** Long/short text: character limit. */
   maxLength?: number;
@@ -58,6 +79,38 @@ export interface FieldValidations {
   maxFileMb?: number;
   /** Number: show the value with the call's currency under the input (e.g. "500 000 €"). */
   currency?: boolean;
+  /** File: the formats accepted (default PDF only). */
+  fileFormats?: FileFormatKey[];
+  /** File: how many files the question takes, 1 to 10 (default 1; more than one shows "Add another file"). */
+  maxFiles?: number;
+  /** Link: what kind of link is expected (a hint). */
+  urlHint?: UrlHint;
+  /** Group: the repeatable entries and the questions in each. */
+  group?: GroupConfig;
+}
+
+/** A question inside a group. Its id is a UUID (a file in a group is registered under it). No conditions inside groups in v1. */
+export interface SubField {
+  id: string;
+  kind: SimpleKind;
+  label: string;
+  required: boolean;
+  options: FieldOption[];
+  validations: Omit<FieldValidations, 'group'>;
+}
+export type GroupDisplay = 'cards' | 'table';
+export const MAX_GROUP_ENTRIES = 50;
+export const MAX_GROUP_SUBFIELDS = 20;
+export interface GroupConfig {
+  /** What one entry is called: "Team member", "Competitor". */
+  entryLabel: string;
+  min: number;
+  max: number;
+  /** Table: the sub-questions are the columns and the entries the rows (on a narrow screen, cards). */
+  display: GroupDisplay;
+  subFields: SubField[];
+  /** Table with the rows set by the entity: for each row, the text of its first columns (read-only for the applicant). Empty = the applicant adds the rows. */
+  presetRows: string[][];
 }
 
 export interface FormField {
@@ -143,7 +196,11 @@ export const CONTENT_LANGUAGES = [
 ] as const;
 export const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'BRL'] as const;
 
-/** An answer, by field id. Text: string; number: digits; date: YYYY-MM-DD; yes/no: 'yes'|'no'; single: option id;
- *  multiple: option ids; file: {fileName,size} (the upload itself belongs to Stage 906). */
-export type AnswerValue = string | string[] | { fileName: string; size: number; mime?: string; fileId?: string; source?: 'upload' | 'vault' } | null | undefined;
+/** An answer, by field id. Text, link, email: string; number: digits; date: YYYY-MM-DD; yes/no: 'yes'|'no'; single: option id;
+ *  multiple: option ids; file: one {fileName,size,…} (several when the question takes several: a list); group: a list of entries. */
+export interface FileValue { fileName: string; size: number; mime?: string; fileId?: string; source?: 'upload' | 'vault' }
+/** What a question inside a group holds (no group in a group). */
+export type SimpleAnswer = string | string[] | FileValue | FileValue[] | null | undefined;
+export interface GroupEntry { id: string; values: Record<string, SimpleAnswer> }
+export type AnswerValue = SimpleAnswer | GroupEntry[];
 export type Answers = Record<string, AnswerValue>;

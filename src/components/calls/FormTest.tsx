@@ -97,7 +97,7 @@ export function FormTest({ fields, currency, title, onExit }: { fields: FormFiel
         </div>
       </div>
       <div className="space-y-5 px-5 py-5">
-        {current.fields.map((f) => <FieldInput key={f.id} field={f} value={merged[f.id]} error={errors[f.id]} currency={currency} onChange={(v) => set(f.id, v)} />)}
+        {current.fields.map((f) => <FieldInput key={f.id} field={f} value={merged[f.id]} error={errors[f.id]} currency={currency} showAllErrors={!!errors[f.id]} onChange={(v) => set(f.id, v)} />)}
       </div>
       {Object.keys(errors).length > 0 && <p role="alert" className="px-5 pb-2 text-xs font-medium text-[#B00000]" data-testid="blocked">Something on this page needs your attention before you can continue.</p>}
       <div className="flex items-center justify-between border-t border-gray-100 px-5 py-3">
