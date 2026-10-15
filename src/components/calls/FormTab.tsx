@@ -5,6 +5,8 @@
 // EARLIER questions; links to platform data are explicit and shown with an icon.
 import { useMemo, useState } from 'react';
 import { ImportFormDialog, type ImportOutcome } from './ImportFormDialog';
+import { ImportStatusPill } from './ImportStatusPill';
+import type { ImportStatus } from '@/lib/calls/ai-import/screen-state';
 import type { ImportMode } from '@/lib/calls/form-import';
 import { orderFields } from '@/lib/calls/form-logic';
 import {
@@ -31,7 +33,9 @@ function conditionText(f: FormField, all: FormField[]): string | null {
   return `Shown if “${ctl.label}” ${op}${c.operator === 'equals' || c.operator === 'not_equals' ? ` ${value ?? '…'}` : ''}`;
 }
 
-export function FormTab({ callId, fields, disabled, lockedReason, onChange, onImport, onImportDocuments }: {
+export function FormTab({ callId, fields, disabled, lockedReason, onChange, onImport, onImportDocuments, importStatus = null }: {
+  /** A reading in progress, or a proposal waiting for review, shown next to the Import button (Adenda 2b). */
+  importStatus?: ImportStatus;
   callId: string; fields: FormField[]; disabled: boolean;
   /** Opens "Import from documents" (Prompt 909, I4). */
   onImportDocuments: () => void;
@@ -105,6 +109,7 @@ export function FormTab({ callId, fields, disabled, lockedReason, onChange, onIm
           <button type="button" disabled={disabled} onClick={onImportDocuments} data-testid="import-from-document"
             title={disabled ? lockedReason ?? undefined : undefined}
             className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-40">Import from a document</button>
+          <ImportStatusPill status={importStatus} onClick={importStatus === 'ready' ? onImportDocuments : undefined} />
           <span className="text-xs text-gray-400">{ordered.length} field{ordered.length === 1 ? '' : 's'} · {pages.length || 0} page{pages.length === 1 ? '' : 's'}</span>
         </div>
         {disabled && lockedReason && <p className="mb-3 text-[11px] text-gray-500" data-testid="import-locked">{lockedReason}</p>}

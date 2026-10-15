@@ -8,6 +8,7 @@
 // own tables plus incubator_portfolio() (level-0 fields).
 import { CallsWorkspace } from '@/components/calls/CallsWorkspace';
 import { useCallsAccess } from '@/components/calls/useCallsAccess';
+import { useImportNoticeCount } from '@/components/calls/useImportNoticeCount';
 import { useCallback, useEffect, useState } from 'react';
 import { WorkspaceSidebar } from '@/components/workspace-shell/WorkspaceSidebar';
 import { LogoutButton } from '@/components/workspace-shell/LogoutButton';
@@ -368,6 +369,8 @@ export function IncubatorWorkspace() {
   // Prompt 905 — the Calls tab. Visible by the role rules; only CALLS_MODE="off" (the emergency brake) hides it:
   // the server then answers 404 and the tab never shows.
   const callsEnabled = useCallsAccess('incubator');
+  // Prompt 909 (Adenda 2b): a proposal that finished reading while the person was elsewhere — a badge on the Calls tab.
+  const callsNotices = useImportNoticeCount(callsEnabled);
 
   const loadMe = useCallback(() => {
     fetch('/api/incubator/me').then((r) => r.json()).then((d: MeResponse) => {
@@ -401,7 +404,7 @@ export function IncubatorWorkspace() {
     ...(callsEnabled ? [{ key: 'calls', label: 'Calls', icon: '◇' } as const] : []),
     { key: 'team', label: 'Team', icon: '◉' },
     { key: 'settings', label: 'Settings', icon: '⚙' },
-  ] as const).map((n) => ({ ...n, active: tab === n.key, onSelect: () => setTab(n.key) }));
+  ] as const).map((n) => ({ ...n, active: tab === n.key, badge: n.key === 'calls' && callsNotices > 0 ? callsNotices : undefined, onSelect: () => setTab(n.key) }));
 
   return (
     <div className="flex min-h-screen bg-[#F7F9FA] text-[#1A1A1A]">

@@ -21,6 +21,13 @@ export function onOpen(s: ImportState, now: number = Date.now()): OnOpen {
   return { kind: 'upload', waiting: null, error: s.lastFailure?.message ?? null };
 }
 
+/** What the call shows next to its Import button: a reading in progress, or a proposal waiting for review (Adenda 2b). */
+export type ImportStatus = 'reading' | 'ready' | null;
+export const importStatusOf = (s: Pick<ImportState, 'pending' | 'reading'>): ImportStatus => (s.reading ? 'reading' : s.pending ? 'ready' : null);
+export const IMPORT_STATUS_LABEL: Record<Exclude<ImportStatus, null>, string> = { reading: 'Reading the documents…', ready: 'Proposal ready to review' };
+/** Fired on window whenever the person's import notices may have changed (seen, opened, dismissed), so the badge on the Calls tab refreshes at once. */
+export const IMPORT_NOTICES_EVENT = 'calls:import-notices-changed';
+
 export interface PollAnswer {
   ok: boolean; status: number;
   run?: { id: string; status: 'reading' | 'proposed' | 'applied' | 'discarded' | 'failed'; proposal?: Proposal; error?: string | null };

@@ -21,13 +21,17 @@ export const IMPORT_FORMATS_TEXT =
   + 'A scanned PDF (only images of pages) cannot be read: there is no text recognition.';
 
 /** Said on the screen BEFORE anything is sent (spec §2.3: only the promoter's own documents, never applicants'). */
-export const IMPORT_PRIVACY_NOTICE = 'The document is read by our AI provider to propose a configuration. Do not upload applicants’ documents.';
+export const IMPORT_PRIVACY_NOTICE = "The document is read by our AI provider to propose a configuration. Do not upload applicants' documents or confidential evaluation grids.";
 
 export const SCANNED_PDF_MESSAGE = 'This PDF has no readable text. Upload the original document.';
 
-export type SourceKind = 'regulation' | 'form' | 'grid' | 'other';
-export const SOURCE_KINDS: SourceKind[] = ['regulation', 'form', 'grid', 'other'];
+// Evaluation grids are NOT a kind here any more (Nuno, 15/10/2026): they are confidential to the organisation and never go to an external AI. Importing a
+// grid will be done INSIDE the platform, deterministically, by the grid editor of Stage 3. A request that still says "grid" is refused by the server.
+export type SourceKind = 'regulation' | 'form' | 'other';
+export const SOURCE_KINDS: SourceKind[] = ['regulation', 'form', 'other'];
+export const GRID_REFUSED_MESSAGE = 'Evaluation grids are confidential and are not read by AI. Upload the regulation or a previous form; the grid is imported in the platform’s own grid editor.';
+export const isGridKind = (v: unknown): boolean => typeof v === 'string' && v.trim().toLowerCase() === 'grid';
 export const SOURCE_KIND_LABELS: Record<SourceKind, string> = {
-  regulation: 'Regulation', form: 'Previous form', grid: 'Evaluation grid', other: 'Other document',
+  regulation: 'Regulation', form: 'Previous form', other: 'Other document',
 };
 export const isSourceKind = (v: unknown): v is SourceKind => SOURCE_KINDS.includes(v as SourceKind);

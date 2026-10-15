@@ -86,6 +86,9 @@ export const callsApi = {
   /** Where the reading is: reading (nothing else), proposed (with the proposal) or failed (with the sentence). */
   importRun: (id: string, runId: string) =>
     call<{ run: { id: string; status: 'reading' | 'proposed' | 'applied' | 'discarded' | 'failed'; startedAt: string; proposal?: Proposal; error?: string | null; code?: string | null } }>(`/api/calls/${id}/import-ai/${runId}`),
+  /** The person's own unseen "proposal ready" / "could not read" notices (Adenda 2b). */
+  importNotices: () => call<{ notices: { id: string; kind: 'import_ready' | 'import_failed'; title: string; body: string | null; callId: string; createdAt: string }[] }>('/api/calls/import-notices'),
+  markImportNoticesSeen: (target: { ids: string[] } | { callId: string }) => call<Record<string, never>>('/api/calls/import-notices', send('POST', target)),
   /** What the screen needs when it opens: a reading in progress, a proposal waiting, the last failure. */
   importState: (id: string) =>
     call<{ pending: { id: string; proposal: Proposal } | null; reading: { id: string; createdAt: string } | null; lastFailure: { id: string; message: string | null; code: string | null; at: string } | null }>(`/api/calls/${id}/import-ai`),

@@ -15,14 +15,19 @@ import { formatInZone } from '../tz';
 import type { Call } from '../types';
 import type { ApplicationRow } from './store';
 
-export type NoticeKind = 'submission_received' | 'draft_reminder' | 'deadline_extended';
+/** What an applicant is told. */
+export type ApplicantNoticeKind = 'submission_received' | 'draft_reminder' | 'deadline_extended';
+/** Every kind of notice in call_notices: the applicant's three, and (Prompt 909, Adenda 2b) the two that tell the team an import has ended. */
+export type NoticeKind = ApplicantNoticeKind | 'import_ready' | 'import_failed';
+export const APPLICANT_NOTICE_KINDS: ApplicantNoticeKind[] = ['submission_received', 'draft_reminder', 'deadline_extended'];
+export const IMPORT_NOTICE_KINDS: NoticeKind[] = ['import_ready', 'import_failed'];
 
 export interface NoticeContent { title: string; body: string; ctaLabel: string }
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 
 /** The words of each notice, in one place (pure: the tests read them). */
-export function noticeContent(kind: NoticeKind, call: Pick<Call, 'name' | 'closesAt' | 'timezone'>, app: { reference: string | null }): NoticeContent {
+export function noticeContent(kind: ApplicantNoticeKind, call: Pick<Call, 'name' | 'closesAt' | 'timezone'>, app: { reference: string | null }): NoticeContent {
   const deadline = formatInZone(call.closesAt, call.timezone);
   switch (kind) {
     case 'submission_received':
@@ -48,7 +53,7 @@ export function noticeContent(kind: NoticeKind, call: Pick<Call, 'name' | 'close
 
 /** One notice per (person, event): returns true when this call created it, false when it already existed. */
 export async function createNotice(admin: SupabaseClient, n: {
-  userId: string; callId: string; applicationId: string | null; kind: NoticeKind; dedupeKey: string; content: NoticeContent; linkPath: string;
+  userId: string; callId: string; applicationId: string | null; kind: NoticeKind; dedupeKey: string; content: NoticeContent; linkPath: string | null;
 }): Promise<{ created: boolean; id: string | null }> {
   const { data, error } = await admin.from('call_notices').insert({
     user_id: n.userId, call_id: n.callId, application_id: n.applicationId, kind: n.kind, title: n.content.title, body: n.content.body, link_path: n.linkPath, dedupe_key: n.dedupeKey,

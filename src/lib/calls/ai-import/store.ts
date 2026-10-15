@@ -61,7 +61,7 @@ export async function saveSourceDocument(
 
 /**
  * Prompt 907 (I1): show a regulation PDF to applicants on the call's link. Only a PDF of kind "regulation" can be public — a previous
- * form or an evaluation grid is the team's own working material. One regulation is public at a time (the newest choice wins).
+ * form is the team's own working material. One regulation is public at a time (the newest choice wins).
  */
 export async function setSourcePublic(admin: SupabaseClient, callId: string, docId: string, pub: boolean): Promise<{ ok: true } | { ok: false; reason: 'not_found' | 'not_a_regulation_pdf' }> {
   const { data } = await admin.from('call_source_documents').select('id, kind, mime_type').eq('id', docId).eq('call_id', callId).maybeSingle();

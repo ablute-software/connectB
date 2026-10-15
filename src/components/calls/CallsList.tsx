@@ -8,6 +8,7 @@ import { formatInZone } from '@/lib/calls/tz';
 import { callsApi, type CallListItem, type PromoterInfo } from './api';
 import { ARCHIVE_CONFIRM, DELETE_CONFIRM, callMenu, hasMenu, visibleCalls } from '@/lib/calls/list-view';
 import { StatusBadge } from './StatusBadge';
+import { ImportNotices } from './ImportNotices';
 
 export function CallsList({ kind, onOpen }: { kind: PromoterKind; onOpen: (id: string, opts?: { importFirst?: boolean }) => void }) {
   const [promoter, setPromoter] = useState<PromoterInfo | null>(null);
@@ -71,6 +72,7 @@ export function CallsList({ kind, onOpen }: { kind: PromoterKind; onOpen: (id: s
 
   return (
     <div data-testid="calls-list">
+      <ImportNotices onReview={(id) => onOpen(id, { importFirst: true })} />
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-bold text-gray-900">Calls</h1>

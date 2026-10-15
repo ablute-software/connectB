@@ -2,7 +2,6 @@
 // already uses elsewhere (ai-review, document extraction). No new provider, no new variable.
 import 'server-only';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
-import { PROPOSE_TOOL_NAME } from './prompt';
 import type { ModelCaller } from './propose';
 
 export const TRUNCATED_MESSAGE = 'The proposal was too long to fit, so it came back cut off and was discarded. Try again with a shorter document, or one document at a time.';
@@ -26,7 +25,7 @@ export const callAnthropic: ModelCaller = async (req) => {
     body: JSON.stringify({
       model, max_tokens: 6000, system: req.system,
       messages: [{ role: 'user', content: req.content }],
-      tools: [req.tool], tool_choice: { type: 'tool', name: PROPOSE_TOOL_NAME },
+      tools: [req.tool], tool_choice: { type: 'tool', name: req.tool.name },
     }),
   });
   if (!res.ok) {

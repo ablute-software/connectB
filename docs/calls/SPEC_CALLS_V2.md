@@ -45,7 +45,7 @@ O motor nunca propõe nem preenche pontuações oficiais. A plataforma pode calc
 
 Na v1, **nenhum dado ou documento de candidato é enviado a um fornecedor de IA externo.** A elegibilidade e a verificação de documentos usam regras determinísticas, a extração do texto de PDFs digitais e a deteção de padrões, tudo dentro da infraestrutura da plataforma. O que não for decidível assim vai para revisão humana (To validate).
 
-A IA externa só pode ser usada sobre documentos da própria entidade promotora: regulamento, formulário e grelha de edições anteriores (secção 5.3).
+A IA externa só pode ser usada sobre documentos da própria entidade promotora: o **regulamento** e **formulários de edições anteriores** (secção 5.3). **As grelhas de avaliação são confidenciais e nunca vão para IA externa** (decisão do Nuno, 15/10/2026): o tipo "grelha" não existe na importação por IA e o servidor recusa-o; o aviso do ecrã di-lo. Importar uma grelha faz-se **dentro da plataforma**, de forma determinística, no editor de grelhas da Etapa 3 (secção 5.3).
 
 ### 2.4. Simplicidade
 
@@ -126,9 +126,11 @@ O resultado da última fase é o resultado final. Uma call simples tem uma só f
 
 - Criar manualmente.
 - Duplicar uma call anterior: copia a configuração, o formulário, as regras, as fases, a grelha e a equipa. Nunca copia candidaturas, avaliações nem decisões.
-- **Importar** o regulamento, um formulário anterior e/ou uma grelha de avaliação (PDF, Word, Excel; os formatos efetivamente suportados têm de ser comunicados na interface). O motor propõe uma configuração **em rascunho**. Destaca o que pode estar desatualizado: datas, prazos, referências a edições anteriores, limites de idade da empresa.
+- **Importar** o regulamento e/ou um formulário anterior (PDF, Word, Excel; os formatos efetivamente suportados têm de ser comunicados na interface). O motor propõe uma configuração **em rascunho**. Destaca o que pode estar desatualizado: datas, prazos, referências a edições anteriores, limites de idade da empresa.
 
-  A importação usa IA sobre documentos da entidade, nunca de candidatos (secção 2.3).
+  A importação usa IA sobre documentos da entidade, nunca de candidatos nem de grelhas de avaliação (secção 2.3). A leitura corre em segundo plano (a pessoa não fica presa ao ecrã) e o texto do PDF, extraído na plataforma, é lido em partes em paralelo.
+
+- **Importar uma grelha de avaliação** (Etapa 3, ainda não construído): o editor de grelhas terá "Import grid", que lê o Excel, o Word ou o PDF com texto **dentro da plataforma**, de forma determinística (tabela com critério, descrição, peso e escala), e propõe a grelha para a entidade adaptar diretamente no editor. O ficheiro nunca sai da plataforma.
 
 ## 6. Tab Form
 
@@ -822,7 +824,7 @@ Cada notificação sai **por email e dentro da plataforma**, reutilizando o meca
 | 1 | Separador Calls; General; Phases (estrutura); Form; link e ecrã da call; registo e entrada; pré-preenchimento; gravação; submissão; área do candidato; notificações base |
 | 2 | Eligibility (regras, documentos, subtabs, correções e dataset); fila de processamento; duplicados; reportar problema |
 | 1B | **Lado do candidato — I1 a I4 (Prompt 907, 14/10/2026):** link da call (cabeçalho, registo por código, memória do link, passo "startup"); preencher o formulário (pré-preenchimento sem pisar o editado, condições no servidor, documentos Number/File/Vault autorizados em nome da call, gravação com estados); submeter (verificação final, popup do que falta, versão imutável e idempotente, recibo); área "Calls" da startup e separador "Submissions" só de leitura na entidade (nunca rascunhos). **Falta (I5, ramo à parte):** prazo e notificações — prorrogação, lembrete 48 h, "Contact email for applicants". Relatório: `docs/calls/ETAPA1B_907.md` |
-| 1C | **Antecipado do 3 e do 5 (Nuno, 12/10/2026, Prompt 909):** eliminar e arquivar uma call; importar o formulário de outra call; tab Team (categorias ao nível da organização, as 9 permissões, equipa da call com seats, ajustes individuais, conflitos declarados à partida; "Configure call" e "Manage team & permissions" já aplicadas no servidor); importação por IA de regulamento, formulário e grelha, em rascunho (§5.3); **I5 (Adenda 1):** pré-visualização livre, modo de teste do formulário e "Validate form and settings" (validar não publica) |
+| 1C | **Antecipado do 3 e do 5 (Nuno, 12/10/2026, Prompt 909):** eliminar e arquivar uma call; importar o formulário de outra call; tab Team (categorias ao nível da organização, as 9 permissões, equipa da call com seats, ajustes individuais, conflitos declarados à partida; "Configure call" e "Manage team & permissions" já aplicadas no servidor); importação por IA de regulamento e formulário (a grelha ficou de fora da IA externa, 15/10/2026), em rascunho (§5.3); **I5 (Adenda 1):** pré-visualização livre, modo de teste do formulário e "Validate form and settings" (validar não publica) |
 | 3 | Distribuição; construtor de grelha (manual); avaliação; "Declare conflict" em cada candidatura; prazos dos avaliadores; as outras 7 permissões passam a ser aplicadas. (Categorias, permissões e conflitos à partida: ver 1C.) |
 | 4 | Seriação (mínimos, cotas, vagas); passagem de fase; decisão final; publicação; contestações; painéis |
 | 5 | ~~Importação por IA de regulamento, formulário e grelha~~ — **entregue na Etapa 1C (Prompt 909)**; fica o que a importação guarda em texto (regras de elegibilidade, critérios de avaliação) para serem configurados nas Etapas 2 e 3 |

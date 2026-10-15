@@ -17,7 +17,7 @@ import {
 import { FIELD_KINDS, FIELD_KIND_LABELS, isChoiceKind, type FieldKind } from '@/lib/calls/types';
 import { formatInZone, utcToWall, wallToUtcIso } from '@/lib/calls/tz';
 import { splitContact } from '@/lib/calls/ai-import/client-errors';
-import { afterPoll, onOpen } from '@/lib/calls/ai-import/screen-state';
+import { IMPORT_NOTICES_EVENT, afterPoll, onOpen } from '@/lib/calls/ai-import/screen-state';
 import { callsApi } from './api';
 
 const POLL_MS = 3000;
@@ -69,6 +69,8 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
     void (async () => {
       const r = await callsApi.importState(callId);
       if (!alive.current || !r.ok) return;
+      // Opening the screen is seeing the notices of this call: they are not needed any more.
+      void callsApi.markImportNoticesSeen({ callId }).then(() => window.dispatchEvent(new Event(IMPORT_NOTICES_EVENT)));
       const d = onOpen(r.body);
       if (d.kind === 'reading') { startWaiting(d.runId, d.since); return; }
       setWaiting(d.waiting);
@@ -149,7 +151,7 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
             <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900" data-testid="privacy-notice">{IMPORT_PRIVACY_NOTICE}</p>
             <p className="text-xs text-gray-600" data-testid="import-formats">{IMPORT_FORMATS_TEXT}</p>
             <div>
-              <label className="text-xs font-semibold text-gray-700" htmlFor="import-files">Regulation, a previous form and/or an evaluation grid</label>
+              <label className="text-xs font-semibold text-gray-700" htmlFor="import-files">Regulation and/or a previous form</label>
               <input id="import-files" type="file" multiple accept={IMPORT_ACCEPT} className="mt-1 block text-sm" data-testid="import-files"
                 onChange={(e) => setFiles(Array.from(e.target.files ?? []).slice(0, IMPORT_MAX_FILES).map((file) => ({ file, kind: guessKind(file.name) })))} />
             </div>
@@ -191,10 +193,9 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
         {step === 'reading' && (
           <div className="space-y-4 p-8 text-center" data-testid="import-docs-reading" role="status" aria-live="polite">
             <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-gray-200 border-t-[#0E7490]" aria-hidden="true" />
-            <p className="text-sm font-semibold text-gray-900">Reading your documents…</p>
-            <p className="text-xs text-gray-600">This can take up to two minutes. You can close this window: the reading carries on, and the proposal will be here when you come back.</p>
+            <p className="text-sm text-gray-800" data-testid="reading-text">Reading your documents. This can take a minute or two. You can keep using the platform; we&apos;ll let you know when the proposal is ready.</p>
             <p className="text-[11px] text-gray-400" data-testid="reading-elapsed">{elapsed}s</p>
-            <button type="button" onClick={onClose} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">Close and come back later</button>
+            <button type="button" onClick={onClose} data-testid="continue-working" className="rounded-lg bg-[#0E7490] px-4 py-1.5 text-sm font-semibold text-white hover:bg-[#0c637b]">Continue working</button>
           </div>
         )}
 
@@ -287,7 +288,7 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
   );
 }
 
-const guessKind = (name: string): SourceKind => (/grid|criteri|evaluat|score/i.test(name) ? 'grid' : /form|application/i.test(name) ? 'form' : /regulation|rules|call|regulamento/i.test(name) ? 'regulation' : 'other');
+const guessKind = (name: string): SourceKind => (/form|application/i.test(name) ? 'form' : /regulation|rules|call|regulamento/i.test(name) ? 'regulation' : 'other');
 
 const GENERAL_LABEL: Record<keyof ProposalGeneral, string> = {
   name: 'Name', description: 'Description', opensAt: 'Opens', closesAt: 'Closes', timezone: 'Time zone', limitUnit: 'Application limit',

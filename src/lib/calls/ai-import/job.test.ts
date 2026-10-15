@@ -21,7 +21,7 @@ async function newRun() {
   const run = await createReadingRun(admin(), CALL, { sourceDocumentIds: [], sourceBytes: 170209, userId: 'ana' });
   return run!.id;
 }
-const input = (runId: string) => ({ admin: admin(), callId: CALL, runId, userId: 'ana', docs, files, sourceDocumentIds: [] as string[] });
+const input = (runId: string) => ({ admin: admin(), callId: CALL, callName: 'Edition 2027', runId, userId: 'ana', docs, files, sourceDocumentIds: [] as string[] });
 
 beforeEach(() => { db = callsDb(); db.clock = Date.now(); aiLog.mockClear(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); delete process.env.ANTHROPIC_API_KEY; });
