@@ -41,7 +41,10 @@ async function buildKnowledge(admin: SupabaseClient, orgId: string): Promise<str
     // founded_year and one_liner only — NOT round_target_eur /
     // round_target_close_date, unlike roadmap/suggest-events. See header.
     admin.from('orgs').select('founded_year, one_liner').eq('id', orgId).maybeSingle(),
-    admin.from('company_badges').select('name, year, verification_status').eq('org_id', orgId),
+    // Prompt 918 — VERIFIED badges only. This prompt's output becomes a network update, which people outside the company read: an award
+    // Sherlock has not confirmed against a public source is a claim the platform has not backed, and it must not be written up as fact
+    // (the same rule that keeps it off the investor's dossier — a prompt is a data flow, audited like a select).
+    admin.from('company_badges').select('name, year, verification_status').eq('org_id', orgId).eq('verification_status', 'verified'),
     admin.from('funding_rounds').select('label, closed_year, investor_name').eq('org_id', orgId),
     documentExtractionsAvailable(),
     admin.from('roadmap_events').select('title, date').eq('org_id', orgId),

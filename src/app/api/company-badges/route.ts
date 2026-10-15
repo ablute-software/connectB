@@ -7,7 +7,7 @@
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { findMatchingClaimForBadge } from '@/lib/company-badges';
+import { findMatchingClaimForBadge, isOwnStoragePath, normalizeSourceUrl, parseBadgeKind } from '@/lib/company-badges';
 import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 // Prompt 904 — the org comes from resolveActingOrg (a Developer Viewer session
@@ -48,8 +48,14 @@ export const POST = withActingOrg(async function POST(req: Request) {
   const body = await req.json().catch(() => ({})) as {
     name?: string; description?: string; year?: number; logoStoragePath?: string; evidenceDocumentId?: string;
     linkedClaimId?: string; skipDuplicateCheck?: boolean;
+    // Prompt 918 — what kind of thing it is, and the public page the founder points to (Sherlock verifies THAT link).
+    kind?: string; sourceUrl?: string | null;
   };
   if (!body.name?.trim()) return NextResponse.json({ ok: false, error: 'Name is required.' }, { status: 400 });
+  const sourceUrl = body.sourceUrl ? normalizeSourceUrl(body.sourceUrl) : null;
+  if (body.sourceUrl && !sourceUrl) return NextResponse.json({ ok: false, error: 'The source link must be a public web address, like https://example.com/award.' }, { status: 400 });
+  // The logo is streamed back by a route that signs with the service role: it can only ever be a file in THIS org's own folder.
+  if (body.logoStoragePath && !isOwnStoragePath(orgId, body.logoStoragePath)) return NextResponse.json({ ok: false, error: 'That logo file is not one of your organisation’s uploads.' }, { status: 400 });
 
   // Pedido C — surfaced to the founder BEFORE insert, so the badge is never
   // created twice (once unlinked, then again linked) once they decide. The
@@ -67,6 +73,8 @@ export const POST = withActingOrg(async function POST(req: Request) {
     org_id: orgId, name: body.name.trim(), description: body.description?.trim() || null,
     year: body.year ?? null, logo_storage_path: body.logoStoragePath ?? null,
     evidence_document_id: body.evidenceDocumentId ?? null, linked_claim_id: body.linkedClaimId ?? null,
+    // Always born unverified, private to the founder until a verification confirms it against a public source.
+    kind: parseBadgeKind(body.kind), source_url: sourceUrl, source_found_by: sourceUrl ? 'founder' : null,
   }).select('*').single();
   if (error || !data) return NextResponse.json({ ok: false, error: error?.message ?? 'Could not create badge.' }, { status: 500 });
 

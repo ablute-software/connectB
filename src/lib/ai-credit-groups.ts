@@ -54,7 +54,8 @@ export const AI_CREDIT_GROUPS: AiCreditGroup[] = [
   },
   {
     name: 'Company & team research',
-    actionKeys: ['team_sherlock_research', 'entity_enrich', 'roadmap_suggest'],
+    // Prompt 918 — badge_verification (a public-source check of a claimed award) is research about the company, on every plan.
+    actionKeys: ['team_sherlock_research', 'entity_enrich', 'roadmap_suggest', 'badge_verification'],
     minPlan: 'idea',
   },
   // Deliberately excludes document_review (paid-plan only, lives inside the

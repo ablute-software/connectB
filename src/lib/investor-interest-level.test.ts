@@ -189,8 +189,11 @@ describe('projectDossier — roadmap', () => {
   });
 });
 
-describe('projectDossier — badges (Prompt 326 Pedido E)', () => {
-  const BADGE = { id: 'b1', name: 'YCombinator W23', description: null, year: 2023, verificationStatus: 'verified' as const };
+describe('projectDossier — badges (Prompt 326 Pedido E; Prompt 918: the badge passed in is already the verified, sourced shape)', () => {
+  const BADGE = {
+    id: 'b1', name: 'YCombinator W23', kind: 'programme' as const, year: 2023, logoUrl: null,
+    sourceUrl: 'https://www.ycombinator.com/companies/example', sourceTitle: 'YC W23 batch', verifiedAt: '2026-10-14T10:00:00.000Z',
+  };
 
   it('visible at level 0 — recommendation from the prompt itself, unlike overview/swot/roadmap', () => {
     const result = projectDossier(0, FULL, false, null, null, null, [BADGE]);

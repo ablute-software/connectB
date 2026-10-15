@@ -190,10 +190,10 @@ export function projectDossier(
   // but visible at EVERY level including 0 (the recommendation: badges are
   // positive, non-sensitive claims, the same "reason to click Interested"
   // purpose as Prompt 325's intro pitch). Already fully projected by the
-  // caller (projectBadgesForInvestor) BEFORE reaching here — disputed
-  // badges and internal fields (verification_note, evidence_document_id)
-  // never exist in this array at all, so there is nothing for this
-  // function to filter a second time.
+  // caller (projectBadgesForInvestor) BEFORE reaching here — only verified
+  // badges, each with its public source (Prompt 918), and no internal field
+  // (verification_note, evidence_document_id) ever exists in this array, so
+  // there is nothing for this function to filter a second time.
   badges?: BadgePublic[] | null,
   // Prompt 334 — same shape of exception as swot/roadmap: gated on level >=
   // 1 (the same unlock point as `overview`, per the prompt's own "wherever

@@ -31,7 +31,9 @@ async function buildKnowledge(
 ): Promise<{ items: KnowledgeItem[]; existingRoadmap: ExistingRoadmapItem[]; signature: string; foundedYear: number | null }> {
   const [{ data: org }, { data: badges }, { data: rounds }, extractionsAvail, { data: roadmapRows }] = await Promise.all([
     admin.from('orgs').select('founded_year, one_liner, round_target_eur, round_target_close_date').eq('id', orgId).maybeSingle(),
-    admin.from('company_badges').select('id, name, year, evidence_document_id, verification_status').eq('org_id', orgId),
+    // Prompt 918 — VERIFIED badges only. A suggested roadmap event that the founder accepts is shown to investors, so an award Sherlock
+    // has not confirmed against a public source must not be turned into one (a prompt is a data flow, audited like a select).
+    admin.from('company_badges').select('id, name, year, evidence_document_id, verification_status').eq('org_id', orgId).eq('verification_status', 'verified'),
     admin.from('funding_rounds').select('id, label, amount_eur, closed_year, investor_name').eq('org_id', orgId),
     documentExtractionsAvailable(),
     // Prompt 368 — the roadmap's OWN existing events, never read here
