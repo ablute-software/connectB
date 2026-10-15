@@ -114,10 +114,12 @@ alter table public.company_badges add constraint company_badges_verified_has_sou
   check (verification_status <> 'verified' or (source_url is not null and btrim(source_url) <> '' and verified_at is not null));
 
 -- 4. the guard: the verdict is written only by the service role and the database owner
+-- SECURITY INVOKER on purpose (the default): the function reads only the row and auth.role(), so it needs no owner privileges — and a
+-- SECURITY DEFINER function in `public` shows up in the Supabase advisor as executable by anon/authenticated (0028/0029), one more warning
+-- for something that has nothing to protect. (Triggers fire without an EXECUTE check on the firing role; the rehearsal proves it as `authenticated`.)
 create or replace function public.company_badges_protect_verification()
 returns trigger
 language plpgsql
-security definer
 set search_path to 'public', 'pg_temp'
 as $$
 begin
