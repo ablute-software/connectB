@@ -34,7 +34,8 @@ const flush = async () => { await Promise.all(bg.splice(0)); };
 const aiLog = vi.fn(async (..._a: unknown[]) => {});
 vi.mock('@/lib/ai-cost-log', async (orig) => ({ ...(await orig<typeof import('@/lib/ai-cost-log')>()), logAiCall: (...a: unknown[]) => aiLog(...a) }));
 
-import { POST as createPost } from './route';
+import { GET as listGet, POST as createPost } from './route';
+import { GET as oneGet } from './[id]/route';
 import { GET as importGet, POST as importPost } from './[id]/import-ai/route';
 import { GET as runGet, POST as runPost } from './[id]/import-ai/[runId]/route';
 import { GET as noticesGet, POST as noticesPost } from './import-notices/route';
@@ -503,5 +504,82 @@ describe('the notice when the reading ends (Adenda 2b)', () => {
       const res = await upload(target.id, doc());
       expect(res.status).toBe(200);
     } finally { Object.defineProperty(db.tables, 'call_notices', { value: real, writable: true, configurable: true }); }
+  });
+});
+
+// --- Prompt 917, Adenda 1, Part A: "Review" opens the proposal, and the notice stays until the proposal is accepted or discarded -------------------------
+describe('the notice and the card (917 Adenda 1)', () => {
+  beforeEach(() => { db.clock = Date.now(); });
+  const doc = () => [{ name: 'form.docx', bytes: docx(['Application form', 'Company name']), kind: 'form' }];
+  const mine = async () => (await read(await noticesGet(json('GET')))).body.notices as { id: string; kind: string; body: string; callId: string; runId: string | null }[];
+  const listCalls = async () => (await read(await listGet(new NextRequest('http://localhost/api/calls?kind=catalog_entity')))).body.calls as { id: string; name: string; importRun?: { id: string; status: string } | null }[];
+
+  it('the notice carries the id of its run, so "Review" can open THAT proposal', async () => {
+    const r = await upload(target.id, doc());
+    const [n] = await mine();
+    expect(n).toMatchObject({ kind: 'import_ready', callId: target.id, runId: r.body.run.id });
+  });
+
+  it('opening the proposal — the call, its import state, the run itself — does not consume the notice', async () => {
+    const r = await upload(target.id, doc());
+    await read(await oneGet(json('GET'), params(target.id)));
+    await read(await importGet(json('GET'), params(target.id)));
+    await poll(target.id, r.body.run.id);
+    expect((await mine())).toHaveLength(1);
+    expect(db.tables.call_notices[0].seen_at ?? null).toBeNull();
+  });
+
+  it('it goes when the proposal is discarded, or applied — and not before; "Dismiss" (by id) still hides it', async () => {
+    const r1 = await upload(target.id, doc());
+    const discard = await read(await runPost(json('POST', { action: 'discard' }), { params: { id: target.id, runId: r1.body.run.id } }));
+    expect(discard.status).toBe(200);
+    expect(await mine()).toEqual([]);
+    expect(db.tables.call_notices.find((n) => n.dedupe_key === `import:${r1.body.run.id}`)!.seen_at).toBeTruthy();
+
+    const r2 = await upload(target.id, doc());
+    expect(await mine()).toHaveLength(1);
+    const version = row(target.id).config_version as number;
+    const applied = await read(await runPost(json('POST', { action: 'apply', baseVersion: version, accepted: { general: { name: 'Applied name' } } }), { params: { id: target.id, runId: r2.body.run.id } }));
+    expect(applied.status, JSON.stringify(applied.body)).toBe(200);
+    expect(await mine()).toEqual([]);
+
+    const r3 = await upload(target.id, doc());
+    const [n3] = await mine();
+    await noticesPost(json('POST', { ids: [n3.id] }));                                    // "Dismiss": hides the notice, the proposal stays
+    expect(await mine()).toEqual([]);
+    expect((await importGet(json('GET'), params(target.id)).then(read)).body.pending).toMatchObject({ id: r3.body.run.id });
+  });
+
+  it('a failed proposal that is applied/discarded elsewhere never closes someone else\'s notice; a new reading closes the earlier "could not read" notices of that call', async () => {
+    answer = async () => { throw new ImportProviderError('We could not read the documents right now. Please try again in a moment.'); };
+    await upload(target.id, doc());
+    expect((await mine()).map((n) => n.kind)).toEqual(['import_failed']);
+    answer = async () => ({ input: PROPOSAL, usage: { input_tokens: 1, output_tokens: 1 }, model: 'claude-sonnet-4-5' });
+    await upload(target.id, doc());
+    expect((await mine()).map((n) => n.kind)).toEqual(['import_ready']);                    // the failure was about an attempt that no longer matters
+  });
+
+  it('the call\'s card knows its proposal: "ready" with the run to open, "reading" while it reads, nothing otherwise', async () => {
+    expect((await listCalls())[0].importRun ?? null).toBeNull();
+    const releases: (() => void)[] = [];
+    answer = () => new Promise((resolve) => { releases.push(() => resolve({ input: PROPOSAL, usage: { input_tokens: 1, output_tokens: 1 }, model: 'claude-sonnet-4-5' })); });
+    const started = await start(target.id, doc());
+    expect((await listCalls())[0].importRun).toEqual({ id: started.body.run.id, status: 'reading' });
+    await new Promise((r) => setTimeout(r, 0)); releases.forEach((r) => r()); await flush();
+    expect((await listCalls())[0].importRun).toEqual({ id: started.body.run.id, status: 'proposed' });
+    await runPost(json('POST', { action: 'discard' }), { params: { id: target.id, runId: started.body.run.id } });
+    expect((await listCalls())[0].importRun ?? null).toBeNull();
+  });
+
+  it('two calls with no name are told apart: the notice says when each was created', async () => {
+    as('ana');
+    const unnamed = (await read(await createPost(new NextRequest('http://localhost/api/calls', { method: 'POST', body: JSON.stringify({ kind: 'catalog_entity' }), headers: { 'content-type': 'application/json' } })))).body.call as { id: string; name: string };
+    expect(unnamed.name).toBe('Untitled call');
+    await upload(unnamed.id, doc());
+    const n = (await mine()).find((x) => x.callId === unnamed.id)!;
+    expect(n.body).toMatch(/Untitled call · created \d{1,2} [A-Z][a-z]{2}, \d{2}:\d{2}/);
+    // a call WITH a name is shown by its name
+    await upload(target.id, doc());
+    expect((await mine()).find((x) => x.callId === target.id)!.body).toContain('“Edition 2027”');
   });
 });

@@ -53,7 +53,9 @@ export async function promoterName(admin: SupabaseClient, kind: PromoterKind, id
   return ((data as Row | null)?.name as string | undefined) ?? 'Your organisation';
 }
 
-export interface CallCard { call: Call; applications: number; applicationsTotal: number; fields: number; phases: number }
+export interface CallCard {
+  /** Prompt 917 (Adenda 1): a reading in progress, or a proposal waiting for review. */
+  importRun?: { id: string; status: 'reading' | 'proposed' } | null; call: Call; applications: number; applicationsTotal: number; fields: number; phases: number }
 
 /** Applications of a call by state. Only the numbers: the answers are never read here. */
 export async function countApplications(admin: SupabaseClient, callId: string): Promise<{ submitted: number; inProgress: number; withdrawn: number; total: number }> {
@@ -81,11 +83,20 @@ export async function listPromoterCalls(admin: SupabaseClient, kind: PromoterKin
   const calls = ((data ?? []) as Row[]).map(rowToCall);
   if (calls.length === 0) return [];
   const ids = calls.map((c) => c.id);
-  const [{ data: apps }, { data: fields }, { data: phases }] = await Promise.all([
+  const [{ data: apps }, { data: fields }, { data: phases }, { data: runs }] = await Promise.all([
     admin.from('call_applications').select('call_id, status').in('call_id', ids),
     admin.from('call_form_fields').select('call_id').in('call_id', ids),
     admin.from('call_phases').select('call_id').in('call_id', ids),
+    // Prompt 917 (Adenda 1): a reading in progress, or a proposal waiting for review — shown on the call's card, with the way to it.
+    admin.from('call_import_runs').select('id, call_id, status, created_at').in('call_id', ids).in('status', ['reading', 'proposed']).order('created_at', { ascending: false }),
   ]);
+  const importRun = new Map<string, { id: string; status: 'reading' | 'proposed' }>();
+  for (const r of ((runs ?? []) as Row[])) {
+    const cid = r.call_id as string;
+    const cur = importRun.get(cid);
+    // a reading in progress wins over a proposal; otherwise the newest
+    if (!cur || (r.status === 'reading' && cur.status !== 'reading')) importRun.set(cid, { id: r.id as string, status: r.status as 'reading' | 'proposed' });
+  }
   const count = (rows: unknown) => {
     const m = new Map<string, number>();
     for (const r of (rows ?? []) as Row[]) m.set(r.call_id as string, (m.get(r.call_id as string) ?? 0) + 1);
@@ -95,7 +106,7 @@ export async function listPromoterCalls(admin: SupabaseClient, kind: PromoterKin
   const a = count(allApps.filter((r) => r.status === 'submitted'));
   const total = count(allApps);
   const f = count(fields); const p = count(phases);
-  return calls.map((call) => ({ call, applications: a.get(call.id) ?? 0, applicationsTotal: total.get(call.id) ?? 0, fields: f.get(call.id) ?? 0, phases: p.get(call.id) ?? 0 }));
+  return calls.map((call) => ({ call, applications: a.get(call.id) ?? 0, applicationsTotal: total.get(call.id) ?? 0, fields: f.get(call.id) ?? 0, phases: p.get(call.id) ?? 0, importRun: importRun.get(call.id) ?? null }));
 }
 
 export async function createCall(

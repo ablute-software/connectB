@@ -5,9 +5,9 @@ import { useEffect, useState } from 'react';
 import { IMPORT_NOTICES_EVENT } from '@/lib/calls/ai-import/screen-state';
 import { callsApi } from './api';
 
-interface Notice { id: string; kind: 'import_ready' | 'import_failed'; title: string; body: string | null; callId: string }
+interface Notice { id: string; kind: 'import_ready' | 'import_failed'; title: string; body: string | null; callId: string; runId: string | null }
 
-export function ImportNotices({ onReview }: { onReview: (callId: string) => void }) {
+export function ImportNotices({ onReview }: { onReview: (callId: string, runId: string | null) => void }) {
   const [notices, setNotices] = useState<Notice[]>([]);
   useEffect(() => {
     let alive = true;
@@ -26,7 +26,8 @@ export function ImportNotices({ onReview }: { onReview: (callId: string) => void
         <li key={n.id} className={`flex items-start justify-between gap-3 rounded-xl border px-4 py-3 ${n.kind === 'import_ready' ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`} data-testid="import-notice" data-kind={n.kind}>
           <span className="text-sm text-gray-800"><b className="block text-gray-900">{n.title}</b>{n.body}</span>
           <span className="flex shrink-0 items-center gap-3 text-xs">
-            <button type="button" onClick={() => { void seen(n.id); onReview(n.callId); }} className="font-semibold text-[#0E7490] hover:underline" data-testid="import-notice-open">{n.kind === 'import_ready' ? 'Review' : 'Open the call'}</button>
+            {/* Opening is not consuming: a proposal's notice stays until the proposal is accepted or discarded (the server closes it). Only "Dismiss" hides it. */}
+            <button type="button" onClick={() => onReview(n.callId, n.kind === 'import_ready' ? n.runId : null)} className="font-semibold text-[#0E7490] hover:underline" data-testid="import-notice-open">{n.kind === 'import_ready' ? 'Review' : 'Open the call'}</button>
             <button type="button" onClick={() => void seen(n.id)} className="text-gray-500 hover:underline" aria-label="Dismiss">Dismiss</button>
           </span>
         </li>

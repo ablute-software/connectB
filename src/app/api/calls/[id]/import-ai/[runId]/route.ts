@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server';
 import { authCall } from '@/lib/calls/access';
 import { fieldItemsToFormFields, sanitizeFieldItems, sanitizeGeneral, sanitizePhases } from '@/lib/calls/ai-import/proposal';
 import { closeRun, expireStaleRuns, loadRun } from '@/lib/calls/ai-import/store';
+import { resolveImportNotices } from '@/lib/calls/ai-import/notify';
 import { parseFieldsPayload } from '@/lib/calls/form-builder';
 import { parseGeneralPatch, parsePhasesPayload } from '@/lib/calls/mappers';
 import { bumpConfig, loadFields, logCallEvent, replaceFields, replacePhases } from '@/lib/calls/store';
@@ -47,6 +48,7 @@ export async function POST(req: Request, { params }: { params: { id: string; run
 
   if (b.action === 'discard') {
     await closeRun(auth.admin, run.id, 'discarded', auth.userId);
+    await resolveImportNotices(auth.admin, run.id);
     await logCallEvent(auth.admin, auth.call.id, 'import_discarded', auth.userId, { runId: run.id });
     return NextResponse.json({ ok: true, discarded: true });
   }
@@ -90,6 +92,7 @@ export async function POST(req: Request, { params }: { params: { id: string; run
   if (phases?.ok) await replacePhases(auth.admin, auth.call.id, phases.phases);
   if (fields?.ok) await replaceFields(auth.admin, auth.call.id, fields.fields);
   await closeRun(auth.admin, run.id, 'applied', auth.userId);
+  await resolveImportNotices(auth.admin, run.id);
   await logCallEvent(auth.admin, auth.call.id, 'import_applied', auth.userId, {
     runId: run.id, general: Object.keys(generalPatch).length, phases: phases?.ok ? phases.phases.length : 0, fields: fieldCount,
   });

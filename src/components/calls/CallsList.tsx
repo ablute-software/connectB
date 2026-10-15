@@ -9,8 +9,10 @@ import { callsApi, type CallListItem, type PromoterInfo } from './api';
 import { ARCHIVE_CONFIRM, DELETE_CONFIRM, callMenu, hasMenu, visibleCalls } from '@/lib/calls/list-view';
 import { StatusBadge } from './StatusBadge';
 import { ImportNotices } from './ImportNotices';
+import { ImportStatusPill } from './ImportStatusPill';
+import { UNTITLED_CALL, createdText, isUnnamedCall } from '@/lib/calls/call-label';
 
-export function CallsList({ kind, onOpen }: { kind: PromoterKind; onOpen: (id: string, opts?: { importFirst?: boolean }) => void }) {
+export function CallsList({ kind, onOpen }: { kind: PromoterKind; onOpen: (id: string, opts?: { importFirst?: boolean; runId?: string | null }) => void }) {
   const [promoter, setPromoter] = useState<PromoterInfo | null>(null);
   const [calls, setCalls] = useState<CallListItem[] | null>(null);
   const [error, setError] = useState('');
@@ -72,7 +74,7 @@ export function CallsList({ kind, onOpen }: { kind: PromoterKind; onOpen: (id: s
 
   return (
     <div data-testid="calls-list">
-      <ImportNotices onReview={(id) => onOpen(id, { importFirst: true })} />
+      <ImportNotices onReview={(id, runId) => onOpen(id, { importFirst: true, runId })} />
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-bold text-gray-900">Calls</h1>
@@ -133,10 +135,17 @@ export function CallsList({ kind, onOpen }: { kind: PromoterKind; onOpen: (id: s
             <li key={c.id} className="flex flex-col rounded-lg border border-gray-200 bg-white p-4" data-testid="call-card">
               <div className="flex items-start justify-between gap-2">
                 <button type="button" onClick={() => onOpen(c.id)} className="min-w-0 text-left">
-                  <h2 className="truncate text-sm font-semibold text-gray-900 hover:text-[#0E7490]">{c.name}</h2>
+                  <h2 className="truncate text-sm font-semibold text-gray-900 hover:text-[#0E7490]">{isUnnamedCall(c.name) ? UNTITLED_CALL : c.name}</h2>
+                  {/* A call without a name is told apart by when it was made: two drafts both called "Untitled call" used to be impossible to tell apart. */}
+                  {isUnnamedCall(c.name) && <span className="block text-[11px] font-normal text-gray-400" data-testid="call-created">created {createdText(c.createdAt, c.timezone)}</span>}
                 </button>
                 <StatusBadge status={c.effectiveStatus} />
               </div>
+              {c.importRun && (
+                <div className="mt-2" data-testid="card-import-status">
+                  <ImportStatusPill status={c.importRun.status === 'proposed' ? 'ready' : 'reading'} onClick={c.importRun.status === 'proposed' ? () => onOpen(c.id, { importFirst: true, runId: c.importRun!.id }) : undefined} />
+                </div>
+              )}
               <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
                 <dt className="text-gray-400">Opens</dt><dd className="text-gray-700">{formatInZone(c.opensAt, c.timezone)}</dd>
                 <dt className="text-gray-400">Closes</dt><dd className="text-gray-700">{formatInZone(c.closesAt, c.timezone)}</dd>
