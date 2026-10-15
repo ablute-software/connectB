@@ -81,7 +81,7 @@ describe('what a failed run leaves behind', () => {
 
   it('never throws, even when recording the failure fails', async () => {
     const id = await newRun();
-    const broken = { ...admin(), from: () => { throw new Error('db down'); } } as never;
+    const broken = { from: () => { throw new Error('db down'); } } as never;
     await expect(runImportJob({ ...input(id), admin: broken }, { callModel: async () => { throw new Error('x'); } })).resolves.toBeUndefined();
   });
 });
