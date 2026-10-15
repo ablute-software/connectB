@@ -113,3 +113,23 @@ describe('the screen and the workspaces say what was decided', () => {
     expect(read('src/components/incubator/IncubatorWorkspace.tsx')).toMatch(/useImportNoticeCount\(callsEnabled\)[\s\S]*n\.key === 'calls' && callsNotices > 0/);
   });
 });
+
+// --- 917 Adenda 1, Part A: the way back to a proposal can no longer be consumed or lost by looking at it ---------------------------------------------------------
+describe('the way back to a proposal (917 Adenda 1)', () => {
+  const read = (p: string) => readFileSync(`${process.cwd()}/${p}`, 'utf8');
+  it('opening the dialog does not mark the notices as seen, and the close button does not discard the proposal', () => {
+    const dlg = read('src/components/calls/ImportFromDocuments.tsx');
+    expect(dlg).not.toContain('markImportNoticesSeen');
+    expect(dlg).toMatch(/onClick=\{onClose\} className="text-sm text-gray-500 hover:text-gray-800" aria-label="Close"/);
+    expect(dlg).toContain('Closing this window keeps the proposal');
+    expect(dlg).toContain('openRunId');                                   // "Review" opens ON a run
+  });
+  it('"Review" on a notice opens that run and does not hide the notice; the card and the pill open it too', () => {
+    const notices = read('src/components/calls/ImportNotices.tsx');
+    expect(notices).toMatch(/onClick=\{\(\) => onReview\(n\.callId, n\.kind === 'import_ready' \? n\.runId : null\)\}/);
+    expect(notices).toContain('Dismiss');
+    const list = read('src/components/calls/CallsList.tsx');
+    expect(list).toContain('card-import-status'); expect(list).toContain('runId: c.importRun!.id');
+    expect(read('src/components/calls/CallEditor.tsx')).toContain('reviewProposal');
+  });
+});

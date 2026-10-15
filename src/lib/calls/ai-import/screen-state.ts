@@ -28,6 +28,25 @@ export const IMPORT_STATUS_LABEL: Record<Exclude<ImportStatus, null>, string> = 
 /** Fired on window whenever the person's import notices may have changed (seen, opened, dismissed), so the badge on the Calls tab refreshes at once. */
 export const IMPORT_NOTICES_EVENT = 'calls:import-notices-changed';
 
+/**
+ * "Review" (on a notice, on the call's card, on the pill) opens THAT proposal, not the upload form: a run that is proposed goes straight to its review, one still
+ * being read resumes the wait, anything else says why there is nothing to review (Adenda 1, Part A).
+ */
+export type OnOpenRun =
+  | { kind: 'review'; id: string; proposal: Proposal }
+  | { kind: 'reading'; runId: string; since: number }
+  | { kind: 'upload'; error: string };
+export function onOpenRun(a: { ok: boolean; status: number; run?: { id: string; status: string; startedAt?: string; proposal?: Proposal; error?: string | null } }, now: number = Date.now()): OnOpenRun {
+  if (!a.ok || !a.run) return { kind: 'upload', error: a.status === 404 ? 'That proposal no longer exists.' : 'We could not open that proposal. Please try again.' };
+  const r = a.run;
+  if (r.status === 'proposed' && r.proposal) return { kind: 'review', id: r.id, proposal: r.proposal };
+  if (r.status === 'reading') return { kind: 'reading', runId: r.id, since: (r.startedAt && Date.parse(r.startedAt)) || now };
+  if (r.status === 'failed') return { kind: 'upload', error: r.error ?? 'We could not read the documents.' };
+  if (r.status === 'applied') return { kind: 'upload', error: 'That proposal was already applied to the call.' };
+  if (r.status === 'discarded') return { kind: 'upload', error: 'That proposal was discarded.' };
+  return { kind: 'upload', error: 'That proposal is no longer available.' };
+}
+
 export interface PollAnswer {
   ok: boolean; status: number;
   run?: { id: string; status: 'reading' | 'proposed' | 'applied' | 'discarded' | 'failed'; proposal?: Proposal; error?: string | null };

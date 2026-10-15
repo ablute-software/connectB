@@ -18,6 +18,8 @@ import { GRID_REFUSED_MESSAGE, IMPORT_MAX_FILES, IMPORT_MAX_TOTAL_BYTES, isGridK
 import { callAnthropic } from '@/lib/calls/ai-import/anthropic';
 import { runImportJob } from '@/lib/calls/ai-import/job';
 import type { PreparedDoc } from '@/lib/calls/ai-import/propose';
+import { callLabel } from '@/lib/calls/call-label';
+import { supersedeFailedNotices } from '@/lib/calls/ai-import/notify';
 import { createReadingRun, expireStaleRuns, listRuns, listSourceDocuments, saveSourceDocument } from '@/lib/calls/ai-import/store';
 import { runInBackground } from '@/lib/background';
 import { logCallEvent } from '@/lib/calls/store';
@@ -88,6 +90,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (doc) saved.push(doc);
   }
   const sent = prepared.map((p) => ({ name: p.name, kind: p.kind, bytes: p.bytes.length }));
+  await supersedeFailedNotices(auth.admin, auth.call.id, auth.userId);
   const run = await createReadingRun(auth.admin, auth.call.id, { sourceDocumentIds: saved.map((d) => d.id), sourceBytes: sent.reduce((n, f) => n + f.bytes, 0), userId: auth.userId });
   if (!run) return NextResponse.json({ ok: false, error: 'We could not start reading the documents. Please try again.' }, { status: 500 });
   await logCallEvent(auth.admin, auth.call.id, 'import_started', auth.userId, { runId: run.id, documents: saved.length, kinds: sent.map((f) => f.kind), bytes: run.sourceBytes });
@@ -99,7 +102,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     pdfBase64: p.docInfo.format === 'pdf' && !p.docInfo.text ? p.bytes.toString('base64') : null,
   }));
   runInBackground(runImportJob(
-    { admin: auth.admin, callId: auth.call.id, callName: auth.call.name, runId: run.id, userId: auth.userId, docs, files: sent, sourceDocumentIds: saved.map((d) => d.id) },
+    { admin: auth.admin, callId: auth.call.id, callName: callLabel(auth.call.name, auth.call.createdAt, auth.call.timezone), runId: run.id, userId: auth.userId, docs, files: sent, sourceDocumentIds: saved.map((d) => d.id) },
     { callModel: callAnthropic },
   ));
   return NextResponse.json({ ok: true, run: { id: run.id, status: run.status, startedAt: run.createdAt }, documents: saved }, { status: 202 });

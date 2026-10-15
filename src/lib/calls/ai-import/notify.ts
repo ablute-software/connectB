@@ -14,6 +14,27 @@ export function importNoticeContent(i: Pick<ImportNoticeInput, 'callName' | 'out
     : { title: 'We could not read the documents', body: `“${name}”: ${i.message ?? 'Please try again.'}`, ctaLabel: 'Try again' };
 }
 
+/**
+ * The proposal was accepted or discarded: the notice that announced it has done its job. A notice stays until then — opening it is not enough (Adenda 1,
+ * Part A: the click on "Review" used to consume the only way back). Never throws.
+ */
+export async function resolveImportNotices(admin: SupabaseClient, runId: string): Promise<void> {
+  try {
+    await admin.from('call_notices').update({ seen_at: new Date().toISOString() }).eq('dedupe_key', `import:${runId}`).is('seen_at', null);
+  } catch (e) {
+    console.error(`[calls/import-ai] could not close the notice of run ${runId}:`, (e as Error).message);
+  }
+}
+
+/** A new reading supersedes the "could not read" notices of the same call (they are about an attempt that no longer matters). Never throws. */
+export async function supersedeFailedNotices(admin: SupabaseClient, callId: string, userId: string): Promise<void> {
+  try {
+    await admin.from('call_notices').update({ seen_at: new Date().toISOString() }).eq('call_id', callId).eq('user_id', userId).eq('kind', 'import_failed').is('seen_at', null);
+  } catch (e) {
+    console.error('[calls/import-ai] could not close the earlier failure notices:', (e as Error).message);
+  }
+}
+
 /** Never throws: a notice that could not be written must not undo the proposal it announces. Returns whether one was created. */
 export async function notifyImportFinished(admin: SupabaseClient, i: ImportNoticeInput): Promise<boolean> {
   try {

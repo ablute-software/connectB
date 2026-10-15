@@ -8,8 +8,9 @@ import { CallsList } from './CallsList';
 
 export function CallsWorkspace({ kind }: { kind: PromoterKind }) {
   // `importFirst`: the call was just created "from documents", so the editor opens on the import dialog.
-  const [open, setOpen] = useState<{ id: string; importFirst: boolean } | null>(null);
+  // `runId`: open on THAT proposal's review (from a notice or the call's card), not on the upload form.
+  const [open, setOpen] = useState<{ id: string; importFirst: boolean; runId: string | null } | null>(null);
   return open
-    ? <CallEditor key={open.id} callId={open.id} startImport={open.importFirst} onBack={() => setOpen(null)} />
-    : <CallsList kind={kind} onOpen={(id, opts) => setOpen({ id, importFirst: opts?.importFirst === true })} />;
+    ? <CallEditor key={open.id} callId={open.id} startImport={open.importFirst} startRunId={open.runId} onBack={() => setOpen(null)} />
+    : <CallsList kind={kind} onOpen={(id, opts) => setOpen({ id, importFirst: opts?.importFirst === true, runId: opts?.runId ?? null })} />;
 }
