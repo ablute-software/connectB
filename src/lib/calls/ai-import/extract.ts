@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx';
 import { IMPORT_MAX_PDF_PAGES, IMPORT_MAX_TEXT_CHARS, SCANNED_PDF_MESSAGE, type FileFormat } from './limits';
 
 export type ExtractResult =
-  | { ok: true; format: FileFormat; pages: number | null; text: string | null }
+  | { ok: true; format: FileFormat; pages: number | null; text: string | null; pageTexts?: string[] }
   | { ok: false; code: 'unsupported' | 'unreadable' | 'scanned' | 'too_many_pages' | 'empty' | 'too_long'; error: string };
 
 const fail = (code: Extract<ExtractResult, { ok: false }>['code'], error: string): ExtractResult => ({ ok: false, code, error });
@@ -107,6 +107,24 @@ export function pdfTextCharacters(pdf: Buffer): number {
 /** Fewer characters than this and the file is treated as having no text (a page number is not a document). */
 export const PDF_MIN_TEXT_CHARACTERS = 40;
 
+/**
+ * The text of a PDF, page by page (Adenda 2b): sending the model the text instead of the file is ~5x fewer input tokens and lets the reading be split
+ * in parts that run side by side. Null when it cannot be trusted — the extractor failed, or the text is too thin for the pages (a form full of drawings,
+ * an odd encoding): the caller then sends the PDF itself, as before. Never throws.
+ */
+export const PDF_MIN_TEXT_PER_PAGE = 60;
+export async function pdfPageTexts(bytes: Buffer): Promise<string[] | null> {
+  try {
+    const { extractText, getDocumentProxy } = await import('unpdf');
+    const pdf = await getDocumentProxy(new Uint8Array(bytes));
+    const { text } = await extractText(pdf, { mergePages: false });
+    const pages = (Array.isArray(text) ? text : [String(text)]).map((t) => t.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim());
+    const chars = pages.reduce((n, t) => n + t.length, 0);
+    if (pages.length === 0 || chars < PDF_MIN_TEXT_CHARACTERS || chars / pages.length < PDF_MIN_TEXT_PER_PAGE) return null;
+    return pages;
+  } catch { return null; }
+}
+
 // --- The entry point ---------------------------------------------------------------------------------------------------------
 
 export async function extractDocument(fileName: string, bytes: Buffer): Promise<ExtractResult> {
@@ -117,7 +135,8 @@ export async function extractDocument(fileName: string, bytes: Buffer): Promise<
     catch { return fail('unreadable', `We could not read “${fileName}”. Is it damaged or protected?`); }
     if (pages > IMPORT_MAX_PDF_PAGES) return fail('too_many_pages', `This PDF has ${pages} pages and the limit is ${IMPORT_MAX_PDF_PAGES}. Upload the part that matters.`);
     if (pdfTextCharacters(bytes) < PDF_MIN_TEXT_CHARACTERS) return fail('scanned', SCANNED_PDF_MESSAGE);
-    return { ok: true, format: 'pdf', pages, text: null };
+    const pageTexts = await pdfPageTexts(bytes);
+    return pageTexts ? { ok: true, format: 'pdf', pages, text: pageTexts.join('\n\n'), pageTexts } : { ok: true, format: 'pdf', pages, text: null };
   }
   if (isZip(bytes)) {
     if (!readZipEntry(bytes, '[Content_Types].xml')) return fail('unreadable', `We could not read “${fileName}”. Is it damaged or protected?`);

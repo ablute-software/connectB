@@ -13,6 +13,7 @@ import { computeCostEur, logAiCall } from '@/lib/ai-cost-log';
 import { logCallEvent } from '@/lib/calls/store';
 import { ImportProviderError } from './anthropic';
 import { proposeFromDocuments, type ModelCaller, type PreparedDoc } from './propose';
+import { notifyImportFinished } from './notify';
 import { deleteSourceDocument, finishRunFailed, finishRunProposed } from './store';
 
 /** The route's `maxDuration` (seconds). The route file must repeat it as a literal (Next reads it statically); a test keeps the two equal. */
@@ -26,7 +27,7 @@ export const timedOutMessage = (budgetMs: number) =>
   `Reading the documents took longer than we allow (${Math.round(budgetMs / 60000 * 10) / 10} minutes), so it was stopped. Please try again; a shorter document, or one document at a time, is faster.`;
 
 export interface JobInput {
-  admin: SupabaseClient; callId: string; runId: string; userId: string;
+  admin: SupabaseClient; callId: string; callName: string; runId: string; userId: string;
   docs: PreparedDoc[]; files: { name: string; kind: string; bytes: number }[]; sourceDocumentIds: string[];
 }
 export interface JobDeps { callModel: ModelCaller; budgetMs?: number; now?: () => number }
@@ -50,6 +51,7 @@ export async function runImportJob(input: JobInput, deps: JobDeps): Promise<void
     clearTimeout(timer);
     const durationMs = now() - startedAt;
     // Awaited: ai_call_log is used as proof that a pipeline ran (see ai-review).
+    const meta = result.meta;
     await logAiCall({ route: '/api/calls/import-ai', purpose: 'calls_import_from_documents', model: result.model, usage: result.usage, targetType: 'call', targetId: input.callId });
     const run = await finishRunProposed(input.admin, input.runId, {
       proposal: result.proposal, model: result.model, tokensIn: result.usage?.input_tokens ?? null, tokensOut: result.usage?.output_tokens ?? null,
@@ -58,7 +60,10 @@ export async function runImportJob(input: JobInput, deps: JobDeps): Promise<void
     if (!run) { console.error(`[calls/import-ai] run ${input.runId} was no longer reading when the proposal arrived (closed meanwhile): the proposal was dropped`); return; }
     await logCallEvent(input.admin, input.callId, 'import_proposed', input.userId, {
       runId: run.id, documents: input.sourceDocumentIds.length, kinds: input.files.map((f) => f.kind), tokensIn: run.tokensIn, tokensOut: run.tokensOut, costEur: run.costEur, model: result.model, durationMs,
+      inputMode: meta.inputMode, calls: meta.calls, parts: meta.chunks,
     });
+    // The person may have left the screen: tell them, inside the platform, that the proposal is ready.
+    await notifyImportFinished(input.admin, { userId: input.userId, callId: input.callId, callName: input.callName, runId: input.runId, outcome: 'ready' });
   } catch (e) {
     clearTimeout(timer);
     const durationMs = now() - startedAt;
@@ -69,6 +74,7 @@ export async function runImportJob(input: JobInput, deps: JobDeps): Promise<void
       await finishRunFailed(input.admin, input.runId, { code: f.code, message: f.message, durationMs });
       await logCallEvent(input.admin, input.callId, 'import_failed', input.userId, { runId: input.runId, code: f.code, durationMs, bytes: totalBytes, files: input.files.map((x) => ({ kind: x.kind, bytes: x.bytes })) });
       for (const id of input.sourceDocumentIds) await deleteSourceDocument(input.admin, input.callId, id);
+      await notifyImportFinished(input.admin, { userId: input.userId, callId: input.callId, callName: input.callName, runId: input.runId, outcome: 'failed', message: f.message });
     } catch (inner) {
       console.error(`[calls/import-ai] could not record the failure of run ${input.runId}:`, (inner as Error).message);
     }

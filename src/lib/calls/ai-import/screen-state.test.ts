@@ -74,3 +74,42 @@ describe('while waiting', () => {
     expect(afterPoll({ ok: true, status: 200, run: { id: 'r', status: 'discarded' } }, 0)).toMatchObject({ kind: 'upload' });
   });
 });
+
+// --- Adenda 2b: not stuck on the screen ---------------------------------------------------------------------------------------------------
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { readFileSync } from 'node:fs';
+import { IMPORT_NOTICES_EVENT, IMPORT_STATUS_LABEL, importStatusOf } from './screen-state';
+import { ImportStatusPill } from '@/components/calls/ImportStatusPill';
+
+describe('the status next to the Import button', () => {
+  it('a reading in progress wins over a waiting proposal; a waiting proposal is "ready"; nothing is nothing', () => {
+    expect(importStatusOf({ pending: null, reading: { id: 'r', createdAt: 'x' } })).toBe('reading');
+    expect(importStatusOf({ pending: { id: 'p', proposal: PROPOSAL }, reading: null })).toBe('ready');
+    expect(importStatusOf({ pending: { id: 'p', proposal: PROPOSAL }, reading: { id: 'r', createdAt: 'x' } })).toBe('reading');
+    expect(importStatusOf({ pending: null, reading: null })).toBeNull();
+  });
+  it('says "Proposal ready to review" — a button that opens the review when ready, a plain status while reading, nothing otherwise', () => {
+    expect(IMPORT_STATUS_LABEL.ready).toBe('Proposal ready to review');
+    const ready = renderToStaticMarkup(createElement(ImportStatusPill, { status: 'ready', onClick: () => {} }));
+    expect(ready).toContain('Proposal ready to review'); expect(ready).toContain('<button');
+    const reading = renderToStaticMarkup(createElement(ImportStatusPill, { status: 'reading' }));
+    expect(reading).toContain('Reading the documents…'); expect(reading).not.toContain('<button');
+    expect(renderToStaticMarkup(createElement(ImportStatusPill, { status: null }))).toBe('');
+    expect(IMPORT_NOTICES_EVENT).toBe('calls:import-notices-changed');
+  });
+});
+
+describe('the screen and the workspaces say what was decided', () => {
+  const read = (p: string) => readFileSync(`${process.cwd()}/${p}`, 'utf8');
+  it('the dialog: the waiting text, "Continue working", and no evaluation-grid choice', () => {
+    const src = read('src/components/calls/ImportFromDocuments.tsx');
+    expect(src).toContain("Reading your documents. This can take a minute or two. You can keep using the platform; we&apos;ll let you know when the proposal is ready.");
+    expect(src).toContain('Continue working');
+    expect(src).not.toMatch(/Evaluation grid|'grid'/);
+  });
+  it('both workspaces badge the Calls tab with the unseen import notices', () => {
+    expect(read('src/components/investor-workspace/InvestorWorkspaceShell.tsx')).toMatch(/useImportNoticeCount\(callsEnabled\)[\s\S]*badge: callsNotices > 0/);
+    expect(read('src/components/incubator/IncubatorWorkspace.tsx')).toMatch(/useImportNoticeCount\(callsEnabled\)[\s\S]*n\.key === 'calls' && callsNotices > 0/);
+  });
+});

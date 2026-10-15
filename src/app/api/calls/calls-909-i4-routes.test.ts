@@ -37,6 +37,8 @@ vi.mock('@/lib/ai-cost-log', async (orig) => ({ ...(await orig<typeof import('@/
 import { POST as createPost } from './route';
 import { GET as importGet, POST as importPost } from './[id]/import-ai/route';
 import { GET as runGet, POST as runPost } from './[id]/import-ai/[runId]/route';
+import { GET as noticesGet, POST as noticesPost } from './import-notices/route';
+import { GET as applicantNoticesGet, POST as applicantNoticesPost } from './apply/notices/route';
 import { DELETE as docDelete } from './[id]/source-documents/[docId]/route';
 import { ImportProviderError } from '@/lib/calls/ai-import/anthropic';
 
@@ -105,7 +107,7 @@ describe('the proposal', () => {
     const before = JSON.stringify([row(target.id), fieldsOf(target.id), phasesOf(target.id)]);
     const res = await upload(target.id, [
       { name: 'regulation.pdf', bytes: await textPdf(['Regulation of the call', 'Applications open on 1 February 2027 and close on 31 March 2027.'], 2), kind: 'regulation' },
-      { name: 'grid.xlsx', bytes: xlsx({ Criteria: [['Criterion', 'Weight'], ['Team', '30']] }), kind: 'grid' },
+      { name: 'notes.xlsx', bytes: xlsx({ Criteria: [['Criterion', 'Weight'], ['Team', '30']] }), kind: 'other' },
     ]);
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(res.body.run.proposal.general).toMatchObject({ name: 'Innovation Call 2027', timezone: 'Europe/Lisbon' });
@@ -114,12 +116,15 @@ describe('the proposal', () => {
     expect(res.body.run.status).toBe('proposed');
     // nothing applied
     expect(JSON.stringify([row(target.id), fieldsOf(target.id), phasesOf(target.id)])).toBe(before);
-    // the provider got the PDF and the spreadsheet text, as material
-    expect(asked).toHaveLength(1);
-    expect(asked[0].content.some((b) => b.type === 'document')).toBe(true);
-    expect(asked[0].content.map((b) => b.text ?? '').join('\n')).toContain('<document_content>');
+    // the provider got the TEXT of the PDF (not the file) and of the spreadsheet, as material; the work was split: the overview + one reader per part
+    expect(asked).toHaveLength(2);
+    expect(asked.every((a) => !a.content.some((b) => b.type === 'document'))).toBe(true);
+    const sent = asked.flatMap((a) => a.content.map((b) => b.text ?? '')).join('\n');
+    expect(sent).toContain('<document_content>');
+    expect(sent).toContain('Applications open on 1 February 2027');            // text extracted from the PDF
+    expect(sent).toContain('Criterion');                                       // text of the spreadsheet
     // the documents are kept in the call, visible to the team
-    expect(db.tables.call_source_documents.map((d) => [d.file_name, d.kind, d.pages])).toEqual([['regulation.pdf', 'regulation', 2], ['grid.xlsx', 'grid', null]]);
+    expect(db.tables.call_source_documents.map((d) => [d.file_name, d.kind, d.pages])).toEqual([['regulation.pdf', 'regulation', 2], ['notes.xlsx', 'other', null]]);
     expect(storage.objects.size).toBe(2);
   });
 
@@ -146,6 +151,20 @@ describe('the proposal', () => {
     expect(res.body.file).toBe('scan.pdf');
     expect(res.body.error).toContain('scan.pdf:');
     expect(asked).toEqual([]);
+  });
+
+  it('an evaluation grid is refused BEFORE anything is read, stored or sent: they are confidential and never go to an external AI', async () => {
+    const res = await upload(target.id, [{ name: 'grid.xlsx', bytes: xlsx({ Criteria: [['Criterion', 'Weight'], ['Team', '30']] }), kind: 'grid' }]);
+    expect(res).toMatchObject({ status: 400, body: { ok: false, code: 'grid_not_supported', error: expect.stringContaining('confidential') } });
+    // one of several is enough to refuse the lot, whatever the casing
+    expect((await upload(target.id, [{ name: 'form.docx', bytes: docx(['Form']), kind: 'form' }, { name: 'g.docx', bytes: docx(['Grid']), kind: 'Grid' }])).body.code).toBe('grid_not_supported');
+    expect(asked).toEqual([]);
+    expect(db.tables.call_source_documents).toEqual([]);
+    expect(db.tables.call_import_runs).toEqual([]);
+    expect(aiLog).not.toHaveBeenCalled();
+    // and an unknown kind is still "other", not an error
+    expect((await upload(target.id, [{ name: 'x.docx', bytes: docx(['Text of the document']), kind: 'whatever' }])).status).toBe(200);
+    expect(db.tables.call_source_documents.map((d) => d.kind)).toEqual(['other']);
   });
 
   it('refuses unsupported formats, too many files, too much data and nothing at all', async () => {
@@ -322,8 +341,8 @@ describe('reading in the background (Adenda 2)', () => {
   const doc = () => [{ name: 'form.docx', bytes: docx(['Application form', 'Company name']), kind: 'form' }];
 
   it('answers AT ONCE with the run "reading"; the proposal arrives later, from the run', async () => {
-    let release!: () => void;
-    answer = () => new Promise((resolve) => { release = () => resolve({ input: PROPOSAL, usage: { input_tokens: 13_886, output_tokens: 3_761 }, model: 'claude-sonnet-4-5' }); });
+    const releases: (() => void)[] = [];
+    answer = () => new Promise((resolve) => { releases.push(() => resolve({ input: PROPOSAL, usage: { input_tokens: 6_943, output_tokens: 1_880 }, model: 'claude-sonnet-4-5' })); });
     const started = await start(target.id, doc());
     expect(started.status).toBe(202);
     expect(started.body).toMatchObject({ ok: true, run: { status: 'reading', id: expect.any(String) } });
@@ -334,13 +353,24 @@ describe('reading in the background (Adenda 2)', () => {
     expect(mid.body.run).not.toHaveProperty('proposal');
     expect(aiLog).not.toHaveBeenCalled();
     // the model answers
-    release(); await flush();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(releases).toHaveLength(2);                          // the overview and one reader, both already asked
+    releases.forEach((r) => r()); await flush();
     const done = await poll(target.id, started.body.run.id);
     expect(done.body.run.status).toBe('proposed');
     expect(done.body.run.proposal.fields).toHaveLength(3);
-    expect(db.tables.call_import_runs).toMatchObject([{ status: 'proposed', tokens_in: 13886, tokens_out: 3761, duration_ms: expect.any(Number), finished_at: expect.any(String), source_bytes: expect.any(Number) }]);
+    expect(db.tables.call_import_runs).toMatchObject([{ status: 'proposed', tokens_in: 13886, tokens_out: 3760, duration_ms: expect.any(Number), finished_at: expect.any(String), source_bytes: expect.any(Number) }]);
     expect(events(target.id, 'import_started')).toHaveLength(1);
-    expect(events(target.id, 'import_proposed')).toMatchObject([{ detail: { tokensOut: 3761, durationMs: expect.any(Number) } }]);
+    expect(events(target.id, 'import_proposed')).toMatchObject([{ detail: { tokensOut: 3760, durationMs: expect.any(Number), inputMode: 'text', calls: 2 } }]);
+  });
+
+  it('a PDF whose text could not be read goes to the model whole, as a file, in one call (the fallback), and still ends as a proposal', async () => {
+    const thin = await textPdf(['A form with some words in it, enough.'], 2);
+    const res = await upload(target.id, [{ name: 'thin.pdf', bytes: thin, kind: 'form' }]);
+    expect(res.status).toBe(200);
+    expect(asked).toHaveLength(1);
+    expect(asked[0].content.some((b) => b.type === 'document')).toBe(true);
+    expect(events(target.id, 'import_proposed')).toMatchObject([{ detail: { inputMode: 'pdf', calls: 1 } }]);
   });
 
   it('a second reading is refused while one is in progress, and says which one to wait for', async () => {
@@ -411,5 +441,67 @@ describe('reading in the background (Adenda 2)', () => {
     const src = fs.readFileSync(`${process.cwd()}/src/app/api/calls/[id]/import-ai/route.ts`, 'utf8');
     const { IMPORT_MAX_DURATION_S } = await import('@/lib/calls/ai-import/job');
     expect(src).toContain(`export const maxDuration = ${IMPORT_MAX_DURATION_S};`);
+  });
+});
+
+// --- Adenda 2b: the person is told, inside the platform, when the reading ends ----------------------------------------------------------
+describe('the notice when the reading ends (Adenda 2b)', () => {
+  beforeEach(() => { db.clock = Date.now(); });
+  const doc = () => [{ name: 'form.docx', bytes: docx(['Application form', 'Company name']), kind: 'form' }];
+  const mine = async () => (await read(await noticesGet(json('GET')))).body.notices as { id: string; kind: string; title: string; body: string; callId: string }[];
+
+  it('a proposal that is ready leaves a "Proposal ready to review" notice for the person who started it — and only for them', async () => {
+    await upload(target.id, doc());
+    const n = await mine();
+    expect(n).toMatchObject([{ kind: 'import_ready', title: 'Proposal ready to review', callId: target.id, body: expect.stringContaining('Edition 2027') }]);
+    expect(db.tables.call_notices).toMatchObject([{ user_id: 'ana', kind: 'import_ready', link_path: null, dedupe_key: expect.stringMatching(/^import:/) }]);
+    as('bob');
+    expect(await mine()).toEqual([]);
+  });
+
+  it('a failure leaves a "We could not read the documents" notice with the reason', async () => {
+    answer = async () => { throw new ImportProviderError('We could not read the documents right now. Please try again in a moment.'); };
+    await upload(target.id, doc());
+    expect(await mine()).toMatchObject([{ kind: 'import_failed', title: 'We could not read the documents', body: expect.stringContaining('try again') }]);
+  });
+
+  it('is shown until seen: by id, or all of a call\'s at once when that call is opened; and never someone else\'s', async () => {
+    await upload(target.id, doc());
+    const [first] = await mine();
+    db.tables.call_notices.push({ id: 'n-bob', user_id: 'bob', call_id: target.id, kind: 'import_ready', title: 't', body: 'b', link_path: null, dedupe_key: 'x', created_at: new Date().toISOString(), seen_at: null });
+    await noticesPost(json('POST', { ids: [first.id, 'n-bob'] }));
+    expect(await mine()).toEqual([]);
+    expect(db.tables.call_notices.find((n) => n.id === 'n-bob')!.seen_at).toBeNull();     // not ana's: untouched
+    await upload(target.id, doc());                                                       // a new run, a new notice
+    expect(await mine()).toHaveLength(1);
+    await noticesPost(json('POST', { callId: target.id }));
+    expect(await mine()).toEqual([]);
+  });
+
+  it('the applicant\'s own notices never include them, and these never include the applicant\'s', async () => {
+    await upload(target.id, doc());
+    db.tables.call_notices.push({ id: 'n-app', user_id: 'ana', call_id: target.id, kind: 'submission_received', title: 'Application received', body: 'b', link_path: '/call/x', dedupe_key: 'k', created_at: new Date().toISOString(), seen_at: null });
+    expect((await mine()).map((n) => n.kind)).toEqual(['import_ready']);
+    const applicant = await read(await applicantNoticesGet(json('GET')));
+    expect(applicant.body.notices.map((n: { kind: string }) => n.kind)).toEqual(['submission_received']);
+    await applicantNoticesPost(json('POST', { ids: db.tables.call_notices.map((n) => n.id) }));   // marking "all" from the applicant side cannot touch the import one
+    expect(db.tables.call_notices.find((n) => n.kind === 'import_ready')!.seen_at).toBeNull();
+  });
+
+  it('needs a signed-in person, and is off with the emergency brake', async () => {
+    currentUser = null;
+    expect((await noticesGet(json('GET'))).status).toBe(401);
+    as('ana'); process.env.CALLS_MODE = 'off';
+    expect((await noticesGet(json('GET'))).status).toBe(404);
+    delete process.env.CALLS_MODE;
+  });
+
+  it('a notice that cannot be written never undoes the proposal it announces', async () => {
+    const real = db.tables.call_notices;
+    Object.defineProperty(db.tables, 'call_notices', { get() { throw new Error('table gone'); }, configurable: true });
+    try {
+      const res = await upload(target.id, doc());
+      expect(res.status).toBe(200);
+    } finally { Object.defineProperty(db.tables, 'call_notices', { value: real, writable: true, configurable: true }); }
   });
 });

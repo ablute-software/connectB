@@ -6,6 +6,7 @@ import { withActingOrg } from '@/lib/acting-org';
 import { serverClient } from '@/lib/supabase-server';
 import { callsMode } from '@/lib/calls/mode';
 import { serviceClient } from '@/lib/calls/applicant/link';
+import { APPLICANT_NOTICE_KINDS } from '@/lib/calls/applicant/notices';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,7 +23,7 @@ async function me() {
 export const GET = withActingOrg(async function GET() {
   const w = await me();
   if ('error' in w) return w.error;
-  const { data } = await w.admin.from('call_notices').select('id, kind, title, body, link_path, created_at').eq('user_id', w.userId).is('seen_at', null).order('created_at', { ascending: false }).limit(20);
+  const { data } = await w.admin.from('call_notices').select('id, kind, title, body, link_path, created_at').eq('user_id', w.userId).in('kind', APPLICANT_NOTICE_KINDS).is('seen_at', null).order('created_at', { ascending: false }).limit(20);
   return NextResponse.json({
     ok: true,
     notices: ((data ?? []) as { id: string; kind: string; title: string; body: string | null; link_path: string | null; created_at: string }[])
@@ -35,6 +36,6 @@ export const POST = withActingOrg(async function POST(req: Request) {
   if ('error' in w) return w.error;
   const body = (await req.json().catch(() => ({}))) as { ids?: unknown };
   const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === 'string').slice(0, 50) : [];
-  if (ids.length > 0) await w.admin.from('call_notices').update({ seen_at: new Date().toISOString() }).eq('user_id', w.userId).in('id', ids).is('seen_at', null);
+  if (ids.length > 0) await w.admin.from('call_notices').update({ seen_at: new Date().toISOString() }).eq('user_id', w.userId).in('kind', APPLICANT_NOTICE_KINDS).in('id', ids).is('seen_at', null);
   return NextResponse.json({ ok: true });
 });

@@ -1,5 +1,5 @@
 // Prompt 909 (I4) — import a call's configuration from the promoter's OWN documents (regulation, a previous form,
-// an evaluation grid), with AI, as a DRAFT PROPOSAL that changes nothing by itself.
+// nothing else: evaluation grids are confidential and never go to the AI), with AI, as a DRAFT PROPOSAL that changes nothing by itself.
 //   POST multipart: files (1 to 3) and, per file, its kind (regulation | form | grid | other)
 //        -> reads the files here first (format by its bytes, pages, a PDF with no text is refused: no OCR), stores the
 //           documents in the call ("Source documents"), creates the run in state "reading" and ANSWERS AT ONCE with its id.
@@ -14,7 +14,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { authCall } from '@/lib/calls/access';
 import { extractDocument } from '@/lib/calls/ai-import/extract';
-import { IMPORT_MAX_FILES, IMPORT_MAX_TOTAL_BYTES, isSourceKind, type SourceKind } from '@/lib/calls/ai-import/limits';
+import { GRID_REFUSED_MESSAGE, IMPORT_MAX_FILES, IMPORT_MAX_TOTAL_BYTES, isGridKind, isSourceKind, type SourceKind } from '@/lib/calls/ai-import/limits';
 import { callAnthropic } from '@/lib/calls/ai-import/anthropic';
 import { runImportJob } from '@/lib/calls/ai-import/job';
 import type { PreparedDoc } from '@/lib/calls/ai-import/propose';
@@ -64,6 +64,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const files = form.getAll('files').filter((f): f is File => typeof f === 'object' && f !== null && 'arrayBuffer' in f && typeof (f as File).name === 'string');
   const kinds = form.getAll('kinds').map(String);
   if (files.length === 0) return NextResponse.json({ ok: false, error: 'Choose at least one document.' }, { status: 400 });
+  // Evaluation grids are confidential: refused here, before a byte is read, stored or sent anywhere (Nuno, 15/10/2026).
+  if (kinds.some(isGridKind)) return NextResponse.json({ ok: false, code: 'grid_not_supported', error: GRID_REFUSED_MESSAGE }, { status: 400 });
   if (files.length > IMPORT_MAX_FILES) return NextResponse.json({ ok: false, error: `Up to ${IMPORT_MAX_FILES} documents at a time.` }, { status: 400 });
   if (files.reduce((n, f) => n + f.size, 0) > IMPORT_MAX_TOTAL_BYTES) {
     return NextResponse.json({ ok: false, code: 'too_large', error: `The documents are too large: ${IMPORT_MAX_TOTAL_BYTES / (1024 * 1024)} MB in total at most.` }, { status: 413 });
@@ -91,11 +93,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   await logCallEvent(auth.admin, auth.call.id, 'import_started', auth.userId, { runId: run.id, documents: saved.length, kinds: sent.map((f) => f.kind), bytes: run.sourceBytes });
 
   // 3. The model works after the response. The job owns the run from here: it ends "proposed" or "failed".
+  // A PDF whose text could be extracted goes as text, in parts, side by side; one whose text could not goes whole, as a file (Adenda 2b).
   const docs: PreparedDoc[] = prepared.map((p) => ({
-    kind: p.kind, format: p.docInfo.format, text: p.docInfo.text, pdfBase64: p.docInfo.format === 'pdf' ? p.bytes.toString('base64') : null,
+    kind: p.kind, format: p.docInfo.format, text: p.docInfo.text, pageTexts: p.docInfo.pageTexts,
+    pdfBase64: p.docInfo.format === 'pdf' && !p.docInfo.text ? p.bytes.toString('base64') : null,
   }));
   runInBackground(runImportJob(
-    { admin: auth.admin, callId: auth.call.id, runId: run.id, userId: auth.userId, docs, files: sent, sourceDocumentIds: saved.map((d) => d.id) },
+    { admin: auth.admin, callId: auth.call.id, callName: auth.call.name, runId: run.id, userId: auth.userId, docs, files: sent, sourceDocumentIds: saved.map((d) => d.id) },
     { callModel: callAnthropic },
   ));
   return NextResponse.json({ ok: true, run: { id: run.id, status: run.status, startedAt: run.createdAt }, documents: saved }, { status: 202 });
