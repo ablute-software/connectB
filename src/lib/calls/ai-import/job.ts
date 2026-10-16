@@ -52,15 +52,19 @@ export async function runImportJob(input: JobInput, deps: JobDeps): Promise<void
     const durationMs = now() - startedAt;
     // Awaited: ai_call_log is used as proof that a pipeline ran (see ai-review).
     const meta = result.meta;
-    await logAiCall({ route: '/api/calls/import-ai', purpose: 'calls_import_from_documents', model: result.model, usage: result.usage, targetType: 'call', targetId: input.callId });
+    // The AI is logged (and paid for) only when it was actually asked: a form the platform read on its own made no AI call at all.
+    if (meta.calls > 0) await logAiCall({ route: '/api/calls/import-ai', purpose: 'calls_import_from_documents', model: result.model, usage: result.usage, targetType: 'call', targetId: input.callId });
     const run = await finishRunProposed(input.admin, input.runId, {
-      proposal: result.proposal, model: result.model, tokensIn: result.usage?.input_tokens ?? null, tokensOut: result.usage?.output_tokens ?? null,
-      costEur: computeCostEur(result.model, result.usage), durationMs,
+      proposal: result.proposal, model: result.model, tokensIn: meta.calls > 0 ? result.usage?.input_tokens ?? null : null, tokensOut: meta.calls > 0 ? result.usage?.output_tokens ?? null : null,
+      costEur: meta.calls > 0 ? computeCostEur(result.model, result.usage) : 0, durationMs,
+      mode: meta.mode, quality: meta.quality as unknown as Record<string, unknown> | null, aiSections: meta.aiSections,
+      importMeta: { calls: meta.calls, why: meta.why, deduped: meta.deduped, internalFields: meta.internalFields, aiFields: meta.aiFields, aiFailed: meta.aiFailed, inputMode: meta.inputMode },
     });
     if (!run) { console.error(`[calls/import-ai] run ${input.runId} was no longer reading when the proposal arrived (closed meanwhile): the proposal was dropped`); return; }
     await logCallEvent(input.admin, input.callId, 'import_proposed', input.userId, {
       runId: run.id, documents: input.sourceDocumentIds.length, kinds: input.files.map((f) => f.kind), tokensIn: run.tokensIn, tokensOut: run.tokensOut, costEur: run.costEur, model: result.model, durationMs,
-      inputMode: meta.inputMode, calls: meta.calls, parts: meta.chunks,
+      inputMode: meta.inputMode, calls: meta.calls, parts: meta.chunks, mode: meta.mode, coverage: meta.quality?.coverage ?? null, typeConfidence: meta.quality?.typeConfidence ?? null,
+      aiSections: meta.aiSections, internalFields: meta.internalFields, aiFields: meta.aiFields, deduped: meta.deduped.length, aiFailed: meta.aiFailed,
     });
     // The person may have left the screen: tell them, inside the platform, that the proposal is ready.
     await notifyImportFinished(input.admin, { userId: input.userId, callId: input.callId, callName: input.callName, runId: input.runId, outcome: 'ready' });

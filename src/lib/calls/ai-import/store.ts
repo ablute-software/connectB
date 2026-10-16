@@ -18,6 +18,8 @@ export interface ImportRun {
   createdBy: string; createdAt: string; appliedAt: string | null;
   /** Adenda 2: why a run failed (a sentence for the person, and a short code for us), how long it took, how big the files were. */
   errorCode: string | null; errorMessage: string | null; durationMs: number | null; sourceBytes: number | null; finishedAt: string | null;
+  /** Adenda 1, Part B: who read the form ('internal' | 'internal+ai' | 'ai'), what the platform's reader measured, what was sent to the AI, and what else is worth keeping. */
+  mode: 'internal' | 'internal+ai' | 'ai' | null; quality: Record<string, unknown> | null; aiSections: string[]; importMeta: Record<string, unknown> | null;
 }
 /** A run still "reading" after this long is not going to finish (the function that owned it is gone): it is closed as failed on the next look. */
 export const READING_STALE_MS = 6 * 60 * 1000;
@@ -42,6 +44,8 @@ const toRun = (r: Row): ImportRun => ({
   createdBy: r.created_by as string, createdAt: r.created_at as string, appliedAt: (r.applied_at as string | null) ?? null,
   errorCode: (r.error_code as string | null) ?? null, errorMessage: (r.error_message as string | null) ?? null,
   durationMs: r.duration_ms == null ? null : Number(r.duration_ms), sourceBytes: r.source_bytes == null ? null : Number(r.source_bytes), finishedAt: (r.finished_at as string | null) ?? null,
+  mode: (r.mode as ImportRun['mode']) ?? null, quality: (r.quality as Record<string, unknown> | null) ?? null,
+  aiSections: Array.isArray(r.ai_sections) ? (r.ai_sections as string[]) : [], importMeta: (r.import_meta as Record<string, unknown> | null) ?? null,
 });
 
 const safeName = (n: string) => n.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 80) || 'document';
@@ -99,14 +103,28 @@ export async function createReadingRun(
 /** reading -> proposed, once (compare-and-swap on the status: a run that was closed meanwhile is not resurrected). */
 export async function finishRunProposed(
   admin: SupabaseClient, runId: string,
-  r: { proposal: Proposal; model: string; tokensIn: number | null; tokensOut: number | null; costEur: number; durationMs: number },
+  r: {
+    proposal: Proposal; model: string; tokensIn: number | null; tokensOut: number | null; costEur: number; durationMs: number;
+    mode?: ImportRun['mode']; quality?: Record<string, unknown> | null; aiSections?: string[]; importMeta?: Record<string, unknown> | null;
+  },
 ): Promise<ImportRun | null> {
   const { data } = await admin.from('call_import_runs').update({
     status: 'proposed', proposal: r.proposal, found_later: r.proposal.foundLater, model: r.model, tokens_in: r.tokensIn, tokens_out: r.tokensOut,
     cost_eur: Math.round(r.costEur * 10000) / 10000, duration_ms: r.durationMs, finished_at: new Date().toISOString(),
+    mode: r.mode ?? null, quality: r.quality ?? null, ai_sections: r.aiSections ?? [], import_meta: r.importMeta ?? null,
   }).eq('id', runId).eq('status', 'reading').select('*');
   const row = ((data ?? []) as Row[])[0];
   return row ? toRun(row) : null;
+}
+
+/** What the person changed in the review, kept per run (never throws: it must not undo an import that was applied). */
+export async function recordCorrections(admin: SupabaseClient, runId: string, callId: string, rows: { kind: string; number: string | null; source: 'internal' | 'ai' | null; detail: Record<string, unknown> }[]): Promise<void> {
+  if (rows.length === 0) return;
+  try {
+    await admin.from('call_import_corrections').insert(rows.map((r) => ({ run_id: runId, call_id: callId, kind: r.kind, number: r.number, source: r.source, detail: r.detail })));
+  } catch (e) {
+    console.error(`[calls/import-ai] could not record the corrections of run ${runId}:`, (e as Error).message);
+  }
 }
 
 /** reading -> failed, once: the sentence the person sees, a short code for us, how long it took. */

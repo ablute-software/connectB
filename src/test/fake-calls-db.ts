@@ -23,6 +23,8 @@ export function callsDb(): CallsDb {
     'investor_firm_seat_invites',
     // Prompt 907 (the applicant side)
     'orgs', 'org_members', 'documents', 'document_versions', 'call_link_access', 'call_application_files', 'call_notices',
+    // Prompt 917 (Adenda 1, Part B)
+    'call_import_corrections',
   ];
   return { tables: Object.fromEntries(names.map((n) => [n, []])), users: new Map(), clock: Date.UTC(2026, 9, 9, 12, 0, 0), seq: 0 };
 }
@@ -173,7 +175,7 @@ function deleteCallIfEmpty(db: CallsDb, callId: string, actor: string, promoterN
     id: uuid(db), call_id: call.id, call_name: call.name, promoter_kind: call.promoter_kind, promoter_id: call.catalog_entity_id ?? call.incubator_id,
     promoter_name: promoterName, status_at_deletion: call.status, deleted_by: actor, deleted_at: tick(db),
   });
-  for (const t of ['call_phases', 'call_form_fields', 'call_config_snapshots', 'call_events', 'call_team_members', 'call_declared_conflicts', 'call_source_documents', 'call_import_runs']) {
+  for (const t of ['call_phases', 'call_form_fields', 'call_config_snapshots', 'call_events', 'call_team_members', 'call_declared_conflicts', 'call_source_documents', 'call_import_runs', 'call_import_corrections']) {
     db.tables[t] = db.tables[t].filter((r) => r.call_id !== callId);
   }
   db.tables.calls.splice(db.tables.calls.indexOf(call), 1);

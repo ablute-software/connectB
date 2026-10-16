@@ -3,13 +3,13 @@
 // (docs/calls/SPEC_CALLS_V2.md §5, §6, §8).
 
 // Prompt 917 (I1): url, email and group are new. The first eight are the original kinds; a group is the only kind that holds other questions.
-/** What the AI import may propose for now (Prompt 917, I1): the original kinds. The new ones are offered to the import in the next increment (I2), with their rules. */
-export const AI_FIELD_KINDS = ['short_text', 'long_text', 'number', 'date', 'yes_no', 'single_choice', 'multiple_choice', 'file'] as const;
 
 export const FIELD_KINDS = [
   'short_text', 'long_text', 'number', 'date', 'yes_no', 'single_choice', 'multiple_choice', 'file', 'url', 'email', 'group',
 ] as const;
 export type FieldKind = (typeof FIELD_KINDS)[number];
+/** What the import may propose (Prompt 917, I2): every kind, the new ones included — each with its own rules in the prompt and in the sanitiser. */
+export const AI_FIELD_KINDS = FIELD_KINDS;
 /** The kinds a question INSIDE a group may be: everything except another group (one level only in v1). */
 export const SIMPLE_KINDS = [
   'short_text', 'long_text', 'number', 'date', 'yes_no', 'single_choice', 'multiple_choice', 'file', 'url', 'email',

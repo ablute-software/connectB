@@ -29,7 +29,7 @@ describe('Import from documents, before anything is sent', () => {
   it('says, before the upload, that the document is read by the AI provider and not to upload applicants\' documents', () => {
     const out = html();
     // (the markup escapes the apostrophe)
-    expect(out).toContain('The document is read by our AI provider to propose a configuration. Do not upload applicants&#x27; documents or confidential evaluation grids.');
+    expect(out).toContain('We read your document on our platform. If a part is unclear, that part is sent to our AI provider to complete the proposal. Do not upload applicants&#x27; documents or confidential evaluation grids.');
     expect(out.indexOf('Do not upload applicants')).toBeLessThan(out.indexOf('type="file"'));
   });
   it('offers Regulation and/or a previous form: no evaluation grid anywhere on the screen', () => {

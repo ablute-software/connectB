@@ -583,3 +583,66 @@ describe('the notice and the card (917 Adenda 1)', () => {
     expect((await mine()).find((x) => x.callId === target.id)!.body).toContain('“Edition 2027”');
   });
 });
+
+// --- Prompt 917 (I2) + Adenda 1, Part B: the platform reads the form first; what the person corrects is kept ------------------------------------------------
+describe('internal first (917 I2 + Adenda 1 Part B)', () => {
+  beforeEach(() => { db.clock = Date.now(); });
+  const FORM = ['1. Perfil', '1.1 Nome do responsável', '1.2 Endereço de e-mail', '1.3 O projeto está incubado? (Sim ou Não)', '1.3.1 Se sim, qual a incubadora?', '1.4 Descreva o produto (máximo 500 palavras)', '1.5 Data de constituição'];
+  const form = () => [{ name: 'form.docx', bytes: docx(FORM), kind: 'form' }];
+  const noAi = () => { answer = async () => { throw new Error('the AI must not be asked for a form the platform reads'); }; };
+
+  it('a form the platform reads is proposed with NO call to the AI, no AI cost logged, and the run says how it was read', async () => {
+    noAi();
+    const res = await upload(target.id, form());
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(asked).toHaveLength(0);
+    expect(aiLog).not.toHaveBeenCalled();
+    const run = res.body.run;
+    expect(run.mode).toBe('internal');
+    expect(run.quality).toMatchObject({ coverage: 1, unresolved: [] });
+    expect(run.aiSections).toEqual([]);
+    expect(run.proposal.fields.map((f: { kind: string }) => f.kind)).toEqual(['short_text', 'email', 'yes_no', 'short_text', 'long_text', 'date']);
+    expect(run.proposal.fields.every((f: { source: string }) => f.source === 'internal')).toBe(true);
+    const stored = db.tables.call_import_runs[0];
+    expect(stored).toMatchObject({ mode: 'internal', status: 'proposed' });
+    expect((stored.import_meta as { calls: number }).calls).toBe(0);
+    expect(stored.duration_ms).toBeGreaterThanOrEqual(0);
+    expect(events(target.id, 'import_proposed')[0].detail).toMatchObject({ mode: 'internal', aiSections: [], aiFields: 0 });
+  });
+
+  it('with no AI key a form the platform reads still works (it never needed the AI)', async () => {
+    answer = async () => { throw new ImportProviderError('The import from documents is not available right now.', 503, 'not_configured'); };
+    const res = await upload(target.id, form());
+    expect(res.status).toBe(200);
+    expect(res.body.run.mode).toBe('internal');
+  });
+
+  it('what the person changes in the review is kept per run when the proposal is applied: a deleted question, a changed kind — with who made the item', async () => {
+    noAi();
+    const run = (await upload(target.id, form())).body.run as { id: string; proposal: { fields: { tmpId: string; kind: string; number: string }[] } };
+    const [name, , yesNo, , longText, date] = run.proposal.fields;
+    const accepted = [name, { ...yesNo, kind: 'short_text' }, longText, date];                // the e-mail and the follow-up deleted, the yes/no turned into text
+    const res = await read(await runPost(json('POST', { action: 'apply', baseVersion: row(target.id).config_version, accepted: { fields: accepted } }), { params: { id: target.id, runId: run.id } }));
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const rows = db.tables.call_import_corrections.filter((r) => r.run_id === run.id);
+    expect(rows.map((r) => [r.kind, r.number, r.source])).toEqual([
+      ['field_deleted', '1.2', 'internal'], ['kind_changed', '1.3', 'internal'], ['field_deleted', '1.3.1', 'internal'],
+    ]);
+    expect(rows[1].detail).toMatchObject({ from: 'yes_no', to: 'short_text' });
+    expect(rows.every((r) => r.call_id === target.id)).toBe(true);
+  });
+
+  it('accepting what was proposed unchanged records nothing; a failure to record never undoes the import', async () => {
+    noAi();
+    const run = (await upload(target.id, form())).body.run;
+    const real = db.tables.call_import_corrections;
+    Object.defineProperty(db.tables, 'call_import_corrections', { get() { throw new Error('table missing'); }, configurable: true });
+    try {
+      const res = await read(await runPost(json('POST', { action: 'apply', baseVersion: row(target.id).config_version, accepted: { fields: run.proposal.fields.slice(0, 2).map((f: Record<string, unknown>) => ({ ...f, kind: 'long_text' })) } }), { params: { id: target.id, runId: run.id } }));
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+    } finally { Object.defineProperty(db.tables, 'call_import_corrections', { value: real, writable: true, configurable: true }); }
+    const run2 = (await upload(target.id, form())).body.run;
+    await runPost(json('POST', { action: 'apply', baseVersion: row(target.id).config_version, accepted: { fields: run2.proposal.fields } }), { params: { id: target.id, runId: run2.id } });
+    expect(db.tables.call_import_corrections.filter((r) => r.run_id === run2.id)).toEqual([]);
+  });
+});

@@ -8,7 +8,8 @@
 import { NextResponse } from 'next/server';
 import { authCall } from '@/lib/calls/access';
 import { fieldItemsToFormFields, sanitizeFieldItems, sanitizeGeneral, sanitizePhases } from '@/lib/calls/ai-import/proposal';
-import { closeRun, expireStaleRuns, loadRun } from '@/lib/calls/ai-import/store';
+import { closeRun, expireStaleRuns, loadRun, recordCorrections } from '@/lib/calls/ai-import/store';
+import { diffCorrections } from '@/lib/calls/ai-import/corrections';
 import { resolveImportNotices } from '@/lib/calls/ai-import/notify';
 import { parseFieldsPayload } from '@/lib/calls/form-builder';
 import { parseGeneralPatch, parsePhasesPayload } from '@/lib/calls/mappers';
@@ -30,7 +31,7 @@ export async function GET(_req: Request, { params }: { params: { id: string; run
   const run = await loadRun(auth.admin, auth.call.id, params.runId);
   if (!run) return bad('That proposal does not exist.', 404);
   const base = { id: run.id, status: run.status, startedAt: run.createdAt };
-  if (run.status === 'proposed' || run.status === 'applied') return NextResponse.json({ ok: true, run: { ...base, proposal: run.proposal } });
+  if (run.status === 'proposed' || run.status === 'applied') return NextResponse.json({ ok: true, run: { ...base, proposal: run.proposal, mode: run.mode, quality: run.quality, aiSections: run.aiSections } });
   if (run.status === 'failed') return NextResponse.json({ ok: true, run: { ...base, error: run.errorMessage, code: run.errorCode, durationMs: run.durationMs } });
   return NextResponse.json({ ok: true, run: base });
 }
@@ -93,6 +94,8 @@ export async function POST(req: Request, { params }: { params: { id: string; run
   if (fields?.ok) await replaceFields(auth.admin, auth.call.id, fields.fields);
   await closeRun(auth.admin, run.id, 'applied', auth.userId);
   await resolveImportNotices(auth.admin, run.id);
+  // What the person changed against the proposal (a kind, a deletion, a label, required, options) is kept per run: it is how the platform's own reader learns.
+  await recordCorrections(auth.admin, run.id, auth.call.id, diffCorrections(run.proposal.fields, hasFields ? sanitizeFieldItems(accepted.fields, { paged: false }).fields : []));
   await logCallEvent(auth.admin, auth.call.id, 'import_applied', auth.userId, {
     runId: run.id, general: Object.keys(generalPatch).length, phases: phases?.ok ? phases.phases.length : 0, fields: fieldCount,
   });
