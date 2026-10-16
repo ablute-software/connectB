@@ -136,19 +136,28 @@ export function groupErrors(field: FormField, value: AnswerValue): Record<string
   return errors;
 }
 
-function validateGroup(field: FormField, value: AnswerValue): string | null {
+/**
+ * EVERY problem of a group, one by one: the one about the number of entries, then each entry's each question, in the order of the form. The final check lists them all at
+ * once (a group used to count as one item, showing only its first problem — the rest appeared one at a time after each correction).
+ */
+export function groupIssues(field: FormField, value: AnswerValue): { key: string; message: string }[] {
   const cfg = groupOf(field);
-  if (!cfg) return null;
+  if (!cfg) return [];
   const errors = groupErrors(field, value);
-  if (errors.count) return errors.count;
+  const out: { key: string; message: string }[] = [];
+  if (errors.count) out.push({ key: `${field.id}#count`, message: errors.count });
   const entries = presetEntriesFor(cfg, value);         // the fixed rows count even when nothing was typed in them
   for (const [i, e] of entries.entries()) {
     for (const s of cfg.subFields) {
       const err = errors[`${e.id}/${s.id}`];
-      if (err) return `${cfg.entryLabel} ${i + 1} — ${s.label}: ${err}`;
+      if (err) out.push({ key: `${field.id}#${e.id}/${s.id}`, message: `${cfg.entryLabel} ${i + 1} — ${s.label}: ${err}` });
     }
   }
-  return null;
+  return out;
+}
+
+function validateGroup(field: FormField, value: AnswerValue): string | null {
+  return groupIssues(field, value)[0]?.message ?? null;
 }
 
 /** null = fine. Only meaningful for a SHOWN field; an empty optional answer is always fine. */

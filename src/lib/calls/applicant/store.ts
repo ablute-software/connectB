@@ -227,6 +227,12 @@ export async function loadSubmission(admin: SupabaseClient, submissionId: string
  * a failed attempt) lands on the same object: "already exists" is a success. After this the submitted material does not depend on the Vault
  * or on the applicant's folder any more: whatever happens to either later, it stays as it was submitted.
  */
+/** Can the document still be read? (Without copying anything: the final check asks this for every document, together with everything else.) */
+export async function fileReadable(admin: SupabaseClient, f: FileRow): Promise<boolean> {
+  const { data, error } = await admin.storage.from('data-room').createSignedUrl(f.storagePath, 10);
+  return !error && !!data;
+}
+
 export async function freezeFile(admin: SupabaseClient, f: FileRow, to: string): Promise<boolean> {
   const { error } = await admin.storage.from('data-room').copy(f.storagePath, to);
   if (error && !/already exists|duplicate/i.test(error.message ?? '')) return false;

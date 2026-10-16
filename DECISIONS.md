@@ -10222,6 +10222,18 @@ Relatório em `docs/calls/PROMPT_917_I2_ADENDA1_PARTE_B.md`. Migração `2026101
 
 **Limites ditos:** o leitor de tabelas é estreito (colunas numeradas tipo "Competitor #1"); outras tabelas vão à IA, e a qualidade do que ela corrige só se vê com o modelo real. O desenho da revisão está provado por testes de marcação e de lógica, não à vista. A medida em produção (duração, modo, o que foi à IA) depende da importação do Nuno e será lida de `call_import_runs`.
 
+## A verificação final lista tudo de uma vez (16/10/2026)
+
+**Problema (teste da candidatura INNOV-ID):** a verificação mostrou 2 itens; corrigido um, ao voltar a submeter apareceu um que não estava na primeira lista. **Duas causas**, ambas no código: (1) um **grupo contava como um só item** e mostrava apenas o seu primeiro problema (a 1.ª entrada sem email escondia a 2.ª sem nome…), por isso cada correção revelava o seguinte; (2) os **documentos que já não se conseguem ler** só eram verificados *depois* de tudo o resto passar, e um de cada vez (devolvia à primeira falha).
+
+**Regra (spec §14.2):** a verificação corre sobre o formulário inteiro — todas as páginas, todos os grupos e todas as entradas — e lista **tudo numa só vez**, um item por problema, na ordem do formulário. Para um grupo: o problema do número de entradas e depois cada pergunta de cada entrada ("Team member 2 — Email: This answer is required."). No servidor, os documentos ilegíveis entram na **mesma lista** (verificação sem copiar nada; a cópia congelada só acontece quando tudo passa). Cada item tem uma chave própria.
+
+**A única exceção aceitável:** uma pergunta condicional que passou a estar visível por uma resposta dada **depois** da verificação anterior. O ecrã guarda as perguntas visíveis em cada verificação e marca esse item: "**New: shown because you answered «…» on page N**". Uma pergunta que já estava visível na verificação anterior nunca é "nova"; na primeira verificação nada o é. (Vale na candidatura e no modo de teste do editor.)
+
+**Testes:** `final-check-everything.test.ts` (erros em 3 páginas e em dois grupos → a primeira verificação lista os 9; corrigir uma coisa tira exatamente essa; o plano do servidor lista o mesmo; "New: shown because…" com sim/não), e na rota real (`calls-917-i1-routes.test.ts`): erros em 3 páginas, 3 num grupo e um documento ilegível → **7 itens na primeira resposta**, cada um com a sua página.
+
+**Limite dito:** o "New: …" só se vê no ecrã depois de duas verificações seguidas; está provado por lógica pura e não à vista no browser.
+
 ## Prompt 917 (correções do teste da candidatura INNOV-ID) — linhas fixas que não apareciam, prazo de 1 mês em todos os ficheiros, "obrigatório" por omissão (16/10/2026)
 
 Três bugs vistos na call INNOV-ID (`16eb4b2b-…`), mais um extra. Os dados desta call foram corrigidos à mão (ver o fim).

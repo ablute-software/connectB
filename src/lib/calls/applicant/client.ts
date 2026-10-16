@@ -21,7 +21,7 @@ const send = (method: string, data?: unknown): RequestInit => ({ method, body: d
 
 export type StateBody = { state: ApplicationState; page: number };
 export interface FileBody { file: { id: string; fieldId: string; entryId?: string | null; source: 'upload' | 'vault'; fileName: string; size: number; versionNumber?: number | null; documentId?: string | null }; answer: unknown }
-export interface SubmitFailure { fieldId: string; label: string; page: number; message: string }
+export interface SubmitFailure { fieldId: string; label: string; page: number; message: string; key?: string }
 
 export const applicantApi = {
   start: (token: string, startNew = false) => call<StateBody & { created: boolean }>(`/api/calls/apply/${encodeURIComponent(token)}/start`, send('POST', { new: startNew })),
