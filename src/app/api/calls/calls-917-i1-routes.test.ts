@@ -272,3 +272,35 @@ describe('the submitted version, and what the entity reads', () => {
     expect(rows.map((r) => r.values[C.strengths])).toEqual(['cheap', 'big']);
   });
 });
+
+// --- The final check on the server lists everything at once (16/10/2026) -----------------------------------------------------------------------------------
+describe('the server\'s final check tells everything in one answer', () => {
+  it('errors on three pages, several inside a group, and a document that cannot be read any more: all in the FIRST answer, each with its page', async () => {
+    const d = await draft(); const id = d.application.id;
+    const cv = await attach(id, T.cv, 'cv-ana.pdf', PDF, 'entry-a');
+    expect(cv.status).toBe(200);
+    const saved = await put(id, {
+      [F.link]: 'www.youtube.com',                                                                         // page 1: the name is missing, the link is wrong
+      [F.team]: [{ id: 'entry-a', values: { [T.name]: 'Ana', [T.cv]: cv.body.answer } }, { id: 'entry-b', values: {} }],   // page 2: entry 1 lacks the email, entry 2 lacks both
+      [F.competitors]: [{ id: 'row1', values: { [C.strengths]: 'cheap' } }],                               // page 3: started, row 2 lacks "Strengths"
+    }, d.application.revision);
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    // the CV disappears from storage before submitting
+    for (const k of [...storage.objects.keys()]) if (k.endsWith('cv-ana.pdf')) storage.objects.delete(k);
+
+    const r = await submitPost(req('POST', { key: 'key-0009-everything', baseRevision: saved.body.revision }), idp(id)).then(read);
+    expect(r.status).toBe(409);
+    const items = (r.body.failures as { label: string; page: number; message: string; key: string }[]).map((x) => `p${x.page} ${x.label}: ${x.message}`);
+    expect(items).toEqual([
+      'p1 Startup name: This answer is required.',
+      'p1 Pitch video: Enter a link that starts with http:// or https://.',
+      'p2 Team: Team member 1 — Email: This answer is required.',
+      'p2 Team: Team member 2 — Name: This answer is required.',
+      'p2 Team: Team member 2 — Email: This answer is required.',
+      'p2 Team: We could not read “cv-ana.pdf”. Please attach it again.',
+      'p3 Competitor analysis: Row 2 — Strengths: This answer is required.',
+    ]);
+    expect(new Set((r.body.failures as { key: string }[]).map((x) => x.key)).size).toBe(items.length);
+    expect(apps()[0].status).toBe('draft');
+  });
+});

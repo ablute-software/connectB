@@ -606,6 +606,8 @@ Garantias obrigatórias:
 
 Se faltar algo, aparece um popup com o nome de cada campo e a página onde está.
 
+**A verificação lista tudo de uma vez** (16/10/2026): corre sobre o formulário inteiro — todas as páginas, todos os grupos e todas as entradas —, um item por problema, e inclui os documentos que já não se conseguem ler. A única exceção é uma pergunta condicional que passou a estar visível por uma resposta dada depois da verificação anterior: o item diz "New: shown because you answered «…» on page N".
+
 ### 14.3. Submissão
 
 - Regista a data e a hora.
