@@ -76,7 +76,7 @@ function world(): FakeDb {
   d.applyWrites = true;
   d.rpc = {
     // the wallet's own function: refuses or charges 2 credits, and records the charge the way the real one does
-    charge_ai_action: (args) => {
+    charge_ai_action: (args: unknown) => {
       order.push('charge');
       const a = args as { p_org_id: string; p_action_key: string };
       const r = wallet();
