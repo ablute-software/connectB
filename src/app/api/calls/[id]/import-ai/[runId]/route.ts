@@ -7,7 +7,7 @@
 // form (or replacing it). Only while the configuration is unlocked. An event records what was applied.
 import { NextResponse } from 'next/server';
 import { authCall } from '@/lib/calls/access';
-import { fieldItemsToFormFields, sanitizeFieldItems, sanitizeGeneral, sanitizePhases } from '@/lib/calls/ai-import/proposal';
+import { MAX_PROPOSED_FIELDS, fieldItemsToFormFields, sanitizeFieldItems, sanitizeGeneral, sanitizePhases } from '@/lib/calls/ai-import/proposal';
 import { closeRun, expireStaleRuns, loadRun, recordCorrections } from '@/lib/calls/ai-import/store';
 import { diffCorrections } from '@/lib/calls/ai-import/corrections';
 import { resolveImportNotices } from '@/lib/calls/ai-import/notify';
@@ -79,7 +79,16 @@ export async function POST(req: Request, { params }: { params: { id: string; run
   let fields: ReturnType<typeof parseFieldsPayload> | null = null;
   let fieldCount = 0;
   if (hasFields) {
+    const sent = (accepted.fields as unknown[]).length;
     const items = sanitizeFieldItems(accepted.fields, { paged: false }).fields;
+    // Nothing the person accepted is dropped in silence: if the check refuses some, say which and why.
+    if (items.length < sent) {
+      const norm = (s: string) => s.trim().replace(/\s+/g, ' ');
+      const kept = new Set(items.map((i) => i.label));
+      const lost = (accepted.fields as { label?: unknown }[]).filter((f) => typeof f?.label !== 'string' || !kept.has(norm(f.label)))
+        .map((f) => (typeof f?.label === 'string' && f.label.trim() ? `“${f.label.slice(0, 80)}”` : 'a question with no text'));
+      return bad(`${sent - items.length} of the ${sent} accepted questions cannot be applied: ${lost.slice(0, 8).join(', ')}${lost.length > 8 ? '…' : ''}. A question needs a text, and a form holds at most ${MAX_PROPOSED_FIELDS} questions. Nothing was applied.`);
+    }
     const current = await loadFields(auth.admin, auth.call.id);
     const replace = b.fieldsMode === 'replace' || current.length === 0;
     const added = fieldItemsToFormFields(items, replace ? 0 : Math.max(0, ...current.map((f) => f.page)));
@@ -90,8 +99,19 @@ export async function POST(req: Request, { params }: { params: { id: string; run
 
   const updated = await bumpConfig(auth.admin, auth.call, b.baseVersion as number, generalPatch);
   if (!updated) return bad('Someone else changed this call. Reload to see their changes.', 409, { code: 'conflict' });
-  if (phases?.ok) await replacePhases(auth.admin, auth.call.id, phases.phases);
-  if (fields?.ok) await replaceFields(auth.admin, auth.call.id, fields.fields);
+  // The writes are checked: a failure is reported with what failed, the proposal stays open to try again, and the run is closed ONLY after the questions are counted back.
+  try {
+    if (phases?.ok) await replacePhases(auth.admin, auth.call.id, phases.phases);
+    if (fields?.ok) {
+      await replaceFields(auth.admin, auth.call.id, fields.fields);
+      const stored = (await loadFields(auth.admin, auth.call.id)).length;
+      if (stored < fields.fields.length) throw new Error(`only ${stored} of ${fields.fields.length} questions were stored`);
+    }
+  } catch (e) {
+    console.error(`[calls/import-ai] apply FAILED run=${run.id} call=${auth.call.id}:`, (e as Error).message);
+    await logCallEvent(auth.admin, auth.call.id, 'import_apply_failed', auth.userId, { runId: run.id, error: (e as Error).message.slice(0, 300) });
+    return bad(`The accepted items could not be saved (${(e as Error).message}). The proposal is still open, so nothing was lost: try again.`, 500, { code: 'apply_failed' });
+  }
   await closeRun(auth.admin, run.id, 'applied', auth.userId);
   await resolveImportNotices(auth.admin, run.id);
   // What the person changed against the proposal (a kind, a deletion, a label, required, options) is kept per run: it is how the platform's own reader learns.

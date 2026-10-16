@@ -143,16 +143,27 @@ export async function replacePhases(
   const keep = phases.map((p) => p.id);
   const { data: existing } = await admin.from('call_phases').select('id').eq('call_id', callId);
   const drop = ((existing ?? []) as Row[]).map((r) => r.id as string).filter((id) => !keep.includes(id));
-  if (drop.length) await admin.from('call_phases').delete().in('id', drop).eq('call_id', callId);
-  await admin.from('call_phases').upsert(phases.map((p) => ({ ...p, call_id: callId })), { onConflict: 'id' });
+  if (drop.length) {
+    const { error } = await admin.from('call_phases').delete().in('id', drop).eq('call_id', callId);
+    if (error) throw new Error(`Could not remove the old phases: ${error.message}`);
+  }
+  const { error } = await admin.from('call_phases').upsert(phases.map((p) => ({ ...p, call_id: callId })), { onConflict: 'id' });
+  if (error) throw new Error(`Could not save the phases: ${error.message}`);
 }
 
 export async function replaceFields(admin: SupabaseClient, callId: string, fields: FormField[]): Promise<void> {
   const keep = fields.map((f) => f.id);
   const { data: existing } = await admin.from('call_form_fields').select('id').eq('call_id', callId);
   const drop = ((existing ?? []) as Row[]).map((r) => r.id as string).filter((id) => !keep.includes(id));
-  if (drop.length) await admin.from('call_form_fields').delete().in('id', drop).eq('call_id', callId);
-  if (fields.length) await admin.from('call_form_fields').upsert(fields.map((f) => fieldToRow(callId, f)), { onConflict: 'id' });
+  // A write that fails must say so: a save that answers "ok" with the questions not stored is how a whole form can go missing (Prompt 917, 16/10/2026).
+  if (drop.length) {
+    const { error } = await admin.from('call_form_fields').delete().in('id', drop).eq('call_id', callId);
+    if (error) throw new Error(`Could not remove the old questions: ${error.message}`);
+  }
+  if (fields.length) {
+    const { error } = await admin.from('call_form_fields').upsert(fields.map((f) => fieldToRow(callId, f)), { onConflict: 'id' });
+    if (error) throw new Error(`Could not save the questions: ${error.message}`);
+  }
 }
 
 /** A status change: compare-and-swap on the status the caller saw, so two clicks cannot both succeed. */
