@@ -59,6 +59,7 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
   const [edited, setEdited] = useState<{ general: ProposalGeneral; phases: ProposalPhaseItem[]; fields: ProposalFieldItem[] } | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [fieldsMode, setFieldsMode] = useState<'add' | 'replace'>('add');
+  const [skipWarned, setSkipWarned] = useState(false);
 
   function openReview(id: string, proposal: Proposal, meta: RunMeta | null = null) {
     setRunMeta(meta);
@@ -139,9 +140,18 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
   const keysPhases = (edited?.phases ?? []).map((_, i) => `p:${i}`);
   const keysFields = (edited?.fields ?? []).map((f) => `f:${f.tmpId}`);
   const acceptedCount = [...keysGeneral, ...keysPhases, ...keysFields].filter((k) => decisions[k] === 'accepted').length;
+  const acceptedFields = keysFields.filter((k) => decisions[k] === 'accepted').length;
+  // The per-section "Accept all" buttons are easy to mistake for one another: the General one is at the top, the Form one is 50 questions further down.
+  const undecidedAll = [...keysGeneral, ...keysPhases, ...keysFields].filter((k) => decisions[k] !== 'accepted' && decisions[k] !== 'discarded');
 
   async function apply() {
     if (!run || !edited) return;
+    // The Form is the main thing in the proposal: applying with none of its questions accepted is asked about once, never done by accident.
+    if (keysFields.length > 0 && acceptedFields === 0 && !skipWarned) {
+      setSkipWarned(true);
+      setError(`You have not accepted any of the ${keysFields.length} questions of the Form — only ${acceptedCount} other item${acceptedCount === 1 ? '' : 's'}. Use “Accept all” in the Form section (or “Accept everything” above) to take the questions, or press Apply again to apply without them.`);
+      return;
+    }
     setBusy(true); setError('');
     const general: ProposalGeneral = {};
     for (const k of generalKeys) if (decisions[`g:${k}`] === 'accepted') (general as Record<string, unknown>)[k] = edited.general[k];
@@ -256,6 +266,11 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
                 </section>
               )}
 
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-700" data-testid="accept-everything-bar">
+                <span>{keysFields.length} question{keysFields.length === 1 ? '' : 's'} in the Form · {acceptedFields} accepted</span>
+                <button type="button" className={BTN} disabled={undecidedAll.length === 0} onClick={() => { setSkipWarned(false); setError(''); acceptAll(undecidedAll); }} data-testid="accept-everything">Accept everything</button>
+              </div>
+
               <Section title="General" keys={keysGeneral} decisions={decisions} onAcceptAll={() => acceptAll(keysGeneral)} empty="The documents did not say anything for this section.">
                 {generalKeys.map((k) => (
                   <Item key={k} id={`g:${k}`} decisions={decisions} decide={decide} editing={editing} setEditing={setEditing}
@@ -318,7 +333,7 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
                 <button type="button" onClick={() => void discard()} className="text-sm text-gray-500 hover:underline">Discard proposal</button>
                 <button type="button" disabled={acceptedCount === 0 || busy} onClick={() => void apply()} data-testid="import-docs-apply"
                   className="rounded-lg bg-[#0E7490] px-4 py-1.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
-                  {busy ? 'Applying…' : acceptedCount === 0 ? 'Accept items to apply them' : `Apply ${acceptedCount} accepted item${acceptedCount === 1 ? '' : 's'}`}
+                  {busy ? 'Applying…' : acceptedCount === 0 ? 'Accept items to apply them' : `Apply ${acceptedCount} accepted item${acceptedCount === 1 ? '' : 's'}${keysFields.length > 0 ? ` (${acceptedFields} of ${keysFields.length} questions)` : ''}`}
                 </button>
               </div>
             </div>
