@@ -24,6 +24,7 @@ import { SherlockPrepPanel } from './SherlockPrepPanel';
 import { ActionPlanPanel } from './ActionPlanPanel';
 import { TrainPanel } from './TrainPanel';
 import { HistoryPanel } from './HistoryPanel';
+import { WebsiteHealthCard } from './WebsiteHealthCard';
 
 const TABS = [
   { key: 'review', label: 'Review' },
@@ -94,7 +95,8 @@ function ReadinessInner() {
         )}
       >
         <div className="space-y-4">
-          {activeTab === 'review' && <ReviewPanel />}
+          {/* Prompt 919 C — Google's public PageSpeed reading of the founder's own website; a card of its own at the end of the Review tab. */}
+          {activeTab === 'review' && <><ReviewPanel /><WebsiteHealthCard /></>}
           {activeTab === 'blueprint' && <BlueprintPanel />}
           {activeTab === 'market_data' && <MarketDataPanel />}
           {activeTab === 'sherlock_prep' && <SherlockPrepPanel />}

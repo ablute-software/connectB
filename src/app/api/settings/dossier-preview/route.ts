@@ -53,7 +53,7 @@ export const GET = withActingOrg(async function GET(req: Request) {
   // comment on the real investor route had flagged this exact gap: cap
   // table wasn't visible here before, since it used to be fetched inline
   // in /api/portal/startup/[orgId]/route.ts only).
-  const dossier = { ...projectDossier(level, raw.full, shareEmail, raw.swot, raw.founderClarifications, raw.roadmap, raw.badges, raw.miniPitch, raw.media), capTable: raw.capTable };
+  const dossier = { ...projectDossier(level, raw.full, shareEmail, raw.swot, raw.founderClarifications, raw.roadmap, raw.badges, raw.miniPitch, raw.media, raw.websiteHealth), capTable: raw.capTable };
 
   // Prompt 339 §B/§D — same existence-only signal the real Pipeline card
   // carries (investor-pipeline.ts), fetched here directly since this

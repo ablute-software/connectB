@@ -21,6 +21,8 @@ import { MediaGallery, type GalleryItem } from './MediaGallery';
 import { CapTableChart } from '@/components/CapTableChart';
 import { toCapTableSlices } from '@/lib/cap-table';
 import { MiniPitchDeck } from '@/components/mini-pitch/MiniPitchSlideView';
+import { InvestorWebsiteHealth } from './InvestorWebsiteHealth';
+import type { WebsiteHealthPublic } from '@/lib/website-health';
 
 export interface Card {
   orgId: string; name: string; oneLiner: string | null; description: string | null;
@@ -106,6 +108,9 @@ export interface Dossier {
   // that document stays private to the founder (dossier-fetch.ts's own
   // comment on DossierCapTableEntry).
   capTable?: { category: string; label: string; pct: number; isConvertible: boolean; conversionTriggerType: 'date' | 'event' | null; conversionDate: string | null; conversionEvent: string | null }[];
+  // Prompt 919 D — present ONLY when the founder switched "Show my website health score to investors" on: four Google PageSpeed scores, the
+  // date and Google's report link (never a summary, never a finding). Absent otherwise — no "not shared" line either.
+  websiteHealth?: WebsiteHealthPublic;
 }
 
 // Prompt 334 — a small horizontal slide navigator. Deliberately no autoplay:
@@ -271,6 +276,8 @@ export function DossierOverviewSections({
             <MediaGallery items={technologyMedia} />
           </div>
         )}
+        {/* Prompt 919 D — the founder's own choice, four numbers and a date, no verdict (see InvestorWebsiteHealth). */}
+        <InvestorWebsiteHealth websiteHealth={dossier.websiteHealth} />
       </div>
     ),
   });

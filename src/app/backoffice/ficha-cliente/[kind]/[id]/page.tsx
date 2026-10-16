@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Card } from '@/components/ui';
 import { PeopleCard } from '@/components/backoffice/PeopleCard';
+import { WebsiteHealthBackofficeCard } from '@/components/backoffice/WebsiteHealthBackofficeCard';
 import type { CustomerInvite, CustomerPerson } from '@/lib/backoffice-customer-people';
 
 interface Invoice {
@@ -64,6 +65,9 @@ export default function FichaClienteDetailPage({ params }: { params: { kind: str
 
       {/* Prompt 907 §A — under the header, because "who is on this account" is the first thing a support reader needs. */}
       <PeopleCard members={customer.members ?? []} invites={customer.invites ?? []} />
+
+      {/* Prompt 919 E — the last Google PageSpeed analysis of the startup's website, and the back office's "Force re-check". */}
+      {customer.kind === 'org' && <WebsiteHealthBackofficeCard orgId={customer.id} />}
 
       <Card title="Overview">
         <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">

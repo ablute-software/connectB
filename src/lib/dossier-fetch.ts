@@ -22,6 +22,8 @@ import { projectBadgesForInvestor, type BadgePublic } from './company-badges';
 import { projectMiniPitchForInvestor, type MiniPitchSlideProjected, type StoredMiniPitchSlide } from './mini-pitch';
 import { projectMarketDataForInvestor, MARKET_GROUP_KEYS, type MarketGroupKey, type MarketInvestorPayload } from './market-data-investor-projection';
 import { capTableConvertibleFieldsAvailable } from './cap-table-capability';
+import { INVESTOR_AUDIT_COLUMNS, normalizeWebsiteUrl, projectWebsiteHealthForInvestor, type InvestorAuditRow, type WebsiteHealthPublic } from './website-health';
+import { websiteHealthAvailable } from './website-health-capability';
 
 export interface DossierMarketRing {
   ring: string; label: string; definition: string | null; buyer: string | null; geography: string | null;
@@ -66,6 +68,9 @@ export interface DossierRawData {
   // (projectBadgesForInvestor) — disputed badges and internal fields never
   // reach this far.
   badges: BadgePublic[];
+  // Prompt 919 D — null unless the founder switched "Show my website health score to investors" ON and a complete mobile analysis of
+  // their CURRENT website exists. Four scores, a date and Google's report link: never the AI summary, never a finding (projectWebsiteHealthForInvestor).
+  websiteHealth: WebsiteHealthPublic | null;
   // Prompt 334 — null unless the founder has ACTIVATED a mini-pitch
   // (org_mini_pitches.activated_at not null), same "not fetched-then-
   // hidden" discipline as swot/roadmap/overview above: a draft the founder
@@ -423,6 +428,26 @@ export async function fetchDossierRawData(
     })),
   );
 
+  // Prompt 919 D — the founder's website health (Google PageSpeed), shared ONLY when the founder switched it on. The switch is read BEFORE
+  // any score is selected: off means the rows are never queried (nothing is fetched-then-hidden — the same rule as round progress).
+  // The select lists the four scores, the address and the date and nothing else: never `audits`, never `summary`, so neither can leak
+  // from here. The scores must belong to the website the founder has NOW (a changed address makes the old scores stale, not shareable).
+  // Every level, like badges: it is a public measurement the founder chose to show, not a level-gated disclosure.
+  let websiteHealth: WebsiteHealthPublic | null = null;
+  if (await websiteHealthAvailable()) {
+    const { data: flag } = await admin.from('orgs').select('website, website_score_visible').eq('id', orgId).maybeSingle();
+    if (flag?.website_score_visible === true) {
+      const { data: auditRow } = await admin.from('org_website_audits').select(INVESTOR_AUDIT_COLUMNS)
+        .eq('org_id', orgId).eq('strategy', 'mobile')
+        .not('score_performance', 'is', null).not('score_seo', 'is', null).not('score_accessibility', 'is', null).not('score_best_practices', 'is', null)
+        .order('fetched_at', { ascending: false }).limit(1).maybeSingle();
+      const current = normalizeWebsiteUrl((flag.website as string | null) ?? '');
+      websiteHealth = auditRow && current && auditRow.url === current
+        ? projectWebsiteHealthForInvestor(true, auditRow as unknown as InvestorAuditRow)
+        : null;
+    }
+  }
+
   // Mini-pitch. Only ever fetched at level >= 1 (same "not fetched-then-
   // hidden" discipline as swot/overview/roadmap above), and only an
   // ACTIVATED row counts — a founder still previewing/regenerating a draft
@@ -510,5 +535,5 @@ export async function fetchDossierRawData(
     }
   }
 
-  return { full, swot, swotToggleOn, roadmap, roadmapToggleOn, founderClarifications, badges, miniPitch, media, market, capTable };
+  return { full, swot, swotToggleOn, roadmap, roadmapToggleOn, founderClarifications, badges, websiteHealth, miniPitch, media, market, capTable };
 }
