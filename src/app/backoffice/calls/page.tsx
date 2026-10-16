@@ -3,6 +3,7 @@
 // The list, its filters and the expanded detail live in BackofficeCallsTable; this page fetches and frames it.
 import { useEffect, useState } from 'react';
 import { BackofficeCallsTable } from '@/components/backoffice/BackofficeCallsPanel';
+import { ImportCorrectionsPanel } from '@/components/backoffice/ImportCorrectionsPanel';
 import type { BackofficeCallRow } from '@/lib/calls/backoffice-view';
 
 export default function BackofficeCallsPage() {
@@ -24,6 +25,7 @@ export default function BackofficeCallsPage() {
           Every call created by an investor firm or an ecosystem organisation. Read only: applications appear as numbers, never their content.
         </p>
       </div>
+      <ImportCorrectionsPanel />
       {error && <p role="alert" className="text-xs text-[#B00000]">{error}</p>}
       {rows === null ? <p className="text-xs text-gray-400">Loading…</p> : (
         <BackofficeCallsTable rows={rows} origin={typeof window !== 'undefined' ? window.location.origin : ''} />

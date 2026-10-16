@@ -17,7 +17,8 @@ import {
 import { AI_FIELD_KINDS, FIELD_KIND_LABELS, isChoiceKind, type FieldKind } from '@/lib/calls/types';
 import { formatInZone, utcToWall, wallToUtcIso } from '@/lib/calls/tz';
 import { splitContact } from '@/lib/calls/ai-import/client-errors';
-import { IMPORT_NOTICES_EVENT, afterPoll, onOpen, onOpenRun } from '@/lib/calls/ai-import/screen-state';
+import { IMPORT_NOTICES_EVENT, afterPoll, onOpen, onOpenRun, type RunMeta } from '@/lib/calls/ai-import/screen-state';
+import { conditionLine, configLines, metaLine, sourceLabel } from '@/lib/calls/ai-import/review-view';
 import { callsApi } from './api';
 
 const POLL_MS = 3000;
@@ -48,7 +49,8 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
   const [readingRunId, setReadingRunId] = useState<string | null>(null);
   const [readingSince, setReadingSince] = useState<number>(0);
   const [elapsed, setElapsed] = useState(0);
-  const [waiting, setWaiting] = useState<{ id: string; proposal: Proposal } | null>(null);
+  const [waiting, setWaiting] = useState<{ id: string; proposal: Proposal; meta: RunMeta } | null>(null);
+  const [runMeta, setRunMeta] = useState<RunMeta | null>(null);
   const alive = useRef(true);
   const [run, setRun] = useState<{ id: string; proposal: Proposal } | null>(null);
 
@@ -58,7 +60,8 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
   const [editing, setEditing] = useState<string | null>(null);
   const [fieldsMode, setFieldsMode] = useState<'add' | 'replace'>('add');
 
-  function openReview(id: string, proposal: Proposal) {
+  function openReview(id: string, proposal: Proposal, meta: RunMeta | null = null) {
+    setRunMeta(meta);
     setRun({ id, proposal });
     setEdited({ general: { ...proposal.general }, phases: proposal.phases.map((p) => ({ ...p })), fields: proposal.fields.map((f) => ({ ...f, options: [...f.options] })) });
     setWaiting(null); setStep('review');
@@ -73,7 +76,7 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
       const r = await callsApi.importRun(callId, openRunId);
       if (!alive.current) return;
       const d = onOpenRun({ ok: r.ok, status: r.status, run: r.body?.run });
-      if (d.kind === 'review') openReview(d.id, d.proposal);
+      if (d.kind === 'review') openReview(d.id, d.proposal, d.meta);
       else if (d.kind === 'reading') startWaiting(d.runId, d.since);
       else { setError(d.error); setStep('upload'); }
     })();
@@ -107,7 +110,7 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
       setElapsed(Math.max(0, Math.round((Date.now() - readingSince) / 1000)));
       const next = afterPoll({ ok: r.ok, status: r.status, run: r.body?.run }, misses);
       if (next.kind === 'wait') { misses = next.misses; return; }
-      if (next.kind === 'review') { openReview(next.id, next.proposal); return; }
+      if (next.kind === 'review') { openReview(next.id, next.proposal, next.meta); return; }
       setError(next.error); setStep('upload');
     };
     const timer = setInterval(() => void tick(), POLL_MS);
@@ -191,7 +194,7 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
               <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-900" data-testid="import-waiting-proposal">
                 A proposal from an earlier reading is waiting for your review.
                 <span className="ml-3 inline-flex gap-3">
-                  <button type="button" className="font-semibold underline" onClick={() => openReview(waiting.id, waiting.proposal)} data-testid="import-review-waiting">Review it</button>
+                  <button type="button" className="font-semibold underline" onClick={() => openReview(waiting.id, waiting.proposal, waiting.meta)} data-testid="import-review-waiting">Review it</button>
                   <button type="button" className="text-emerald-800 underline" onClick={async () => { await callsApi.discardImport(callId, waiting.id); setWaiting(null); window.dispatchEvent(new Event(IMPORT_NOTICES_EVENT)); }}>Discard it</button>
                 </span>
               </div>
@@ -228,14 +231,26 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
             <div className="space-y-6 overflow-y-auto p-5" data-testid="import-docs-review">
               <p className="text-xs text-gray-500">This is a <b>proposal</b>. Nothing is saved until you accept items and press Apply. Anything you accept can still be edited afterwards. Closing this window keeps the proposal: it stays on the call until you apply or discard it.</p>
 
-              {p.attention.length > 0 && (
+              {metaLine(runMeta) && <p className="rounded-lg bg-gray-50 px-3 py-2 text-[11px] text-gray-600" data-testid="run-meta">{metaLine(runMeta)}</p>}
+
+              {p.attention.some((a) => a.kind !== 'done') && (
                 <section aria-label="Needs your attention" data-testid="attention">
                   <h3 className="text-sm font-semibold text-gray-900">Needs your attention</h3>
                   <ul className="mt-2 space-y-1.5">
-                    {p.attention.map((a, i) => (
+                    {p.attention.filter((a) => a.kind !== 'done').map((a, i) => (
                       <li key={i} className={`rounded-lg px-3 py-2 text-xs ${a.kind === 'outdated' ? 'bg-amber-50 text-amber-900' : 'bg-sky-50 text-sky-900'}`}>
                         <b>{a.kind === 'outdated' ? 'Possibly out of date' : 'Not covered by the form'}:</b> {a.what}{a.why && <span className="block opacity-80">{a.why}</span>}
                       </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+              {p.attention.some((a) => a.kind === 'done') && (
+                <section aria-label="What the import did" data-testid="done-notes">
+                  <h3 className="text-sm font-semibold text-gray-900">What the import did — please confirm</h3>
+                  <ul className="mt-2 space-y-1.5">
+                    {p.attention.filter((a) => a.kind === 'done').map((a, i) => (
+                      <li key={i} className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-900"><b>{a.what}:</b> {a.why}</li>
                     ))}
                   </ul>
                 </section>
@@ -272,7 +287,10 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
                         <span className="ml-1.5 rounded bg-gray-100 px-1 text-[10px] text-gray-600">{FIELD_KIND_LABELS[f.kind]}{f.required ? ' · required' : ''}</span>
                         {f.options.length > 0 && <span className="block text-gray-500">Options: {f.options.join(', ')}</span>}
                         {f.kind === 'file' && f.expectedType && <span className="block text-gray-500">Expected document: {f.expectedType}{f.maxAgeMonths ? ` (up to ${f.maxAgeMonths} months old)` : ''}</span>}
+                        {configLines(f).map((l) => <span key={l} className="block text-gray-500" data-testid="config-line">{l}</span>)}
+                        {conditionLine(f, edited.fields) && <span className="block italic text-gray-400" data-testid="condition-line">{conditionLine(f, edited.fields)}</span>}
                         {f.instruction && <span className="block text-gray-500">{f.instruction}</span>}
+                        {sourceLabel(f.source) && <span className="block text-[10px] text-gray-300" data-testid="item-source">{sourceLabel(f.source)}</span>}
                       </>
                     )}
                     edit={<FieldEditor f={f} onChange={(next) => setEdited({ ...edited, fields: edited.fields.map((x, j) => (j === i ? next : x)) })} />} />
@@ -381,7 +399,7 @@ function FieldEditor({ f, onChange }: { f: ProposalFieldItem; onChange: (f: Prop
       <input autoComplete="off" aria-label="Question" className={`${INPUT} w-full`} value={f.label} onChange={(e) => onChange({ ...f, label: e.target.value })} />
       <span className="flex flex-wrap items-center gap-2">
         <select aria-label="Kind" className={INPUT} value={f.kind} onChange={(e) => onChange({ ...f, kind: e.target.value as FieldKind })}>
-          {AI_FIELD_KINDS.map((k) => <option key={k} value={k}>{FIELD_KIND_LABELS[k]}</option>)}
+          {AI_FIELD_KINDS.filter((k) => k !== 'group' || f.kind === 'group').map((k) => <option key={k} value={k} disabled={f.kind === 'group' && k !== 'group'}>{FIELD_KIND_LABELS[k]}</option>)}
         </select>
         <label className="flex items-center gap-1"><input type="checkbox" checked={f.required} onChange={(e) => onChange({ ...f, required: e.target.checked })} /> Required</label>
       </span>

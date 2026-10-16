@@ -22,7 +22,7 @@ describe('the label of a call', () => {
 describe('opening a run (from "Review", the call\'s card or the pill)', () => {
   const proposal = { general: {}, phases: [], fields: [], attention: [], foundLater: { eligibility: [], evaluation: [] } } as never;
   it('a proposed run goes straight to its review — never through the upload form', () => {
-    expect(onOpenRun({ ok: true, status: 200, run: { id: 'r1', status: 'proposed', proposal } })).toEqual({ kind: 'review', id: 'r1', proposal });
+    expect(onOpenRun({ ok: true, status: 200, run: { id: 'r1', status: 'proposed', proposal } })).toMatchObject({ kind: 'review', id: 'r1', proposal });
   });
   it('a run still being read resumes the wait from when it started', () => {
     expect(onOpenRun({ ok: true, status: 200, run: { id: 'r1', status: 'reading', startedAt: '2026-10-15T12:30:14.614Z' } })).toEqual({ kind: 'reading', runId: 'r1', since: Date.parse('2026-10-15T12:30:14.614Z') });
