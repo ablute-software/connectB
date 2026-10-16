@@ -110,6 +110,15 @@ export function howToNode(args: { name: string; description: string; steps: { na
   };
 }
 
+/**
+ * Google's Rich Results Test reads a bare date ("2026-10-16") as an invalid date-time with no time zone (16/10/2026: four optional-field
+ * warnings on the Article). The DAY is the fact we know; the time is nominal. Noon UTC keeps the same calendar day in every time zone from
+ * UTC-12 to UTC+11, which is why it is noon and not midnight.
+ */
+export function asDateTime(day: string): string {
+  return `${day}T12:00:00Z`;
+}
+
 export function articleNode(args: { headline: string; description: string; path: string }): Json {
   return {
     '@type': 'Article',
@@ -117,8 +126,8 @@ export function articleNode(args: { headline: string; description: string; path:
     headline: args.headline,
     description: args.description,
     inLanguage: 'en',
-    datePublished: SITE_CONTENT_UPDATED,
-    dateModified: SITE_CONTENT_UPDATED,
+    datePublished: asDateTime(SITE_CONTENT_UPDATED),
+    dateModified: asDateTime(SITE_CONTENT_UPDATED),
     author: { '@id': ORG_ID },
     publisher: { '@id': ORG_ID },
     mainEntityOfPage: { '@type': 'WebPage', '@id': abs(args.path) },

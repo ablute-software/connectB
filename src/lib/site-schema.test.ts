@@ -6,10 +6,11 @@ import { describe, expect, it } from 'vitest';
 import { PLANS } from '@/lib/plans';
 import { CONTROLLER_LEGAL_NAME } from '@/lib/controller';
 import { allFaqItems, findingInvestmentItems } from '@/content/site/faq';
+import { SITE_CONTENT_UPDATED } from '@/content/site/facts';
 import { FOR_STARTUPS_STEPS } from '@/content/site/for-startups';
 import { INVESTOR_FAQ_EXTRA } from '@/content/site/investors';
 import {
-  BASE_URL, ORG_ID, aboutPageNode, articleNode, breadcrumbNode, faqPageNode, graph, homeGraph, howToNode, organizationNode,
+  BASE_URL, ORG_ID, aboutPageNode, articleNode, asDateTime, breadcrumbNode, faqPageNode, graph, homeGraph, howToNode, organizationNode,
   plainAnswer, serializeJsonLd, softwareApplicationNode, websiteNode,
 } from './site-schema';
 
@@ -121,8 +122,10 @@ describe('HowTo, Article, AboutPage and breadcrumbs', () => {
   it('Article has a headline, both dates and the organisation as author and publisher', () => {
     const a = articleNode({ headline: 'H', description: 'D', path: '/investors' });
     expect(a).toMatchObject({ '@type': 'Article', headline: 'H', author: { '@id': ORG_ID }, publisher: { '@id': ORG_ID } });
-    expect(a.datePublished).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(a.dateModified).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    // Full ISO 8601 date-times WITH a time zone (a bare date is flagged by Google's Rich Results Test), and the day is the reviewed day, not today's.
+    expect(a.datePublished).toBe(`${SITE_CONTENT_UPDATED}T12:00:00Z`);
+    expect(a.dateModified).toBe(`${SITE_CONTENT_UPDATED}T12:00:00Z`);
+    expect(asDateTime('2026-10-16')).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})$/);
   });
 
   it('breadcrumbs are numbered and absolute', () => {
