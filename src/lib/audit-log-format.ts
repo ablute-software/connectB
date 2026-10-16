@@ -181,6 +181,9 @@ export function describeAuditEvent(row: AuditLogRow, admin: string): string {
       const level = str(detail.blocking_level);
       return `System: ${n ?? 'several'} startups agree on catalog person field ${field}, but it is ${level ? level.replace(/_/g, ' ') : 'already verified'} — not applied`;
     }
+    // Prompt 919 — a platform admin ran a website health check ahead of the 7-day limit.
+    case 'website_health_forced':
+      return `${admin} forced a website health re-check for ${str(detail.orgName) ?? 'an org'}${str(detail.website) ? ` (${str(detail.website)})` : ''}`;
     default:
       return `${admin} performed ${row.action} on ${row.subject_type}`;
   }
