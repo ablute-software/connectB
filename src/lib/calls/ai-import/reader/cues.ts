@@ -35,7 +35,45 @@ export const SHORT_TEXT_CUE = /^(?:\d+(?:\.\d+)*\.?\s*)?(?:nome|name|morada|ende
 // --- Context ------------------------------------------------------------------------------------------------------------------------------------
 export const ATTACHMENTS_SECTION = /\b(?:anexos?|documentos|documentacao|attachments?|annex(?:es)?|appendix|documents)\b/;
 /** "(opcional)", "(se aplicável)", "se disponível", "caso tenha": the question may be left empty. */
-export const OPTIONAL_CUE = /\(\s*(?:opcional|optional|se aplicavel|if applicable|facultativ\w+)\s*\)|\bse disponiv\w+|\bse disponi\w+|\bif available\b|caso tenha disponivel|caso (?:o )?tenha|\bopcional\b|\boptional\b|\(se disponiveis\)/;
+export const OPTIONAL_CUE = new RegExp([
+  String.raw`\(\s*(?:opcional|optional|se aplicavel|if applicable|facultativ\w+)\s*\)`,
+  String.raw`\bopcional\b|\boptional\b|\bfacultativ\w+`,
+  String.raw`\bem caso de (?:ter|haver|existir|ja ter)\b|\bif you (?:have|had)\b|\bse (?:for )?aplicavel\b|\b(?:if|where|when) applicable\b|\bonde aplicavel\b`,
+  String.raw`\bse disponiv\w+|\bif available\b|\bcaso (?:o )?tenha\b|\bcaso (?:exista|existam)\b|\bse existi\w+|\bse existente\w*|\bif any\b`,
+  String.raw`\bcaso (?:considere|ache|entenda|julgue)\b|\bque considere (?:relevant\w+|util|uteis|pertinent\w+)|\bse (?:considerar|achar|entender) (?:util|relevante|pertinente|necessario)`,
+  String.raw`\bif you (?:consider|deem|think|find|feel)\b|\byou (?:consider|deem|think|find) (?:\w+ )?(?:relevant|useful|pertinent|helpful)\b|\bif (?:relevant|useful|helpful)\b|\bse relevante\b`,
+  String.raw`\bpoder(?:a|ao)? (?:ainda )?(?:incluir|anexar|juntar)\b|\byou may (?:also )?(?:include|attach|add)\b`,
+].join('|'));
+
+/**
+ * The deadline a document question states for how old the DOCUMENT may be — only when the text says it outright ("emitida há menos de 3 meses", "issued within the last
+ * 30 days"), in months. "atualizada" on its own is NOT a deadline (Nuno, 16/10/2026): it is a hint, and the import only asks the person to confirm it. Read from the
+ * question's OWN text, never from a neighbour. Null when there is none.
+ */
+export function explicitDocumentAgeMonths(text: string): number | null {
+  const f = fold(text);
+  const toMonths = (n: number, u: string): number => {
+    const months = /^dia|^day/.test(u) ? Math.ceil(n / 30) : /^an|^year/.test(u) ? n * 12 : n;
+    return Math.max(1, Math.min(240, months));
+  };
+  const U = String.raw`\s*(dias?|meses|mes|anos?|days?|months?|years?)\b`;
+  const patterns: RegExp[] = [
+    new RegExp(String.raw`(?:emitid[oa]s?|datad[oa]s?|passad[oa]s?|com data)[^.;:]{0,50}?(?:ha\s+menos\s+de|menos\s+de|inferior\s+a|nao\s+superior\s+a|ate|maximo\s+de|ha\s+no\s+maximo|nos\s+ultimos)\s+(\d{1,3})` + U),
+    new RegExp(String.raw`(?:emitid[oa]s?|datad[oa]s?)\s+ha\s+(?:menos\s+de\s+)?(\d{1,3})` + U),
+    new RegExp(String.raw`(?:issued|dated)\s+(?:within|in)\s+the\s+(?:last|past)\s+(\d{1,3})` + U),
+    new RegExp(String.raw`(?:issued|dated)\s+(?:less than|no more than|not more than)\s+(\d{1,3})` + U),
+    new RegExp(String.raw`not\s+older\s+than\s+(\d{1,3})` + U),
+    new RegExp(String.raw`(?:less|no more)\s+than\s+(\d{1,3})` + U + String.raw`\s+old`),
+  ];
+  for (const re of patterns) {
+    const m = re.exec(f);
+    if (m) return toMonths(Number(m[1]), m[2]);
+  }
+  return null;
+}
+
+/** "atualizada", "up to date": a hint of freshness with no deadline in it. */
+export const FRESHNESS_HINT = /\batualizad[oa]s?\b|\bactualizad[oa]s?\b|\bup[- ]to[- ]date\b|\bupdated\b/;
 export const REQUIRED_CUE = /\bobrigatori[ao]s?\b|\bmandatory\b|\brequired\b|\*\s*$/;
 /** "Se sim, …", "Se Não, …", "If yes, …": a follow-up that depends on the previous yes/no. */
 export const IF_YES = /^(?:\d+(?:\.\d+)*\.?\s*)?(?:se\s+sim|if\s+yes)\b/;

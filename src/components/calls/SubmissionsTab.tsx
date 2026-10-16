@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import { formatInZone } from '@/lib/calls/tz';
 import { formatNumberDisplay, visiblePages } from '@/lib/calls/form-logic';
-import { entriesOf, fileValues, groupOf, isHttpUrl, subFieldAsField } from '@/lib/calls/field-config';
+import { entriesOf, fileValues, groupOf, isHttpUrl, presetEntriesFor, subFieldAsField } from '@/lib/calls/field-config';
 import type { Answers, AnswerValue, FormField, SimpleAnswer } from '@/lib/calls/types';
 
 interface Item { applicationId: string; reference: string | null; startup: string; submittedAt: string }
@@ -59,7 +59,9 @@ export function AnswerView({ field, value, docs, currency }: { field: FormField;
   }
   if (field.kind === 'group') {
     const g = groupOf(field);
-    const entries = entriesOf(value as AnswerValue);
+    // Nothing answered stays "—"; once there is an answer, the rows the entity fixed are shown with their first columns, even for an answer stored before they were kept.
+    const stored = entriesOf(value as AnswerValue);
+    const entries = g && stored.length > 0 ? presetEntriesFor(g, value as AnswerValue) : stored;
     if (!g || entries.length === 0) return <>—</>;
     const cells = (e: (typeof entries)[number]) => g.subFields.map((s) => <AnswerView key={s.id} field={subFieldAsField(s)} value={e.values[s.id]} docs={docs} currency={currency} />);
     if (g.display === 'table') {

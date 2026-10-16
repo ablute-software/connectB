@@ -166,6 +166,8 @@ Tipos de campo:
 | Email | Validação de formato no servidor. Serve sobretudo dentro de grupos (o email de cada membro da equipa). |
 | Repeatable group | **Grupo repetível ("Add another").** A entidade define os sub-campos (qualquer tipo simples, incluindo ficheiro e email), o mínimo e o máximo de entradas (até 50) e o nome de cada entrada ("Team member"). O candidato adiciona, edita, reordena e remove entradas; cada entrada valida os seus obrigatórios e o número de entradas respeita o mínimo e o máximo. **Apresentação como tabela** (opção): as colunas são os sub-campos e as linhas as entradas; a entidade pode deixar as linhas abertas ou **pré-definir as linhas** e o texto das primeiras colunas de cada uma (por exemplo "Your company", "Competitor 1", "Competitor 2"): nesse caso o candidato preenche o resto e não acrescenta nem remove linhas (e o servidor repõe o texto fixo, seja o que for que o browser envie). Em ecrãs estreitos a tabela mostra-se como cartões. |
 
+**Grupos opcionais e tabelas com linhas fixas** (Prompt 917, 16/10/2026): as linhas que a entidade fixou estão **sempre** visíveis para o candidato (primeira coluna preenchida e só de leitura, as outras editáveis), no formulário, no preview/teste e na Submissions. Um grupo **opcional** não pede nada até a pessoa começar a preenchê-lo: o texto diz só que é opcional; começado, aplicam-se o mínimo e as perguntas obrigatórias de cada linha; um grupo **obrigatório** aplica-os sempre. Uma tabela opcional que ninguém preencheu não se guarda.
+
 **Limites da v1 dos tipos novos** (escritos aqui, decididos a 15/10/2026, Prompt 917 I1):
 
 - **um grupo não pode ter outro grupo dentro**;

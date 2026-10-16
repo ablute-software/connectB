@@ -195,7 +195,7 @@ describe('a repeatable group, and a table with rows the entity set', () => {
 
   it('on submitting: the number of entries and each entry\'s required questions are checked on the server, naming the entry and the question', async () => {
     const d = await draft(); const id = d.application.id;
-    const incomplete = await put(id, { [F.name]: 'Acme', [F.link]: 'https://youtu.be/abc', [F.team]: [{ id: 'entry-a', values: { [T.name]: 'Ana' } }] }, d.application.revision);
+    const incomplete = await put(id, { [F.name]: 'Acme', [F.link]: 'https://youtu.be/abc', [F.team]: [{ id: 'entry-a', values: { [T.name]: 'Ana' } }], [F.competitors]: [{ id: 'x', values: { [C.strengths]: 'cheap' } }] }, d.application.revision);
     const r = await submitPost(req('POST', { key: 'key-0002-grp', baseRevision: incomplete.body.revision }), idp(id)).then(read);
     expect(r.status).toBeGreaterThanOrEqual(400);
     const msgs = (r.body.failures as { label: string; message: string }[]).map((x) => `${x.label}: ${x.message}`);
