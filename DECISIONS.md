@@ -10222,6 +10222,10 @@ Relatório em `docs/calls/PROMPT_917_I2_ADENDA1_PARTE_B.md`. Migração `2026101
 
 **Limites ditos:** o leitor de tabelas é estreito (colunas numeradas tipo "Competitor #1"); outras tabelas vão à IA, e a qualidade do que ela corrige só se vê com o modelo real. O desenho da revisão está provado por testes de marcação e de lógica, não à vista. A medida em produção (duração, modo, o que foi à IA) depende da importação do Nuno e será lida de `call_import_runs`.
 
+## Build com teto de heap — o deploy do 917 I2 morreu por falta de memória (16/10/2026)
+
+O deploy de `3e70e0ac` (merge do 917 I2) falhou na Vercel no passo "Linting and checking validity of types" com `SIGKILL` e "Out of Memory" no relatório do build; a produção ficou no build anterior cerca de 20 minutos (o mesmo código compilava localmente). Medido: o build do commit anterior e o novo passam ambos com 2,5 GB de heap e falham com o heap por omissão — o passo está perto do limite de um contentor de 8 GB, e na Vercel o V8 não tem teto baixo, por isso só recolhe memória quando o contentor está cheio e o kernel mata o processo (o passo demorava 1m52s no último deploy bom e passou de 2m30s). **Correção:** `npm run build` passa a ser `node scripts/build.mjs`, que corre `next build` com `--max-old-space-size=4096` (um valor já presente em `NODE_OPTIONS` manda). Fica no repositório: não depende de nenhuma variável no painel (nada a mudar em `CONFIG_REGISTRY.md`). Verificado localmente (EXIT=0 com o heap por omissão, que antes falhava); a prova final é o próximo deploy.
+
 ## Prompt 917, Adenda 1, Parte A — o "Review" que não mostrava a proposta (15/10/2026, branch `claude/917-adenda1-review-bug`)
 
 Relatório em `docs/calls/PROMPT_917_ADENDA1_PARTE_A_REVIEW.md`; capturas em `docs/calls/screenshots-917-adenda1/`. Sem migração. **A Parte B (motor interno primeiro) fez-se com o I2: ver a entrada «Prompt 917, I2 + Adenda 1, Parte B».**

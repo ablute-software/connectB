@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:verify": "node scripts/dev-verify.mjs",
-    "build": "next build",
+    "build": "node scripts/build.mjs",
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
