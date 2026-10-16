@@ -3,8 +3,8 @@
 // (spec §6.2: "as condições são verificadas também no servidor"). No I/O, no React.
 import { MAX_NUMBER_DIGITS, type AnswerValue, type Answers, type FieldCondition, type FormField } from './types';
 import {
-  FILE_FORMATS, MAX_URL_LENGTH, entriesOf, fileFormatsOf, fileValues, formatOfName, formatsText, groupMin, groupOf, isEmail, isFileValue, isGroupEntry, isHttpUrl,
-  maxFileMbOf, maxFilesOf, subFieldAsField,
+  FILE_FORMATS, MAX_URL_LENGTH, entriesOf, fileFormatsOf, fileValues, formatOfName, formatsText, groupMin, groupOf, groupStarted, isEmail, isFileValue, isGroupEntry, isHttpUrl,
+  maxFileMbOf, maxFilesOf, presetEntriesFor, subFieldAsField,
 } from './field-config';
 
 export const orderFields = (fields: FormField[]): FormField[] =>
@@ -119,7 +119,10 @@ export function groupErrors(field: FormField, value: AnswerValue): Record<string
   const cfg = groupOf(field);
   if (!cfg) return {};
   const errors: Record<string, string> = {};
-  const entries = entriesOf(value);
+  // An OPTIONAL group asks for nothing until the person starts filling it in (then its minimum and its required questions apply); a required one always does.
+  if (!field.required && !groupStarted(cfg, value)) return errors;
+  // The rows the entity fixed are always there: the person never has to "add" them.
+  const entries = presetEntriesFor(cfg, value);
   const min = groupMin(field, cfg);
   const noun = cfg.entryLabel.toLowerCase();
   if (entries.length < min) errors.count = min === 1 ? `Add at least one ${noun}.` : `Add at least ${min} entries (${noun}).`;
@@ -138,7 +141,7 @@ function validateGroup(field: FormField, value: AnswerValue): string | null {
   if (!cfg) return null;
   const errors = groupErrors(field, value);
   if (errors.count) return errors.count;
-  const entries = entriesOf(value);
+  const entries = presetEntriesFor(cfg, value);         // the fixed rows count even when nothing was typed in them
   for (const [i, e] of entries.entries()) {
     for (const s of cfg.subFields) {
       const err = errors[`${e.id}/${s.id}`];

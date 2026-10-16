@@ -665,6 +665,12 @@ describe.skipIf(!fs.existsSync(REAL_PDF))('the real INNOV-ID form, end to end (i
     const saved = fieldsOf(target.id);
     expect(saved).toHaveLength(accepted.length);
     expect(saved.filter((f) => f.kind === 'group')).toHaveLength(2);
+    // the 16/10 bug: a file saved with no age limit became "1 month" (Number(null) clamped up to 1). None of the 7 files states a deadline: none is stored.
+    const filesSaved = saved.filter((f) => f.kind === 'file');
+    expect(filesSaved).toHaveLength(7);
+    expect(filesSaved.every((f) => f.max_age_months == null)).toBe(true);
+    expect(saved.find((f) => String(f.label).startsWith('6.6'))!.required).toBe(false);
+    expect((saved.find((f) => String(f.label).startsWith('6.1'))!.validations as { fileFormats: string[] }).fileFormats).toEqual(['pdf', 'powerpoint']);
     expect(saved.filter((f) => f.condition).length).toBeGreaterThanOrEqual(9);
     expect(saved.some((f) => f.kind === 'file' && (f.validations as { maxFiles?: number }).maxFiles === 10)).toBe(true);
     expect(events(target.id, 'import_applied')[0].detail).toMatchObject({ fields: accepted.length });
