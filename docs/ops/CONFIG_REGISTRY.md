@@ -77,6 +77,17 @@ Sem `NEXT_PUBLIC_APP_URL` os links dos emails (convites, Stripe, "Open your work
 | `AI_REVIEW_MODEL` | **sem decisão registada.** Opcional: sem ela o código usa `claude-sonnet-4-5`. Desde o Prompt 909 também lê o modelo da importação de calls por documentos (mesmo cliente e mesma `ANTHROPIC_API_KEY`; **nenhuma variável nova**) | pendente | — | `src/app/api/ai-review/route.ts:318`; `src/lib/calls/ai-import/anthropic.ts` |
 | `AI_CLASSIFY_MODEL` | **sem decisão registada.** Opcional: sem ela o código usa `claude-haiku-4-5` | pendente | — | `src/app/api/classify-interaction/route.ts:10` |
 
+### 1.4b Medição do website (Google PageSpeed) — Prompt 919, 16/10/2026
+
+| Nome | Valor | Estado | Quem decidiu e quando | Fonte |
+|---|---|---|---|---|
+| `PAGESPEED_API_KEY` | por definir. **Obrigatória, não opcional:** sem chave o Google responde **429 `RESOURCE_EXHAUSTED` com `quota_limit_value: "0"`** (observado a 16/10/2026 numa chamada sem chave: o projeto anónimo partilhado tem quota zero), e o cartão "Website health" só mostra "Google's free quota for this check is used up right now". Só lida no servidor (nunca `NEXT_PUBLIC_`). A chave **nunca** vai para o repositório nem para um relatório | pendente | Nuno, 16/10/2026 (Prompt 919): cria a chave e cola-a no Vercel. **Como:** Google Cloud Console → APIs & Services → Library → «PageSpeed Insights API» → Enable → Credentials → Create credentials → API key → **API restrictions = só «PageSpeed Insights API»** · **Application restrictions = None** (a chamada sai dos servidores do Vercel, sem referrer nem IP fixo: uma restrição por HTTP referrer faz o Google responder `API_KEY_HTTP_REFERRER_BLOCKED`). Depois Vercel → connect-b → Settings → Environment Variables → `PAGESPEED_API_KEY` (Production + Preview) → redeploy | `src/app/api/website-health/check/route.ts`; `src/app/api/backoffice/website-health/[orgId]/route.ts`; `src/lib/website-health-psi.ts` |
+| `ANTHROPIC_API_KEY` (resumo) | a mesma já `feito` em §1.4 — **nenhuma variável nova** para o resumo em linguagem de founder (modelo `claude-haiku-4-5`, fixo no código, 2 créditos, `ai_actions.website_summary`) | feito | Prompt 919 | `src/lib/website-health-summary.ts` |
+| Como ver se a chave está posta | Backoffice → Ficha do cliente (startup) → cartão «Website health»: mostra «PageSpeed key on this deployment: set / NOT SET» e deixa fazer «Force re-check» (sem o limite de 7 dias; fica no registo de auditoria como `website_health_forced`) | feito (código) | Prompt 919 | `src/components/backoffice/WebsiteHealthBackofficeCard.tsx` |
+
+Não há cron novo: a análise corre só por clique (do founder, ou do admin em «Force re-check»). Funções com `maxDuration = 60` (limite do Hobby); cada
+chamada ao Google tem 55 s de tempo máximo, as duas estratégias (mobile e desktop) correm em paralelo.
+
 ### 1.5 Segurança de ficheiros, Gmail, privacidade
 
 | Nome | Valor | Estado | Quem decidiu e quando | Fonte |
@@ -228,3 +239,8 @@ Supabase sobre SMTP, rate limits, OTP e template ficaram `feito` (confirmado pel
    ativar.
 6. **Supabase → plano e Authentication → Sign In / Providers → Password** (§2): a "leaked password protection" só se liga
    com o plano **Pro**; decidir o plano e, se Pro, ligar a opção.
+7. **Google Cloud + Vercel — `PAGESPEED_API_KEY`** (§1.4b, Prompt 919, 16/10/2026): **sem esta chave o cartão "Website health" não funciona** (o Google
+   responde quota zero a quem não tem chave). Criar a chave com **API restrictions = só «PageSpeed Insights API»** e **Application restrictions = None**,
+   colá-la em Vercel → connect-b → Settings → Environment Variables → `PAGESPEED_API_KEY` (Production + Preview) e fazer redeploy. Só depois da migração
+   `20261016140000_website_health.sql` estar aplicada (o cartão fica invisível até lá). Depois: correr a análise na ablute_ em produção e ver o resultado
+   no Backoffice → Ficha do cliente → «Website health» (diz se a chave está posta).
