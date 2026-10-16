@@ -21,6 +21,7 @@ import { InvestorInterestPopup } from '@/components/InvestorInterestPopup';
 import { DocumentRequestPopup } from '@/components/DocumentRequestPopup';
 import { useBottomNavHeight, useBottomNavRef } from '@/lib/bottom-nav-context';
 import { BRAND_NAME } from '@/lib/brand';
+import { isPublicSitePage } from '@/lib/public-site-routes';
 import { useCommitmentsGate } from '@/lib/commitments-status';
 import { useUsageHeartbeat } from '@/lib/use-usage-heartbeat';
 import { WorkspaceSidebar } from '@/components/workspace-shell/WorkspaceSidebar';
@@ -214,7 +215,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
     // Prompt I-01 — the ecosystem-organisation workspace brings its own shell
     // (/ecosystem since I-01c; /incubator redirects there).
     || path === '/incubator' || !!path?.startsWith('/incubator/')
-    || path === '/ecosystem' || !!path?.startsWith('/ecosystem/');
+    || path === '/ecosystem' || !!path?.startsWith('/ecosystem/')
+    // Prompt 920 — the public marketing pages (/for-startups, /about, /faq) bring their own nav and footer; wrapped in this Shell an
+    // anonymous visitor would get the founder app's sidebar around them. The list is shared with the middleware and the sitemap.
+    || isPublicSitePage(path);
   useUsageHeartbeat({ context: 'crm', enabled: me?.authEnabled === true && !isBareShellRoute });
   // Prompt 603 §C — once per version, founders only, and only while the
   // server-side gate is switched on (legal review pending).
