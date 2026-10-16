@@ -20,6 +20,9 @@ import { AudienceToggle } from '@/components/landing/AudienceToggle';
 import { InvestorPricingSection } from '@/components/landing/InvestorPricingSection';
 import { HowItWorksVideo } from '@/components/landing/HowItWorksVideo';
 import { SeeHowButton } from '@/components/landing/SeeHowButton';
+import { JsonLd } from '@/components/seo/JsonLd';
+import { INVESTOR_FAQ_EXTRA, INVESTOR_FIT_SECTION } from '@/content/site/investors';
+import { articleNode, breadcrumbNode, faqPageNode, graph, organizationNode, websiteNode } from '@/lib/site-schema';
 import s from '../landing.module.css';
 
 const fraunces = Fraunces({
@@ -105,12 +108,16 @@ const FEATURES: { title: string; body: string }[] = [
   { title: 'Consent-based introductions', body: 'On MatchDeal, our companion discovery app, interest becomes an introduction only when both sides opt in — no cold exposure, no unsolicited decks.' },
 ];
 
-const FAQS = [
+const EXISTING_FAQS = [
   { q: 'Is my deal flow private?', a: 'Yes. Your mandate and the startups matched to it are private to your organisation by default. It is never used to grow the marketplace or train shared models without your explicit consent.' },
   { q: 'Who can see startup data?', a: 'Only verified investor organisations with a complete profile and an active mandate. Browsing your matches is private — founders aren’t notified while you’re exploring. When you want to go further, introductions happen on MatchDeal, our companion discovery app: the startup decides, and only a mutual opt-in opens identity or a data room.' },
   { q: 'How do you verify investors?', a: 'Work email and domain for collaboration; stronger proof — including official registry checks — for organisation control and sensitive actions.' },
   { q: 'What does "qualified opportunity" mean?', a: 'A company that passed your mandate’s hard criteria and received a full analysis: fit, evidence, risks and a recommended action. Raw names on a list do not count against your capacity.' },
 ];
+
+// Prompt 920 §B.2 (Nuno's "sim", 16/10/2026) — three questions added to the accordion this page already has; the FAQPage schema below is
+// built from this whole list, so it can never describe a question the page does not show. Text: src/content/site/investors.ts.
+const FAQS = [...EXISTING_FAQS, ...INVESTOR_FAQ_EXTRA];
 
 export default async function InvestorLandingPage() {
   if (authEnabled) {
@@ -324,6 +331,29 @@ export default async function InvestorLandingPage() {
         </div>
       </section>
 
+      {/* ============ FIRST CONTACT ============
+          Prompt 920 §B.2 (Nuno's "sim") — an additive section between the two splits above and the pricing: the direct answer to "how do I find
+          startups that fit my thesis?", then three cards built from this page's own components. Plain HTML, no reveal animation, so the text is
+          there for a reader and a crawler from the first byte. Text: src/content/site/investors.ts (docs/site-copy-920.md §3.3). */}
+      <section className={s.sec} id="first-contact">
+        <div className={s.wrap}>
+          <div className={s.secHead}>
+            <span className={s.eyebrow}>{INVESTOR_FIT_SECTION.eyebrow}</span>
+            <h2>{INVESTOR_FIT_SECTION.title}</h2>
+            <p>{INVESTOR_FIT_SECTION.lead}</p>
+          </div>
+          <div className={s.grid3}>
+            {INVESTOR_FIT_SECTION.cards.map((c) => (
+              <div key={c.title} className={s.fcard}>
+                <div className={s.ic}><CheckGreen /></div>
+                <h3>{c.title}</h3>
+                <p>{c.body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* ============ PRICING ============ */}
       <InvestorPricingSection />
 
@@ -367,6 +397,9 @@ export default async function InvestorLandingPage() {
             <a href="#pricing">Pricing</a>
             <Link href="/">For Startups</Link>
             <Link href="/investors">For Investors</Link>
+            {/* Prompt 920 §F.2 (Nuno's "sim") — the minimum: two links on the row that already exists. */}
+            <Link href="/about">About</Link>
+            <Link href="/faq">FAQ</Link>
             <Link href="/contact?from=investors">Contact</Link>
             <Link href="/login?as=investor">Sign in</Link>
           </div>
@@ -381,6 +414,17 @@ export default async function InvestorLandingPage() {
           <p className={s.cp}>© {new Date().getFullYear()} {BRAND_NAME} · Investor relations, investigated.</p>
         </div>
       </footer>
+
+      {/* Prompt 920 §B.2 — Article + FAQPage (all seven questions), invisible. */}
+      <JsonLd
+        data={graph(
+          organizationNode(),
+          websiteNode(),
+          articleNode({ headline: INVESTOR_FIT_SECTION.title, description: INVESTOR_FIT_SECTION.lead, path: '/investors' }),
+          faqPageNode(FAQS, '/investors'),
+          breadcrumbNode([{ name: 'Home', path: '/' }, { name: 'For investors', path: '/investors' }]),
+        )}
+      />
     </div>
   );
 }
