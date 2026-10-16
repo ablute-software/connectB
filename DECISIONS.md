@@ -10222,6 +10222,16 @@ Relatório em `docs/calls/PROMPT_917_I2_ADENDA1_PARTE_B.md`. Migração `2026101
 
 **Limites ditos:** o leitor de tabelas é estreito (colunas numeradas tipo "Competitor #1"); outras tabelas vão à IA, e a qualidade do que ela corrige só se vê com o modelo real. O desenho da revisão está provado por testes de marcação e de lógica, não à vista. A medida em produção (duração, modo, o que foi à IA) depende da importação do Nuno e será lida de `call_import_runs`.
 
+## Aviso de nova versão — a app aberta há horas deixa de ficar com código antigo (16/10/2026)
+
+**Pedido do Nuno:** quem tem a app aberta há horas fica com o código antigo depois de um deploy (viu ecrãs antigos duas vezes). A app compara de vez em quando, e ao voltar ao separador, o id do build que tem com o do servidor; se mudou, mostra uma faixa discreta "A new version of Sherlock Deal is available" com **Reload**. **Nunca recarrega sozinha** (para não perder o que se está a escrever).
+
+**Como.** `next.config.mjs` faz **um** id por build (`VERCEL_GIT_COMMIT_SHA`, ou `local-<hora>` fora da Vercel, guardado em `SHERLOCK_BUILD_ID` para todos os processos do build concordarem) e usa-o como `buildId` do Next **e** como `NEXT_PUBLIC_BUILD_ID` (embutido na página). `GET /api/version` (pública — a faixa também aparece no login —, só leitura, `Cache-Control: no-store`) devolve esse id. `NewVersionBanner` (montada no `layout.tsx`) pergunta de 10 em 10 minutos com o separador visível e ao voltar a ele (nunca duas vezes no mesmo minuto); só mostra a faixa se os dois ids forem **reais e diferentes** — uma resposta vazia, uma falha de rede ou um id desconhecido **nunca** contam como mudança (a lição do falso "deploy está live" de 02/09). Só há um `location.reload()`, no clique do botão (um teste verifica-o). Em desenvolvimento fica calada.
+
+**Efeito lateral útil:** o `buildId` que se compara depois de um deploy passa a ser o SHA do commit, comparável com `git rev-parse HEAD` (CLAUDE.md atualizado). Sem variáveis a definir no painel (linhas em `CONFIG_REGISTRY.md`).
+
+**Limites ditos:** quem estava com a página aberta **antes** deste deploy ainda não tem o verificador — só o terá depois do primeiro reload; a faixa passa a aparecer a partir do deploy seguinte. Não vi a faixa à vista no Chrome de produção (só se prova com dois deploys seguidos); fica provada por testes e, abaixo, no Chrome sem interface.
+
 ## Prompt 917 (correção) — o "Accept all" de General aplicou só o nome e a proposta de 55 perguntas ficou "applied" (16/10/2026)
 
 **O que aconteceu (base de dados).** Run `3f4629b6-…`: `mode=internal`, 55 campos, `call_events`: `import_applied` com `fields: 0, phases: 0, general: 1` e **55 linhas `field_deleted` em `call_import_corrections`**. As 55 "correções" são a prova: o ecrã enviou `accepted` só com `general` (o nome), por isso a rota viu as 55 perguntas como não aceites e o run fechou como `applied`. As duas suspeitas do Nuno ficaram afastadas: os 55 campos têm `tmpId` próprio (`n1…`), e o apply aceita os tipos novos — o teste de ponta a ponta com o PDF real (leitor interno → resposta da API → "Accept all" → apply na rota real) grava os 55 campos, os 2 grupos, 10 condições e os ficheiros múltiplos; e no Chrome sem interface, com a proposta real, o "Accept all" do Form envia 55.

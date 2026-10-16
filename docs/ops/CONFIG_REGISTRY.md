@@ -42,6 +42,8 @@ desconhecido.
 
 | Nome | Valor | Estado | Quem decidiu e quando | Fonte |
 |---|---|---|---|---|
+| `VERCEL_GIT_COMMIT_SHA` (lida só em `next.config.mjs`, no build) | **variável de sistema da Vercel; não é para definir.** Dá o id do build (`buildId` do Next = o commit); fora da Vercel usa-se `local-<hora>` | feito (automática) | Nuno, 16/10/2026 (aviso de nova versão) | `next.config.mjs` |
+| `NEXT_PUBLIC_BUILD_ID` / `SHERLOCK_BUILD_ID` | **derivadas no build por `next.config.mjs`; não definir no painel.** O primeiro é o id do build embutido na página e devolvido por `/api/version`; o segundo só garante que todos os processos do build usam o mesmo id | feito (derivadas) | Nuno, 16/10/2026 | `next.config.mjs`, `src/lib/build-version.ts`, `src/app/api/version/route.ts` |
 | `NEXT_PUBLIC_SUPABASE_URL` (prod+prev) | definido | feito | desde a criação do projeto | `CLAUDE.md` Stack; a app funciona |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` (prod+prev) | definido | feito | idem. **Tem de ser não-sensível** no Vercel, senão o bundle do cliente não a recebe | `CLAUDE.md` Stack |
 | `SUPABASE_SERVICE_ROLE_KEY` (prod+prev) | definido | feito | idem | `CLAUDE.md` Stack |
