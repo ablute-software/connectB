@@ -14,7 +14,8 @@ vi.mock('next/font/google', () => ({ Fraunces: () => ({ variable: 'font-fraunces
 import { PLANS } from '@/lib/plans';
 import { PLAN_PIPELINE_MONTHLY_ADDITION } from '@/lib/pipeline-unlock';
 import { allFaqItems, findingInvestmentItems } from '@/content/site/faq';
-import { CATALOGUE_FLOOR, COUNTRIES_FLOOR, DAILY_TARGET_WORDS, WEEKLY_TARGET_WORDS } from '@/content/site/facts';
+import { CATALOGUE_FLOOR, COUNTRIES_FLOOR, DAILY_TARGET_WORDS, OPERATOR_LOCALITY, WEEKLY_TARGET_WORDS } from '@/content/site/facts';
+import { CONTROLLER_LEGAL_NAME } from '@/lib/controller';
 import { FOR_STARTUPS_H1, FOR_STARTUPS_STEPS, LISTS_FAIL } from '@/content/site/for-startups';
 import { plainAnswer } from '@/lib/site-schema';
 import AboutPage from '@/app/about/page';
@@ -122,7 +123,8 @@ describe('/about', () => {
   it('defines the product in its first sentence and names who runs it', () => {
     expect(count(about, /<h1[ >]/g)).toBe(1);
     expect(text).toContain('Sherlock Deal is a fundraising workspace and matching platform that connects startups with the investors that fit them.');
-    expect(text).toContain('Sherlock Deal is operated by Exotictarget, Lda, a company registered in Portugal (Viana do Castelo).');
+    // The operator's name and town come from their one definition (controller.test.ts forbids the literal anywhere else in src/).
+    expect(text).toContain(`Sherlock Deal is operated by ${CONTROLLER_LEGAL_NAME}, a company registered in Portugal (${OPERATOR_LOCALITY}).`);
   });
 
   it('says what it is NOT in the Terms\' own words (4.4, 4.5) — and promises no outcome', () => {
