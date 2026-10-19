@@ -42,6 +42,12 @@ describe('fonts: self-hosted by next/font, named once', () => {
     expect(code).not.toContain('<head');
   });
 
+  it('the generated Arial fallback is off: it changed the glyph of every "←"/symbol the face lacks (1363 pixels on /contact; 1 with it off) — the stack stays the old one', () => {
+    const code = layout.replace(/^\s*\/\/.*$/gm, '');
+    expect(code.match(/adjustFontFallback: false/g) ?? []).toHaveLength(2); // Inter and Comfortaa
+    expect(code).toContain("fontFamily: 'var(--font-inter), system-ui, sans-serif'");
+  });
+
   it('both variables are on <html>, where every page, the Shell, the auth screens and the back office inherit them — and the body reads one of them', () => {
     expect(layout).toMatch(/<html lang="en" className=\{`\$\{inter\.variable\} \$\{comfortaa\.variable\}`\}>/);
     expect(layout).toContain("fontFamily: 'var(--font-inter), system-ui, sans-serif'");

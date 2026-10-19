@@ -28,15 +28,19 @@ export const metadata: Metadata = {
 // 20 places that wrote 'Comfortaa, Inter, sans-serif' read the two variables below, and a test fails if the literal comes back (a
 // literal name would silently fall back to the system font, with no error and no failing page).
 // `preload: false`: the app's pages are behind a login and are not the LCP of anything; the landing and the public pages declare (and
-// preload) their own Inter. Both faces keep their unicode-range subsets, so latin-ext (Polish, Czech, Romanian… investor names) still
-// loads on demand, as it did from Google's CSS.
+// preload) their own Inter. Both faces keep their unicode-range subsets (all of them: next/font emits the @font-face of every subset and only
+// preloads the listed ones), so latin-ext (Polish, Czech, Romanian… investor names) still loads on demand, as it did from Google's CSS.
+// `adjustFontFallback: false`: next/font's default puts a metric-adjusted copy of Arial in the stack, which is a better placeholder while the
+// font loads but changes what is drawn for every glyph Inter lacks — measured 19/10/2026 on /contact, the "←" of "← Back to sherlockdeal.com"
+// came from Arial instead of the system font the old stack fell back to (1363 pixels; 1 with this off). The stack stays what it always was —
+// the face, then system-ui, then sans-serif — so no screen of the app changes, and the arrows and symbols used across it stay as they were.
 const inter = Inter({
   subsets: ['latin', 'latin-ext'], weight: ['400', '500', '600', '700'],
-  variable: '--font-inter', display: 'swap', preload: false,
+  variable: '--font-inter', display: 'swap', preload: false, adjustFontFallback: false,
 });
 const comfortaa = Comfortaa({
   subsets: ['latin'], weight: ['700'],
-  variable: '--font-comfortaa', display: 'swap', preload: false,
+  variable: '--font-comfortaa', display: 'swap', preload: false, adjustFontFallback: false,
 });
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
