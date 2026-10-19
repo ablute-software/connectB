@@ -186,6 +186,8 @@ export function suggestPages(fields: FormField[]): FormField[] {
 const ID_OK = /^[A-Za-z0-9_-]{8,64}$/;
 const OPERATORS: ConditionOperator[] = ['equals', 'not_equals', 'is_answered', 'is_empty'];
 const clampInt = (v: unknown, min: number, max: number): number | undefined => {
+  // No value is no number: Number(null) is 0, which would be clamped UP to the minimum (a file saved with no age limit became "1 month", 16/10/2026).
+  if (v === null || v === undefined || typeof v === 'boolean' || (typeof v === 'string' && v.trim() === '')) return undefined;
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.floor(n))) : undefined;
 };

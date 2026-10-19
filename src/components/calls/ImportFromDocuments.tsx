@@ -17,7 +17,8 @@ import {
 import { AI_FIELD_KINDS, FIELD_KIND_LABELS, isChoiceKind, type FieldKind } from '@/lib/calls/types';
 import { formatInZone, utcToWall, wallToUtcIso } from '@/lib/calls/tz';
 import { splitContact } from '@/lib/calls/ai-import/client-errors';
-import { IMPORT_NOTICES_EVENT, afterPoll, onOpen } from '@/lib/calls/ai-import/screen-state';
+import { IMPORT_NOTICES_EVENT, afterPoll, onOpen, onOpenRun, type RunMeta } from '@/lib/calls/ai-import/screen-state';
+import { conditionLine, configLines, metaLine, sourceLabel } from '@/lib/calls/ai-import/review-view';
 import { callsApi } from './api';
 
 const POLL_MS = 3000;
@@ -34,11 +35,13 @@ export interface ApplyOutcome { ok: boolean; error?: string; summary?: string }
 const BTN = 'rounded-lg border border-gray-300 px-2 py-0.5 text-[11px] font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40';
 const INPUT = 'rounded-lg border border-gray-300 px-2 py-1 text-xs';
 
-export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClose, onApply }: {
+export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClose, onApply, openRunId = null }: {
   callId: string; timezone: string; currentFieldCount: number; onClose: () => void;
+  /** Open ON this run's proposal (from a notice, the call's card or the pill) instead of on the upload form. */
+  openRunId?: string | null;
   onApply: (runId: string, accepted: { general?: ProposalGeneral; phases?: ProposalPhaseItem[]; fields?: ProposalFieldItem[] }, fieldsMode: 'add' | 'replace') => Promise<ApplyOutcome>;
 }) {
-  const [step, setStep] = useState<'upload' | 'reading' | 'review'>('upload');
+  const [step, setStep] = useState<'opening' | 'upload' | 'reading' | 'review'>(openRunId ? 'opening' : 'upload');
   const [files, setFiles] = useState<{ file: File; kind: SourceKind }[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -46,7 +49,8 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
   const [readingRunId, setReadingRunId] = useState<string | null>(null);
   const [readingSince, setReadingSince] = useState<number>(0);
   const [elapsed, setElapsed] = useState(0);
-  const [waiting, setWaiting] = useState<{ id: string; proposal: Proposal } | null>(null);
+  const [waiting, setWaiting] = useState<{ id: string; proposal: Proposal; meta: RunMeta } | null>(null);
+  const [runMeta, setRunMeta] = useState<RunMeta | null>(null);
   const alive = useRef(true);
   const [run, setRun] = useState<{ id: string; proposal: Proposal } | null>(null);
 
@@ -55,29 +59,47 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
   const [edited, setEdited] = useState<{ general: ProposalGeneral; phases: ProposalPhaseItem[]; fields: ProposalFieldItem[] } | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [fieldsMode, setFieldsMode] = useState<'add' | 'replace'>('add');
+  const [skipWarned, setSkipWarned] = useState(false);
 
-  function openReview(id: string, proposal: Proposal) {
+  function openReview(id: string, proposal: Proposal, meta: RunMeta | null = null) {
+    setRunMeta(meta);
     setRun({ id, proposal });
     setEdited({ general: { ...proposal.general }, phases: proposal.phases.map((p) => ({ ...p })), fields: proposal.fields.map((f) => ({ ...f, options: [...f.options] })) });
     setWaiting(null); setStep('review');
   }
   function startWaiting(runId: string, since: number) { setReadingRunId(runId); setReadingSince(since); setElapsed(Math.max(0, Math.round((Date.now() - since) / 1000))); setStep('reading'); }
 
-  // On open: a reading still in progress resumes its wait; a proposal that is ready is offered; a failure that happened while the dialog was closed is said.
+  // On open ON A RUN (from "Review"): that proposal's review, straight away — no upload form in between. Its notice stays until the proposal is accepted or discarded.
   useEffect(() => {
+    if (!openRunId) return;
+    alive.current = true;
+    void (async () => {
+      const r = await callsApi.importRun(callId, openRunId);
+      if (!alive.current) return;
+      const d = onOpenRun({ ok: r.ok, status: r.status, run: r.body?.run });
+      if (d.kind === 'review') openReview(d.id, d.proposal, d.meta);
+      else if (d.kind === 'reading') startWaiting(d.runId, d.since);
+      else { setError(d.error); setStep('upload'); }
+    })();
+    return () => { alive.current = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callId, openRunId]);
+
+  // On a plain open: a reading still in progress resumes its wait; a proposal that is ready is offered; a failure that happened while the dialog was closed is said.
+  useEffect(() => {
+    if (openRunId) return;
     alive.current = true;
     void (async () => {
       const r = await callsApi.importState(callId);
       if (!alive.current || !r.ok) return;
-      // Opening the screen is seeing the notices of this call: they are not needed any more.
-      void callsApi.markImportNoticesSeen({ callId }).then(() => window.dispatchEvent(new Event(IMPORT_NOTICES_EVENT)));
       const d = onOpen(r.body);
       if (d.kind === 'reading') { startWaiting(d.runId, d.since); return; }
       setWaiting(d.waiting);
       if (d.error) setError(d.error);
     })();
     return () => { alive.current = false; };
-  }, [callId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callId, openRunId]);
 
   // While reading: ask the run, every few seconds, until it is no longer reading.
   useEffect(() => {
@@ -89,7 +111,7 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
       setElapsed(Math.max(0, Math.round((Date.now() - readingSince) / 1000)));
       const next = afterPoll({ ok: r.ok, status: r.status, run: r.body?.run }, misses);
       if (next.kind === 'wait') { misses = next.misses; return; }
-      if (next.kind === 'review') { openReview(next.id, next.proposal); return; }
+      if (next.kind === 'review') { openReview(next.id, next.proposal, next.meta); return; }
       setError(next.error); setStep('upload');
     };
     const timer = setInterval(() => void tick(), POLL_MS);
@@ -118,9 +140,18 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
   const keysPhases = (edited?.phases ?? []).map((_, i) => `p:${i}`);
   const keysFields = (edited?.fields ?? []).map((f) => `f:${f.tmpId}`);
   const acceptedCount = [...keysGeneral, ...keysPhases, ...keysFields].filter((k) => decisions[k] === 'accepted').length;
+  const acceptedFields = keysFields.filter((k) => decisions[k] === 'accepted').length;
+  // The per-section "Accept all" buttons are easy to mistake for one another: the General one is at the top, the Form one is 50 questions further down.
+  const undecidedAll = [...keysGeneral, ...keysPhases, ...keysFields].filter((k) => decisions[k] !== 'accepted' && decisions[k] !== 'discarded');
 
   async function apply() {
     if (!run || !edited) return;
+    // The Form is the main thing in the proposal: applying with none of its questions accepted is asked about once, never done by accident.
+    if (keysFields.length > 0 && acceptedFields === 0 && !skipWarned) {
+      setSkipWarned(true);
+      setError(`You have not accepted any of the ${keysFields.length} questions of the Form — only ${acceptedCount} other item${acceptedCount === 1 ? '' : 's'}. Use “Accept all” in the Form section (or “Accept everything” above) to take the questions, or press Apply again to apply without them.`);
+      return;
+    }
     setBusy(true); setError('');
     const general: ProposalGeneral = {};
     for (const k of generalKeys) if (decisions[`g:${k}`] === 'accepted') (general as Record<string, unknown>)[k] = edited.general[k];
@@ -129,10 +160,12 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
     const res = await onApply(run.id, { general: Object.keys(general).length ? general : undefined, phases: phases.length ? phases : undefined, fields: fields.length ? fields : undefined }, fieldsMode);
     setBusy(false);
     if (!res.ok) { setError(res.error ?? 'Could not apply the accepted items.'); return; }
+    window.dispatchEvent(new Event(IMPORT_NOTICES_EVENT));
     onClose();
   }
   async function discard() {
     if (run) await callsApi.discardImport(callId, run.id);
+    window.dispatchEvent(new Event(IMPORT_NOTICES_EVENT));        // the notice of this proposal is closed by the server: the badge refreshes
     onClose();
   }
 
@@ -143,7 +176,7 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
       <div className="flex max-h-[92vh] w-full max-w-4xl flex-col rounded-xl bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-gray-200 px-5 py-3">
           <h2 className="text-base font-bold text-gray-900">{step === 'upload' ? 'Import from documents' : 'Review the proposal'}</h2>
-          <button type="button" onClick={step === 'review' ? () => void discard() : onClose} className="text-sm text-gray-500 hover:text-gray-800" aria-label="Close">✕</button>
+          <button type="button" onClick={onClose} className="text-sm text-gray-500 hover:text-gray-800" aria-label="Close">✕</button>
         </div>
 
         {step === 'upload' && (
@@ -171,8 +204,8 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
               <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-900" data-testid="import-waiting-proposal">
                 A proposal from an earlier reading is waiting for your review.
                 <span className="ml-3 inline-flex gap-3">
-                  <button type="button" className="font-semibold underline" onClick={() => openReview(waiting.id, waiting.proposal)} data-testid="import-review-waiting">Review it</button>
-                  <button type="button" className="text-emerald-800 underline" onClick={async () => { await callsApi.discardImport(callId, waiting.id); setWaiting(null); }}>Discard it</button>
+                  <button type="button" className="font-semibold underline" onClick={() => openReview(waiting.id, waiting.proposal, waiting.meta)} data-testid="import-review-waiting">Review it</button>
+                  <button type="button" className="text-emerald-800 underline" onClick={async () => { await callsApi.discardImport(callId, waiting.id); setWaiting(null); window.dispatchEvent(new Event(IMPORT_NOTICES_EVENT)); }}>Discard it</button>
                 </span>
               </div>
             )}
@@ -190,6 +223,10 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
           </div>
         )}
 
+        {step === 'opening' && (
+          <div className="p-8 text-center text-sm text-gray-600" role="status" data-testid="import-docs-opening">Opening the proposal…</div>
+        )}
+
         {step === 'reading' && (
           <div className="space-y-4 p-8 text-center" data-testid="import-docs-reading" role="status" aria-live="polite">
             <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-gray-200 border-t-[#0E7490]" aria-hidden="true" />
@@ -202,13 +239,15 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
         {step === 'review' && p && edited && (
           <>
             <div className="space-y-6 overflow-y-auto p-5" data-testid="import-docs-review">
-              <p className="text-xs text-gray-500">This is a <b>proposal</b>. Nothing is saved until you accept items and press Apply. Anything you accept can still be edited afterwards.</p>
+              <p className="text-xs text-gray-500">This is a <b>proposal</b>. Nothing is saved until you accept items and press Apply. Anything you accept can still be edited afterwards. Closing this window keeps the proposal: it stays on the call until you apply or discard it.</p>
 
-              {p.attention.length > 0 && (
+              {metaLine(runMeta) && <p className="rounded-lg bg-gray-50 px-3 py-2 text-[11px] text-gray-600" data-testid="run-meta">{metaLine(runMeta)}</p>}
+
+              {p.attention.some((a) => a.kind !== 'done') && (
                 <section aria-label="Needs your attention" data-testid="attention">
                   <h3 className="text-sm font-semibold text-gray-900">Needs your attention</h3>
                   <ul className="mt-2 space-y-1.5">
-                    {p.attention.map((a, i) => (
+                    {p.attention.filter((a) => a.kind !== 'done').map((a, i) => (
                       <li key={i} className={`rounded-lg px-3 py-2 text-xs ${a.kind === 'outdated' ? 'bg-amber-50 text-amber-900' : 'bg-sky-50 text-sky-900'}`}>
                         <b>{a.kind === 'outdated' ? 'Possibly out of date' : 'Not covered by the form'}:</b> {a.what}{a.why && <span className="block opacity-80">{a.why}</span>}
                       </li>
@@ -216,6 +255,21 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
                   </ul>
                 </section>
               )}
+              {p.attention.some((a) => a.kind === 'done') && (
+                <section aria-label="What the import did" data-testid="done-notes">
+                  <h3 className="text-sm font-semibold text-gray-900">What the import did — please confirm</h3>
+                  <ul className="mt-2 space-y-1.5">
+                    {p.attention.filter((a) => a.kind === 'done').map((a, i) => (
+                      <li key={i} className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-900"><b>{a.what}:</b> {a.why}</li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-700" data-testid="accept-everything-bar">
+                <span>{keysFields.length} question{keysFields.length === 1 ? '' : 's'} in the Form · {acceptedFields} accepted · <b data-testid="required-count">{edited.fields.filter((f) => f.required).length} required</b></span>
+                <button type="button" className={BTN} disabled={undecidedAll.length === 0} onClick={() => { setSkipWarned(false); setError(''); acceptAll(undecidedAll); }} data-testid="accept-everything">Accept everything</button>
+              </div>
 
               <Section title="General" keys={keysGeneral} decisions={decisions} onAcceptAll={() => acceptAll(keysGeneral)} empty="The documents did not say anything for this section.">
                 {generalKeys.map((k) => (
@@ -248,7 +302,10 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
                         <span className="ml-1.5 rounded bg-gray-100 px-1 text-[10px] text-gray-600">{FIELD_KIND_LABELS[f.kind]}{f.required ? ' · required' : ''}</span>
                         {f.options.length > 0 && <span className="block text-gray-500">Options: {f.options.join(', ')}</span>}
                         {f.kind === 'file' && f.expectedType && <span className="block text-gray-500">Expected document: {f.expectedType}{f.maxAgeMonths ? ` (up to ${f.maxAgeMonths} months old)` : ''}</span>}
+                        {configLines(f).map((l) => <span key={l} className="block text-gray-500" data-testid="config-line">{l}</span>)}
+                        {conditionLine(f, edited.fields) && <span className="block italic text-gray-400" data-testid="condition-line">{conditionLine(f, edited.fields)}</span>}
                         {f.instruction && <span className="block text-gray-500">{f.instruction}</span>}
+                        {sourceLabel(f.source) && <span className="block text-[10px] text-gray-300" data-testid="item-source">{sourceLabel(f.source)}</span>}
                       </>
                     )}
                     edit={<FieldEditor f={f} onChange={(next) => setEdited({ ...edited, fields: edited.fields.map((x, j) => (j === i ? next : x)) })} />} />
@@ -276,7 +333,7 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
                 <button type="button" onClick={() => void discard()} className="text-sm text-gray-500 hover:underline">Discard proposal</button>
                 <button type="button" disabled={acceptedCount === 0 || busy} onClick={() => void apply()} data-testid="import-docs-apply"
                   className="rounded-lg bg-[#0E7490] px-4 py-1.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
-                  {busy ? 'Applying…' : acceptedCount === 0 ? 'Accept items to apply them' : `Apply ${acceptedCount} accepted item${acceptedCount === 1 ? '' : 's'}`}
+                  {busy ? 'Applying…' : acceptedCount === 0 ? 'Accept items to apply them' : `Apply ${acceptedCount} accepted item${acceptedCount === 1 ? '' : 's'}${keysFields.length > 0 ? ` (${acceptedFields} of ${keysFields.length} questions)` : ''}`}
                 </button>
               </div>
             </div>
@@ -357,7 +414,7 @@ function FieldEditor({ f, onChange }: { f: ProposalFieldItem; onChange: (f: Prop
       <input autoComplete="off" aria-label="Question" className={`${INPUT} w-full`} value={f.label} onChange={(e) => onChange({ ...f, label: e.target.value })} />
       <span className="flex flex-wrap items-center gap-2">
         <select aria-label="Kind" className={INPUT} value={f.kind} onChange={(e) => onChange({ ...f, kind: e.target.value as FieldKind })}>
-          {AI_FIELD_KINDS.map((k) => <option key={k} value={k}>{FIELD_KIND_LABELS[k]}</option>)}
+          {AI_FIELD_KINDS.filter((k) => k !== 'group' || f.kind === 'group').map((k) => <option key={k} value={k} disabled={f.kind === 'group' && k !== 'group'}>{FIELD_KIND_LABELS[k]}</option>)}
         </select>
         <label className="flex items-center gap-1"><input type="checkbox" checked={f.required} onChange={(e) => onChange({ ...f, required: e.target.checked })} /> Required</label>
       </span>

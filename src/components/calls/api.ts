@@ -11,7 +11,11 @@ import { NETWORK_MESSAGE, importFailure } from '@/lib/calls/ai-import/client-err
 
 export interface PromoterInfo { kind: PromoterKind; id: string; name: string; canManage: boolean }
 
-export interface CallListItem extends Call { effectiveStatus: CallStatus; applications: number; applicationsTotal: number; fields: number; phases: number; canConfigure: boolean }
+export interface CallListItem extends Call {
+  effectiveStatus: CallStatus; applications: number; applicationsTotal: number; fields: number; phases: number; canConfigure: boolean;
+  /** Prompt 917 (Adenda 1): a reading in progress, or a proposal waiting for review, and which run it is. */
+  importRun?: { id: string; status: 'reading' | 'proposed' } | null;
+}
 
 export interface CallEvent { id: number; event: string; actor_user_id: string | null; detail: Record<string, unknown>; created_at: string }
 
@@ -25,6 +29,7 @@ export interface CallState {
   phases: CallPhase[];
   fields: FormField[];
   issues: ReadinessIssue[];
+  teamMembers?: number;
   summary: CallSummary;
   actions: ReturnType<typeof availableActions>;
   applications: { submitted: number; total: number };
@@ -87,7 +92,7 @@ export const callsApi = {
   importRun: (id: string, runId: string) =>
     call<{ run: { id: string; status: 'reading' | 'proposed' | 'applied' | 'discarded' | 'failed'; startedAt: string; proposal?: Proposal; error?: string | null; code?: string | null } }>(`/api/calls/${id}/import-ai/${runId}`),
   /** The person's own unseen "proposal ready" / "could not read" notices (Adenda 2b). */
-  importNotices: () => call<{ notices: { id: string; kind: 'import_ready' | 'import_failed'; title: string; body: string | null; callId: string; createdAt: string }[] }>('/api/calls/import-notices'),
+  importNotices: () => call<{ notices: { id: string; kind: 'import_ready' | 'import_failed'; title: string; body: string | null; callId: string; createdAt: string; runId: string | null }[] }>('/api/calls/import-notices'),
   markImportNoticesSeen: (target: { ids: string[] } | { callId: string }) => call<Record<string, never>>('/api/calls/import-notices', send('POST', target)),
   /** What the screen needs when it opens: a reading in progress, a proposal waiting, the last failure. */
   importState: (id: string) =>

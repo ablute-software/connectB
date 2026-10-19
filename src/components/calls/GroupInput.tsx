@@ -6,7 +6,7 @@
 // rest and neither adds nor removes rows.
 import { useEffect, useState } from 'react';
 import { groupErrors, isAnswered } from '@/lib/calls/form-logic';
-import { entriesOf, groupMin, groupOf, newEntry, subFieldAsField } from '@/lib/calls/field-config';
+import { groupMin, groupOf, groupStarted, newEntry, presetEntriesFor, subFieldAsField } from '@/lib/calls/field-config';
 import type { AnswerValue, FormField, GroupEntry, SimpleAnswer, SubField } from '@/lib/calls/types';
 import { FieldInput } from './FieldInput';
 
@@ -36,10 +36,15 @@ export function GroupInput({ field, value, currency, disabled, showAllErrors, on
   const cfg = groupOf(field);
   const narrow = useNarrow();
   if (!cfg) return null;
-  const entries = entriesOf(value);
+  // The rows the entity fixed are there from the start (their first columns filled in); editing any cell stores them all.
+  const entries = presetEntriesFor(cfg, value);
   const preset = cfg.presetRows.length > 0;
   const min = groupMin(field, cfg);
   const errors = groupErrors(field, value);
+  // An optional group asks for nothing until the person starts: the text says it is optional, and the minimum only appears once they have started (or if it is required).
+  const optional = !field.required;
+  const started = groupStarted(cfg, value);
+  const minApplies = !optional || started;
   const noun = cfg.entryLabel;
   const asTable = cfg.display === 'table' && !narrow;
 
@@ -68,7 +73,7 @@ export function GroupInput({ field, value, currency, disabled, showAllErrors, on
 
   return (
     <div data-testid="group-input" data-display={asTable ? 'table' : 'cards'}>
-      {entries.length === 0 && <p className="mb-2 text-xs text-gray-500" data-testid="group-empty">{min > 0 ? `Add at least ${min === 1 ? 'one' : min} ${noun.toLowerCase()}${min === 1 ? '' : ' entries'}.` : `No ${noun.toLowerCase()} added yet.`}</p>}
+      {entries.length === 0 && <p className="mb-2 text-xs text-gray-500" data-testid="group-empty">{optional ? `Optional — add a ${noun.toLowerCase()} only if it applies.` : min > 0 ? `Add at least ${min === 1 ? 'one' : min} ${noun.toLowerCase()}${min === 1 ? '' : ' entries'}.` : `No ${noun.toLowerCase()} added yet.`}</p>}
       {asTable ? (
         <div className="overflow-x-auto rounded-lg border border-gray-200" data-testid="group-table">
           <table className="min-w-full text-left text-sm">
@@ -84,7 +89,7 @@ export function GroupInput({ field, value, currency, disabled, showAllErrors, on
                       <span className="inline-flex gap-1">
                         <button type="button" className={BTN} aria-label={`Move ${noun.toLowerCase()} ${i + 1} up`} disabled={i === 0} onClick={() => move(i, -1)}>↑</button>
                         <button type="button" className={BTN} aria-label={`Move ${noun.toLowerCase()} ${i + 1} down`} disabled={i === entries.length - 1} onClick={() => move(i, 1)}>↓</button>
-                        <button type="button" className={`${BTN} text-[#B00000]`} aria-label={`Remove ${noun.toLowerCase()} ${i + 1}`} disabled={entries.length <= min} onClick={() => remove(e.id)}>✕</button>
+                        <button type="button" className={`${BTN} text-[#B00000]`} aria-label={`Remove ${noun.toLowerCase()} ${i + 1}`} disabled={entries.length <= (minApplies ? min : 0)} onClick={() => remove(e.id)}>✕</button>
                       </span>
                     )}
                   </td>
@@ -114,7 +119,7 @@ export function GroupInput({ field, value, currency, disabled, showAllErrors, on
                 <div className="mt-2 flex gap-1.5">
                   <button type="button" className={BTN} aria-label={`Move ${noun.toLowerCase()} ${i + 1} up`} disabled={i === 0} onClick={() => move(i, -1)}>↑ Up</button>
                   <button type="button" className={BTN} aria-label={`Move ${noun.toLowerCase()} ${i + 1} down`} disabled={i === entries.length - 1} onClick={() => move(i, 1)}>↓ Down</button>
-                  <button type="button" className={`${BTN} text-[#B00000]`} aria-label={`Remove ${noun.toLowerCase()} ${i + 1}`} disabled={entries.length <= min} onClick={() => remove(e.id)} data-testid="remove-entry">Remove</button>
+                  <button type="button" className={`${BTN} text-[#B00000]`} aria-label={`Remove ${noun.toLowerCase()} ${i + 1}`} disabled={entries.length <= (minApplies ? min : 0)} onClick={() => remove(e.id)} data-testid="remove-entry">Remove</button>
                 </div>
               )}
             </fieldset>
@@ -124,7 +129,7 @@ export function GroupInput({ field, value, currency, disabled, showAllErrors, on
       {!disabled && !preset && (
         <div className="mt-2 flex items-center gap-3">
           <button type="button" className={BTN} disabled={entries.length >= cfg.max} onClick={add} data-testid="add-entry">+ Add another {noun.toLowerCase()}</button>
-          <span className="text-[11px] text-gray-400" data-testid="entry-count">{entries.length} of {cfg.max}{min > 0 ? ` · at least ${min}` : ''}</span>
+          <span className="text-[11px] text-gray-400" data-testid="entry-count">{entries.length} of {cfg.max}{min > 0 && minApplies ? ` · at least ${min}` : optional ? ' · optional' : ''}</span>
         </div>
       )}
       {errors.count && (showAllErrors || entries.length > cfg.max) && <p role="alert" className="mt-1 text-xs text-[#B00000]" data-testid="group-count-error">{errors.count}</p>}

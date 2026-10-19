@@ -84,7 +84,7 @@ describe('the parts run side by side', () => {
     expect(p.calls.map((c) => c.req.tool.name)).toEqual([OVERVIEW_TOOL_NAME, FIELDS_TOOL_NAME, FIELDS_TOOL_NAME, FIELDS_TOOL_NAME]);
     p.calls.forEach((c) => c.release());
     const r = await done;
-    expect(r.meta).toEqual({ inputMode: 'text', calls: 4, chunks: ['pages 1–2', 'pages 3–4', 'pages 5–6'] });
+    expect(r.meta).toMatchObject({ inputMode: 'text', calls: 4, chunks: ['pages 1–2', 'pages 3–4', 'pages 5–6'], mode: 'ai' });
   });
 
   it('puts the questions back in the order of the document, takes the overview from the overview only, and sums the usage', async () => {

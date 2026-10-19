@@ -22,12 +22,12 @@ async function me() {
 export const GET = withActingOrg(async function GET() {
   const w = await me();
   if ('error' in w) return w.error;
-  const { data } = await w.admin.from('call_notices').select('id, kind, title, body, call_id, created_at')
+  const { data } = await w.admin.from('call_notices').select('id, kind, title, body, call_id, created_at, dedupe_key')
     .eq('user_id', w.userId).in('kind', IMPORT_NOTICE_KINDS).is('seen_at', null).order('created_at', { ascending: false }).limit(20);
   return NextResponse.json({
     ok: true,
-    notices: ((data ?? []) as { id: string; kind: string; title: string; body: string | null; call_id: string; created_at: string }[])
-      .map((n) => ({ id: n.id, kind: n.kind, title: n.title, body: n.body, callId: n.call_id, createdAt: n.created_at })),
+    notices: ((data ?? []) as { id: string; kind: string; title: string; body: string | null; call_id: string; created_at: string; dedupe_key: string }[])
+      .map((n) => ({ id: n.id, kind: n.kind, title: n.title, body: n.body, callId: n.call_id, createdAt: n.created_at, runId: n.dedupe_key.startsWith('import:') ? n.dedupe_key.slice('import:'.length) : null })),
   });
 });
 

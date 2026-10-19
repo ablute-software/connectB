@@ -5,6 +5,7 @@
 // Adenda 2 (14/10/2026): the model now works AFTER the response (the route answers 202 with a run "reading"; the test waits for the background work
 // and then asks the run, as the screen does). `upload()` does both and returns the settled shape; `start()` is the raw answer.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
 import { NextRequest } from 'next/server';
 import { callsDb, fakeCallsAdmin, type CallsDb, type FakeStorage } from '@/test/fake-calls-db';
 import { docx, scannedPdf, textPdf, xlsx } from '@/lib/calls/ai-import/test-fixtures';
@@ -34,7 +35,8 @@ const flush = async () => { await Promise.all(bg.splice(0)); };
 const aiLog = vi.fn(async (..._a: unknown[]) => {});
 vi.mock('@/lib/ai-cost-log', async (orig) => ({ ...(await orig<typeof import('@/lib/ai-cost-log')>()), logAiCall: (...a: unknown[]) => aiLog(...a) }));
 
-import { POST as createPost } from './route';
+import { GET as listGet, POST as createPost } from './route';
+import { GET as oneGet } from './[id]/route';
 import { GET as importGet, POST as importPost } from './[id]/import-ai/route';
 import { GET as runGet, POST as runPost } from './[id]/import-ai/[runId]/route';
 import { GET as noticesGet, POST as noticesPost } from './import-notices/route';
@@ -503,5 +505,229 @@ describe('the notice when the reading ends (Adenda 2b)', () => {
       const res = await upload(target.id, doc());
       expect(res.status).toBe(200);
     } finally { Object.defineProperty(db.tables, 'call_notices', { value: real, writable: true, configurable: true }); }
+  });
+});
+
+// --- Prompt 917, Adenda 1, Part A: "Review" opens the proposal, and the notice stays until the proposal is accepted or discarded -------------------------
+describe('the notice and the card (917 Adenda 1)', () => {
+  beforeEach(() => { db.clock = Date.now(); });
+  const doc = () => [{ name: 'form.docx', bytes: docx(['Application form', 'Company name']), kind: 'form' }];
+  const mine = async () => (await read(await noticesGet(json('GET')))).body.notices as { id: string; kind: string; body: string; callId: string; runId: string | null }[];
+  const listCalls = async () => (await read(await listGet(new NextRequest('http://localhost/api/calls?kind=catalog_entity')))).body.calls as { id: string; name: string; importRun?: { id: string; status: string } | null }[];
+
+  it('the notice carries the id of its run, so "Review" can open THAT proposal', async () => {
+    const r = await upload(target.id, doc());
+    const [n] = await mine();
+    expect(n).toMatchObject({ kind: 'import_ready', callId: target.id, runId: r.body.run.id });
+  });
+
+  it('opening the proposal — the call, its import state, the run itself — does not consume the notice', async () => {
+    const r = await upload(target.id, doc());
+    await read(await oneGet(json('GET'), params(target.id)));
+    await read(await importGet(json('GET'), params(target.id)));
+    await poll(target.id, r.body.run.id);
+    expect((await mine())).toHaveLength(1);
+    expect(db.tables.call_notices[0].seen_at ?? null).toBeNull();
+  });
+
+  it('it goes when the proposal is discarded, or applied — and not before; "Dismiss" (by id) still hides it', async () => {
+    const r1 = await upload(target.id, doc());
+    const discard = await read(await runPost(json('POST', { action: 'discard' }), { params: { id: target.id, runId: r1.body.run.id } }));
+    expect(discard.status).toBe(200);
+    expect(await mine()).toEqual([]);
+    expect(db.tables.call_notices.find((n) => n.dedupe_key === `import:${r1.body.run.id}`)!.seen_at).toBeTruthy();
+
+    const r2 = await upload(target.id, doc());
+    expect(await mine()).toHaveLength(1);
+    const version = row(target.id).config_version as number;
+    const applied = await read(await runPost(json('POST', { action: 'apply', baseVersion: version, accepted: { general: { name: 'Applied name' } } }), { params: { id: target.id, runId: r2.body.run.id } }));
+    expect(applied.status, JSON.stringify(applied.body)).toBe(200);
+    expect(await mine()).toEqual([]);
+
+    const r3 = await upload(target.id, doc());
+    const [n3] = await mine();
+    await noticesPost(json('POST', { ids: [n3.id] }));                                    // "Dismiss": hides the notice, the proposal stays
+    expect(await mine()).toEqual([]);
+    expect((await importGet(json('GET'), params(target.id)).then(read)).body.pending).toMatchObject({ id: r3.body.run.id });
+  });
+
+  it('a failed proposal that is applied/discarded elsewhere never closes someone else\'s notice; a new reading closes the earlier "could not read" notices of that call', async () => {
+    answer = async () => { throw new ImportProviderError('We could not read the documents right now. Please try again in a moment.'); };
+    await upload(target.id, doc());
+    expect((await mine()).map((n) => n.kind)).toEqual(['import_failed']);
+    answer = async () => ({ input: PROPOSAL, usage: { input_tokens: 1, output_tokens: 1 }, model: 'claude-sonnet-4-5' });
+    await upload(target.id, doc());
+    expect((await mine()).map((n) => n.kind)).toEqual(['import_ready']);                    // the failure was about an attempt that no longer matters
+  });
+
+  it('the call\'s card knows its proposal: "ready" with the run to open, "reading" while it reads, nothing otherwise', async () => {
+    expect((await listCalls())[0].importRun ?? null).toBeNull();
+    const releases: (() => void)[] = [];
+    answer = () => new Promise((resolve) => { releases.push(() => resolve({ input: PROPOSAL, usage: { input_tokens: 1, output_tokens: 1 }, model: 'claude-sonnet-4-5' })); });
+    const started = await start(target.id, doc());
+    expect((await listCalls())[0].importRun).toEqual({ id: started.body.run.id, status: 'reading' });
+    await new Promise((r) => setTimeout(r, 0)); releases.forEach((r) => r()); await flush();
+    expect((await listCalls())[0].importRun).toEqual({ id: started.body.run.id, status: 'proposed' });
+    await runPost(json('POST', { action: 'discard' }), { params: { id: target.id, runId: started.body.run.id } });
+    expect((await listCalls())[0].importRun ?? null).toBeNull();
+  });
+
+  it('two calls with no name are told apart: the notice says when each was created', async () => {
+    as('ana');
+    const unnamed = (await read(await createPost(new NextRequest('http://localhost/api/calls', { method: 'POST', body: JSON.stringify({ kind: 'catalog_entity' }), headers: { 'content-type': 'application/json' } })))).body.call as { id: string; name: string };
+    expect(unnamed.name).toBe('Untitled call');
+    await upload(unnamed.id, doc());
+    const n = (await mine()).find((x) => x.callId === unnamed.id)!;
+    expect(n.body).toMatch(/Untitled call · created \d{1,2} [A-Z][a-z]{2}, \d{2}:\d{2}/);
+    // a call WITH a name is shown by its name
+    await upload(target.id, doc());
+    expect((await mine()).find((x) => x.callId === target.id)!.body).toContain('“Edition 2027”');
+  });
+});
+
+// --- Prompt 917 (I2) + Adenda 1, Part B: the platform reads the form first; what the person corrects is kept ------------------------------------------------
+describe('internal first (917 I2 + Adenda 1 Part B)', () => {
+  beforeEach(() => { db.clock = Date.now(); });
+  const FORM = ['1. Perfil', '1.1 Nome do responsável', '1.2 Endereço de e-mail', '1.3 O projeto está incubado? (Sim ou Não)', '1.3.1 Se sim, qual a incubadora?', '1.4 Descreva o produto (máximo 500 palavras)', '1.5 Data de constituição'];
+  const form = () => [{ name: 'form.docx', bytes: docx(FORM), kind: 'form' }];
+  const noAi = () => { answer = async () => { throw new Error('the AI must not be asked for a form the platform reads'); }; };
+
+  it('a form the platform reads is proposed with NO call to the AI, no AI cost logged, and the run says how it was read', async () => {
+    noAi();
+    const res = await upload(target.id, form());
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(asked).toHaveLength(0);
+    expect(aiLog).not.toHaveBeenCalled();
+    const run = res.body.run;
+    expect(run.mode).toBe('internal');
+    expect(run.quality).toMatchObject({ coverage: 1, unresolved: [] });
+    expect(run.aiSections).toEqual([]);
+    expect(run.proposal.fields.map((f: { kind: string }) => f.kind)).toEqual(['short_text', 'email', 'yes_no', 'short_text', 'long_text', 'date']);
+    expect(run.proposal.fields.every((f: { source: string }) => f.source === 'internal')).toBe(true);
+    const stored = db.tables.call_import_runs[0];
+    expect(stored).toMatchObject({ mode: 'internal', status: 'proposed' });
+    expect((stored.import_meta as { calls: number }).calls).toBe(0);
+    expect(stored.duration_ms).toBeGreaterThanOrEqual(0);
+    expect(events(target.id, 'import_proposed')[0].detail).toMatchObject({ mode: 'internal', aiSections: [], aiFields: 0 });
+  });
+
+  it('with no AI key a form the platform reads still works (it never needed the AI)', async () => {
+    answer = async () => { throw new ImportProviderError('The import from documents is not available right now.', 503, 'not_configured'); };
+    const res = await upload(target.id, form());
+    expect(res.status).toBe(200);
+    expect(res.body.run.mode).toBe('internal');
+  });
+
+  it('what the person changes in the review is kept per run when the proposal is applied: a deleted question, a changed kind — with who made the item', async () => {
+    noAi();
+    const run = (await upload(target.id, form())).body.run as { id: string; proposal: { fields: { tmpId: string; kind: string; number: string }[] } };
+    const [name, , yesNo, , longText, date] = run.proposal.fields;
+    const accepted = [name, { ...yesNo, kind: 'short_text' }, longText, date];                // the e-mail and the follow-up deleted, the yes/no turned into text
+    const res = await read(await runPost(json('POST', { action: 'apply', baseVersion: row(target.id).config_version, accepted: { fields: accepted } }), { params: { id: target.id, runId: run.id } }));
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const rows = db.tables.call_import_corrections.filter((r) => r.run_id === run.id);
+    expect(rows.map((r) => [r.kind, r.number, r.source])).toEqual([
+      ['field_deleted', '1.2', 'internal'], ['kind_changed', '1.3', 'internal'], ['field_deleted', '1.3.1', 'internal'],
+    ]);
+    expect(rows[1].detail).toMatchObject({ from: 'yes_no', to: 'short_text' });
+    expect(rows.every((r) => r.call_id === target.id)).toBe(true);
+  });
+
+  it('accepting what was proposed unchanged records nothing; a failure to record never undoes the import', async () => {
+    noAi();
+    const run = (await upload(target.id, form())).body.run;
+    const real = db.tables.call_import_corrections;
+    Object.defineProperty(db.tables, 'call_import_corrections', { get() { throw new Error('table missing'); }, configurable: true });
+    try {
+      const res = await read(await runPost(json('POST', { action: 'apply', baseVersion: row(target.id).config_version, accepted: { fields: run.proposal.fields.slice(0, 2).map((f: Record<string, unknown>) => ({ ...f, kind: 'long_text' })) } }), { params: { id: target.id, runId: run.id } }));
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+    } finally { Object.defineProperty(db.tables, 'call_import_corrections', { value: real, writable: true, configurable: true }); }
+    const run2 = (await upload(target.id, form())).body.run;
+    await runPost(json('POST', { action: 'apply', baseVersion: row(target.id).config_version, accepted: { fields: run2.proposal.fields } }), { params: { id: target.id, runId: run2.id } });
+    expect(db.tables.call_import_corrections.filter((r) => r.run_id === run2.id)).toEqual([]);
+  });
+});
+
+// --- Prompt 917 fix: the REAL INNOV-ID form, read by the platform, accepted entirely and applied: every question must reach call_form_fields ------------------
+const REAL_PDF = process.env.INNOV_ID_PDF ?? 'C:/Users/Alexandra/Downloads/Formulário_2edCall-INNOV-ID_PT_Final-2.pdf';
+describe.skipIf(!fs.existsSync(REAL_PDF))('the real INNOV-ID form, end to end (internal reader -> Accept all -> apply)', () => {
+  beforeEach(() => { db.clock = Date.now(); answer = async () => { throw new Error('the AI must not be asked'); }; });
+  it('every question accepted is written, with groups, conditions and several files', async () => {
+    const res = await upload(target.id, [{ name: 'form.pdf', bytes: fs.readFileSync(REAL_PDF), kind: 'form' }]);
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    const run = res.body.run as { id: string; mode: string; proposal: { fields: { tmpId: string; kind: string }[] } };
+    expect(run.mode).toBe('internal');
+    // what the screen sends after "Accept all": the proposal's fields, as stored and read back through the API (JSON)
+    const accepted = JSON.parse(JSON.stringify(run.proposal.fields));
+    const out = await read(await runPost(json('POST', { action: 'apply', baseVersion: row(target.id).config_version, fieldsMode: 'add', accepted: { fields: accepted } }), { params: { id: target.id, runId: run.id } }));
+    expect(out.status, JSON.stringify(out.body).slice(0, 400)).toBe(200);
+    expect(out.body.applied.fields).toBe(accepted.length);
+    const saved = fieldsOf(target.id);
+    expect(saved).toHaveLength(accepted.length);
+    expect(saved.filter((f) => f.kind === 'group')).toHaveLength(2);
+    // the 16/10 bug: a file saved with no age limit became "1 month" (Number(null) clamped up to 1). None of the 7 files states a deadline: none is stored.
+    const filesSaved = saved.filter((f) => f.kind === 'file');
+    expect(filesSaved).toHaveLength(7);
+    expect(filesSaved.every((f) => f.max_age_months == null)).toBe(true);
+    expect(saved.find((f) => String(f.label).startsWith('6.6'))!.required).toBe(false);
+    expect((saved.find((f) => String(f.label).startsWith('6.1'))!.validations as { fileFormats: string[] }).fileFormats).toEqual(['pdf', 'powerpoint']);
+    expect(saved.filter((f) => f.condition).length).toBeGreaterThanOrEqual(9);
+    expect(saved.some((f) => f.kind === 'file' && (f.validations as { maxFiles?: number }).maxFiles === 10)).toBe(true);
+    expect(events(target.id, 'import_applied')[0].detail).toMatchObject({ fields: accepted.length });
+  });
+});
+
+// --- Prompt 917 fix: the apply never says "ok" for questions that were not stored, and never drops an accepted question in silence ---------------------------
+describe('apply tells the truth (917 fix)', () => {
+  beforeEach(() => { db.clock = Date.now(); });
+  const FORM = ['1. Perfil', '1.1 Nome do responsável', '1.2 Endereço de e-mail', '1.3 Data de constituição'];
+  const prepare = async () => (await upload(target.id, [{ name: 'form.docx', bytes: docx(FORM), kind: 'form' }])).body.run as { id: string; proposal: { fields: Record<string, unknown>[] } };
+  const apply = (runId: string, accepted: unknown) => runPost(json('POST', { action: 'apply', baseVersion: row(target.id).config_version, accepted }), { params: { id: target.id, runId } }).then(read);
+
+  it('an accepted question the check refuses is named, nothing is applied, and the proposal stays open', async () => {
+    answer = async () => { throw new Error('no AI'); };
+    const run = await prepare();
+    const res = await apply(run.id, { fields: [run.proposal.fields[0], { ...run.proposal.fields[1], label: '   ' }, run.proposal.fields[2]] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/1 of the 3 accepted questions cannot be applied: a question with no text/);
+    expect(fieldsOf(target.id)).toHaveLength(0);
+    expect(db.tables.call_import_runs.find((r) => r.id === run.id)!.status).toBe('proposed');
+    expect(events(target.id, 'import_applied')).toHaveLength(0);
+  });
+
+  it('a failed write is an error (never "applied: 0"): the run stays proposed, the event says why, and trying again works', async () => {
+    answer = async () => { throw new Error('no AI'); };
+    const run = await prepare();
+    const real = db.tables.call_form_fields;
+    Object.defineProperty(db.tables, 'call_form_fields', { get() { throw new Error('connection reset'); }, configurable: true });
+    let failed;
+    try { failed = await apply(run.id, { fields: run.proposal.fields }); }
+    finally { Object.defineProperty(db.tables, 'call_form_fields', { value: real, writable: true, configurable: true }); }
+    expect(failed.status).toBe(500);
+    expect(failed.body).toMatchObject({ ok: false, code: 'apply_failed' });
+    expect(failed.body.error).toContain('still open');
+    expect(db.tables.call_import_runs.find((r) => r.id === run.id)!.status).toBe('proposed');
+    expect(events(target.id, 'import_apply_failed')).toHaveLength(1);
+    expect(events(target.id, 'import_applied')).toHaveLength(0);
+    const again = await apply(run.id, { fields: run.proposal.fields });
+    expect(again.status, JSON.stringify(again.body)).toBe(200);
+    expect(again.body.applied.fields).toBe(3);
+    expect(fieldsOf(target.id)).toHaveLength(3);
+  });
+});
+
+// --- Prompt 918 (I1): the state of the call carries what the Setup steps need ------------------------------------------------------------------------------------
+describe('the state the Setup steps read (918 I1)', () => {
+  it('says how many people are on the team (the step "Team & distribution" shows ✓ once someone besides the creator is on it) and carries the target of each missing thing', async () => {
+    as('ana');
+    const before = await read(await oneGet(json('GET'), params(target.id)));
+    expect(before.body.teamMembers).toBe(1);                                                    // the creator is on the team from the start
+    db.tables.call_team_members.push({ id: 'tm-1', call_id: target.id, user_id: 'ana', category_id: 'cat-1' }, { id: 'tm-2', call_id: target.id, user_id: 'bob', category_id: 'cat-1' });
+    db.tables.call_team_members.push({ id: 'tm-x', call_id: 'another-call', user_id: 'ana', category_id: 'cat-1' });
+    const after = await read(await oneGet(json('GET'), params(target.id)));
+    expect(after.body.teamMembers).toBe(3);                                                     // only THIS call's team (the creator and the two added)
+    const targets = (after.body.issues as { tab: string; target?: string }[]).map((i) => [i.tab, i.target]);
+    expect(targets).toContainEqual(['general', 'opens']);
+    expect(targets).toContainEqual(['general', 'closes']);
   });
 });

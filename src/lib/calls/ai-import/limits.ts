@@ -21,7 +21,8 @@ export const IMPORT_FORMATS_TEXT =
   + 'A scanned PDF (only images of pages) cannot be read: there is no text recognition.';
 
 /** Said on the screen BEFORE anything is sent (spec §2.3: only the promoter's own documents, never applicants'). */
-export const IMPORT_PRIVACY_NOTICE = "The document is read by our AI provider to propose a configuration. Do not upload applicants' documents or confidential evaluation grids.";
+// The platform reads the form first; only what it cannot read is sent to the AI provider (Prompt 917, Adenda 1, Part B). The notice says so — in both cases.
+export const IMPORT_PRIVACY_NOTICE = "We read your document on our platform. If a part is unclear, that part is sent to our AI provider to complete the proposal. Do not upload applicants' documents or confidential evaluation grids.";
 
 export const SCANNED_PDF_MESSAGE = 'This PDF has no readable text. Upload the original document.';
 

@@ -3,7 +3,8 @@
 // from a menu of types, drag to reorder (or use the arrows), edit in the side panel. Pages are split and merged by
 // hand, or proposed by "Suggest pages" (by subject, about five per page, no AI). Display conditions only point at
 // EARLIER questions; links to platform data are explicit and shown with an icon.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ImportFormDialog, type ImportOutcome } from './ImportFormDialog';
 import { ImportStatusPill } from './ImportStatusPill';
 import { FileConfigEditor, GroupEditor, UrlConfigEditor } from './GroupEditor';
@@ -34,7 +35,24 @@ function conditionText(f: FormField, all: FormField[]): string | null {
   return `Shown if “${ctl.label}” ${op}${c.operator === 'equals' || c.operator === 'not_equals' ? ` ${value ?? '…'}` : ''}`;
 }
 
-export function FormTab({ callId, fields, disabled, lockedReason, onChange, onImport, onImportDocuments, importStatus = null }: {
+/** True on a screen wide enough for the settings panel beside the questions (Tailwind's `lg`). Below it, the panel opens full screen. */
+function useWide(): boolean {
+  const [wide, setWide] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const on = () => setWide(mq.matches);
+    on(); mq.addEventListener?.('change', on);
+    return () => mq.removeEventListener?.('change', on);
+  }, []);
+  return wide;
+}
+
+export function FormTab({ callId, fields, disabled, lockedReason, onChange, onImport, onImportDocuments, importStatus = null, onReview, selectId }: {
+  /** A question to open on arrival ("What is missing" → the question). */
+  selectId?: string;
+  /** The pill "Proposal ready to review" opens that proposal's review. */
+  onReview?: () => void;
   /** A reading in progress, or a proposal waiting for review, shown next to the Import button (Adenda 2b). */
   importStatus?: ImportStatus;
   callId: string; fields: FormField[]; disabled: boolean;
@@ -52,6 +70,8 @@ export function FormTab({ callId, fields, disabled, lockedReason, onChange, onIm
   const [dragId, setDragId] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
   const selected = ordered.find((f) => f.id === selectedId) ?? null;
+  const wide = useWide();
+  useEffect(() => { if (selectId && fields.some((f) => f.id === selectId)) setSelectedId(selectId); }, [selectId, fields]);
   const pages = [...new Set(ordered.map((f) => f.page))];
 
   function add(kind: FieldKind) {
@@ -77,7 +97,7 @@ export function FormTab({ callId, fields, disabled, lockedReason, onChange, onIm
   const update = (id: string, patch: Partial<FormField>) => onChange(fields.map((f) => (f.id === id ? { ...f, ...patch } : f)));
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]" data-testid="form-tab">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,1fr)_360px]" data-testid="form-tab">
       <div>
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <div className="relative">
@@ -110,7 +130,7 @@ export function FormTab({ callId, fields, disabled, lockedReason, onChange, onIm
           <button type="button" disabled={disabled} onClick={onImportDocuments} data-testid="import-from-document"
             title={disabled ? lockedReason ?? undefined : undefined}
             className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-40">Import from a document</button>
-          <ImportStatusPill status={importStatus} onClick={importStatus === 'ready' ? onImportDocuments : undefined} />
+          <ImportStatusPill status={importStatus} onClick={importStatus === 'ready' ? (onReview ?? onImportDocuments) : undefined} />
           <span className="text-xs text-gray-400">{ordered.length} field{ordered.length === 1 ? '' : 's'} · {pages.length || 0} page{pages.length === 1 ? '' : 's'}</span>
         </div>
         {disabled && lockedReason && <p className="mb-3 text-[11px] text-gray-500" data-testid="import-locked">{lockedReason}</p>}
@@ -139,7 +159,7 @@ export function FormTab({ callId, fields, disabled, lockedReason, onChange, onIm
                     const flatIndex = ordered.findIndex((x) => x.id === f.id);
                     const cond = conditionText(f, ordered);
                     return (
-                      <li key={f.id} data-testid="field-card">
+                      <li key={f.id} data-testid="field-card" data-jump={f.id}>
                         {fi > 0 && !disabled && (
                           <button type="button" onClick={() => onChange(splitPageAt(fields, f.id))} className="mb-1 block text-[10px] text-gray-300 hover:text-[#0E7490]" title="Start a new page before this question">— new page here —</button>
                         )}
@@ -174,17 +194,36 @@ export function FormTab({ callId, fields, disabled, lockedReason, onChange, onIm
         )}
       </div>
 
-      <aside className="lg:sticky lg:top-4 lg:self-start" aria-label="Field settings">
-        {selected ? (
-          <FieldPanel
-            field={selected} ordered={ordered} disabled={disabled}
-            onChange={(patch) => update(selected.id, patch)} onReplace={(f) => onChange(fields.map((x) => (x.id === f.id ? f : x)))}
-            onDelete={() => { onChange(deleteField(fields, selected.id)); setSelectedId(null); }}
-          />
-        ) : (
-          <p className="rounded-lg border border-dashed border-gray-300 p-6 text-center text-sm text-gray-400">Select a field to edit it here.</p>
-        )}
-      </aside>
+      {wide ? (
+        <aside className="lg:sticky lg:top-4 lg:self-start" aria-label="Field settings">
+          {selected ? (
+            <FieldPanel
+              field={selected} ordered={ordered} disabled={disabled}
+              onChange={(patch) => update(selected.id, patch)} onReplace={(f) => onChange(fields.map((x) => (x.id === f.id ? f : x)))}
+              onDelete={() => { onChange(deleteField(fields, selected.id)); setSelectedId(null); }}
+            />
+          ) : (
+            <p className="rounded-lg border border-dashed border-gray-300 p-6 text-center text-sm text-gray-400">Select a field to edit it here.</p>
+          )}
+        </aside>
+      ) : selected && typeof document !== 'undefined' ? createPortal(
+        // Below a wide screen the settings of a question open FULL SCREEN (a portal: nothing above may shrink it), with a way back at the top and at the bottom.
+        <div role="dialog" aria-modal="true" aria-label="Edit question" className="fixed inset-0 z-50 overflow-y-auto bg-white" data-testid="field-fullscreen" data-calls-touch>
+          <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-2">
+            <button type="button" onClick={() => setSelectedId(null)} data-testid="field-back" className="min-h-[44px] shrink-0 rounded-lg px-2 text-sm font-medium text-[#0E7490]">← Questions</button>
+            <span className="min-w-0 truncate text-sm font-semibold text-gray-900">{selected.label}</span>
+          </div>
+          <div className="mx-auto max-w-xl p-4 pb-24">
+            <FieldPanel
+              field={selected} ordered={ordered} disabled={disabled}
+              onChange={(patch) => update(selected.id, patch)} onReplace={(f) => onChange(fields.map((x) => (x.id === f.id ? f : x)))}
+              onDelete={() => { onChange(deleteField(fields, selected.id)); setSelectedId(null); }}
+            />
+            <button type="button" onClick={() => setSelectedId(null)} className="mt-4 min-h-[44px] w-full rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-semibold text-white">Done</button>
+          </div>
+        </div>,
+        document.body,
+      ) : null}
     </div>
   );
 }

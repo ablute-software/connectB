@@ -10,8 +10,8 @@ import { ImportStatusPill } from './ImportStatusPill';
 
 interface Doc { id: string; kind: SourceKind; mimeType?: string; fileName: string; sizeBytes: number; pages: number | null; createdAt: string; publicToApplicants?: boolean }
 
-export function SourceDocumentsPanel({ callId, canConfigure, locked, reloadKey, onImport, importStatus = null }: {
-  callId: string; canConfigure: boolean; locked: boolean; reloadKey: number; onImport: () => void; importStatus?: ImportStatus;
+export function SourceDocumentsPanel({ callId, canConfigure, locked, reloadKey, onImport, importStatus = null, onReview }: {
+  callId: string; canConfigure: boolean; locked: boolean; reloadKey: number; onImport: () => void; importStatus?: ImportStatus; onReview?: () => void;
 }) {
   const [docs, setDocs] = useState<Doc[] | null>(null);
   const [found, setFound] = useState<{ eligibility: string[]; evaluation: string[] }>({ eligibility: [], evaluation: [] });
@@ -50,7 +50,7 @@ export function SourceDocumentsPanel({ callId, canConfigure, locked, reloadKey, 
           <button type="button" onClick={onImport} disabled={locked} data-testid="open-import-docs" title={locked ? 'The configuration is locked.' : undefined}
             className="rounded-lg border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40">Import from documents</button>
         )}
-        {canConfigure && <ImportStatusPill status={importStatus} onClick={importStatus === 'ready' ? onImport : undefined} />}
+        {canConfigure && <ImportStatusPill status={importStatus} onClick={importStatus === 'ready' ? (onReview ?? onImport) : undefined} />}
       </div>
       {docs.length === 0 ? <p className="mt-2 text-xs text-gray-400">No documents imported into this call.</p> : (
         <ul className="mt-2 divide-y divide-gray-100 text-xs">
