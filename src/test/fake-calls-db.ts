@@ -252,6 +252,7 @@ export function fakeCallsAdmin(db: CallsDb, storage: FakeStorage = { objects: ne
         upload: async (path: string, body: Uint8Array | Buffer, opts?: { contentType?: string }) => { storage.objects.set(path, { bytes: new Uint8Array(body), contentType: opts?.contentType }); return { data: { path }, error: null }; },
         remove: async (paths: string[]) => { for (const p of paths) storage.objects.delete(p); return { data: paths, error: null }; },
         list: async () => ({ data: [], error: null }),
+        exists: async (path: string) => (storage.objects.has(path) ? { data: true, error: null } : { data: false, error: { message: 'Object not found' } }),
         createSignedUrl: async (path: string) => (storage.objects.has(path) ? { data: { signedUrl: `https://storage.test/signed/${path}?t=1` }, error: null } : { data: null, error: { message: 'not found' } }),
         copy: async (from: string, to: string) => {
           const o = storage.objects.get(from);
