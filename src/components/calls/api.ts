@@ -30,6 +30,8 @@ export interface CallState {
   fields: FormField[];
   issues: ReadinessIssue[];
   teamMembers?: number;
+  /** Prompt 918 (Adenda 1, C): the cover and logo the page will show, where the logo comes from, and the entity's own profile logo (if any). */
+  branding?: { coverUrl: string | null; logoUrl: string | null; logoSource: 'call' | 'profile' | null; profileLogoUrl: string | null };
   summary: CallSummary;
   actions: ReturnType<typeof availableActions>;
   applications: { submitted: number; total: number };
@@ -60,7 +62,7 @@ export const callsApi = {
     call<CallState>(`/api/calls/${id}/phases`, send('PUT', { baseVersion, phases })),
   putForm: (id: string, baseVersion: number, fields: FormField[]) => call<CallState>(`/api/calls/${id}/form`, send('PUT', { baseVersion, fields })),
   duplicate: (id: string) => call<{ call: Call }>(`/api/calls/${id}/duplicate`, send('POST')),
-  act: (id: string, action: 'confirm' | 'edit' | 'publish' | 'extend' | 'close' | 'archive', extra: { closesAt?: string } = {}) =>
+  act: (id: string, action: 'confirm' | 'edit' | 'publish' | 'extend' | 'reopen' | 'close' | 'archive', extra: { closesAt?: string; confirmEarly?: boolean } = {}) =>
     call<CallState>(`/api/calls/${id}/action`, send('POST', { action, ...extra })),
   /** Prompt 909 (I2): the calls the form can be imported from, and the fields of one of them to look at. */
   importSources: (id: string, previewId?: string) =>
@@ -76,6 +78,16 @@ export const callsApi = {
    * Prompt 909 (I4, Adenda 2): starts the reading of the documents. The route answers at once with a run in state "reading"; the proposal comes
    * later, from importRun(). An answer that is not JSON (a gateway timeout, an error page) gets its own sentence and keeps the HTTP code.
    */
+  /** Prompt 918 (Adenda 1, C): the cover image or the logo of a call (multipart: the browser sets the content type), and removing it. */
+  uploadMedia: async (id: string, kind: 'cover' | 'logo', file: File, saveToProfile = false): Promise<ApiResult<CallState & { profile?: string | null }>> => {
+    const form = new FormData(); form.append('kind', kind); form.append('file', file); if (saveToProfile) form.append('saveToProfile', 'true');
+    try {
+      const res = await fetch(`/api/calls/${id}/media`, { method: 'POST', body: form });
+      const body = (await res.json().catch(() => ({}))) as CallState & { error?: string; code?: string; profile?: string | null };
+      return { ok: res.ok && (body as { ok?: boolean }).ok !== false, status: res.status, body };
+    } catch { return { ok: false, status: 0, body: { error: 'We could not reach the server. Check your connection and try again.' } as never }; }
+  },
+  removeMedia: (id: string, kind: 'cover' | 'logo') => call<CallState>(`/api/calls/${id}/media?kind=${kind}`, { method: 'DELETE' }),
   importFromDocuments: async (id: string, form: FormData): Promise<ApiResult<{ run: { id: string; status: string }; runId?: string }> & { httpStatus: number | null }> => {
     try {
       const res = await fetch(`/api/calls/${id}/import-ai`, { method: 'POST', body: form });

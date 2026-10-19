@@ -8,6 +8,7 @@ import { resolveActingOrg } from '@/lib/acting-org';
 import { callsMode } from '@/lib/calls/mode';
 import { serviceClient } from '@/lib/calls/applicant/link';
 import { rowToCall } from '@/lib/calls/mappers';
+import { brandingOf } from '@/lib/calls/branding';
 import { sendDraftReminders } from '@/lib/calls/applicant/notices';
 import { buildOverview, type ApplicationFacts, type CallFacts } from '@/lib/calls/applicant/overview';
 
@@ -54,9 +55,11 @@ export const GET = withActingOrg(async function GET(req: Request) {
   const promoters = new Map<string, { name: string; isTest: boolean }>();
   for (const r of [...((firms ?? []) as Row[]), ...((incs ?? []) as Row[])]) promoters.set(r.id as string, { name: (r.name as string) ?? 'An organisation', isTest: r.is_test === true });
 
+  const branding = await brandingOf(admin, calls, 'public');
   const facts: CallFacts[] = calls.map((c) => ({
     id: c.id, token: c.linkToken, name: c.name, promoter: promoters.get(c.promoterId)?.name ?? 'An organisation', status: c.status, opensAt: c.opensAt, closesAt: c.closesAt, timezone: c.timezone,
     description: c.description, visibility: c.visibility, promoterIsTest: promoters.get(c.promoterId)?.isTest === true, hasForm: withForm.has(c.id), allowMultiple: c.allowMultiple,
+    logoUrl: branding.get(c.id)?.logoUrl ?? null,
   }));
   const appFacts: ApplicationFacts[] = appRows.map((a) => ({
     id: a.id as string, callId: a.call_id as string, status: a.status as ApplicationFacts['status'], reference: (a.reference as string | null) ?? null,

@@ -119,12 +119,13 @@ export async function sendTransactionalEmail(opts: {
 
 // Clean, minimal transactional template — one shared shell for every
 // platform email (invites now, confirmations/magic-links later).
-export function transactionalTemplate(opts: { heading: string; body: string; ctaLabel?: string; ctaUrl?: string; footer?: string }) {
+export function transactionalTemplate(opts: { heading: string; body: string; ctaLabel?: string; ctaUrl?: string; footer?: string; /** HTML (already escaped) shown above the heading: a small logo and a name (Prompt 918, Adenda 1 C). */ brandHtml?: string }) {
   return `
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px; color: #1A1A1A;">
   <div style="font-size: 20px; font-weight: 700; color: #0E7490; margin-bottom: 24px;">
     ${BRAND_NAME}
   </div>
+  ${opts.brandHtml ? `<div style="margin: -8px 0 16px;">${opts.brandHtml}</div>` : ''}
   <h1 style="font-size: 18px; font-weight: 600; margin: 0 0 12px;">${opts.heading}</h1>
   <p style="font-size: 14px; line-height: 1.6; color: #374151; margin: 0 0 20px;">${opts.body}</p>
   ${opts.ctaLabel && opts.ctaUrl ? `

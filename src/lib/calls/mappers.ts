@@ -1,6 +1,7 @@
 // Prompt 905 — database rows <-> the domain types of src/lib/calls/types.ts, and the validation of the
 // "General" tab's input. Pure (no I/O) so both the routes and the tests use it.
 import { isValidTimeZone } from './tz';
+import { normalizeDescription } from '../rich-text';
 import {
   CALL_STATUSES, CONTENT_LANGUAGES, CURRENCIES,
   type Call, type CallPhase, type CallVisibility, type FormField, type LimitUnit,
@@ -21,6 +22,7 @@ export function rowToCall(r: Row): Call {
     contentLanguage: s(r.content_language) ?? 'en', currency: s(r.currency) ?? 'EUR', status, linkToken: s(r.link_token),
     configVersion: Number(r.config_version ?? 1), validatedAt: s(r.validated_at), publishedAt: s(r.published_at), closedAt: s(r.closed_at), archivedAt: s(r.archived_at),
     contactEmail: s(r.contact_email),
+    coverPath: s(r.cover_path), coverUpdatedAt: s(r.cover_updated_at), logoPath: s(r.logo_path), logoUpdatedAt: s(r.logo_updated_at),
     duplicatedFrom: s(r.duplicated_from), createdBy: r.created_by as string, createdAt: r.created_at as string, updatedAt: r.updated_at as string,
   };
 }
@@ -74,7 +76,8 @@ export function parseGeneralPatch(input: unknown, current: Pick<Call, 'opensAt' 
     if (!name) return { ok: false, error: 'The call needs a name.' };
     patch.name = name;
   }
-  if ('description' in b) patch.description = typeof b.description === 'string' ? b.description.slice(0, 5000) || null : null;
+  // The description may be formatted (Prompt 918, Adenda 1 D): what is stored is the HTML the sanitiser rebuilds from a closed list — never what the browser sent — or plain text.
+  if ('description' in b) patch.description = normalizeDescription(b.description);
   for (const [key, col] of [['opensAt', 'opens_at'], ['closesAt', 'closes_at']] as const) {
     if (key in b) {
       const v = isoOrNull(b[key]);

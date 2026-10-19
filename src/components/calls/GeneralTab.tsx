@@ -3,6 +3,9 @@
 // with an EXPLICIT time zone, listing, the application limit, language and currency. Everything autosaves; the
 // opening/closing are typed as wall-clock time in the chosen zone and stored as the instant they mean.
 import { useMemo } from 'react';
+import { RichTextEditor } from '@/components/RichTextEditor';
+import { CallMediaFields } from './CallMediaFields';
+import type { CallState } from './api';
 import { CONTENT_LANGUAGES, CURRENCIES, type Call } from '@/lib/calls/types';
 import { timeZoneOptions, utcToWall, wallToUtcIso } from '@/lib/calls/tz';
 
@@ -12,9 +15,14 @@ const HINT = 'mt-1 text-[11px] text-gray-400';
 
 export type GeneralPatch = Partial<Pick<Call, 'name' | 'description' | 'opensAt' | 'closesAt' | 'timezone' | 'visibility' | 'limitUnit' | 'allowMultiple' | 'contentLanguage' | 'currency'>>;
 
-export function GeneralTab({ call, promoterName, disabled, onChange }: {
+export function GeneralTab({ call, promoterName, disabled, presentationDisabled, branding, onState, onChange }: {
   call: Call; promoterName: string; disabled: boolean; onChange: (patch: GeneralPatch) => void;
+  /** The description, cover image and logo may change in more states than the rest (after validation, even once open): false while the person can edit them. Defaults to `disabled`. */
+  presentationDisabled?: boolean;
+  branding?: CallState['branding'];
+  onState?: (s: CallState) => void;
 }) {
+  const presentationLocked = presentationDisabled ?? disabled;
   const zones = useMemo(() => timeZoneOptions(), []);
 
   // The wall-clock time shown in the chosen zone. Changing the zone keeps what was TYPED (the wall time) and
@@ -45,10 +53,12 @@ export function GeneralTab({ call, promoterName, disabled, onChange }: {
           onChange={(e) => onChange({ name: e.target.value })} />
       </div>
       <div>
-        <label className={LABEL} htmlFor="call-description">Description</label>
-        <textarea id="call-description" autoComplete="off" rows={4} className={FIELD} value={call.description ?? ''} disabled={disabled}
-          placeholder="What is this call for, and who should apply?" onChange={(e) => onChange({ description: e.target.value })} />
+        <span className={LABEL} id="call-description-label">Description</span>
+        <div className="mt-1"><RichTextEditor id="call-description" labelledBy="call-description-label" value={call.description ?? ''} disabled={presentationLocked}
+          placeholder="What is this call for, and who should apply?" onChange={(html) => onChange({ description: html || null })} /></div>
+        <p className={HINT}>Bold, lists, headings, links and a few colours. Applicants see it on the first page of the call.</p>
       </div>
+      {onState && <CallMediaFields callId={call.id} branding={branding} disabled={presentationLocked} onState={onState} />}
       <div>
         <span className={LABEL}>Promoting organisation</span>
         <p className="mt-1 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-700">{promoterName}</p>

@@ -16,7 +16,7 @@ import { StatusBadge } from './StatusBadge';
 import type { CallStatus } from '@/lib/calls/types';
 
 
-export type LifecycleAction = 'confirm' | 'edit' | 'publish' | 'extend' | 'close' | 'archive';
+export type LifecycleAction = 'confirm' | 'edit' | 'publish' | 'extend' | 'reopen' | 'close' | 'archive';
 
 // The URL builder lives in lib/calls/link.ts (the back-office Calls page uses the very same one); re-exported here
 // so existing imports keep working.
@@ -26,16 +26,22 @@ export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summ
   call: Call; effectiveStatus: CallStatus; phases: CallPhase[]; fields: FormField[]; issues: ReadinessIssue[]; summary: CallSummary;
   actions: ReturnType<typeof availableActions>; canManage: boolean; busy: boolean; error: string; origin: string;
   /** Takes the person to the step — and to the field — that the problem is about. */
-  onJump: (step: StepKey, target?: string) => void; onAction: (a: LifecycleAction, extra?: { closesAt?: string }) => void;
+  onJump: (step: StepKey, target?: string) => void; onAction: (a: LifecycleAction, extra?: { closesAt?: string; confirmEarly?: boolean }) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [testing, setTesting] = useState(false);
   const [extendWall, setExtendWall] = useState('');
+  // "Reopen and extend" (a closed call): the new deadline, and — when the call was closed early on purpose — the person's explicit confirmation.
+  const [reopenWall, setReopenWall] = useState('');
+  const [earlyOk, setEarlyOk] = useState(false);
   const link = call.linkToken ? callLink(origin, call.linkToken) : null;
   const lang = CONTENT_LANGUAGES.find((l) => l.code === call.contentLanguage)?.label ?? call.contentLanguage;
   const closesWall = utcToWall(call.closesAt, call.timezone);
   const extendIso = extendWall ? wallToUtcIso(extendWall, call.timezone) : null;
   const extendOk = !!extendIso && !!call.closesAt && Date.parse(extendIso) > Date.parse(call.closesAt);
+  const reopenIso = reopenWall ? wallToUtcIso(reopenWall, call.timezone) : null;
+  const reopenInFuture = !!reopenIso && Date.parse(reopenIso) > Date.now();
+  const reopenOk = reopenInFuture && (!actions.reopenNeedsConfirm || earlyOk);
 
   const linkInput = useRef<HTMLInputElement>(null);
   const [copyHint, setCopyHint] = useState('');
@@ -142,6 +148,26 @@ export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summ
                 <button type="button" disabled={busy || !extendOk} onClick={() => onAction('extend', { closesAt: extendIso! })}
                   className="mt-2 rounded-lg border border-[#0E7490] px-3 py-1.5 text-sm font-medium text-[#0E7490] hover:bg-[#E8F4F8] disabled:opacity-40">Extend deadline</button>
                 {extendWall && !extendOk && <p className="mt-1 text-[11px] text-[#B00000]">The new deadline must be later than the current one.</p>}
+              </div>
+            )}
+            {actions.canReopen && (
+              <div className="rounded-lg bg-gray-50 p-3" data-testid="reopen">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Reopen and extend</p>
+                <p className="mt-1 text-[11px] text-gray-500">{effectiveStatus === 'archived' ? 'This call is archived (it had closed). Reopening takes it out of the archive. ' : ''}{actions.reopenNeedsConfirm ? 'This call was closed early, on purpose.' : 'This call closed at its deadline.'} Reopen it with a new deadline and applicants can submit again.</p>
+                <label className="mt-2 block text-[11px] font-semibold uppercase tracking-wide text-gray-500" htmlFor="reopen-to">New deadline</label>
+                <input id="reopen-to" type="datetime-local" autoComplete="off" className="mt-1 block w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm" value={reopenWall} data-testid="reopen-date"
+                  onChange={(e) => setReopenWall(e.target.value)} />
+                {reopenWall && !reopenInFuture && <p className="mt-1 text-[11px] text-[#B00000]" data-testid="reopen-past">The new deadline must be in the future.</p>}
+                {reopenInFuture && (
+                  <p className="mt-2 text-xs text-gray-700" data-testid="reopen-sentence">Applicants who had not submitted will be able to submit until «{formatInZone(reopenIso!, call.timezone)}». Submitted applications are not affected.</p>
+                )}
+                {actions.reopenNeedsConfirm && (
+                  <label className="mt-2 flex items-start gap-2 text-xs text-gray-700"><input type="checkbox" className="mt-0.5" checked={earlyOk} onChange={(e) => setEarlyOk(e.target.checked)} data-testid="reopen-early-ok" />
+                    <span>I closed this call early on purpose and I want to reopen it.</span></label>
+                )}
+                <button type="button" disabled={busy || !reopenOk} data-testid="reopen-button"
+                  onClick={() => { if (window.confirm(`Reopen the call until ${formatInZone(reopenIso!, call.timezone)}? Applicants who had not submitted will be able to submit. Submitted applications are not affected.`)) onAction('reopen', { closesAt: reopenIso!, confirmEarly: earlyOk }); }}
+                  className="mt-2 rounded-lg border border-[#0E7490] px-3 py-1.5 text-sm font-medium text-[#0E7490] hover:bg-[#E8F4F8] disabled:opacity-40">Reopen and extend</button>
               </div>
             )}
             {actions.canClose && (

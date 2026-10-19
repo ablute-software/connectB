@@ -4,6 +4,7 @@
 // header, and nothing at all while CALLS_MODE is "off", for a call that is not published, for an archived one, or for one with no form.
 import { NextResponse } from 'next/server';
 import { promoterName } from '@/lib/calls/store';
+import { brandingOf } from '@/lib/calls/branding';
 import { resolvePublicCall, serviceClient } from '@/lib/calls/applicant/link';
 import { applicantPhase, phaseSentence } from '@/lib/calls/applicant/phase';
 import { formatDayInZone } from '@/lib/calls/tz';
@@ -23,6 +24,7 @@ export async function GET(_req: Request, { params }: { params: { token: string }
     .order('created_at', { ascending: true }).limit(1).maybeSingle();
 
   const phase = applicantPhase(call);
+  const branding = (await brandingOf(admin, [call], 'public')).get(call.id)!;
   return NextResponse.json({
     ok: true,
     name: call.name, description: call.description, promoter: await promoterName(admin, call.promoterKind, call.promoterId),
@@ -34,6 +36,8 @@ export async function GET(_req: Request, { params }: { params: { token: string }
     closesDay: formatDayInZone(call.closesAt, call.timezone),
     // Eligibility rules are configured in a later stage (Etapa 2): there is nothing to put in sentences yet.
     eligibility: [] as string[],
+    // The entry page (Prompt 918, Adenda 1 C): a cover (or none), and the entity's logo — uploaded for the call, else the entity's own profile logo.
+    coverUrl: branding.coverUrl, logoUrl: branding.logoUrl,
     regulation: reg ? { fileName: (reg as { file_name: string }).file_name, url: `/api/calls/public/${encodeURIComponent(params.token)}/regulation` } : null,
     fieldCount: fields.length,
   });

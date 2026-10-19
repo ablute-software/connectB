@@ -131,7 +131,8 @@ export const PROPOSE_TOOL = {
       general: {
         type: 'object',
         properties: {
-          name: { type: 'string' }, description: { type: 'string' },
+          name: { type: 'string' },
+          description: { type: 'string', description: 'A short description of the call. Plain text, or simple HTML with only these tags: p, strong, em, ul, ol, li, h2, h3, a (https links). Use lists and bold only where the document itself has them.' },
           opens_at: { type: 'string', description: 'ISO date or date-time the call opens, if stated.' },
           closes_at: { type: 'string', description: 'ISO date or date-time the call closes, if stated.' },
           timezone: { type: 'string', description: 'IANA time zone, only if stated or obvious (e.g. Europe/Lisbon).' },

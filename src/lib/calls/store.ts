@@ -46,6 +46,13 @@ export async function loadEvents(admin: SupabaseClient, callId: string, limit = 
   return (data ?? []) as { id: number; event: string; actor_user_id: string | null; detail: Record<string, unknown>; created_at: string }[];
 }
 
+/** Did the call close early ("Close early", a decision of the team) rather than by its deadline? Read from the history: the latest time it closed. */
+export async function wasClosedEarly(admin: SupabaseClient, callId: string): Promise<boolean> {
+  const { data } = await admin.from('call_events').select('detail').eq('call_id', callId).eq('event', 'call_closed').order('id', { ascending: false }).limit(1);
+  const d = ((data ?? [])[0] as { detail?: Record<string, unknown> } | undefined)?.detail;
+  return d?.early === true;
+}
+
 export async function promoterName(admin: SupabaseClient, kind: PromoterKind, id: string): Promise<string> {
   const { data } = kind === 'incubator'
     ? await admin.from('incubators').select('name').eq('id', id).maybeSingle()
@@ -137,6 +144,25 @@ export async function bumpConfig(admin: SupabaseClient, call: Call, baseVersion:
   return row ? rowToCall(row) : null;
 }
 
+/**
+ * Sets or clears the cover image or the logo of a call (Prompt 918, Adenda 1 C). Not part of the configuration: no version bump, whatever the call's state.
+ * Returns the call as it is now, or null.
+ */
+export async function setCallMedia(admin: SupabaseClient, call: Call, kind: 'cover' | 'logo', path: string | null): Promise<Call | null> {
+  const now = new Date().toISOString();
+  const patch: Row = kind === 'cover' ? { cover_path: path, cover_updated_at: path ? now : null } : { logo_path: path, logo_updated_at: path ? now : null };
+  const { data } = await admin.from('calls').update({ ...patch, updated_at: now }).eq('id', call.id).select('*');
+  const row = (data ?? [])[0] as Row | undefined;
+  return row ? rowToCall(row) : null;
+}
+
+/** The description changes after the call is validated (presentation, not configuration): no version bump. Returns the call as it is now, or null. */
+export async function setCallDescription(admin: SupabaseClient, call: Call, description: string | null): Promise<Call | null> {
+  const { data } = await admin.from('calls').update({ description, updated_at: new Date().toISOString() }).eq('id', call.id).select('*');
+  const row = (data ?? [])[0] as Row | undefined;
+  return row ? rowToCall(row) : null;
+}
+
 export async function replacePhases(
   admin: SupabaseClient, callId: string, phases: { id: string; position: number; name: string; starts_on: string | null; ends_on: string | null }[],
 ): Promise<void> {
@@ -203,7 +229,16 @@ export async function duplicateCall(admin: SupabaseClient, source: Call, actor: 
       ...f, id: idMap.get(f.id)!, condition: f.condition ? { ...f.condition, fieldId: idMap.get(f.condition.fieldId) ?? f.condition.fieldId } : null,
     })));
   }
+  // The cover image (and a logo uploaded for the call) are copied as files of the copy — never shared, so removing one from either call cannot take the other's away (Prompt 918, Adenda 1 C).
+  let result = copy;
+  for (const [kind, path] of [['cover', source.coverPath], ['logo', source.logoPath]] as const) {
+    if (!path) continue;
+    const to = `calls/${copy.id}/${kind}-${path.split('/').pop()?.replace(/^(?:cover|logo)-/, '') ?? 'copy'}`;
+    const { error: copyErr } = await admin.storage.from('data-room').copy(path, to);
+    if (copyErr && !/already exists|duplicate/i.test(copyErr.message ?? '')) continue;
+    result = (await setCallMedia(admin, result, kind, to)) ?? result;
+  }
   await logCallEvent(admin, copy.id, 'call_duplicated', actor, { from: source.id });
   await logCallEvent(admin, source.id, 'call_duplicated_as', actor, { copy: copy.id });
-  return copy;
+  return result;
 }

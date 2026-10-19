@@ -101,6 +101,8 @@ O ecrã de configuração está organizado em tabs:
 ### 5.1. General
 
 - Nome, descrição, entidade promotora.
+- **Descrição formatada** **[Decisão]** (Prompt 918, Adenda 1, 19/10/2026): negrito, itálico, dois níveis de título, listas com pontos e numeradas, links e **cor do texto a partir de uma paleta de 8 cores** (sem escolha livre). Guarda-se HTML, mas só o que um sanitizador reconstrói a partir de uma lista fechada de etiquetas e atributos (links só http, https e mailto, sempre com rel noopener noreferrer; nunca script, style livre, atributos on*, iframe nem javascript:), no servidor ao gravar e outra vez onde se mostra. As descrições antigas, em texto simples, aparecem iguais. A descrição pode mudar mesmo depois de a call ser validada ou abrir (é apresentação, não configuração).
+- **Capa e logo** **[Decisão]** (Prompt 918, Adenda 1): uma **imagem de capa** opcional (mostrada a 16:9) e o **logo da entidade** — o do perfil da firma ou da incubadora, ou um carregado para a call (e, com confirmação, guardado também no perfil quando este não tem logo; nunca por cima de um existente). **PNG, JPG ou WebP, até 5 MB, o tipo verificado pelos bytes, com a mesma consulta de hash que os outros uploads; nunca SVG nem GIF.** Mudam-se em qualquer estado menos arquivada. Duplicar uma call copia a capa.
 - Data e hora de abertura e de encerramento, com fuso horário explícito.
 - **Listagem:** listada nas Open calls de todas as startups (por omissão), ou fechada, acessível só por link. **[Decisão]**
 - **Unidade do limite de candidaturas:** uma por projeto/startup (por omissão) ou uma por entidade jurídica. E se permite mais de uma candidatura por unidade. **[Decisão]** Quando são permitidas várias, cada uma tem identificador, formulário, documentos, estado, avaliações e resultado próprios.
@@ -527,7 +529,7 @@ Preservar sempre as versões anteriores, e registar se o avaliador já tinha vis
 ### 13.1. O link da call
 
 - Gerado quando o administrador publica a call.
-- Abre um ecrã com o **cabeçalho da call** (entidade, título, prazo, resumo, elegibilidade em frases, regulamento) e, por baixo, a caixa de registo.
+- Abre uma **página de entrada, quase uma capa** (Prompt 918, Adenda 1): a capa (ou uma faixa na cor da plataforma), o **logo da entidade** em destaque com o nome por baixo, mais pequeno, o título, as datas (no fuso da call), a descrição formatada, o regulamento e **um botão — "Start application", ou "Continue your application" se já houver rascunho**, que no telemóvel fica sempre visível. Só depois vêm o registo ou o formulário, com o logo e o título pequenos no topo (também na área "My applications" e nos emails da call).
 - **"Already have an account? Sign in"** está sempre visível. **[Decisão]**
 - O link mantém a memória: depois de entrar, a pessoa vai sempre para esta call. Se já tiver começado a candidatura, abre onde ficou.
 
@@ -625,6 +627,7 @@ Se faltar algo, aparece um popup com o nome de cada campo e a página onde está
 - Conta a hora a que o pedido chega ao servidor.
 - **O administrador nunca vê rascunhos.** Só vê o que foi submetido.
 - O administrador pode **prolongar o prazo para todos**, sem criar uma nova call. O prolongamento fica visível na página da call e no histórico, e a plataforma notifica automaticamente quem tem rascunhos por submeter, sem o administrador saber quem é.
+- **Reabrir e prolongar uma call fechada** **[Decisão]** (Nuno, Prompt 918, Adenda 1): depois do prazo a call passa a fechada, mas pode ser reaberta com **"Reopen and extend"**, com uma data nova no futuro e uma confirmação ("Applicants who had not submitted will be able to submit until «data». Submitted applications are not affected."). Vale para uma call fechada pelo prazo — e, só com confirmação explícita, para uma fechada cedo ("Close early", que foi uma decisão) —, **desde que a avaliação ainda não tenha começado** (condição escrita numa constante, sempre verdadeira até existir a Etapa 3). A call volta a abrir com o novo prazo; fica no histórico (call_reopened: quem, quando, prazo antigo e novo); quem tem rascunho recebe o email e a notificação de prazo prolongado; as candidaturas submetidas não mudam. Só com a permissão "Configure call". Uma call arquivada depois de fechar também se reabre (e sai do arquivo).
 
 ### 14.5. Reportar problema
 

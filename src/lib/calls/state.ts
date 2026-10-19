@@ -3,7 +3,8 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { availableActions, effectiveStatus, readiness, summarise } from './lifecycle';
-import { countApplications, loadEvents, loadFields, loadPhases, logCallEvent, promoterName, transitionCall } from './store';
+import { brandingOf, profileLogos } from './branding';
+import { countApplications, loadEvents, loadFields, loadPhases, logCallEvent, promoterName, transitionCall, wasClosedEarly } from './store';
 import type { Promoter } from './access';
 import type { Call } from './types';
 
@@ -32,12 +33,16 @@ export async function syncStatus(admin: SupabaseClient, call: Call, now: Date = 
 
 export async function buildCallState(admin: SupabaseClient, call: Call, promoter: Promoter, now: Date = new Date()) {
   const synced = await syncStatus(admin, call, now);
-  const [phases, fields, events, name, applications, team] = await Promise.all([
+  const [phases, fields, events, name, applications, team, closedEarly] = await Promise.all([
     loadPhases(admin, synced.id), loadFields(admin, synced.id), loadEvents(admin, synced.id, 30), promoterName(admin, synced.promoterKind, synced.promoterId),
     countApplications(admin, synced.id),
     admin.from('call_team_members').select('user_id').eq('call_id', synced.id),
+    effectiveStatus(synced, now) === 'closed' || synced.status === 'archived' ? wasClosedEarly(admin, synced.id) : Promise.resolve(false),
   ]);
   const issues = readiness(synced, phases, fields, now);
+  // The images the General step shows (reached through the signed-in route), and whether the entity's own profile already has a logo (then an uploaded one is not offered for the profile).
+  const branding = (await brandingOf(admin, [synced], 'editor')).get(synced.id)!;
+  const profileLogoUrl = (await profileLogos(admin, [synced])).get(`${synced.promoterKind}:${synced.promoterId}`) ?? null;
   return {
     ok: true as const,
     call: synced,
@@ -48,11 +53,12 @@ export async function buildCallState(admin: SupabaseClient, call: Call, promoter
     phases, fields, issues,
     // How many people were put on the team (the Setup step "Team & distribution" shows ✓ once there is at least one).
     teamMembers: ((team.data ?? []) as unknown[]).length,
+    branding: { ...branding, profileLogoUrl },
     summary: summarise(phases, fields),
     // Prompt 907: the entity sees what was SUBMITTED and a total (the delete rule needs "has anyone applied?"), never how many are still being
     // filled in: a draft is the applicant's own until they submit it.
     applications: { submitted: applications.submitted, total: applications.total },
-    actions: availableActions(synced, issues, now, applications.total),
+    actions: availableActions(synced, issues, now, applications, { closedEarly }),
     events,
   };
 }
