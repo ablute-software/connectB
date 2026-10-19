@@ -43,8 +43,8 @@ describe('the lifecycle rules behind it', () => {
   });
   it('deleteProblem names the reason', () => {
     expect(deleteProblem('draft', 0)).toBeNull();
-    expect(deleteProblem('open', 0)).toContain('archive');
-    expect(deleteProblem('scheduled', 2)).toContain('applications');
+    expect(deleteProblem('open', 0)).toBe('This call has opened, so it cannot be deleted. Archive it instead.');
+    expect(deleteProblem('scheduled', 2)).toContain('2 applicants have started an application (not submitted yet)');
   });
   it('archive: refused while open (and archived), allowed otherwise, with the patch', () => {
     const now = new Date('2026-10-12T10:00:00Z');

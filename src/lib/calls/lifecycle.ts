@@ -106,7 +106,7 @@ export const isConfigEditable = (status: CallStatus): boolean => status === 'dra
 /** Confirmed but not open yet: "Edit configuration" is available and invalidates the confirmation. */
 export const canEditConfiguration = (status: CallStatus): boolean => status === 'validated' || status === 'scheduled';
 
-export type Refusal = { ok: false; error: string };
+export type Refusal = { ok: false; error: string; /** A code the screen reacts to (e.g. "confirm_early" asks for a confirmation). */ code?: string };
 export type Patch = { ok: true; patch: Partial<Record<string, unknown>>; event: string; detail?: Record<string, unknown> };
 export type Transition = Patch | Refusal;
 
@@ -149,22 +149,66 @@ export function extendDeadline(call: Call, newClosesAtIso: string, now: Date = n
   return { ok: true, event: 'deadline_extended', patch: { closes_at: new Date(next).toISOString() }, detail: { from: call.closesAt, to: new Date(next).toISOString() } };
 }
 
+/**
+ * Has the evaluation of this call started? Reopening a closed call is only allowed before it does. The evaluation stage (Etapa 3) does not exist yet, so this is always false; the
+ * condition is written HERE so that when it does exist, reopening stops being possible by changing one line (Prompt 918, Adenda 1 B).
+ */
+/** Did the call close — by its deadline or early? (An archived call has lost that from its status; its dates and its closing time say.) */
+export const hadClosed = (call: Pick<Call, 'closedAt' | 'closesAt'>, now: Date = new Date()): boolean => !!call.closedAt || (!!call.closesAt && Date.parse(call.closesAt) <= now.getTime());
+
+export const evaluationStarted = (_call: Pick<Call, 'id'>): boolean => false;
+
+/**
+ * "Reopen and extend" (Nuno, 19/10/2026): a call that CLOSED can be reopened with a new deadline in the future — the applicants who had not submitted can then submit, and what was
+ * submitted is untouched. Allowed for a call that closed by its deadline, or closed early only when the person confirms it on purpose; never an archived one, never after the
+ * evaluation started.
+ */
+export function reopenCall(call: Call, newClosesAtIso: string, o: { closedEarly: boolean; confirmEarly: boolean }, now: Date = new Date()): Transition {
+  // A call that was archived AFTER it closed (the usual way to "get rid of" a finished call) can be reopened too: reopening takes it out of the archive. One that never opened cannot.
+  const archived = call.status === 'archived';
+  if (archived) { if (!hadClosed(call, now)) return refuse('This archived call never closed, so it cannot be reopened.'); }
+  else if (effectiveStatus(call, now) !== 'closed') return refuse('Only a closed call can be reopened. To move the deadline of an open call, use “Extend the deadline”.');
+  if (evaluationStarted(call)) return refuse('The evaluation of this call has started, so it can no longer be reopened.');
+  if (o.closedEarly && !o.confirmEarly) {
+    return { ok: false, error: 'This call was closed early, on purpose. Confirm that you want to reopen it.', code: 'confirm_early' };
+  }
+  const next = Date.parse(newClosesAtIso);
+  if (Number.isNaN(next)) return refuse('Invalid date.');
+  if (next <= now.getTime()) return refuse('The new deadline must be in the future.');
+  const to = new Date(next).toISOString();
+  return {
+    ok: true, event: 'call_reopened', patch: { status: 'open', closes_at: to, closed_at: null, ...(archived ? { archived_at: null, archived_by: null } : {}) },
+    detail: { from: call.closesAt, to, closedEarly: o.closedEarly, confirmedEarly: o.closedEarly && o.confirmEarly, ...(archived ? { unarchived: true } : {}) },
+  };
+}
+
 /** Close early: no new submissions; what already came in is untouched (§8). */
 export function closeEarly(call: Call, now: Date = new Date()): Transition {
   if (effectiveStatus(call, now) !== 'open') return refuse('Only an open call can be closed early.');
   return { ok: true, event: 'call_closed', patch: { status: 'closed', closed_at: now.toISOString() }, detail: { early: true } };
 }
 
+/** How many applications a call has, by state. The entity is told the NUMBER of drafts, never who they belong to. */
+export interface ApplicationCounts { submitted: number; inProgress: number; withdrawn: number; total: number }
+
 /**
- * Delete (Prompt 909, I1): only before the call opens, and only if nobody has applied in any state (submitted, in
- * progress or withdrawn): after that there is applicants' data in it. Same rules as delete_call_if_empty() in SQL,
- * which has the last word under a row lock. null = may be deleted.
+ * Delete (Prompt 909, I1; the messages, Prompt 918 Adenda 1 A): only before the call opens, and only if nobody has applied in any state: after that there is applicants' data in it.
+ * Same rules as delete_call_if_empty() in SQL, which has the last word under a row lock. null = may be deleted.
+ *
+ * The sentence says the TRUE reason, in the order it applies: the call has opened; else it has submitted applications (a withdrawn one was submitted); else only drafts —
+ * applicants who started and have not submitted, which the entity never sees in Applications, so the number is said and nothing else. A bare number counts as drafts.
  */
-export function deleteProblem(status: CallStatus, applicationsTotal: number): string | null {
-  if (status !== 'draft' && status !== 'validated' && status !== 'scheduled') {
-    return 'Only a call that has not opened yet can be deleted. Close it and archive it instead.';
+export function deleteProblem(status: CallStatus, apps: ApplicationCounts | number): string | null {
+  const c: ApplicationCounts = typeof apps === 'number' ? { submitted: 0, inProgress: apps, withdrawn: 0, total: apps } : apps;
+  if (status !== 'draft' && status !== 'validated' && status !== 'scheduled') return 'This call has opened, so it cannot be deleted. Archive it instead.';
+  const submitted = c.submitted + c.withdrawn;
+  if (submitted > 0) {
+    return `This call has ${submitted} submitted application${submitted === 1 ? '' : 's'}, so it cannot be deleted: there is applicants’ data in it. Archive it instead.`;
   }
-  if (applicationsTotal > 0) return 'This call has applications, so it cannot be deleted: there is applicants’ data in it. Archive it instead.';
+  if (c.inProgress > 0 || c.total > 0) {
+    const n = c.inProgress > 0 ? c.inProgress : c.total;
+    return `${n} applicant${n === 1 ? ' has' : 's have'} started an application (not submitted yet). To protect their data, the call cannot be deleted. Archive it instead.`;
+  }
   return null;
 }
 
@@ -179,10 +223,13 @@ export function archiveCall(call: Call, actor: string, now: Date = new Date()): 
 }
 
 /** Which actions the editor offers for this state. */
-export function availableActions(call: Call, issues: ReadinessIssue[], now: Date = new Date(), applicationsTotal = 0) {
+export function availableActions(call: Call, issues: ReadinessIssue[], now: Date = new Date(), applications: ApplicationCounts | number = 0, ctx: { closedEarly?: boolean } = {}) {
   const status = effectiveStatus(call, now);
+  const problem = deleteProblem(status, applications);
   return {
-    canDelete: deleteProblem(status, applicationsTotal) === null,
+    canDelete: problem === null,
+    /** The sentence the screen shows when it cannot be deleted: the very one the server answers with. */
+    deleteProblem: problem,
     canArchive: call.status !== 'archived' && status !== 'open',
     status,
     canEditForm: isConfigEditable(call.status),
@@ -191,6 +238,10 @@ export function availableActions(call: Call, issues: ReadinessIssue[], now: Date
     canPublish: call.status === 'validated',
     canExtend: status === 'open' || status === 'scheduled',
     canClose: status === 'open',
+    /** "Reopen and extend": a call that closed, before the evaluation starts. */
+    canReopen: (status === 'closed' || (call.status === 'archived' && hadClosed(call, now))) && !evaluationStarted(call),
+    /** It was closed early, on purpose: reopening asks for an explicit confirmation. */
+    reopenNeedsConfirm: (status === 'closed' || call.status === 'archived') && ctx.closedEarly === true,
   };
 }
 

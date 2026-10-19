@@ -12,13 +12,16 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { LogoLockup } from '@/components/Logo';
 import { EmailCodeSignup } from '@/components/auth/EmailCodeSignup';
-import { CallHeader, type PublicCallInfo } from '@/components/calls/applicant/CallHeader';
+import { CallIntro, CallMiniHeader, ctaLabel, type PublicCallInfo } from '@/components/calls/applicant/CallHeader';
 import { ApplicationArea, type CallSession } from '@/components/calls/applicant/ApplicationArea';
 
 export default function CallLinkPage() {
   const { token } = useParams<{ token: string }>();
   const [call, setCall] = useState<PublicCallInfo | null | undefined>(undefined);
   const [session, setSession] = useState<CallSession | undefined>(undefined);
+  // Prompt 918 (Adenda 1, C): the page opens on the call's presentation; "Start application" goes on to registration or to the form. `?start=1` skips it (a link back from an email).
+  const [stage, setStage] = useState<'intro' | 'apply'>('intro');
+  useEffect(() => { if (new URLSearchParams(window.location.search).get('start') === '1') setStage('apply'); }, []);
 
   const loadSession = useCallback(async () => {
     try {
@@ -39,9 +42,18 @@ export default function CallLinkPage() {
   const here = `/call/${token}`;
   const open = call?.phase === 'open';
 
+  const intro = call && stage === 'intro';
+
   return (
-    <main className="flex min-h-screen items-start justify-center bg-gray-50 p-4 sm:items-center sm:p-6">
-      <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl sm:p-8">
+    <main className="flex min-h-screen items-start justify-center bg-gray-50 p-0 sm:items-center sm:p-6">
+      <div className={`w-full max-w-xl bg-white shadow-xl ${intro ? 'min-h-screen sm:min-h-0 sm:rounded-2xl' : 'rounded-2xl p-6 sm:p-8'}`}>
+        {intro ? (
+          <>
+            <CallIntro call={call} cta={ctaLabel(call.phase, session?.application ?? null)} onStart={() => setStage('apply')} />
+            <div className="px-5 pb-5 pt-2 text-[#0E7490] sm:px-8"><LogoLockup size={18} accentClassName="text-[#2a7f8e]" /></div>
+          </>
+        ) : (
+        <>
         <div className="mb-5 text-[#0E7490]"><LogoLockup size={26} accentClassName="text-[#2a7f8e]" /></div>
         {call === undefined ? (
           <p className="text-sm text-gray-400">Loading…</p>
@@ -52,7 +64,8 @@ export default function CallLinkPage() {
           </>
         ) : (
           <>
-            <CallHeader call={call} />
+            <CallMiniHeader call={call} onAbout={() => setStage('intro')} />
+            {call.message && <p className="mt-4 rounded-lg bg-[#E8F4F8] px-4 py-3 text-sm font-medium text-[#0E7490]" data-testid="call-message">{call.message}</p>}
             <div className="mt-6">
               {session === undefined ? (
                 <p className="text-sm text-gray-400">Loading…</p>
@@ -84,6 +97,8 @@ export default function CallLinkPage() {
               )}
             </div>
           </>
+        )}
+        </>
         )}
       </div>
     </main>

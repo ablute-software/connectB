@@ -13,6 +13,8 @@ import { sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 import { callLink } from '../link';
 import { formatInZone } from '../tz';
 import { rowToCall } from '../mappers';
+import { brandingOf } from '../branding';
+import { promoterName } from '../store';
 import type { Call } from '../types';
 import type { ApplicationRow } from './store';
 
@@ -77,12 +79,13 @@ export function emailLinkFor(call: Pick<Call, 'linkToken'>, base: string = APP_U
 }
 
 /** Send the email of a notice and record the outcome on its row. Never throws: a failed email must not undo the event it reports. */
-export async function emailNotice(admin: SupabaseClient, noticeId: string | null, to: string, call: Pick<Call, 'contactEmail' | 'linkToken'>, content: NoticeContent): Promise<boolean> {
+export async function emailNotice(admin: SupabaseClient, noticeId: string | null, to: string, call: Pick<Call, 'contactEmail' | 'linkToken'> & Partial<Call>, content: NoticeContent): Promise<boolean> {
   try {
     const url = emailLinkFor(call);
+    const brandHtml = await brandLine(admin, call);
     const res = await sendTransactionalEmail({
       to, subject: content.title,
-      html: transactionalTemplate({ heading: esc(content.title), body: esc(content.body), ctaLabel: content.ctaLabel, ctaUrl: url }),
+      html: transactionalTemplate({ heading: esc(content.title), body: esc(content.body), ctaLabel: content.ctaLabel, ctaUrl: url, ...(brandHtml ? { brandHtml } : {}) }),
       text: `${content.title}\n\n${content.body}\n\n${content.ctaLabel}: ${url}`,
       ...(call.contactEmail ? { replyTo: call.contactEmail } : {}),
       context: { kind: 'other' },
@@ -95,6 +98,22 @@ export async function emailNotice(admin: SupabaseClient, noticeId: string | null
     if (noticeId) await admin.from('call_notices').update({ email_error: String((e as Error).message).slice(0, 300) }).eq('id', noticeId);
     return false;
   }
+}
+
+/**
+ * The entity's logo, small, beside its name — above the heading of the call's emails (Prompt 918, Adenda 1 C). Nothing when the call has no logo (or when it is not known which call it is):
+ * an email is never held back for a picture. The address is absolute (an email client has no page to resolve it against).
+ */
+async function brandLine(admin: SupabaseClient, call: Partial<Call>): Promise<string> {
+  try {
+    if (!call.id || !call.promoterKind || !call.promoterId) return '';
+    const logo = (await brandingOf(admin, [call as Call], 'public')).get(call.id)?.logoUrl;
+    if (!logo) return '';
+    const origin = emailLinkFor({ linkToken: null });                       // the site's address, normalised the way the platform's emails do
+    const src = logo.startsWith('https://') ? logo : `${origin}${logo}`;
+    const name = await promoterName(admin, call.promoterKind, call.promoterId);
+    return `<img src="${esc(src)}" alt="" width="28" height="28" style="vertical-align: middle; border-radius: 6px; margin-right: 8px;" /><span style="vertical-align: middle; font-size: 13px; color: #4B5563;">${esc(name)}</span>`;
+  } catch { return ''; }
 }
 
 async function emailOf(admin: SupabaseClient, userId: string): Promise<string | null> {

@@ -81,7 +81,7 @@ describe('Delete and archive, at the bottom of General', () => {
     const out = zone({ actions: { canDelete: false, canArchive: true }, status: 'closed', applicationsTotal: 4 });
     expect(isDisabled(out, 'delete-call')).toBe(true);
     expect(isDisabled(out, 'archive-call')).toBe(false);
-    expect(out).toContain('has applications, so it cannot be deleted. Archive it instead.');
+    expect(out).toContain('has opened, so it cannot be deleted. Archive it instead.');                 // no sentence from the server in this fixture: the fallback never says "has applications" for a call that opened
   });
   it('an open call must be closed before it is archived', () => {
     const out = zone({ actions: { canDelete: false, canArchive: false }, status: 'open' });

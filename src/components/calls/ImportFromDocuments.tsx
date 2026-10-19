@@ -19,6 +19,7 @@ import { formatInZone, utcToWall, wallToUtcIso } from '@/lib/calls/tz';
 import { splitContact } from '@/lib/calls/ai-import/client-errors';
 import { IMPORT_NOTICES_EVENT, afterPoll, onOpen, onOpenRun, type RunMeta } from '@/lib/calls/ai-import/screen-state';
 import { conditionLine, configLines, metaLine, sourceLabel } from '@/lib/calls/ai-import/review-view';
+import { richTextToPlain } from '@/lib/rich-text';
 import { callsApi } from './api';
 
 const POLL_MS = 3000;
@@ -354,6 +355,7 @@ function generalText(k: keyof ProposalGeneral, g: ProposalGeneral, tz: string): 
   const v = g[k];
   if (k === 'opensAt' || k === 'closesAt') return formatInZone(v as string, g.timezone ?? tz);
   if (k === 'limitUnit') return v === 'legal_entity' ? 'One per legal entity' : 'One per project';
+  if (k === 'description') return richTextToPlain(String(v ?? ''));                 // a formatted description is shown here as its text
   return String(v ?? '');
 }
 
@@ -404,7 +406,7 @@ function GeneralEditor({ k, value, timezone, onChange }: { k: keyof ProposalGene
       <option value="project">One per project</option><option value="legal_entity">One per legal entity</option></select>;
   }
   return k === 'description'
-    ? <textarea autoComplete="off" aria-label="Description" className={`${INPUT} w-full`} rows={3} value={value.description ?? ''} onChange={(e) => onChange({ ...value, description: e.target.value })} />
+    ? <textarea autoComplete="off" aria-label="Description" className={`${INPUT} w-full`} rows={3} value={richTextToPlain(value.description ?? '')} onChange={(e) => onChange({ ...value, description: e.target.value })} />
     : <input autoComplete="off" aria-label={GENERAL_LABEL[k]} className={`${INPUT} w-full`} value={String(value[k] ?? '')} onChange={(e) => onChange({ ...value, [k]: e.target.value })} />;
 }
 

@@ -10,6 +10,7 @@
 import { newFieldId, newOptionId } from '../form-builder';
 import { parseGroupConfig, parseSimpleValidations } from '../field-config';
 import { isValidTimeZone, wallToUtcIso } from '../tz';
+import { normalizeDescription } from '../../rich-text';
 import {
   AI_FIELD_KINDS, DEFAULT_MAX_FILE_MB, YES_NO_OPTIONS, isChoiceKind, type FieldKind, type FieldValidations, type FormField, type GroupConfig, type LimitUnit, type SimpleKind,
 } from '../types';
@@ -91,7 +92,8 @@ export function sanitizeGeneral(raw: unknown, opts: { dropInconsistentDates?: bo
   const g = obj(raw);
   const out: ProposalGeneral = {};
   const name = clean(g.name, 200); if (name) out.name = name;
-  const description = clean(g.description, 5000); if (description) out.description = description;
+  // The description may carry the basic formatting of the document (lists, bold): sanitised exactly as what a person types.
+  const description = normalizeDescription(g.description); if (description) out.description = description;
   const tzRaw = typeof g.timezone === 'string' ? g.timezone.trim() : '';
   if (tzRaw && isValidTimeZone(tzRaw)) out.timezone = tzRaw;
   const tz = out.timezone ?? 'Europe/Lisbon';

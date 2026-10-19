@@ -6,8 +6,10 @@
 //   Archive: for calls with applications, or already open or closed (an open call is closed first). It leaves the
 //            lists by default; "Show archived" brings it back.
 import { ARCHIVE_CONFIRM, DELETE_CONFIRM } from '@/lib/calls/list-view';
+import { deleteProblem } from '@/lib/calls/lifecycle';
+import type { CallStatus } from '@/lib/calls/types';
 
-export interface DangerActions { canDelete: boolean; canArchive: boolean }
+export interface DangerActions { canDelete: boolean; canArchive: boolean; /** Why it cannot be deleted — the sentence the server answers with. */ deleteProblem?: string | null }
 
 export function CallDangerZone({ actions, status, applicationsTotal, canManage, busy, onDelete, onArchive }: {
   actions: DangerActions; status: string; applicationsTotal: number; canManage: boolean; busy: boolean;
@@ -29,9 +31,7 @@ export function CallDangerZone({ actions, status, applicationsTotal, canManage, 
           <p className="mt-1.5 text-[11px] text-gray-500">
             {actions.canDelete
               ? 'Only possible while nobody has applied and the call has not opened.'
-              : applicationsTotal > 0
-                ? 'This call has applications, so it cannot be deleted. Archive it instead.'
-                : 'A call that has opened cannot be deleted. Close it and archive it instead.'}
+              : actions.deleteProblem ?? deleteProblem(status as CallStatus, applicationsTotal) ?? 'This call cannot be deleted.'}
           </p>
         </div>
         <div>

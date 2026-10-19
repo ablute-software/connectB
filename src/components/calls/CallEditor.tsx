@@ -185,7 +185,7 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
     return () => window.clearTimeout(id);
   }, [jump]);
 
-  async function act(action: LifecycleAction, extra: { closesAt?: string } = {}) {
+  async function act(action: LifecycleAction, extra: { closesAt?: string; confirmEarly?: boolean } = {}) {
     setBusy(true); setActionError('');
     try {
       if (timer.current) clearTimeout(timer.current);
@@ -255,8 +255,8 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
   const reason = !server.canManage
     ? 'You can view this call, but you do not have the “Configure call” permission on it. Ask the call’s administrators.'
     : call.status === 'draft' ? null
-    : call.status === 'validated' || call.status === 'scheduled' ? 'This call is validated, so its configuration is locked. Use “Edit configuration” in Preview & validate to change it.'
-    : 'This call is open or closed: questions and options can no longer change.';
+    : call.status === 'validated' || call.status === 'scheduled' ? 'This call is validated, so its configuration is locked. Use “Edit configuration” in Review & publish to change it. The description, cover image and logo can still be changed.'
+    : 'This call is open or closed: questions and options can no longer change. The description, cover image and logo can still be changed.';
 
   return (
     <div data-testid="call-editor" data-calls-touch>
@@ -289,7 +289,8 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
           states={stepStates({ call, phases: server.phases, fields, issues: server.issues, teamMembers: server.teamMembers ?? 0 })}>
           {nav.step === 'general' && (
             <>
-              <GeneralTab call={call} promoterName={server.promoterName} disabled={readOnly} onChange={editGeneral} />
+              <GeneralTab call={call} promoterName={server.promoterName} disabled={readOnly} presentationDisabled={!server.canManage || call.status === 'archived'} branding={server.branding}
+                onState={(s) => adopt(s, false)} onChange={editGeneral} />
               <ContactEmailField callId={callId} initial={call.contactEmail ?? null} canConfigure={server.canManage} />
               <SourceDocumentsPanel callId={callId} canConfigure={server.canManage} locked={readOnly} reloadKey={docsReload} onImport={() => { setImportRunId(null); setImportDocs(true); }} importStatus={importStatus} onReview={reviewProposal} />
               <CallDangerZone actions={server.actions} status={server.effectiveStatus} applicationsTotal={server.applications.total}

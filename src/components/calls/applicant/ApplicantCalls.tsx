@@ -5,8 +5,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { formatInZone } from '@/lib/calls/tz';
+import { richTextToPlain } from '@/lib/rich-text';
 import { STAGE_LABELS, type CardAction, type Overview } from '@/lib/calls/applicant/overview';
 import { CallNotices } from './CallNotices';
+import { EntityLogo } from './CallHeader';
 
 type Tab = 'open' | 'mine' | 'past';
 
@@ -61,9 +63,12 @@ export function ApplicantCalls() {
             <ul className="grid gap-3 sm:grid-cols-2">
               {openCards.map((c) => (
                 <li key={c.callId} className="flex flex-col rounded-xl border border-gray-200 bg-white p-4" data-testid="call-card">
-                  <p className="text-xs font-medium uppercase tracking-wide text-gray-400">{c.promoter}{c.linkOnly ? ' · link only' : ''}</p>
+                  <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-gray-400">
+                    <EntityLogo url={c.logoUrl} size={24} />
+                    <span className="min-w-0 truncate">{c.promoter}{c.linkOnly ? ' · link only' : ''}</span>
+                  </p>
                   <h2 className="mt-0.5 text-base font-semibold text-gray-900">{c.name}</h2>
-                  {c.description && <p className="mt-1 line-clamp-3 text-sm text-gray-600">{c.description}</p>}
+                  {c.description && <p className="mt-1 line-clamp-3 whitespace-pre-line text-sm text-gray-600">{richTextToPlain(c.description)}</p>}
                   <p className="mt-2 text-xs text-gray-500">Deadline: {formatInZone(c.closesAt, c.timezone)}</p>
                   {c.applicationStage && <p className="mt-1 text-xs font-medium text-emerald-700" data-testid="card-stage">{STAGE_LABELS[c.applicationStage]}{c.reference ? ` · ${c.reference}` : ''}</p>}
                   <Link href={`/call/${c.token}`} data-testid="card-action"
@@ -81,7 +86,8 @@ export function ApplicantCalls() {
             <ul className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white" data-testid="my-applications">
               {data.mine.map((a) => (
                 <li key={a.applicationId} className="flex items-center justify-between gap-3 px-4 py-3" data-testid="application-row">
-                  <span className="min-w-0">
+                  <EntityLogo url={a.logoUrl} size={32} />
+                  <span className="min-w-0 flex-1">
                     <b className="block truncate text-sm text-gray-900">{a.name}</b>
                     <span className="text-xs text-gray-500">{a.promoter} · {a.reference ?? '—'} · {a.stage === 'in_progress' ? `deadline ${formatInZone(a.closesAt, a.timezone)}` : a.submittedAt ? `submitted ${formatInZone(a.submittedAt, a.timezone)}` : ''}</span>
                   </span>

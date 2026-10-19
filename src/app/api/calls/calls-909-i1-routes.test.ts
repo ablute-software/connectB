@@ -16,6 +16,7 @@ vi.mock('@/lib/incubator-access-core', () => ({ resolveIncubatorMember: async ()
 
 import { GET as listGet, POST as createPost } from './route';
 import { POST as actionPost } from './[id]/action/route';
+import { GET as oneGet } from './[id]/route';
 import { GET as publicGet } from './public/[token]/route';
 
 const FIRM = '11111111-1111-4111-8111-111111111111';
@@ -99,7 +100,8 @@ describe('Delete call', () => {
       application(id, status);
       const res = await act(id, 'delete');
       expect(res.status, status).toBe(409);
-      expect(res.body.error).toContain('has applications');
+      // the true reason (918 Adenda 1 A): a draft is "started, not submitted", a submitted or withdrawn one is "submitted"
+      expect(res.body.error, status).toContain(status === 'draft' ? 'has started an application (not submitted yet)' : 'This call has 1 submitted application');
       expect(row(id)).toBeTruthy();
     }
     expect(db.tables.call_applications).toHaveLength(3);
@@ -112,7 +114,7 @@ describe('Delete call', () => {
       Object.assign(row(id), { status, closes_at: status === 'open' ? new Date(Date.now() + 5 * 86_400_000).toISOString() : null });
       const res = await act(id, 'delete');
       expect(res.status, status).toBe(409);
-      expect(res.body.error).toContain('archive');
+      expect(res.body.error).toContain('This call has opened, so it cannot be deleted. Archive it instead.');
     }
     expect(db.tables.calls).toHaveLength(5);
     expect(db.tables.call_deletions).toEqual([]);
@@ -191,5 +193,33 @@ describe('Archive call', () => {
     as('bob');
     expect((await act(id, 'archive')).status).toBe(403);
     expect(row(id).status).toBe('closed');
+  });
+});
+
+// --- Prompt 918 (Adenda 1, A): what the screen says is what the server answers ---------------------------------------------------------------------------------
+describe('Delete call: the message on the screen is the one the server gives', () => {
+  const state = async (id: string) => (await read(await oneGet(json('GET'), params(id)))).body;
+  const scenarios: [string, (id: string) => void][] = [
+    ['one draft', (id) => { application(id, 'draft'); }],
+    ['three drafts', (id) => { application(id, 'draft'); application(id, 'draft'); application(id, 'draft'); }],
+    ['one submitted', (id) => { application(id, 'submitted'); }],
+    ['a draft and a submitted', (id) => { application(id, 'draft'); application(id, 'submitted'); }],
+    ['it has opened', (id) => { row(id).status = 'open'; row(id).opens_at = '2026-01-01T00:00:00.000Z'; row(id).closes_at = '2099-01-01T00:00:00.000Z'; }],
+  ];
+  for (const [name, setup] of scenarios) {
+    it(`${name}: the same sentence on the screen and in the refusal`, async () => {
+      const { id } = await newCall(`Scenario ${name}`);
+      setup(id);
+      const s = await state(id);
+      expect(s.actions.canDelete).toBe(false);
+      const refusal = await act(id, 'delete');
+      expect(refusal.status).toBe(409);
+      expect(refusal.body.error).toBe(s.actions.deleteProblem);
+    });
+  }
+  it('a call with a draft application and nothing else: the sentence gives the number and nobody\'s name', async () => {
+    const { id } = await newCall('Only a draft');
+    application(id, 'draft');
+    expect((await state(id)).actions.deleteProblem).toBe('1 applicant has started an application (not submitted yet). To protect their data, the call cannot be deleted. Archive it instead.');
   });
 });

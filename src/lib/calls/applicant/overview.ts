@@ -17,16 +17,18 @@ export type CardAction = 'apply' | 'continue' | 'view';
 export interface CallFacts {
   id: string; token: string | null; name: string; promoter: string; status: CallStatus; opensAt: string | null; closesAt: string | null; timezone: string;
   description: string | null; visibility: CallVisibility; promoterIsTest: boolean; hasForm: boolean; allowMultiple: boolean;
+  /** The entity's logo (Prompt 918, Adenda 1 C), shown small next to the name of the entity. */
+  logoUrl?: string | null;
 }
 export interface ApplicationFacts { id: string; callId: string; status: 'draft' | 'submitted' | 'withdrawn'; reference: string | null; updatedAt: string; submittedAt: string | null }
 
 export interface OpenCallCard {
   callId: string; token: string; name: string; promoter: string; closesAt: string | null; timezone: string; description: string | null;
-  linkOnly: boolean; action: CardAction; applicationStage: ApplicationStage | null; reference: string | null; applications: number;
+  linkOnly: boolean; action: CardAction; applicationStage: ApplicationStage | null; reference: string | null; applications: number; logoUrl: string | null;
 }
 export interface ApplicationItem {
   applicationId: string; callId: string; token: string | null; name: string; promoter: string; reference: string | null; stage: ApplicationStage;
-  closesAt: string | null; timezone: string; submittedAt: string | null;
+  closesAt: string | null; timezone: string; submittedAt: string | null; logoUrl: string | null;
 }
 export interface PastItem {
   applicationId: string | null; callId: string; token: string | null; name: string; promoter: string; reference: string | null;
@@ -88,7 +90,7 @@ export function buildOverview(input: {
     const top = apps.find((a) => a.status === 'draft') ?? apps.find((a) => a.status === 'submitted') ?? null;
     open.push({
       callId: c.id, token: c.token, name: c.name, promoter: c.promoter, closesAt: c.closesAt, timezone: c.timezone, description: c.description,
-      linkOnly: c.visibility === 'unlisted', action: cardAction(apps, accepting), applicationStage: top ? stageOf(top, status) : null, reference: top?.reference ?? null, applications: apps.length,
+      linkOnly: c.visibility === 'unlisted', action: cardAction(apps, accepting), applicationStage: top ? stageOf(top, status) : null, reference: top?.reference ?? null, applications: apps.length, logoUrl: c.logoUrl ?? null,
     });
   }
   open.sort((a, b) => (a.closesAt ? Date.parse(a.closesAt) : Infinity) - (b.closesAt ? Date.parse(b.closesAt) : Infinity));
@@ -103,7 +105,7 @@ export function buildOverview(input: {
     const base = { callId: c.id, token: c.token, name: c.name, promoter: c.promoter, reference: a.reference, closesAt: c.closesAt, timezone: c.timezone };
     if (status === 'archived') { past.push({ ...base, applicationId: a.id, reason: 'archived' }); continue; }
     if (a.status === 'draft' && status !== 'open') { past.push({ ...base, applicationId: a.id, reason: 'closed_without_submission' }); continue; }
-    mine.push({ ...base, applicationId: a.id, stage: stageOf(a, status), submittedAt: a.submittedAt });
+    mine.push({ ...base, applicationId: a.id, stage: stageOf(a, status), submittedAt: a.submittedAt, logoUrl: c.logoUrl ?? null });
   }
   const updated = new Map(input.apps.map((a) => [a.id, a.submittedAt ?? a.updatedAt]));
   return { openCalls: open, mine: sortMine(mine, updated), past };

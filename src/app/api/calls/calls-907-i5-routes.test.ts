@@ -178,3 +178,115 @@ describe('the 48-hour reminder', () => {
     expect(src).toMatch(/try \{\s*callDraftReminders = await sendDraftReminders/);
   });
 });
+
+// --- Prompt 918 (Adenda 1, B): reopen and extend a closed call -------------------------------------------------------------------------------------------------
+import { GET as oneGet } from './[id]/route';
+import { evaluationStarted, reopenCall } from '@/lib/calls/lifecycle';
+import type { Call } from '@/lib/calls/types';
+
+describe('reopen and extend (a closed call)', () => {
+  const events = (name: string) => db.tables.call_events.filter((e) => e.call_id === CALL && e.event === name);
+  const reopen = (extra: Record<string, unknown> = {}) => actionPost(json('POST', { action: 'reopen', closesAt: iso(7 * DAY), ...extra }), params(CALL)).then(read);
+  const closedEarlyOnPurpose = () => db.tables.call_events.push({ id: 9001, call_id: CALL, event: 'call_closed', actor_user_id: 'ana', detail: { early: true }, created_at: iso(-3 * DAY) });
+  const callRow = () => db.tables.calls.find((c) => c.id === CALL)!;
+
+  it('a call that closed at its DEADLINE: the button is offered; reopening opens it with the new deadline, keeps the history, and tells whoever has a draft', async () => {
+    seed({ status: 'open', closes_at: iso(-DAY) }); as('ana');
+    const before = await read(await oneGet(json('GET'), params(CALL)));
+    expect(before.body.effectiveStatus).toBe('closed');
+    expect(before.body.actions).toMatchObject({ canReopen: true, reopenNeedsConfirm: false, canExtend: false });
+
+    const newDeadline = iso(7 * DAY);
+    const r = await reopen({ closesAt: newDeadline });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(r.body.effectiveStatus).toBe('open');
+    expect(callRow()).toMatchObject({ status: 'open', closed_at: null });
+    expect(Date.parse(callRow().closes_at as string)).toBe(Date.parse(newDeadline));
+    expect(r.body.actions).toMatchObject({ canReopen: false, canExtend: true });
+    // the history says who, when (the event's own date), from which deadline to which
+    const [ev] = events('call_reopened');
+    expect(ev).toMatchObject({ actor_user_id: 'ana', detail: { to: new Date(newDeadline).toISOString(), closedEarly: false, confirmedEarly: false } });
+    expect(ev.created_at).toBeTruthy();
+    expect(ev.detail).toHaveProperty('from');
+    // the person with a DRAFT gets the notice and the email of an extended deadline; the one who submitted gets nothing; the entity is not told who
+    expect(notices().map((n) => [n.user_id, n.kind])).toEqual([['founder-a', 'deadline_extended']]);
+    expect(sent.map((m) => m.to)).toEqual(['founder-a@example.com']);
+    expect(events('deadline_extension_notified')[0].detail).toEqual({ applicants: 1 });
+    expect(JSON.stringify(events('deadline_extension_notified'))).not.toContain('founder-a');
+  });
+
+  it('the submitted applications are exactly as they were', async () => {
+    seed({ status: 'open', closes_at: iso(-DAY) }); as('ana');
+    const snapshot = JSON.stringify(db.tables.call_applications.find((a) => a.id === 'a-done'));
+    expect((await reopen()).status).toBe(200);
+    expect(JSON.stringify(db.tables.call_applications.find((a) => a.id === 'a-done'))).toBe(snapshot);
+    expect(db.tables.call_applications.find((a) => a.id === 'a-done')!.status).toBe('submitted');
+    expect(db.tables.call_applications.find((a) => a.id === 'a-draft')!.status).toBe('draft');
+  });
+
+  it('a new deadline in the past (or none, or nonsense) is refused and the call stays closed', async () => {
+    seed({ status: 'open', closes_at: iso(-DAY) }); as('ana');
+    for (const bad of [iso(-HOUR), iso(-5 * DAY), '', 'next week']) {
+      const r = await reopen({ closesAt: bad });
+      expect(r.status, String(bad)).toBe(409);
+      expect(r.body.error).toMatch(/must be in the future|Invalid date/);
+    }
+    expect(callRow().status).toBe('closed');
+    expect(events('call_reopened')).toHaveLength(0);
+    expect(notices()).toHaveLength(0);
+  });
+
+  it('a call closed EARLY (a decision) needs the explicit confirmation; with it, it reopens and the history says so', async () => {
+    seed({ status: 'closed', closes_at: iso(2 * DAY), closed_at: iso(-3 * DAY) }); closedEarlyOnPurpose(); as('ana');
+    const state = await read(await oneGet(json('GET'), params(CALL)));
+    expect(state.body.actions).toMatchObject({ canReopen: true, reopenNeedsConfirm: true });
+    const asked = await reopen();
+    expect(asked.status).toBe(409);
+    expect(asked.body).toMatchObject({ code: 'confirm_early', error: expect.stringContaining('closed early') });
+    expect(callRow().status).toBe('closed');
+    const done = await reopen({ confirmEarly: true });
+    expect(done.status, JSON.stringify(done.body)).toBe(200);
+    expect(events('call_reopened')[0].detail).toMatchObject({ closedEarly: true, confirmedEarly: true });
+  });
+
+  it('an open call is not "reopened" (it is extended); an archived call that NEVER closed is not reopened either', async () => {
+    seed(); as('ana');
+    expect(await reopen()).toMatchObject({ status: 409, body: { error: expect.stringContaining('Only a closed call') } });
+    seed({ status: 'archived', closes_at: iso(5 * DAY), closed_at: null }); as('ana');
+    expect(await reopen()).toMatchObject({ status: 409, body: { error: expect.stringContaining('never closed') } });
+    expect(callRow().status).toBe('archived');
+  });
+
+  it('a call ARCHIVED after it closed (the way a finished call is "got rid of") is reopened too — and leaves the archive', async () => {
+    seed({ status: 'archived', closes_at: iso(-DAY), closed_at: iso(-DAY), archived_at: iso(-HOUR), archived_by: 'ana' }); as('ana');
+    const state = await read(await oneGet(json('GET'), params(CALL)));
+    expect(state.body.effectiveStatus).toBe('archived');
+    expect(state.body.actions).toMatchObject({ canReopen: true });
+    const r = await reopen();
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(callRow()).toMatchObject({ status: 'open', archived_at: null, archived_by: null, closed_at: null });
+    expect(events('call_reopened')[0].detail).toMatchObject({ unarchived: true });
+    expect(notices().map((n) => n.user_id)).toEqual(['founder-a']);                      // the draft is told, as for any reopening
+    expect(sent).toHaveLength(1);
+  });
+
+  it('only whoever may "Configure call" can reopen it', async () => {
+    seed({ status: 'open', closes_at: iso(-DAY) });
+    db.users.set('bob', { id: 'bob', email: 'bob@example.com' });
+    db.tables.matchdeal_investor_members.push({ id: 'm-bob', user_id: 'bob', catalog_entity_id: FIRM, status: 'active', role: 'member', created_at: '2026-01-01T00:00:00.000Z' });
+    as('bob');
+    const r = await reopen();
+    expect(r.status).toBe(403);
+    expect(Date.parse(callRow().closes_at as string)).toBeLessThan(Date.now());          // the deadline did not move: nothing changed
+    expect(events('call_reopened')).toHaveLength(0);
+    expect(notices()).toHaveLength(0);
+  });
+
+  it('the rule is pure and carries its one condition for later: the evaluation not having started (always true today, the stage does not exist)', () => {
+    const call = { id: 'c', status: 'closed', opensAt: '2026-01-01T00:00:00.000Z', closesAt: '2026-02-01T00:00:00.000Z' } as Call;
+    const now = new Date('2026-03-01T00:00:00Z');
+    expect(evaluationStarted(call)).toBe(false);
+    expect(reopenCall(call, '2026-04-01T00:00:00Z', { closedEarly: false, confirmEarly: false }, now)).toMatchObject({ ok: true, event: 'call_reopened', patch: { status: 'open', closed_at: null } });
+    expect(reopenCall(call, '2026-04-01T00:00:00Z', { closedEarly: true, confirmEarly: false }, now)).toMatchObject({ ok: false, code: 'confirm_early' });
+  });
+});

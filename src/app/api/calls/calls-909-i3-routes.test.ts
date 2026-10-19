@@ -297,7 +297,7 @@ describe('the team is not configuration', () => {
     }
     row(id).status = 'validated';
     as('ana');
-    expect((await generalPatch(json('PATCH', { baseVersion: row(id).config_version, description: 'x' }), params(id)).then(read)).body.code).toBe('locked');
+    expect((await generalPatch(json('PATCH', { baseVersion: row(id).config_version, name: 'x' }), params(id)).then(read)).body.code).toBe('locked');
   });
   it('every change goes into the call\'s history', async () => {
     const { id } = await newCall();

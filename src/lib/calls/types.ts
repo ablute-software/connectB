@@ -182,6 +182,8 @@ export interface Call {
   archivedAt: string | null;
   /** Prompt 907 (I5): "Contact email for applicants" — when set, the Reply-To of the emails of THIS call. */
   contactEmail?: string | null;
+  /** Prompt 918 (Adenda 1, C): the cover image and a logo uploaded for this call (paths in the private bucket), and when each was set. */
+  coverPath?: string | null; coverUpdatedAt?: string | null; logoPath?: string | null; logoUpdatedAt?: string | null;
   duplicatedFrom: string | null;
   createdBy: string;
   createdAt: string;
