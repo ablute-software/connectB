@@ -18,7 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { visiblePages, validateAnswer, isAnswered } from '@/lib/calls/form-logic';
 import { fileIdsInAnswers, fileValues, locateFile, maxFilesForTarget, removeFileFromAnswers, setFileInAnswers, subFieldAsField, type FileTarget } from '@/lib/calls/field-config';
-import { finalCheck, type FinalIssue } from '@/lib/calls/preview-logic';
+import { finalCheck, visibleIds, type FinalIssue } from '@/lib/calls/preview-logic';
 import type { Answers, AnswerValue, SimpleAnswer } from '@/lib/calls/types';
 import { applicantApi, type SubmitFailure } from '@/lib/calls/applicant/client';
 import { fileValue } from '@/lib/calls/applicant/answers';
@@ -54,6 +54,7 @@ export function ApplicationForm({ initial, initialPage, onSubmitted }: {
   const submitKey = useRef<string | null>(null);
   // A double click lands twice in the same tick, before any state change is rendered: the guard is a ref, and the key is made BEFORE the first await.
   const submittingRef = useRef(false);
+  const lastShown = useRef<Set<string> | null>(null);
 
   const pages = useMemo(() => visiblePages(fields, answers), [fields, answers]);
   const pageIndex = Math.min(Math.max(1, page), Math.max(1, pages.length));
@@ -158,7 +159,9 @@ export function ApplicationForm({ initial, initialPage, onSubmitted }: {
     try {
       const saved = await flush(true);
       if (!saved) { setSubmitError('We could not save your answers, so nothing was submitted. Try again.'); return; }
-      const issues = finalCheck(fields, answersRef.current);
+      // The WHOLE form, every page and group, in one list. The only thing a later check may add is a question that an answer given since made appear (marked as new).
+      const issues = finalCheck(fields, answersRef.current, lastShown.current ?? undefined);
+      lastShown.current = visibleIds(fields, answersRef.current);
       if (issues.length > 0) { setMissing(issues); return; }
       const r = await applicantApi.submit(appId, submitKey.current ?? crypto.randomUUID(), revisionRef.current);
       if (r.ok) { submitKey.current = null; onSubmitted({ submittedAt: r.body.submittedAt, reference: r.body.reference }); return; }
@@ -240,15 +243,17 @@ export function ApplicationForm({ initial, initialPage, onSubmitted }: {
 function MissingPopup({ items, onClose, onGo }: { items: (FinalIssue | SubmitFailure)[]; onClose: () => void; onGo: (pageNumber: number) => void }) {
   if (typeof document === 'undefined') return null;
   const num = (i: FinalIssue | SubmitFailure) => ('pageNumber' in i ? i.pageNumber : i.page);
+  const newBecause = (i: FinalIssue | SubmitFailure) => ('newBecause' in i ? i.newBecause : undefined);
+  const keyOf = (i: FinalIssue | SubmitFailure, n: number) => ('key' in i && i.key ? i.key : `${i.fieldId}:${n}`);
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="What is missing" data-testid="missing-popup">
       <div className="max-h-[80vh] w-full max-w-md overflow-auto rounded-2xl bg-white p-5 shadow-2xl">
         <h2 className="text-base font-semibold text-gray-900">{items.length === 1 ? 'One thing is missing' : `${items.length} things are missing`}</h2>
         <p className="mt-1 text-sm text-gray-500">Your answers are saved. Complete these to submit:</p>
         <ul className="mt-3 space-y-1.5 text-sm" data-testid="missing-list">
-          {items.map((i) => (
-            <li key={i.fieldId} className="flex items-start justify-between gap-3 rounded-lg bg-red-50 px-3 py-2">
-              <span className="text-gray-800"><b>Page {num(i)}</b> · {i.label}<span className="block text-xs text-[#B00000]">{i.message}</span></span>
+          {items.map((i, n) => (
+            <li key={keyOf(i, n)} className="flex items-start justify-between gap-3 rounded-lg bg-red-50 px-3 py-2">
+              <span className="text-gray-800"><b>Page {num(i)}</b> · {i.label}<span className="block text-xs text-[#B00000]">{i.message}</span>{newBecause(i) && <span className="block text-xs font-medium text-amber-700" data-testid="new-because">New: shown because you answered «{newBecause(i)!.label}» on page {newBecause(i)!.pageNumber}</span>}</span>
               <button type="button" onClick={() => onGo(num(i))} className="shrink-0 text-xs font-semibold text-[#0E7490] hover:underline">Go to the page</button>
             </li>
           ))}

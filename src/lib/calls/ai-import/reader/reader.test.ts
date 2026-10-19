@@ -69,7 +69,7 @@ describe('what it reads', () => {
     expect(en.fields.map((f) => f.kind)).toEqual(['short_text', 'email', 'yes_no', 'short_text', 'number', 'url', 'file']);
     expect(by(en, '1.3.1').condition).toMatchObject({ value: 'yes' });
     expect(by(en, '1.5').required).toBe(false);
-    expect(by(en, '1.6').validations).toMatchObject({ fileFormats: ['powerpoint'] });
+    expect(by(en, '1.6').validations).toMatchObject({ fileFormats: ['pdf', 'powerpoint'] });
   });
 });
 
@@ -90,7 +90,7 @@ describe('what it solves, and says it did', () => {
     const r = read(`6. Anexos\n6.1 Inclua uma apresentação em formato powerpoint, a qual deverá abordar os seguintes tópicos:\n6.1.1 Equipa de gestão;\n6.1.2 Mercado;\n6.1.3 Modelo de negócio;\n6.2 Nome`);
     expect(r.fields.map((f) => f.number)).toEqual(['6.1', '6.2']);
     expect(by(r, '6.1').instruction).toContain('Equipa de gestão');
-    expect(by(r, '6.1').validations).toMatchObject({ fileFormats: ['powerpoint'] });
+    expect(by(r, '6.1').validations).toMatchObject({ fileFormats: ['pdf', 'powerpoint'] });
     expect(r.attention.map((a) => a.what)).toContain('6.1 lists 3 topics for the document');
   });
   it('CVs "of each member" and a list of data per person: one "Team member" group with a CV in each entry — never a ZIP', () => {
@@ -106,7 +106,7 @@ describe('what it solves, and says it did', () => {
   it('"please include (if available):" and a list of documents: one file question per document; an access code is text', () => {
     const r = read(`2. Anexos\n2.1 Se for uma empresa já constituída, inclua (se disponíveis):\n2.1.1 Últimas demonstrações financeiras;\n2.1.2 Acesso à certidão permanente atualizada;\n2.1.3 Declaração de não dívida`);
     expect(r.fields.map((f) => [f.number, f.kind, f.required])).toEqual([['2.1.1', 'file', false], ['2.1.2', 'short_text', false], ['2.1.3', 'file', false]]);
-    expect(r.attention.find((a) => a.what.startsWith('2.1'))?.why).toContain('2 file questions and 1 text question');
+    expect(r.attention.find((a) => a.what === '2.1 asked for 3 documents')?.why).toContain('2 file questions and 1 text question');
   });
   it('the options of a pipe list — inline, after "(selecionar)", or in a parenthesis with a prefix — are read; "Região Autónoma …, Região Autónoma …" is split', () => {
     const r = read(`1. Perfil\n1.1 Há quanto tempo criou a empresa? (selecionar) Não constituída | <1 ano| <3 anos| 3-5\nanos| 6-8 anos|\n1.2 Região (NUTs III: Alto Minho |Cávado | Ave|\nRegião Autónoma dos Açores, Região Autónoma da Madeira)\n1.3 Nome`);
@@ -220,7 +220,7 @@ describe.skipIf(!fs.existsSync(REAL))('the real INNOV-ID form (the PDF the Nuno 
     expect(by(r, '4.3')).toMatchObject({ kind: 'number', validations: { currency: true } });
     expect(by(r, '4.4').kind).toBe('yes_no');
     expect(by(r, '4.4/2')).toMatchObject({ kind: 'number', condition: { tmpId: by(r, '4.4').tmpId, value: 'yes' } });
-    expect(by(r, '6.1')).toMatchObject({ kind: 'file', validations: { fileFormats: ['powerpoint'] } });
+    expect(by(r, '6.1')).toMatchObject({ kind: 'file', validations: { fileFormats: ['pdf', 'powerpoint'] } });
     expect(by(r, '6.1').instruction).toContain('Equipa de gestão');
     expect(by(r, '6.2').validations).toMatchObject({ fileFormats: ['excel'] });
     expect(by(r, '6.3')).toMatchObject({ kind: 'url', required: false, validations: { urlHint: 'video' } });

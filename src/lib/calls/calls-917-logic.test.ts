@@ -152,7 +152,7 @@ describe('the form the server accepts', () => {
 });
 
 describe('a group — answering and validating', () => {
-  const team = group({ min: 1, max: 3, subFields: [sub(1, 'short_text', { label: 'Name', required: true }), sub(2, 'email', { label: 'Email', required: true }), sub(3, 'file', { label: 'CV', validations: { maxFileMb: 5 } })] });
+  const team = group({ min: 1, max: 3, subFields: [sub(1, 'short_text', { label: 'Name', required: true }), sub(2, 'email', { label: 'Email', required: true }), sub(3, 'file', { label: 'CV', validations: { maxFileMb: 5 } })] }, { required: true });
   const entry = (id: string, values: Record<string, unknown>) => ({ id, values: values as never });
 
   it('counts the entries: at least the minimum, at most the maximum', () => {
@@ -287,7 +287,7 @@ describe('putting a file into the answers, and taking it out', () => {
 });
 
 describe('submitting', () => {
-  const team = group({ min: 1, max: 3, subFields: [sub(1, 'short_text', { required: true }), sub(3, 'file')] });
+  const team = group({ min: 1, max: 3, subFields: [sub(1, 'short_text', { required: true }), sub(3, 'file')] }, { required: true });
   it('the submission carries every file the answers point at — in questions, in lists and inside entries — and no other', () => {
     const several = field('file', { id: 'file-field-0001', validations: { maxFiles: 3 } });
     const files: FileRef[] = ['f1', 'f2', 'f9', 'orphan'].map((id) => ({ id, fieldId: 'x', source: 'upload' as const, fileName: `${id}.pdf`, size: 1 }));

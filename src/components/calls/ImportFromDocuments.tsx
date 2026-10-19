@@ -267,7 +267,7 @@ export function ImportFromDocuments({ callId, timezone, currentFieldCount, onClo
               )}
 
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-700" data-testid="accept-everything-bar">
-                <span>{keysFields.length} question{keysFields.length === 1 ? '' : 's'} in the Form · {acceptedFields} accepted</span>
+                <span>{keysFields.length} question{keysFields.length === 1 ? '' : 's'} in the Form · {acceptedFields} accepted · <b data-testid="required-count">{edited.fields.filter((f) => f.required).length} required</b></span>
                 <button type="button" className={BTN} disabled={undecidedAll.length === 0} onClick={() => { setSkipWarned(false); setError(''); acceptAll(undecidedAll); }} data-testid="accept-everything">Accept everything</button>
               </div>
 

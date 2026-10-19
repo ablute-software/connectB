@@ -19,7 +19,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { deliverCatalogMatches } from './catalog-delivery-core';
 import { PLAN_PIPELINE_MONTHLY_ADDITION } from './pipeline-unlock';
-import { normalizePlan } from './plans';
+import { effectivePlanForOrg } from './effective-plan-server';
 import { monthlyDeliveryStamp } from './catalog-monthly-delivery';
 
 export interface MonthlyDeliveryOrgRow {
@@ -52,7 +52,9 @@ export async function deliverMonthlyForOrg(
   // em enrichment_status='pending' e cada entrega enfileira mesmo um job.
   if (org.is_test) return { orgId: org.id, ran: false, reason: 'org de teste (is_test)' };
 
-  const tier = normalizePlan(org.plan);
+  // Prompt 914 — the increment follows the plan the org is on today (stored ⊕ free trial ⊕ badge), not orgs.plan: on 1 October the
+  // job gave Wisify — on a 100%-off trial of "It's the butler!" since 8 September — Elementary's +10 instead of +50.
+  const tier = await effectivePlanForOrg(admin, org.id, { storedPlan: org.plan, now: new Date(nowIso) });
   const increment = PLAN_PIPELINE_MONTHLY_ADDITION[tier];
   const currentQuota = org.catalog_quota ?? 0;
   const newQuota = currentQuota + increment;

@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import { formatInZone } from '@/lib/calls/tz';
 import { formatNumberDisplay, visiblePages } from '@/lib/calls/form-logic';
-import { entriesOf, fileValues, groupOf, isHttpUrl, subFieldAsField } from '@/lib/calls/field-config';
+import { entriesOf, fileValues, groupOf, isHttpUrl, presetEntriesFor, subFieldAsField } from '@/lib/calls/field-config';
 import type { Answers, AnswerValue, FormField, SimpleAnswer } from '@/lib/calls/types';
 
 interface Item { applicationId: string; reference: string | null; startup: string; submittedAt: string }
@@ -59,7 +59,9 @@ export function AnswerView({ field, value, docs, currency }: { field: FormField;
   }
   if (field.kind === 'group') {
     const g = groupOf(field);
-    const entries = entriesOf(value as AnswerValue);
+    // Nothing answered stays "—"; once there is an answer, the rows the entity fixed are shown with their first columns, even for an answer stored before they were kept.
+    const stored = entriesOf(value as AnswerValue);
+    const entries = g && stored.length > 0 ? presetEntriesFor(g, value as AnswerValue) : stored;
     if (!g || entries.length === 0) return <>—</>;
     const cells = (e: (typeof entries)[number]) => g.subFields.map((s) => <AnswerView key={s.id} field={subFieldAsField(s)} value={e.values[s.id]} docs={docs} currency={currency} />);
     if (g.display === 'table') {
@@ -115,7 +117,7 @@ export function SubmissionsTab({ callId, timezone, currency }: { callId: string;
     const pages = visiblePages(open.fields, open.answers);
     return (
       <section data-testid="submission-detail">
-        <button type="button" onClick={() => setOpen(null)} className="text-sm text-gray-500 hover:text-[#0E7490]">← Submissions</button>
+        <button type="button" onClick={() => setOpen(null)} className="min-h-[44px] text-sm text-gray-500 hover:text-[#0E7490] sm:min-h-0">← Applications</button>
         <h2 className="mt-2 text-base font-semibold text-gray-900">{open.startup} <span className="font-mono text-xs font-normal text-gray-500">{open.reference}</span></h2>
         <p className="text-xs text-gray-500">Submitted {formatInZone(open.submittedAt, timezone)} · version {open.version} · read-only: exactly as it was submitted</p>
         <div className="mt-4 space-y-6">
@@ -141,27 +143,42 @@ export function SubmissionsTab({ callId, timezone, currency }: { callId: string;
 
   return (
     <section data-testid="submissions-tab">
-      <h2 className="text-base font-semibold text-gray-900">Submissions</h2>
+      <h2 className="text-base font-semibold text-gray-900">Applications</h2>
       <p className="mt-1 text-xs text-gray-500">Applications that were submitted, read-only. Applications still being filled in are never shown to the organisation that runs the call.</p>
       {error && <p role="alert" className="mt-3 text-sm text-[#B00000]">{error}</p>}
       {items === null ? <p className="mt-4 text-sm text-gray-400">Loading…</p> : items.length === 0 && !error ? (
         <p className="mt-4 text-sm text-gray-500" data-testid="no-submissions">No applications have been submitted yet.</p>
       ) : items.length > 0 ? (
-        <div className="mt-4 overflow-x-auto rounded-lg border border-gray-200 bg-white">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-gray-50 text-xs text-gray-500"><tr><th className="px-4 py-2 font-medium">Startup</th><th className="px-4 py-2 font-medium">Reference</th><th className="px-4 py-2 font-medium">Submitted</th><th /></tr></thead>
-            <tbody>
-              {items.map((s) => (
-                <tr key={s.applicationId} className="border-t border-gray-100" data-testid="submission-row">
-                  <td className="px-4 py-2 font-medium text-gray-900">{s.startup}</td>
-                  <td className="px-4 py-2 font-mono text-xs text-gray-600">{s.reference ?? '—'}</td>
-                  <td className="px-4 py-2 text-gray-600">{formatInZone(s.submittedAt, timezone)}</td>
-                  <td className="px-4 py-2 text-right"><button type="button" onClick={() => void show(s.applicationId)} className="text-xs font-semibold text-[#0E7490] hover:underline">Open</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          {/* A phone cannot hold a table: each application is a card. From a tablet up it is the table. */}
+          <ul className="mt-4 space-y-2 sm:hidden" data-testid="submission-cards">
+            {items.map((s) => (
+              <li key={s.applicationId} className="rounded-lg border border-gray-200 bg-white p-4" data-testid="submission-card">
+                <p className="text-sm font-semibold text-gray-900">{s.startup}</p>
+                <p className="mt-0.5 font-mono text-xs text-gray-500">{s.reference ?? '—'}</p>
+                <p className="mt-1 text-xs text-gray-500">Submitted {formatInZone(s.submittedAt, timezone)}</p>
+                <button type="button" onClick={() => void show(s.applicationId)} className="mt-2 min-h-[44px] w-full rounded-lg border border-gray-300 px-3 text-sm font-semibold text-[#0E7490]">Open</button>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden sm:block">
+          <div className="mt-4 overflow-x-auto rounded-lg border border-gray-200 bg-white">
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-gray-50 text-xs text-gray-500"><tr><th className="px-4 py-2 font-medium">Startup</th><th className="px-4 py-2 font-medium">Reference</th><th className="px-4 py-2 font-medium">Submitted</th><th /></tr></thead>
+              <tbody>
+                {items.map((s) => (
+                  <tr key={s.applicationId} className="border-t border-gray-100" data-testid="submission-row">
+                    <td className="px-4 py-2 font-medium text-gray-900">{s.startup}</td>
+                    <td className="px-4 py-2 font-mono text-xs text-gray-600">{s.reference ?? '—'}</td>
+                    <td className="px-4 py-2 text-gray-600">{formatInZone(s.submittedAt, timezone)}</td>
+                    <td className="px-4 py-2 text-right"><button type="button" onClick={() => void show(s.applicationId)} className="text-xs font-semibold text-[#0E7490] hover:underline">Open</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          </div>
+        </>
       ) : null}
     </section>
   );

@@ -10,7 +10,7 @@
 // a File question may hold several files; a repeatable group is a list of entries, each coerced question by question with the very same rules —
 // and when the entity pre-defined the rows, the text of their first columns is the entity's, whatever the browser sent.
 import { isRealDate, sanitizeNumberInput } from '../form-logic';
-import { MAX_URL_LENGTH, entriesOf, groupOf, maxFilesOf, mimeOfName, newEntryId, subFieldAsField } from '../field-config';
+import { MAX_URL_LENGTH, groupOf, groupStarted, maxFilesOf, mimeOfName, newEntryId, presetEntriesFor, subFieldAsField } from '../field-config';
 import { MAX_NUMBER_DIGITS, type Answers, type AnswerValue, type FileValue, type FormField, type GroupEntry, type SimpleAnswer } from '../types';
 
 export interface FileRef {
@@ -76,7 +76,7 @@ function coerceGroup(field: FormField, v: unknown, files: FileRef[]): GroupEntry
   const preset = cfg.presetRows;
   const raw = (v as unknown[]).filter((e): e is { id?: unknown; values?: unknown } => !!e && typeof e === 'object' && !Array.isArray(e));
   // Pre-defined rows: exactly those rows, in that order, whatever the browser sent; otherwise at most `max` entries, kept even while still empty.
-  const wanted = preset.length > 0 ? preset.map((_, i) => raw[i] ?? {}) : raw.slice(0, cfg.max);
+  const wanted = preset.length > 0 ? preset.map((_, i) => raw.find((e) => e.id === `row${i + 1}`) ?? (raw.some((e) => typeof e.id === 'string' && /^row\d+$/.test(e.id)) ? {} : raw[i]) ?? {}) : raw.slice(0, cfg.max);
   const seen = new Set<string>();
   const entries: GroupEntry[] = wanted.map((e, i) => {
     let id = preset.length > 0 ? `row${i + 1}` : typeof e.id === 'string' && ENTRY_ID_OK.test(e.id) ? e.id : newEntryId();
@@ -93,6 +93,8 @@ function coerceGroup(field: FormField, v: unknown, files: FileRef[]): GroupEntry
     });
     return { id, values };
   });
+  // An optional table whose rows nobody filled in is not an answer: only the entity's own fixed text would be stored.
+  if (preset.length > 0 && !field.required && !groupStarted(cfg, entries)) return undefined;
   return entries.length > 0 ? entries : undefined;
 }
 
@@ -114,12 +116,7 @@ export function withPresetRows(fields: FormField[], answers: Answers): Answers {
   for (const f of fields) {
     const cfg = groupOf(f);
     if (!cfg || cfg.presetRows.length === 0) continue;
-    const existing = entriesOf(out[f.id]);
-    out[f.id] = cfg.presetRows.map((row, i) => {
-      const values: Record<string, SimpleAnswer> = { ...(existing[i]?.values ?? {}) };
-      cfg.subFields.forEach((s, col) => { if (row[col]) values[s.id] = row[col]; });
-      return { id: `row${i + 1}`, values };
-    });
+    out[f.id] = presetEntriesFor(cfg, out[f.id]);
   }
   return out;
 }

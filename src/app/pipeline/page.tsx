@@ -41,7 +41,7 @@ import { useOrgCapability } from '@/lib/use-org-capability';
 import type { NeglectOutcome } from '@/lib/neglect-evaluation';
 import { neglectAskState, type NeglectAskState, type NeglectProposalRecord } from '@/lib/neglect-history';
 import { competitorInvestmentSummary, type CompetitorInvestmentItem } from '@/lib/competitor-investment-copy';
-import type { Db, Entity, Interaction, TaskItem } from '@/lib/types';
+import type { Db, Entity, Interaction, PlanTier, TaskItem } from '@/lib/types';
 
 const fitOrder = { high: 0, medium_high: 1, medium: 2, low: 3 };
 const SORT_STORAGE_KEY = 'ablute-pipeline-sort-v1';
@@ -238,7 +238,9 @@ function MultiSelectFilter({ label, options, selected, onChange }: {
 // left, with no quota ceiling behind it — never the raw sentinel; see
 // computeDeliverable in pipeline-unlock-server.ts, the one place this number
 // is computed for both this page and the deliver route.
-type UnlockState = { gateComplete: boolean; catalogQuotaTarget: number; deliverable: number; unlimited: boolean; missing: string[] };
+// Prompt 914 — `plan` is the plan the org is on RIGHT NOW (stored ⊕ free trial ⊕ badge), resolved by the same route that computed the
+// numbers: the upgrade CTA must not offer "upgrade to Mother Funding" to an org that is already on it through a free trial.
+type UnlockState = { gateComplete: boolean; catalogQuotaTarget: number; deliverable: number; unlimited: boolean; missing: string[]; plan: PlanTier | null };
 // Matched by name, not id — packs have no stable machine key (no `kind`
 // column like folders do); acceptable here since this only ever unlocks a
 // curated catalog pack, not a security-relevant lookup like Prompt 103's
@@ -753,6 +755,7 @@ function PipelinePageInner() {
         if (b.ok) setUnlock({
           gateComplete: b.gateComplete, catalogQuotaTarget: b.catalogQuotaTarget ?? 0,
           deliverable: b.deliverable ?? 0, unlimited: !!b.unlimited, missing: b.missing ?? [],
+          plan: (b.plan as PlanTier | undefined) ?? null,
         });
       })
       .catch(() => {});
@@ -1888,7 +1891,8 @@ function PipelinePageInner() {
       {blockedCount > 0 && (() => {
         const target = unlock?.catalogQuotaTarget ?? 0;
         const atTarget = (db.org.catalog_quota ?? 0) >= target;
-        const onMaxPlan = db.org.plan === 'motherfunding';
+        // Prompt 914 — the effective plan the route resolved, not orgs.plan (an org on a free trial of the top plan is on it).
+        const onMaxPlan = (unlock?.plan ?? db.org.plan) === 'motherfunding';
         return (
           <div className="relative overflow-hidden rounded-b-2xl border border-t-0 border-gray-100 bg-white shadow-sm md:shrink-0">
             <div aria-hidden className="divide-y divide-gray-100">

@@ -76,7 +76,10 @@ describe('a repeatable group, drawn', () => {
   });
   it('an empty group says what is needed; inside an entry a File question uses the applicant\'s own control', () => {
     const empty = render(createElement(GroupInput, { field: grp({}), value: undefined, currency: 'EUR', onChange: () => {} }));
-    expect(empty).toContain('Add at least one team member.');
+    expect(empty).toContain('Optional — add a team member only if it applies.');
+    expect(empty).not.toContain('Add at least');
+    const required = render(createElement(GroupInput, { field: grp({}, { required: true }), value: undefined, currency: 'EUR', onChange: () => {} }));
+    expect(required).toContain('Add at least one team member.');
     const withFile = input(grp({}), [{ id: 'entry-1', values: {} }], { fileControlFor: (s: SubField, entryId: string) => createElement('i', { 'data-testid': 'custom-file' }, `${s.label}@${entryId}`) });
     expect(withFile).toContain('CV@entry-1');
   });
