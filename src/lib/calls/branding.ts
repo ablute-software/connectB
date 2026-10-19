@@ -1,5 +1,5 @@
 // Prompt 918 (Adenda 1, C) — the cover image and the logo of a call: what is accepted, where it lives, which logo a page shows, and the URLs. The cover and a logo uploaded FOR THE CALL are kept
-// in the private `data-room` bucket and reached through the platform's routes (a short-lived signed address, like the regulation); without its own logo the page uses the logo of the entity's
+// in the private `data-room` bucket and reached through the platform's own routes, which stream the bytes (no Storage address reaches the browser); without its own logo the page uses the logo of the entity's
 // profile (the firm's or the incubator's) when it has one. Only PNG, JPG and WebP, up to 5 MB, the type checked on the bytes — never SVG (it can carry code) and never GIF.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { detectAllowedKind, scanWithVirusTotal, sha256Hex } from '@/lib/upload-security';
@@ -88,9 +88,3 @@ export async function checkMedia(callId: string, kind: MediaKind, bytes: Buffer,
 
 export const contentTypeOf = (path: string): string => MEDIA_TYPES[(path.split('.').pop() ?? '') as MediaFormat] ?? 'application/octet-stream';
 
-/** A short-lived signed address of a stored image, or null. */
-export async function signedMediaUrl(admin: SupabaseClient, path: string | null | undefined): Promise<string | null> {
-  if (!path) return null;
-  const { data } = await admin.storage.from(MEDIA_BUCKET).createSignedUrl(path, 300, { download: false });
-  return data?.signedUrl ?? null;
-}

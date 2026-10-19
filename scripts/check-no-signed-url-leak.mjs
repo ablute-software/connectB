@@ -47,6 +47,10 @@ const ALLOWLIST = new Map([
   // header). Not a data-room document; nothing confidential if this one
   // URL outlives its TTL. Evaluated in Prompt 750, left as-is on purpose.
   ['src/app/api/portal/access-granted/route.ts', 'org logo, public brand image — see the inline comment at its own call site'],
+  // The logo a person uploaded for a call and CONFIRMED to keep as their organisation's profile logo (Prompt 918, Adenda 1 C). The profile stores an address (matchdeal_profiles.entity_logo_url,
+  // incubators.logo_url) that every page showing the profile loads as an <img>, so — exactly like the org logo above and the Match Deal photo — it needs a long-lived address. It is the entity's
+  // public brand image, never a document, and only ever written when the profile has none. The cover and the logo of a CALL are NOT served this way: the platform's routes stream them.
+  ['src/lib/calls/branding-profile.ts', 'entity logo kept in the profile, a public brand image — written only on confirmation and only when the profile has none'],
 ]);
 
 function walk(dir, out = []) {
@@ -71,7 +75,8 @@ for (const file of files) {
   const relPath = relative(root, file).replace(/\\/g, '/');
   if (relPath === 'src/lib/document-proxy.ts') continue;
   const code = readFileSync(file, 'utf8').replace(/^\s*\/\/.*$/gm, '');
-  const hasDataRoomBucket = /\.storage\.from\(\s*['"]data-room['"]\s*\)/.test(code);
+  // The bucket named literally, or through the calls area's constant (MEDIA_BUCKET = 'data-room'): a constant must not be a way round this guard (Prompt 918, Adenda 1).
+  const hasDataRoomBucket = /\.storage\.from\(\s*(?:['"]data-room['"]|MEDIA_BUCKET)\s*\)/.test(code);
   const hasSignedUrlCall = /\.createSignedUrl\s*\(/.test(code);
   if (!hasDataRoomBucket || !hasSignedUrlCall) continue;
   if (ALLOWLIST.has(relPath)) continue;

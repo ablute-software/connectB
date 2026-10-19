@@ -74,7 +74,15 @@ function seed(callOver: Record<string, unknown> = {}) {
   );
   as('ana');
 }
-beforeEach(() => seed());
+beforeEach(() => {
+  seed();
+  // streamStorageObject mints an internal address and fetches it; here that address answers with the bytes held by the fake storage.
+  vi.stubGlobal('fetch', async (url: string) => {
+    const path = decodeURIComponent(String(url).replace('https://storage.test/signed/', '').replace(/\?.*$/, ''));
+    const o = storage.objects.get(path);
+    return o ? new Response(Buffer.from(o.bytes), { status: 200, headers: { 'content-type': o.contentType ?? 'application/octet-stream' } }) : new Response('nope', { status: 404 });
+  });
+});
 
 describe('the cover image', () => {
   it('a PNG, a JPG and a WebP are accepted — kept as a file of THIS call, with the date it was set, and the history says so', async () => {
@@ -150,8 +158,10 @@ describe('the cover image', () => {
   it('the editor\'s preview route sends the signed-in team to a short-lived address; nobody else', async () => {
     await upload('cover', PNG(), 'c.png');
     const r = await mediaGet(new NextRequest(`http://localhost/api/calls/${CALL}/media?kind=cover`), params(CALL));
-    expect(r.status).toBe(302);
-    expect(r.headers.get('location')).toContain('https://storage.test/signed/calls/');
+    expect(r.status).toBe(200);
+    expect(r.headers.get('location')).toBeNull();
+    expect(r.headers.get('content-type')).toBe('image/png');
+    expect(Buffer.from(await r.arrayBuffer()).subarray(0, 4).equals(PNG().subarray(0, 4))).toBe(true);
     as(null);
     expect((await mediaGet(new NextRequest(`http://localhost/api/calls/${CALL}/media?kind=cover`), params(CALL))).status).toBeGreaterThanOrEqual(401);
   });
@@ -220,9 +230,10 @@ describe('what the link of a published call serves', () => {
     expect(info.body).toMatchObject({ ok: true, coverUrl: expect.stringMatching(/^\/api\/calls\/public\/tok-918[^/]+\/cover\?v=\d+$/), logoUrl: expect.stringMatching(/^\/api\/calls\/public\/tok-918[^/]+\/logo\?v=\d+$/) });
     for (const route of [publicCover, publicLogo]) {
       const r = await route(json('GET'), { params: { token: TOKEN } });
-      expect(r.status).toBe(302);
-      expect(r.headers.get('location')).toContain('https://storage.test/signed/calls/');
-      expect(r.headers.get('location')).not.toContain(CALL + '/media');
+      expect(r.status).toBe(200);
+      expect(r.headers.get('location')).toBeNull();
+      expect(r.headers.get('content-type')).toBe('image/png');
+      expect(Buffer.from(await r.arrayBuffer()).subarray(0, 4).equals(PNG().subarray(0, 4))).toBe(true);
     }
     await mediaDelete(new NextRequest(`http://localhost/api/calls/${CALL}/media?kind=cover`, { method: 'DELETE' }), params(CALL));
     expect((await publicCover(json('GET'), { params: { token: TOKEN } })).status).toBe(404);

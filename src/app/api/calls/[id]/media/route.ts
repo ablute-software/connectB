@@ -1,12 +1,13 @@
 // Prompt 918 (Adenda 1, C) — the cover image and the logo of a call, from the General step. Whoever may "Configure call" can set or remove them, in any state except archived (they
 // are the page's face, not its configuration: nothing an applicant answers depends on them).
-//   GET    ?kind=cover|logo   the image of THIS call (the editor's preview) — a short-lived signed address
+//   GET    ?kind=cover|logo   the image of THIS call (the editor's preview), served by this route
 //   POST   multipart { kind, file, saveToProfile? }   PNG, JPG or WebP, up to 5 MB, type checked on the bytes, hash-scanned like every upload; never SVG
 //   DELETE ?kind=cover|logo
 // `saveToProfile` (logo only, and only after the person confirmed it) also keeps the logo as the entity's own profile logo when the profile has none.
 import { NextResponse } from 'next/server';
 import { authCall } from '@/lib/calls/access';
-import { MEDIA_BUCKET, checkMedia, isMediaKind, signedMediaUrl, type MediaKind } from '@/lib/calls/branding';
+import { MEDIA_BUCKET, checkMedia, isMediaKind, type MediaKind } from '@/lib/calls/branding';
+import { streamStorageObject } from '@/lib/document-proxy';
 import { saveLogoToProfile } from '@/lib/calls/branding-profile';
 import { logCallEvent, setCallMedia } from '@/lib/calls/store';
 import { buildCallState } from '@/lib/calls/state';
@@ -21,9 +22,9 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   if (auth.error) return auth.error;
   const kind = kindOf(req);
   if (!kind) return NextResponse.json({ ok: false, error: 'Unknown image.' }, { status: 400 });
-  const url = await signedMediaUrl(auth.admin, kind === 'cover' ? auth.call.coverPath : auth.call.logoPath);
-  if (!url) return NextResponse.json({ ok: false }, { status: 404 });
-  return NextResponse.redirect(url, 302);
+  const path = kind === 'cover' ? auth.call.coverPath : auth.call.logoPath;
+  if (!path) return NextResponse.json({ ok: false }, { status: 404 });
+  return streamStorageObject({ admin: auth.admin, storagePath: path, filename: `${kind}.${path.split('.').pop() ?? 'png'}`, req });
 }
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {

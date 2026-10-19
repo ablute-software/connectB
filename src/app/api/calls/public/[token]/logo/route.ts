@@ -3,4 +3,4 @@ import { publicMedia } from '@/lib/calls/applicant/public-media';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(_req: Request, { params }: { params: { token: string } }) { return publicMedia(params.token, 'logo'); }
+export async function GET(req: Request, { params }: { params: { token: string } }) { return publicMedia(req, params.token, 'logo'); }
