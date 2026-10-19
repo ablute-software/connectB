@@ -10222,6 +10222,26 @@ Relatório em `docs/calls/PROMPT_917_I2_ADENDA1_PARTE_B.md`. Migração `2026101
 
 **Limites ditos:** o leitor de tabelas é estreito (colunas numeradas tipo "Competitor #1"); outras tabelas vão à IA, e a qualidade do que ela corrige só se vê com o modelo real. O desenho da revisão está provado por testes de marcação e de lógica, não à vista. A medida em produção (duração, modo, o que foi à IA) depende da importação do Nuno e será lida de `call_import_runs`.
 
+## Prompt 918, I1 — a call com 4 separadores e a Setup em passos (19/10/2026, branch `claude/918-i1-setup-steps`)
+
+Relatório em `docs/calls/PROMPT_918_I1_SETUP_EM_PASSOS.md`; capturas a 375, 768 e 1280 px em `docs/calls/screenshots-918-i1/`. Sem migração, sem variáveis. **O I2 (Eligibility rules) só começa depois do teste do Nuno.**
+
+**Estrutura (spec §8).** Quatro separadores — **Setup · Applications · Evaluation · Results** (Evaluation e Results são "Coming in the next stage") — e, dentro da Setup, sete passos: General, Phases, Form, Eligibility rules (placeholder "Coming next" até ao I2), Team & distribution, Evaluation grid (placeholder até à Etapa 3), Review & publish (o antigo Preview & validate). Uma call em rascunho (e validada/agendada) abre na Setup; uma publicada (aberta, fechada, arquivada), em Applications. O estado de cada passo: ✓ completo, ⚠ falta algo (com o número), "not started" — calculado por `stepStates` em `src/lib/calls/editor-nav.ts` (puro e testado). Regras que não são óbvias: a "Phase 1" vazia com que a call nasce **não conta** como fases feitas; a equipa só fica ✓ quando há alguém **além do criador** (o criador entra logo na equipa); Review é ⚠ com o total de problemas e ✓ quando General, Phases e Form estão completos.
+
+**"What is missing" leva ao passo e ao campo.** Cada problema (`ReadinessIssue`) ganhou `target`: `name`/`opens`/`closes` no General, o id da fase, o id da pergunta. O botão diz "Go to <passo>", abre o passo, faz scroll ao campo e põe lá o cursor (para uma pergunta, abre-a). **Depois de validada a Setup fica só de leitura**, como dantes, com "Edit configuration" no passo Review enquanto a call não abriu (a lógica `readOnly`/`reason` não mudou; passa só a aparecer na Setup).
+
+**Os links antigos.** O editor nunca teve links por separador; agora o endereço acompanha o que se vê (`?call=<id>&section=setup&step=form`) e **os nomes antigos continuam a abrir o sítio certo**: `?call=<id>&tab=general|phases|form|eligibility|team|preview` → o passo respetivo; `tab=submissions` → Applications; `tab=evaluation` → Evaluation. O `tab=` antigo só vale quando o endereço nomeia **esta** call (`call=`), porque outras páginas usam `?tab=` para si. Um link com `call=` abre a área Calls no Investor/Incubator workspace e a call. Verificado no browser com os seis casos.
+
+**Adaptação por largura (verificada a 375/768/1280, página sem scroll horizontal e nenhum alvo < 44 px nos dois estreitos).** ≥1024: lista de passos à esquerda (fixa) e o conteúdo à direita; 768–1023: a lista recolhe num botão **"Steps"**; <768: o botão diz **"Step 3 of 7: Form ▾"** e abre a lista com os estados; "Previous"/"Next" no fim de cada passo; os 4 separadores numa barra que desliza; **o painel de uma pergunta abre em ecrã inteiro** abaixo de 1024 px (portal, com "← Questions" no topo e "Done" no fim); a lista de **Applications passa a cartões** no telemóvel. Os 44 px são uma regra única (`[data-calls-touch]` em `globals.css`, para ecrãs < 1024 ou tácteis), por isso um controlo novo fica coberto sem ninguém se lembrar; num computador com rato os controlos ficam compactos.
+
+**Dois bugs encontrados ao verificar:** a coluna da lista de perguntas (`grid` sem `minmax(0,1fr)`) empurrava a página para 1408 px de largura no telemóvel — corrigido; e, em desenvolvimento, o modo estrito apagava o endereço antes de o editor o ler (agora lê-se uma vez, no arranque).
+
+**Texto do General (pendente de 15/10).** "Applications per…" passa a duas escolhas claras, sem caixa de seleção: **Count applications by** (Project / startup · Legal entity (company)) e **Each one can submit** (Only one application · More than one application). Os dados guardados não mudam (`limit_unit`, `allow_multiple`).
+
+**Estado do passo da equipa:** o `CallState` passa a trazer `teamMembers`.
+
+**Limites ditos:** o harness do browser corre o editor dentro do shell de demonstração (o cabeçalho desse shell tem 59 px de excesso a 375 px, que é dele, não do editor — neutralizado só na medição); o Evaluation e o Results são placeholders; a regra dos 44 px a 1280 px só vale com ecrã táctil.
+
 ## A verificação final lista tudo de uma vez (16/10/2026)
 
 **Problema (teste da candidatura INNOV-ID):** a verificação mostrou 2 itens; corrigido um, ao voltar a submeter apareceu um que não estava na primeira lista. **Duas causas**, ambas no código: (1) um **grupo contava como um só item** e mostrava apenas o seu primeiro problema (a 1.ª entrada sem email escondia a 2.ª sem nome…), por isso cada correção revelava o seguinte; (2) os **documentos que já não se conseguem ler** só eram verificados *depois* de tudo o resto passar, e um de cada vez (devolvia à primeira falha).

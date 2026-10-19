@@ -8,7 +8,8 @@ import { isChoiceKind, type Call, type CallPhase, type CallStatus, type FormFiel
 
 export type EditorTab = 'general' | 'phases' | 'form' | 'preview' | 'team' | 'submissions';
 
-export interface ReadinessIssue { tab: EditorTab; message: string }
+/** `target`: the field or row the issue is about ("name", "opens", "closes", a phase id, a question id) — "What is missing" takes the person straight to it. */
+export interface ReadinessIssue { tab: EditorTab; message: string; target?: string }
 
 export interface CallSummary {
   phases: number;
@@ -41,42 +42,42 @@ export function summarise(phases: CallPhase[], fields: FormField[]): CallSummary
  */
 export function readiness(call: Call, phases: CallPhase[], fields: FormField[], now: Date = new Date()): ReadinessIssue[] {
   const issues: ReadinessIssue[] = [];
-  if (!call.name.trim()) issues.push({ tab: 'general', message: 'Give the call a name.' });
-  if (!call.opensAt) issues.push({ tab: 'general', message: 'Set when applications open.' });
-  if (!call.closesAt) issues.push({ tab: 'general', message: 'Set the closing date and time.' });
+  if (!call.name.trim()) issues.push({ tab: 'general', message: 'Give the call a name.', target: 'name' });
+  if (!call.opensAt) issues.push({ tab: 'general', message: 'Set when applications open.', target: 'opens' });
+  if (!call.closesAt) issues.push({ tab: 'general', message: 'Set the closing date and time.', target: 'closes' });
   if (call.opensAt && call.closesAt && Date.parse(call.closesAt) <= Date.parse(call.opensAt)) {
-    issues.push({ tab: 'general', message: 'The call must close after it opens.' });
+    issues.push({ tab: 'general', message: 'The call must close after it opens.', target: 'closes' });
   }
   if (call.closesAt && Date.parse(call.closesAt) <= now.getTime()) {
-    issues.push({ tab: 'general', message: 'The closing date is in the past.' });
+    issues.push({ tab: 'general', message: 'The closing date is in the past.', target: 'closes' });
   }
   if (phases.length === 0) issues.push({ tab: 'phases', message: 'Add at least one phase.' });
-  if (phases.some((p) => !p.name.trim())) issues.push({ tab: 'phases', message: 'Every phase needs a name.' });
+  if (phases.some((p) => !p.name.trim())) issues.push({ tab: 'phases', message: 'Every phase needs a name.', target: phases.find((p) => !p.name.trim())?.id });
 
   if (fields.length === 0) issues.push({ tab: 'form', message: 'Add at least one question to the form.' });
   for (const f of fields) {
     if (f.label === UNTITLED || f.label === UNTITLED_DOCUMENT || !f.label.trim()) {
-      issues.push({ tab: 'form', message: `A ${f.kind === 'file' ? 'document' : 'question'} still has no text.` });
+      issues.push({ tab: 'form', message: `A ${f.kind === 'file' ? 'document' : 'question'} still has no text.`, target: f.id });
     }
     // Prompt 917: a repeatable group's own questions are held to the same standard as the questions of the form.
     const group = f.kind === 'group' ? f.validations.group : null;
-    if (f.kind === 'group' && (!group || group.subFields.length === 0)) issues.push({ tab: 'form', message: `“${f.label}” (a group) needs at least one question.` });
+    if (f.kind === 'group' && (!group || group.subFields.length === 0)) issues.push({ tab: 'form', message: `“${f.label}” (a group) needs at least one question.`, target: f.id });
     for (const s of group?.subFields ?? []) {
-      if (!s.label.trim() || s.label === UNTITLED) issues.push({ tab: 'form', message: `A question in the group “${f.label}” still has no text.` });
-      if (isChoiceKind(s.kind) && s.options.filter((o) => o.label.trim()).length < 2) issues.push({ tab: 'form', message: `“${s.label}” (in “${f.label}”) needs at least two options.` });
+      if (!s.label.trim() || s.label === UNTITLED) issues.push({ tab: 'form', message: `A question in the group “${f.label}” still has no text.`, target: f.id });
+      if (isChoiceKind(s.kind) && s.options.filter((o) => o.label.trim()).length < 2) issues.push({ tab: 'form', message: `“${s.label}” (in “${f.label}”) needs at least two options.`, target: f.id });
     }
     if (isChoiceKind(f.kind)) {
       const labelled = f.options.filter((o) => o.label.trim());
-      if (labelled.length < 2) issues.push({ tab: 'form', message: `“${f.label}” needs at least two options.` });
-      if (labelled.length !== f.options.length) issues.push({ tab: 'form', message: `“${f.label}” has an empty option.` });
+      if (labelled.length < 2) issues.push({ tab: 'form', message: `“${f.label}” needs at least two options.`, target: f.id });
+      if (labelled.length !== f.options.length) issues.push({ tab: 'form', message: `“${f.label}” has an empty option.`, target: f.id });
       const names = labelled.map((o) => o.label.trim().toLowerCase());
-      if (new Set(names).size !== names.length) issues.push({ tab: 'form', message: `“${f.label}” has two options with the same text.` });
+      if (new Set(names).size !== names.length) issues.push({ tab: 'form', message: `“${f.label}” has two options with the same text.`, target: f.id });
     }
   }
   for (const f of fields) {
     const c = f.condition;
     if (c && (c.operator === 'equals' || c.operator === 'not_equals') && !c.value) {
-      issues.push({ tab: 'form', message: `“${f.label}” has a display condition without a value.` });
+      issues.push({ tab: 'form', message: `“${f.label}” has a display condition without a value.`, target: f.id });
     }
   }
   for (const label of conditionOrderProblems(fields)) {
