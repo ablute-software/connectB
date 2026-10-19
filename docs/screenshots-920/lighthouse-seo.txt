@@ -1,0 +1,9 @@
+# Prompt 920 — Lighthouse 13.5.0, category SEO, mobile emulation, production build served locally (next start, demo mode), 16/10/2026
+# Lighthouse is the engine PageSpeed Insights runs. The SEO category covers is-crawlable, document-title, meta-description, link-text,
+# crawlable-anchors, robots-txt (the generated /robots.txt parses), canonical and hreflang.
+
+/faq          SEO 100   failed audits: none
+/for-startups SEO 100   failed audits: none
+/about        SEO 100   failed audits: none
+/investors    SEO 100   failed audits: none
+/             SEO 100   failed audits: none

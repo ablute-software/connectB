@@ -18,10 +18,12 @@ import type {
 } from './investor-interest-level';
 import type { SwotData } from './types';
 import type { ReviewCategory } from './review-clarifications';
-import { projectBadgesForInvestor, type BadgePublic } from './company-badges';
+import { parseBadgeKind, projectBadgesForInvestor, type BadgePublic, type BadgeVerificationStatus } from './company-badges';
 import { projectMiniPitchForInvestor, type MiniPitchSlideProjected, type StoredMiniPitchSlide } from './mini-pitch';
 import { projectMarketDataForInvestor, MARKET_GROUP_KEYS, type MarketGroupKey, type MarketInvestorPayload } from './market-data-investor-projection';
 import { capTableConvertibleFieldsAvailable } from './cap-table-capability';
+import { INVESTOR_AUDIT_COLUMNS, normalizeWebsiteUrl, projectWebsiteHealthForInvestor, type InvestorAuditRow, type WebsiteHealthPublic } from './website-health';
+import { websiteHealthAvailable } from './website-health-capability';
 
 export interface DossierMarketRing {
   ring: string; label: string; definition: string | null; buyer: string | null; geography: string | null;
@@ -63,9 +65,12 @@ export interface DossierRawData {
   founderClarifications: FounderClarificationFull[];
   // Prompt 326 — fetched and projected regardless of level (Pedido E's own
   // Level-0 recommendation): already the fully masked, investor-safe shape
-  // (projectBadgesForInvestor) — disputed badges and internal fields never
-  // reach this far.
+  // (projectBadgesForInvestor) — only verified badges (with their public
+  // source) and no internal field ever reach this far (Prompt 918).
   badges: BadgePublic[];
+  // Prompt 919 D — null unless the founder switched "Show my website health score to investors" ON and a complete mobile analysis of
+  // their CURRENT website exists. Four scores, a date and Google's report link: never the AI summary, never a finding (projectWebsiteHealthForInvestor).
+  websiteHealth: WebsiteHealthPublic | null;
   // Prompt 334 — null unless the founder has ACTIVATED a mini-pitch
   // (org_mini_pitches.activated_at not null), same "not fetched-then-
   // hidden" discipline as swot/roadmap/overview above: a draft the founder
@@ -109,11 +114,15 @@ export interface DossierMediaItem {
 // side (Prompt 306's preview) — contactHistory then stays exactly what it
 // already stayed for a level<2 or investorCatalogEntityId-less investor
 // caller: an empty array, never fabricated.
+//
+// `opts.badgeLogoRoute` (Prompt 918) — which route serves a badge's logo. The investor's route by default; the founder's preview passes
+// the founder's own, because the investor's rightly refuses anyone who is not an eligible investor.
 export async function fetchDossierRawData(
   admin: SupabaseClient,
   orgId: string,
   level: InterestLevel,
   investorContext: { investorCatalogEntityId: string; email: string } | null,
+  opts: { badgeLogoRoute?: (badgeId: string) => string } = {},
 ): Promise<DossierRawData> {
   // Overview body — deliberately the SAME data surface matchdeal_startup_pitch_data
   // already exposes to investors browsing the MatchDeal deck (Prompt 98's
@@ -412,16 +421,44 @@ export async function fetchDossierRawData(
   // Prompt 326 — fetched at EVERY level, same "not level-gated" treatment
   // as the intro pitch (Prompt 325): badges are Discovery-visible by
   // design. Projected through projectBadgesForInvestor immediately, not
-  // left for the caller — verification_note/evidence_document_id/disputed
-  // rows never leave this function at all.
+  // left for the caller — verification_note/evidence_document_id/description
+  // never leave this function at all.
+  // Prompt 918 — and ONLY the verified ones are read: `.eq('verification_status', 'verified')` is in the query itself (an
+  // unverified or disputed badge is not fetched and hidden afterwards; it is never fetched), then projectBadgesForInvestor
+  // checks again that each one carries a public source and a date (belt and braces).
   const { data: badgeRows } = await admin.from('company_badges')
-    .select('id, name, description, year, verification_status').eq('org_id', orgId);
+    .select('id, name, year, kind, verification_status, source_url, source_title, verified_at, logo_storage_path, logo_url')
+    .eq('org_id', orgId).eq('verification_status', 'verified')
+    .order('verified_at', { ascending: false });
   const badges = projectBadgesForInvestor(
     (badgeRows ?? []).map((b) => ({
-      id: b.id as string, name: b.name as string, description: b.description as string | null,
-      year: b.year as number | null, verificationStatus: b.verification_status as 'unverified' | 'verified' | 'disputed',
+      id: b.id as string, name: b.name as string, year: b.year as number | null,
+      kind: parseBadgeKind(b.kind), verificationStatus: b.verification_status as BadgeVerificationStatus,
+      sourceUrl: b.source_url as string | null, sourceTitle: b.source_title as string | null, verifiedAt: b.verified_at as string | null,
+      logoStoragePath: b.logo_storage_path as string | null, logoUrl: b.logo_url as string | null,
     })),
+    opts.badgeLogoRoute,
   );
+
+  // Prompt 919 D — the founder's website health (Google PageSpeed), shared ONLY when the founder switched it on. The switch is read BEFORE
+  // any score is selected: off means the rows are never queried (nothing is fetched-then-hidden — the same rule as round progress).
+  // The select lists the four scores, the address and the date and nothing else: never `audits`, never `summary`, so neither can leak
+  // from here. The scores must belong to the website the founder has NOW (a changed address makes the old scores stale, not shareable).
+  // Every level, like badges: it is a public measurement the founder chose to show, not a level-gated disclosure.
+  let websiteHealth: WebsiteHealthPublic | null = null;
+  if (await websiteHealthAvailable()) {
+    const { data: flag } = await admin.from('orgs').select('website, website_score_visible').eq('id', orgId).maybeSingle();
+    if (flag?.website_score_visible === true) {
+      const { data: auditRow } = await admin.from('org_website_audits').select(INVESTOR_AUDIT_COLUMNS)
+        .eq('org_id', orgId).eq('strategy', 'mobile')
+        .not('score_performance', 'is', null).not('score_seo', 'is', null).not('score_accessibility', 'is', null).not('score_best_practices', 'is', null)
+        .order('fetched_at', { ascending: false }).limit(1).maybeSingle();
+      const current = normalizeWebsiteUrl((flag.website as string | null) ?? '');
+      websiteHealth = auditRow && current && auditRow.url === current
+        ? projectWebsiteHealthForInvestor(true, auditRow as unknown as InvestorAuditRow)
+        : null;
+    }
+  }
 
   // Mini-pitch. Only ever fetched at level >= 1 (same "not fetched-then-
   // hidden" discipline as swot/overview/roadmap above), and only an
@@ -510,5 +547,5 @@ export async function fetchDossierRawData(
     }
   }
 
-  return { full, swot, swotToggleOn, roadmap, roadmapToggleOn, founderClarifications, badges, miniPitch, media, market, capTable };
+  return { full, swot, swotToggleOn, roadmap, roadmapToggleOn, founderClarifications, badges, websiteHealth, miniPitch, media, market, capTable };
 }

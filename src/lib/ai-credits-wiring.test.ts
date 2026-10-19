@@ -45,6 +45,12 @@ const ROUTES: { actionKey: string; file: string; beforeMarker: string }[] = [
   { actionKey: 'roadmap_suggest', file: 'src/app/api/roadmap/suggest-events/route.ts', beforeMarker: 'runSuggestionPass(' },
   { actionKey: 'mini_pitch_synthesis', file: 'src/app/api/mini-pitch/route.ts', beforeMarker: 'await synthesizeSlides({ apiKey, model, orgId, requests: aiRequests })' },
   { actionKey: 'team_sherlock_research', file: 'src/app/api/company/team-sherlock-research/route.ts', beforeMarker: "fetch('https://api.anthropic.com/v1/messages'" },
+  // Prompt 918 — the badge verification used to call the model for free (three runs, €0.42, zero credits). The charge is the first
+  // dependency handed to runBadgeVerification, which runs it before anything else (company-badge-verify-core.test.ts proves the order).
+  { actionKey: 'badge_verification', file: 'src/app/api/company-badges/[id]/verify/route.ts', beforeMarker: "fetch('https://api.anthropic.com/v1/messages'" },
+  // Prompt 919 — the website-health summary: the wallet is charged by runWebsiteSummary before its callModel closure (whose fetch is the marker);
+  // website-health-run.test.ts and website-health/routes.test.ts prove the order by behaviour.
+  { actionKey: 'website_summary', file: 'src/app/api/website-health/summary/route.ts', beforeMarker: "fetch('https://api.anthropic.com/v1/messages'" },
 ];
 
 describe('every ai_actions key with a single route has chargeAiAction wired before its real model call', () => {

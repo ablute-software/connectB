@@ -54,7 +54,8 @@ export const AI_CREDIT_GROUPS: AiCreditGroup[] = [
   },
   {
     name: 'Company & team research',
-    actionKeys: ['team_sherlock_research', 'entity_enrich', 'roadmap_suggest'],
+    // Prompt 918 — badge_verification (a public-source check of a claimed award) is research about the company, on every plan.
+    actionKeys: ['team_sherlock_research', 'entity_enrich', 'roadmap_suggest', 'badge_verification'],
     minPlan: 'idea',
   },
   // Deliberately excludes document_review (paid-plan only, lives inside the
@@ -78,7 +79,11 @@ export const AI_CREDIT_GROUPS: AiCreditGroup[] = [
     // document_review ("Review with AI" per document) lives inside this
     // panel and shares its reviewOptimization gate — folded in here rather
     // than given its own card bullet (correction note 2 above).
-    actionKeys: ['document_review'],
+    //
+    // Prompt 919: website_summary ("Website health — plain-language summary", 2 credits) lives on a card in the SAME Readiness &
+    // Train panel and shares its reviewOptimization (paid plans) gate, so it is folded in here too rather than given a card bullet of
+    // its own. The Google analysis it reads is free and has no key.
+    actionKeys: ['document_review', 'website_summary'],
     minPlan: 'garage',
   },
   {

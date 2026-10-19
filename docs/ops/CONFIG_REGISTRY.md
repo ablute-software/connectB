@@ -47,7 +47,7 @@ desconhecido.
 | `NEXT_PUBLIC_SUPABASE_URL` (prod+prev) | definido | feito | desde a criação do projeto | `CLAUDE.md` Stack; a app funciona |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` (prod+prev) | definido | feito | idem. **Tem de ser não-sensível** no Vercel, senão o bundle do cliente não a recebe | `CLAUDE.md` Stack |
 | `SUPABASE_SERVICE_ROLE_KEY` (prod+prev) | definido | feito | idem | `CLAUDE.md` Stack |
-| `NEXT_PUBLIC_APP_URL` (?) | **por confirmar.** Valor a ter: `https://www.sherlockdeal.com` | desconhecido | Nuno 23/07/2026: definir para o domínio próprio e redeploy ("uma só mudança"). Ver **contradição C2** | DECISIONS L138, L153; `src/lib/brand.ts:22` |
+| `NEXT_PUBLIC_APP_URL` (prod) | `https://www.sherlockdeal.com` | feito (observado 16/10/2026) | Nuno 23/07/2026: definir para o domínio próprio e redeploy ("uma só mudança"). **Prova (16/10/2026, Prompt 920):** em `https://www.sherlockdeal.com/` o `<link rel="canonical">` e o `og:url` são `https://www.sherlockdeal.com` — não o fallback `.vercel.app` —, logo a variável está definida com o `www`. Ver **contradição C2** | DECISIONS L138, L153; `src/lib/brand.ts:22`; observado em produção |
 | `SUPABASE_URL` | não é preciso | feito | só `scripts/verify-migrations.ts`, como alternativa a `NEXT_PUBLIC_SUPABASE_URL` | `scripts/verify-migrations.ts:96` |
 
 Sem `NEXT_PUBLIC_APP_URL` os links dos emails (convites, Stripe, "Open your workspace") caem no fallback do código,
@@ -78,6 +78,17 @@ Sem `NEXT_PUBLIC_APP_URL` os links dos emails (convites, Stripe, "Open your work
 | `ANTHROPIC_API_KEY` | definido | feito | Nuno. Prova: 696 chamadas em `ai_call_log`, a última a 08/10 | observado |
 | `AI_REVIEW_MODEL` | **sem decisão registada.** Opcional: sem ela o código usa `claude-sonnet-4-5`. Desde o Prompt 909 também lê o modelo da importação de calls por documentos (mesmo cliente e mesma `ANTHROPIC_API_KEY`; **nenhuma variável nova**) | pendente | — | `src/app/api/ai-review/route.ts:318`; `src/lib/calls/ai-import/anthropic.ts` |
 | `AI_CLASSIFY_MODEL` | **sem decisão registada.** Opcional: sem ela o código usa `claude-haiku-4-5` | pendente | — | `src/app/api/classify-interaction/route.ts:10` |
+
+### 1.4b Medição do website (Google PageSpeed) — Prompt 919, 16/10/2026
+
+| Nome | Valor | Estado | Quem decidiu e quando | Fonte |
+|---|---|---|---|---|
+| `PAGESPEED_API_KEY` | por definir. **Obrigatória, não opcional:** sem chave o Google responde **429 `RESOURCE_EXHAUSTED` com `quota_limit_value: "0"`** (observado a 16/10/2026 e outra vez a 19/10/2026 numa chamada sem chave: o projeto anónimo partilhado tem quota zero). **Sem chave a funcionalidade fica DESLIGADA** (Prompt 919, adenda de 19/10/2026): o founder não vê o cartão "Website health", o `POST /api/website-health/check` responde 503 "not available" **sem chamar o Google nem gravar nada**, e o backoffice mostra, na Ficha do cliente, um aviso a vermelho "Switched OFF for founders" com esta instrução e desliga o "Force re-check" (a rota também o recusa, 503). Antes tratava-se como "quota esgotada, tenta mais tarde" — o que era falso: nunca teria resultado. Só lida no servidor (nunca `NEXT_PUBLIC_`). A chave **nunca** vai para o repositório nem para um relatório | pendente | Nuno, 16/10/2026 (Prompt 919): cria a chave e cola-a no Vercel. **Como:** Google Cloud Console → APIs & Services → Library → «PageSpeed Insights API» → Enable → Credentials → Create credentials → API key → **API restrictions = só «PageSpeed Insights API»** · **Application restrictions = None** (a chamada sai dos servidores do Vercel, sem referrer nem IP fixo: uma restrição por HTTP referrer faz o Google responder `API_KEY_HTTP_REFERRER_BLOCKED`). Depois Vercel → connect-b → Settings → Environment Variables → `PAGESPEED_API_KEY` (Production + Preview) → redeploy | `src/lib/website-health-psi.ts` (`pageSpeedApiKey()`, o único sítio que a lê); usada por `src/app/api/website-health/route.ts`, `…/check/route.ts` e `src/app/api/backoffice/website-health/[orgId]/route.ts` |
+| `ANTHROPIC_API_KEY` (resumo) | a mesma já `feito` em §1.4 — **nenhuma variável nova** para o resumo em linguagem de founder (modelo `claude-haiku-4-5`, fixo no código, 2 créditos, `ai_actions.website_summary`) | feito | Prompt 919 | `src/lib/website-health-summary.ts` |
+| Como ver se a chave está posta | Backoffice → Ficha do cliente (startup) → cartão «Website health»: mostra «PageSpeed key on this deployment: set / NOT SET» e deixa fazer «Force re-check» (sem o limite de 7 dias; fica no registo de auditoria como `website_health_forced`) | feito (código) | Prompt 919 | `src/components/backoffice/WebsiteHealthBackofficeCard.tsx` |
+
+Não há cron novo: a análise corre só por clique (do founder, ou do admin em «Force re-check»). Funções com `maxDuration = 60` (limite do Hobby); cada
+chamada ao Google tem 55 s de tempo máximo, as duas estratégias (mobile e desktop) correm em paralelo.
 
 ### 1.5 Segurança de ficheiros, Gmail, privacidade
 
@@ -195,7 +206,7 @@ código e texto do erro, hora. Só o serviço lhe chega (RLS sem políticas); l�
   até 18/09). Não há registo de a de 06/08 (`support@`) ter sido usada (o log só existe desde 02/09).
 - **C2 — `NEXT_PUBLIC_APP_URL`.** A decisão de 23/07/2026 diz `https://sherlockdeal.com` (apex); o domínio canónico de
   hoje é `https://www.sherlockdeal.com` (o apex redireciona-lhe, 308) e o `CLAUDE.md` já diz `www`. Valor a pôr: o `www`.
-  Além disso não se sabe se a variável está definida (o fallback do código é um `.vercel.app`).
+  A variável **está definida** com o `www` (observado a 16/10/2026 pelo `canonical` e `og:url` da home; o fallback do código é um `.vercel.app`).
 - **C3 — `CALLS_MODE`.** O Prompt 905 (09/10/2026) fixou "omisso = `off`"; o Prompt 908 (12/10/2026, Nuno) inverteu para
   "omisso = `on`, só `off` desliga". Vale o 908; o texto antigo está marcado como substituído em
   `docs/calls/ETAPA1A_ENTIDADE.md`.
@@ -230,3 +241,8 @@ Supabase sobre SMTP, rate limits, OTP e template ficaram `feito` (confirmado pel
    ativar.
 6. **Supabase → plano e Authentication → Sign In / Providers → Password** (§2): a "leaked password protection" só se liga
    com o plano **Pro**; decidir o plano e, se Pro, ligar a opção.
+7. **Google Cloud + Vercel — `PAGESPEED_API_KEY`** (§1.4b, Prompt 919, 16/10/2026): **sem esta chave a funcionalidade fica desligada** (o founder não vê o cartão;
+   o backoffice mostra o aviso na Ficha do cliente; o Google responde quota zero a quem não tem chave, por isso nem se lhe pergunta). Criar a chave com **API restrictions = só «PageSpeed Insights API»** e **Application restrictions = None**,
+   colá-la em Vercel → connect-b → Settings → Environment Variables → `PAGESPEED_API_KEY` (Production + Preview) e fazer redeploy. Só depois da migração
+   `20261016140000_website_health.sql` estar aplicada (o cartão fica invisível até lá). Depois: correr a análise na ablute_ em produção e ver o resultado
+   no Backoffice → Ficha do cliente → «Website health» (diz se a chave está posta).

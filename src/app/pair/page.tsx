@@ -45,7 +45,7 @@ function Wordmark({ compact = false }: { compact?: boolean }) {
       </span>
       <span
         className={`font-extrabold tracking-tight text-white ${compact ? 'text-[17px]' : 'text-[24px]'}`}
-        style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}
+        style={{ fontFamily: 'var(--font-comfortaa), var(--font-inter), sans-serif' }}
       >
         Match<span className="bg-gradient-to-r from-emerald-300 to-orange-300 bg-clip-text text-transparent">Deal</span>
       </span>

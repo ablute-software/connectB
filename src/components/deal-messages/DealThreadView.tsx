@@ -34,9 +34,12 @@ export interface AttachableDoc { id: string; name: string }
 // gated to avoid firing a pointless event on the investor side.
 const MESSAGE_THREAD_READ_EVENT = 'sherlock-message-thread-read';
 
-export function useUnreadMessagesCount(): number {
+// `enabled` (Prompt 920 addendum): false on a route that renders no nav, or with no signed-in session — the Shell's call; the endpoint
+// would only answer an anonymous visitor with a redirect to the login page.
+export function useUnreadMessagesCount(enabled = true): number {
   const [count, setCount] = useState(0);
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     function load() {
       fetch('/api/founder/messages').then((r) => r.json()).then((d) => {
@@ -47,7 +50,7 @@ export function useUnreadMessagesCount(): number {
     load();
     window.addEventListener(MESSAGE_THREAD_READ_EVENT, load);
     return () => { cancelled = true; window.removeEventListener(MESSAGE_THREAD_READ_EVENT, load); };
-  }, []);
+  }, [enabled]);
   return count;
 }
 

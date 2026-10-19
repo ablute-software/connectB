@@ -133,7 +133,7 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
   // its own type/section) — kept OUT of projectDossier's own positional-
   // argument signature, same call Prompt 422 already made for this one
   // independent field, just spliced in here instead.
-  const dossier = { ...projectDossier(level, raw.full, shareEmail, raw.swot, raw.founderClarifications, raw.roadmap, raw.badges, raw.miniPitch, raw.media), capTable: raw.capTable };
+  const dossier = { ...projectDossier(level, raw.full, shareEmail, raw.swot, raw.founderClarifications, raw.roadmap, raw.badges, raw.miniPitch, raw.media, raw.websiteHealth), capTable: raw.capTable };
 
   // Bug fix (relatorio_verificacao_..._8143c75_p136 §3) — this used to
   // forward `levelRows` in full, `note` included: the founder's own

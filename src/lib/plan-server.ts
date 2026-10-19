@@ -2,28 +2,36 @@
 // entitlement gate is computed the same way in both places. Reads through the
 // caller's own RLS-scoped client — the orgs select policy (is_org_member) lets
 // a member read their own org row, so no service-role is needed for that part.
+//
+// Prompt 914 — the RULE ("stored plan, raised by a 100% free trial that is still running and by a badge's free tier") moved out of
+// here into effective-plan.ts / effective-plan-server.ts, so the limits that never went through this function (the investor quota,
+// the monthly delivery, the AI wallet) can ask the same question. This file keeps what is specific to a request: finding the acting
+// org and reading its stored plan under the caller's own session.
 import 'server-only';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { normalizePlan, PLAN_TIERS } from './plans';
-import { isRedemptionCurrentlyActive } from './promo';
-import { platformBadgesAvailable } from './platform-badges-capability';
-import { loadOrgPlatformBadges } from './platform-badges-server';
-import { freeTierFromBadges } from './platform-badges';
+import { resolveEffectivePlan, type PlanOrigin } from './effective-plan';
+import { effectivePlanDetailForOrg } from './effective-plan-server';
 import type { PlanTier } from './types';
 import type { ActingOrg } from './acting-org';
 
-function tierRank(t: PlanTier): number {
-  return PLAN_TIERS.indexOf(t);
+export interface UserPlanDetail {
+  orgId: string | null;
+  /** The plan the org is entitled to right now (stored ⊕ free trial ⊕ badge). */
+  plan: PlanTier;
+  /** What orgs.plan says. */
+  stored: PlanTier;
+  /** Why `plan` is what it is — shown next to the plan name so "I redeemed a code and it still says Elementary" has an answer. */
+  origin: PlanOrigin;
 }
 
 // Prompt 904 — pass `acting` (resolveActingOrg's answer) when the route already has it: the plan is
 // the ACTING org's, which in a Developer Viewer session is the viewed org, never the developer's own.
 // Without it the org is the caller's own membership, as before.
-export async function resolveUserPlan(
+export async function resolveUserPlanDetail(
   userId: string,
   sb: SupabaseClient,
   acting?: Pick<ActingOrg, 'orgId'>,
-): Promise<{ orgId: string | null; plan: PlanTier }> {
+): Promise<UserPlanDetail> {
   let orgId: string | null;
   if (acting) {
     orgId = acting.orgId;
@@ -31,68 +39,27 @@ export async function resolveUserPlan(
     const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
     orgId = (member?.org_id as string | undefined) ?? null;
   }
-  if (!orgId) return { orgId: null, plan: 'idea' };
+  if (!orgId) return { orgId: null, plan: 'idea', stored: 'idea', origin: { kind: 'stored' } };
   const { data: org } = await sb.from('orgs').select('plan').eq('id', orgId).maybeSingle();
-  const storedPlan = normalizePlan(org?.plan as string | null | undefined);
+  const storedPlan = (org?.plan as string | null | undefined) ?? null;
 
-  // A redeemed promo never writes org.plan — it's a billing-display concern
-  // (see /api/promo/redeem), not a real subscription change. But a genuine
-  // FREE TRIAL (100% off) still has to grant the actual entitlements of the
-  // plan it covers, or "3 months free of It's the butler!" would just be a
-  // price preview with nothing to try. A PARTIAL discount (30% off, say)
-  // does NOT do this — the org still has to actually subscribe/request at
-  // the discounted price to get that tier's features; only a 0-euro
-  // redemption has no payment gap left to bridge. Computed live on every
-  // read, never written anywhere, so the boost reverts automatically the
-  // moment benefit_ends_at passes — no cron, nothing to remember to clean up.
-  const trialTier = await bestFreeTrialTier(orgId);
-  // Prompt 601 §E — a platform badge that makes the plan free (tech master:
-  // forever; pioneer: during its offer period) grants that tier's
-  // entitlements the same read-time way the free trial does: nothing is
-  // written, so it reverts by itself when the period ends or the badge is
-  // revoked.
-  const badgeTier = await badgeFreeTier(orgId);
-  let effectivePlan = storedPlan;
-  for (const t of [trialTier, badgeTier]) {
-    if (t && tierRank(t) > tierRank(effectivePlan)) effectivePlan = t;
-  }
-
-  return { orgId, plan: effectivePlan };
-}
-
-async function badgeFreeTier(orgId: string): Promise<PlanTier | null> {
+  // A redeemed promo never writes org.plan — it's a billing-display concern (see /api/promo/redeem), not a real subscription change.
+  // But a genuine FREE TRIAL (100% off) still has to grant the actual entitlements of the plan it covers, or "3 months free of It's
+  // the butler!" would just be a price preview with nothing to try. Computed live on every read, never written anywhere, so the boost
+  // reverts automatically the moment benefit_ends_at passes. promo_redemptions/promo_codes RLS is platform_admin-only (0040) — an
+  // ordinary founder session can't read them, so the lookup goes through the service role, same as every promo write already does.
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !service) return null;
-  if (!(await platformBadgesAvailable())) return null;
+  if (!url || !service) return { orgId, ...resolveEffectivePlan(storedPlan, null, null) };
   const admin = createClient(url, service, { auth: { persistSession: false } });
-  return freeTierFromBadges(await loadOrgPlatformBadges(admin, orgId), new Date());
+  return { orgId, ...(await effectivePlanDetailForOrg(admin, orgId, { storedPlan })) };
 }
 
-async function bestFreeTrialTier(orgId: string): Promise<PlanTier | null> {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  // promo_redemptions/promo_codes RLS is platform_admin-only (0040) — an
-  // ordinary founder session can't read them directly, so this one lookup
-  // goes through the service role, same as every promo write already does.
-  if (!url || !service) return null;
-  const admin = createClient(url, service, { auth: { persistSession: false } });
-
-  const { data: redemptions } = await admin
-    .from('promo_redemptions')
-    .select('benefit_ends_at, promo_codes(discount_pct, applicable_plans, active, deleted_at)')
-    .eq('org_id', orgId);
-  if (!redemptions) return null;
-
-  const now = new Date();
-  let best: PlanTier | null = null;
-  for (const r of redemptions) {
-    const promo = r.promo_codes as unknown as { discount_pct: number; applicable_plans: PlanTier[]; active: boolean; deleted_at: string | null } | null;
-    if (!isRedemptionCurrentlyActive(promo, r.benefit_ends_at, now)) continue;
-    if (!promo || promo.discount_pct !== 100) continue;
-    for (const tier of promo.applicable_plans) {
-      if (!best || tierRank(tier) > tierRank(best)) best = tier;
-    }
-  }
-  return best;
+export async function resolveUserPlan(
+  userId: string,
+  sb: SupabaseClient,
+  acting?: Pick<ActingOrg, 'orgId'>,
+): Promise<{ orgId: string | null; plan: PlanTier }> {
+  const { orgId, plan } = await resolveUserPlanDetail(userId, sb, acting);
+  return { orgId, plan };
 }

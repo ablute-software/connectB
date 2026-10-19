@@ -12,6 +12,7 @@ import { shareableCookieDomain } from '@/lib/supabase';
 import { VIEWER_ORG_COOKIE, VIEWER_READ_ONLY_CODE, VIEWER_READ_ONLY_MESSAGE } from '@/lib/developer-viewer-shape';
 import { viewerWriteVerdict } from '@/lib/viewer-write-gate';
 import { isLiveFounderOrg } from '@/lib/founder-hat';
+import { PUBLIC_SITE_PATHS } from '@/lib/public-site-routes';
 
 // Prompt 904 Part B: '/api/auth-code' (register / resend / verify / status) is public because its
 // callers have no session yet; each route answers 404 unless AUTH_CODE_MODE allows the email.
@@ -28,6 +29,12 @@ const PUBLIC = ['/call', '/api/calls/public', '/api/version', '/', '/investors',
   // token is the auth). Prompt 603 — the public supplier list, same
   // reasoning as /terms.
   '/closed', '/api/account/not-me', '/legal',
+  // Prompt 920 — the public marketing pages (/for-startups, /about, /faq) and the two files crawlers read (/robots.txt, /sitemap.xml).
+  // On 16/10/2026 the two files were answering 307 → /login in production: they were not on this list and the matcher below does not exclude
+  // .txt/.xml, so the robots.ts written in Prompt 514 had never been served to a single crawler. One shared list (public-site-routes.ts)
+  // is read here, by the Shell (which renders these pages bare) and by the sitemap, so the three can no longer disagree; middleware.test.ts
+  // drives THIS middleware over every one of them. Exact paths, never a wide prefix (a path under them would 404: nothing lives there).
+  ...PUBLIC_SITE_PATHS,
   // Prompt 114 Fase 1 — the token IS the auth for this one route now; a
   // caller here has no session yet by definition (that's the whole point).
   // Exact path only (not a prefix) — every other /api/matchdeal/pairing/*

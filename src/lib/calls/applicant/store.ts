@@ -223,16 +223,22 @@ export async function loadSubmission(admin: SupabaseClient, submissionId: string
 }
 
 /**
+ * Can the document still be read? A HEAD on the stored object: nothing is copied, read or linked (the final check asks this for every document,
+ * together with everything else). It must not mint a Storage URL to find out: that is a bearer link, and Prompt 750's guard
+ * (verify:no-signed-url-leak) refuses one in src/lib. A missing object answers false; any other failure (Storage down) throws: both are a "no" here.
+ */
+export async function fileReadable(admin: SupabaseClient, f: FileRow): Promise<boolean> {
+  try {
+    const { data, error } = await admin.storage.from('data-room').exists(f.storagePath);
+    return !error && data === true;
+  } catch { return false; }
+}
+
+/**
  * Copy the bytes of a file into the submission's own place and note where. The path depends only on the file, so a retry (a second request,
  * a failed attempt) lands on the same object: "already exists" is a success. After this the submitted material does not depend on the Vault
  * or on the applicant's folder any more: whatever happens to either later, it stays as it was submitted.
  */
-/** Can the document still be read? (Without copying anything: the final check asks this for every document, together with everything else.) */
-export async function fileReadable(admin: SupabaseClient, f: FileRow): Promise<boolean> {
-  const { data, error } = await admin.storage.from('data-room').createSignedUrl(f.storagePath, 10);
-  return !error && !!data;
-}
-
 export async function freezeFile(admin: SupabaseClient, f: FileRow, to: string): Promise<boolean> {
   const { error } = await admin.storage.from('data-room').copy(f.storagePath, to);
   if (error && !/already exists|duplicate/i.test(error.message ?? '')) return false;

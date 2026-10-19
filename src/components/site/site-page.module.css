@@ -1,0 +1,66 @@
+/* Prompt 920 — styles for the public marketing pages (/for-startups, /about, /faq). A NEW file: nothing in landing.module.css is changed.
+   Colours and fonts are the landing's own variables (set on .landing, which wraps these pages exactly as it wraps the landing), so the
+   pages read as the same site. Content is never hidden behind a reveal animation: it is plain HTML, readable without JavaScript.
+
+   Every rule hangs under .site — a class PublicSiteLayout puts on the same wrapper as .landing. Why: .landing resets margin and padding on
+   `.landing *` (specificity 0,1,0), and which of two single-class rules wins depends on the ORDER the two stylesheets reach the page, which
+   follows the order a page happens to import them in (found on /faq: the container lost its margin and padding while /for-startups, importing
+   in another order, kept them). `.site .x` (0,2,0) wins in either order. */
+
+.site .main { padding: 128px 0 88px; }
+.site .container { max-width: 760px; margin: 0 auto; padding: 0 24px; }
+
+.site .crumbs { font-size: .82rem; color: var(--muted); margin-bottom: 18px; }
+.site .crumbs a:hover { color: var(--teal); text-decoration: underline; }
+
+.site .title { font-size: clamp(2rem, 4.4vw, 3rem); line-height: 1.12; font-weight: 600; margin-bottom: 22px; }
+.site .answer { font-size: 1.14rem; line-height: 1.65; color: var(--ink-2); margin-bottom: 8px; }
+.site .answer a { color: var(--teal-strong); text-decoration: underline; text-underline-offset: 2px; }
+
+.site .prose h2 { font-size: clamp(1.4rem, 2.6vw, 1.8rem); line-height: 1.2; font-weight: 600; margin: 48px 0 14px; }
+.site .prose p { margin-bottom: 14px; color: var(--text); }
+/* Tailwind's preflight sets list-style: none on ul/ol, so the markers are asked for here. */
+.site .prose ul { list-style: disc; margin: 0 0 18px 22px; }
+.site .prose ol { list-style: decimal; margin: 0 0 18px 22px; }
+.site .prose li { margin-bottom: 12px; color: var(--text); padding-left: 4px; }
+.site .prose strong { color: var(--ink); font-weight: 600; }
+.site .prose a, .site .faqBody a { color: var(--teal-strong); text-decoration: underline; text-underline-offset: 2px; }
+.site .prose a:hover, .site .faqBody a:hover, .site .answer a:hover { color: var(--teal); }
+
+.site .groupTitle { font-size: clamp(1.3rem, 2.4vw, 1.6rem); line-height: 1.2; font-weight: 600; margin: 44px 0 6px; }
+
+.site .ctaRow { margin-top: 8px; }
+.site .ctaNote { margin-left: 14px; color: var(--muted); font-size: .9rem; }
+.site .ctaWrap { margin-top: 64px; }
+
+/* ---------- footer: three columns (Product / Company / Legal) ---------- */
+.site .footerLogo { align-self: flex-start; }
+.site .footerCols { align-self: flex-start; display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)); gap: 44px; }
+.site .footerHead { font-size: .74rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink); margin-bottom: 14px; }
+.site .footerCols ul { list-style: none; }
+.site .footerCols li { margin-bottom: 9px; }
+.site .footerCols a { font-size: .9rem; color: var(--muted); }
+.site .footerCols a:hover { color: var(--teal); }
+
+@media (max-width: 760px) {
+  .site .main { padding: 112px 0 64px; }
+  .site .footerCols { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px; }
+}
+
+/* The landing's nav is one 72px row; on a phone its right-hand side (the audience toggle and the two buttons) does not fit and is clipped.
+   These pages are what an answer engine sends people to, and most of them arrive on a phone, so here the nav is allowed to wrap: logo and
+   Create account on the first row, the audience toggle and Sign in on the second (the landing's own nav is not touched). The nav links
+   container becomes display: contents so its children can be placed by order; the selectors carry nav so they win against .nav .wrap
+   (0,2,0). This block comes AFTER the 760px one: at the same specificity the later rule wins, and it must win on main's top padding. */
+@media (max-width: 640px) {
+  .site nav .navWrap { height: auto; min-height: 64px; flex-wrap: wrap; row-gap: 8px; padding-top: 8px; padding-bottom: 10px; }
+  .site nav .navLinks { display: contents; }
+  .site nav .navWrap > a:first-child { order: 1; }
+  .site nav .navCreate { order: 2; }
+  .site nav .navLinks > [role='tablist'] { order: 3; }
+  .site nav .navSignIn { order: 4; }
+  .site .main { padding-top: 136px; }
+}
+@media (max-width: 460px) {
+  .site .footerCols { grid-template-columns: 1fr; }
+}

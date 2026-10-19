@@ -13,6 +13,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { isProfileGateComplete, missingProfileGateFields } from '@/lib/pipeline-unlock';
 import { computeDeliverable, computeVisiblePipelineSize, raiseCatalogQuotaFloor } from '@/lib/pipeline-unlock-server';
 import { pipelineUnlockAnchorsAvailable } from '@/lib/pipeline-unlock-capability';
+import { effectivePlanForOrg } from '@/lib/effective-plan-server';
 import { resolveActingOrg, withActingOrg } from '@/lib/acting-org';
 
 export const GET = withActingOrg(async function GET(req: NextRequest) {
@@ -52,7 +53,10 @@ export const GET = withActingOrg(async function GET(req: NextRequest) {
     }
   }
 
-  const { visible, gateComplete, eligiblePoolSize, catalogQuotaTarget } = await computeVisiblePipelineSize(admin, orgId);
+  // Prompt 914 — the plan the pipeline numbers below run on is the one the org is on RIGHT NOW (stored ⊕ free trial ⊕ badge), resolved
+  // once and handed to the calculation, then returned so the Pipeline page decides its upgrade CTA on the same tier, not on orgs.plan.
+  const plan = await effectivePlanForOrg(admin, orgId, { storedPlan: (org?.plan as string | null | undefined) ?? null });
+  const { visible, gateComplete, eligiblePoolSize, catalogQuotaTarget } = await computeVisiblePipelineSize(admin, orgId, { planTier: plan });
   // Prompt 180 — the live recompute trigger for orgs.catalog_quota's
   // event-based floor (see raiseCatalogQuotaFloor's own header): this route
   // is already polled by the founder-facing Pipeline page every time
@@ -91,5 +95,5 @@ export const GET = withActingOrg(async function GET(req: NextRequest) {
     ({ deliverable, unlimited } = await computeDeliverable(admin, orgId, quota, deliveredCount ?? 0));
   }
 
-  return NextResponse.json({ ok: true, gateComplete, visible, eligiblePoolSize, catalogQuotaTarget, deliverable, unlimited, missing, anchorsAvailable });
+  return NextResponse.json({ ok: true, gateComplete, visible, eligiblePoolSize, catalogQuotaTarget, deliverable, unlimited, missing, anchorsAvailable, plan });
 });

@@ -104,8 +104,10 @@
 .bar i:nth-child(3) { background: #67c587; }
 .bar span { margin-left: 10px; font-size: .72rem; color: var(--muted); font-weight: 600; letter-spacing: .04em; }
 .cols { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; padding: 14px; }
-.col h4 { font-family: var(--font-inter), sans-serif; font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 8px; display: flex; justify-content: space-between; }
-.col h4 b { color: var(--teal); }
+/* Prompt 920 addendum — these three labels are the titles of a mock pipeline column, not headings of the page: as <h4> they skipped a level
+   (h2 -> h4) and failed Lighthouse heading-order. Same rules, now on a class (specificity kept: two classes, as ".col h4" was a class and a tag). */
+.col .colTitle { font-family: var(--font-inter), sans-serif; font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 8px; display: flex; justify-content: space-between; }
+.col .colTitle b { color: var(--teal); }
 .kcard { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 8px; box-shadow: 0 2px 6px rgba(12, 39, 46, .05); opacity: 0; transform: translateY(12px); animation: cardIn .6s forwards; }
 .nm { font-size: .78rem; font-weight: 600; color: var(--ink); }
 .tg { display: inline-block; margin-top: 6px; font-size: .62rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
@@ -152,6 +154,10 @@
 
 /* ---------- sections ---------- */
 .sec { padding: 96px 0; }
+/* Prompt 920 addendum — the eyebrow of the new /investors section sits on --bg, where --teal text is 4.42:1 (Lighthouse color-contrast, WCAG AA needs
+   4.5). 2% darker (#297c8b) is 4.60:1 and not visible next to the other eyebrows. Scoped to this section: the same tweak for the existing ones is a
+   decision for Nuno (docs/screenshots-920/contrast-proposal.md). */
+.firstContact .eyebrow { color: #297c8b; }
 .secHead { max-width: 640px; margin: 0 auto 56px; text-align: center; }
 .eyebrow { display: inline-block; font-family: var(--font-inter), sans-serif; font-size: .78rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--teal); margin-bottom: 14px; }
 .secHead h2 { font-size: clamp(1.8rem, 3.4vw, 2.5rem); font-weight: 600; margin-bottom: 14px; line-height: 1.15; }

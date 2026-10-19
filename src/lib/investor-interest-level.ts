@@ -10,6 +10,7 @@
 import type { SwotData, RoadmapPeriodKind } from './types';
 import type { ReviewCategory } from './review-clarifications';
 import type { BadgePublic } from './company-badges';
+import type { WebsiteHealthPublic } from './website-health';
 import type { MiniPitchSlideProjected } from './mini-pitch';
 import type { DossierMediaItem } from './dossier-fetch';
 
@@ -190,10 +191,10 @@ export function projectDossier(
   // but visible at EVERY level including 0 (the recommendation: badges are
   // positive, non-sensitive claims, the same "reason to click Interested"
   // purpose as Prompt 325's intro pitch). Already fully projected by the
-  // caller (projectBadgesForInvestor) BEFORE reaching here — disputed
-  // badges and internal fields (verification_note, evidence_document_id)
-  // never exist in this array at all, so there is nothing for this
-  // function to filter a second time.
+  // caller (projectBadgesForInvestor) BEFORE reaching here — only verified
+  // badges, each with its public source (Prompt 918), and no internal field
+  // (verification_note, evidence_document_id) ever exists in this array, so
+  // there is nothing for this function to filter a second time.
   badges?: BadgePublic[] | null,
   // Prompt 334 — same shape of exception as swot/roadmap: gated on level >=
   // 1 (the same unlock point as `overview`, per the prompt's own "wherever
@@ -211,6 +212,10 @@ export function projectDossier(
   // something at every level), Team rides with the Team section's own
   // level>=2 gate, never level-gated a second, DIFFERENT way here.
   media?: DossierMediaItem[] | null,
+  // Prompt 919 D — the founder's website health, present only when they switched it on (dossier-fetch.ts decides that BEFORE it selects a
+  // single score). Visible at every level, like badges: a public Google measurement the founder chose to show. Rebuilt field by field
+  // below, so a caller that passes more than the four scores, a date and a link still cannot get more out of here.
+  websiteHealth?: WebsiteHealthPublic | null,
 ): Record<string, unknown> {
   const out: Record<string, unknown> = { level };
   if (level >= 1) out.overview = full.overview;
@@ -221,6 +226,15 @@ export function projectDossier(
   if (level >= 1 && swot?.visible && swot.data) { out.swot = swot.data; out.swotGeneratedAt = swot.generatedAt ?? null; }
   if (level >= 1 && founderClarifications && founderClarifications.length > 0) out.founderClarifications = founderClarifications;
   if (badges && badges.length > 0) out.badges = badges;
+  if (websiteHealth) {
+    out.websiteHealth = {
+      scores: {
+        performance: websiteHealth.scores.performance, seo: websiteHealth.scores.seo,
+        accessibility: websiteHealth.scores.accessibility, bestPractices: websiteHealth.scores.bestPractices,
+      },
+      strategy: 'mobile', checkedAt: websiteHealth.checkedAt, reportUrl: websiteHealth.reportUrl,
+    };
+  }
   if (media && media.length > 0) {
     const aboutMedia = media.filter((m) => m.category === 'company' || m.category === 'technology');
     if (aboutMedia.length > 0) out.aboutMedia = aboutMedia;

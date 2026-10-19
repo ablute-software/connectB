@@ -1,0 +1,212 @@
+# Prompt 920 — what the production BUILD of this branch serves at /robots.txt and /sitemap.xml (next start, port 3100, demo mode, no session)
+# 16/10/2026. The domain below is the build's fallback: on Vercel NEXT_PUBLIC_APP_URL is https://www.sherlockdeal.com (observed in the production canonical).
+
+################ GET /robots.txt
+HTTP/1.1 200 OK
+cache-control: public, max-age=0, must-revalidate
+content-type: text/plain
+
+User-Agent: *
+Allow: /
+Disallow: /api/
+Disallow: /guest/
+Disallow: /call/
+Disallow: /invite/
+Disallow: /matchdeal/
+Disallow: /entities/
+Disallow: /people/
+Disallow: /backoffice/
+Disallow: /metrics/
+Disallow: /login
+Disallow: /signup
+Disallow: /auth
+Disallow: /set-password
+Disallow: /reset-password
+Disallow: /forgot-password
+Disallow: /welcome
+Disallow: /pipeline
+Disallow: /today
+Disallow: /agenda
+Disallow: /dashboard
+Disallow: /documents
+Disallow: /outbox
+Disallow: /automations
+Disallow: /packs
+Disallow: /queue
+Disallow: /log
+Disallow: /import
+Disallow: /needs-review
+Disallow: /readiness
+Disallow: /plans
+Disallow: /network
+Disallow: /messages
+Disallow: /tasks
+Disallow: /calls
+Disallow: /settings
+Disallow: /company
+Disallow: /catalog-people
+Disallow: /pair
+Disallow: /portal
+Disallow: /claim
+Disallow: /ecosystem
+Disallow: /incubator
+Disallow: /suspended
+Disallow: /blocked
+Disallow: /closed
+
+User-Agent: OAI-SearchBot
+User-Agent: ChatGPT-User
+User-Agent: PerplexityBot
+User-Agent: Perplexity-User
+User-Agent: Claude-SearchBot
+User-Agent: Claude-User
+User-Agent: Bingbot
+User-Agent: Applebot
+User-Agent: YouBot
+User-Agent: GPTBot
+User-Agent: ClaudeBot
+User-Agent: anthropic-ai
+User-Agent: Claude-Web
+User-Agent: Google-Extended
+User-Agent: Applebot-Extended
+Allow: /
+Disallow: /api/
+Disallow: /guest/
+Disallow: /call/
+Disallow: /invite/
+Disallow: /matchdeal/
+Disallow: /entities/
+Disallow: /people/
+Disallow: /backoffice/
+Disallow: /metrics/
+Disallow: /login
+Disallow: /signup
+Disallow: /auth
+Disallow: /set-password
+Disallow: /reset-password
+Disallow: /forgot-password
+Disallow: /welcome
+Disallow: /pipeline
+Disallow: /today
+Disallow: /agenda
+Disallow: /dashboard
+Disallow: /documents
+Disallow: /outbox
+Disallow: /automations
+Disallow: /packs
+Disallow: /queue
+Disallow: /log
+Disallow: /import
+Disallow: /needs-review
+Disallow: /readiness
+Disallow: /plans
+Disallow: /network
+Disallow: /messages
+Disallow: /tasks
+Disallow: /calls
+Disallow: /settings
+Disallow: /company
+Disallow: /catalog-people
+Disallow: /pair
+Disallow: /portal
+Disallow: /claim
+Disallow: /ecosystem
+Disallow: /incubator
+Disallow: /suspended
+Disallow: /blocked
+Disallow: /closed
+
+User-Agent: CCBot
+Disallow: /
+
+User-Agent: Bytespider
+Disallow: /
+
+User-Agent: TikTokSpider
+Disallow: /
+
+User-Agent: Meta-ExternalAgent
+Disallow: /
+
+User-Agent: Meta-ExternalFetcher
+Disallow: /
+
+User-Agent: FacebookBot
+Disallow: /
+
+User-Agent: Amazonbot
+Disallow: /
+
+User-Agent: cohere-ai
+Disallow: /
+
+User-Agent: cohere-training-data-crawler
+Disallow: /
+
+User-Agent: MistralAI-User
+Disallow: /
+
+User-Agent: AI2Bot
+Disallow: /
+
+User-Agent: Diffbot
+Disallow: /
+
+User-Agent: Omgili
+Disallow: /
+
+User-Agent: Omgilibot
+Disallow: /
+
+User-Agent: Timpibot
+Disallow: /
+
+User-Agent: ImagesiftBot
+Disallow: /
+
+Sitemap: https://connect-b-delta.vercel.app/sitemap.xml
+
+################ GET /sitemap.xml
+HTTP/1.1 200 OK
+cache-control: public, max-age=0, must-revalidate
+content-type: application/xml
+
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<url>
+<loc>https://connect-b-delta.vercel.app</loc>
+<lastmod>2026-10-16</lastmod>
+</url>
+<url>
+<loc>https://connect-b-delta.vercel.app/investors</loc>
+<lastmod>2026-10-16</lastmod>
+</url>
+<url>
+<loc>https://connect-b-delta.vercel.app/for-startups</loc>
+<lastmod>2026-10-16</lastmod>
+</url>
+<url>
+<loc>https://connect-b-delta.vercel.app/about</loc>
+<lastmod>2026-10-16</lastmod>
+</url>
+<url>
+<loc>https://connect-b-delta.vercel.app/faq</loc>
+<lastmod>2026-10-16</lastmod>
+</url>
+<url>
+<loc>https://connect-b-delta.vercel.app/contact</loc>
+<lastmod>2026-09-14</lastmod>
+</url>
+<url>
+<loc>https://connect-b-delta.vercel.app/terms</loc>
+<lastmod>2026-09-01</lastmod>
+</url>
+<url>
+<loc>https://connect-b-delta.vercel.app/legal/privacy-notice</loc>
+<lastmod>2026-09-09</lastmod>
+</url>
+<url>
+<loc>https://connect-b-delta.vercel.app/legal/subprocessors</loc>
+<lastmod>2026-09-09</lastmod>
+</url>
+</urlset>
