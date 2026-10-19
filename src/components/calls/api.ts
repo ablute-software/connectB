@@ -29,6 +29,7 @@ export interface CallState {
   phases: CallPhase[];
   fields: FormField[];
   issues: ReadinessIssue[];
+  teamMembers?: number;
   summary: CallSummary;
   actions: ReturnType<typeof availableActions>;
   applications: { submitted: number; total: number };

@@ -39,7 +39,7 @@ export function PhasesTab({ phases, disabled, onChange }: { phases: PhaseDraft[]
             <div className="flex items-center gap-2">
               <span className="cursor-grab select-none text-gray-300" aria-hidden="true" title="Drag to reorder">⋮⋮</span>
               <span className="w-6 text-xs font-semibold text-gray-400">{i + 1}</span>
-              <input aria-label={`Phase ${i + 1} name`} autoComplete="off" className={`${INPUT} min-w-0 flex-1`} value={p.name} disabled={disabled}
+              <input aria-label={`Phase ${i + 1} name`} data-jump={p.id} autoComplete="off" className={`${INPUT} min-w-0 flex-1`} value={p.name} disabled={disabled}
                 maxLength={120} onChange={(e) => patch(p.id, { name: e.target.value })} />
               <button type="button" aria-label="Move up" disabled={disabled || i === 0} onClick={() => move(i, i - 1)} className="rounded px-1.5 text-gray-400 hover:bg-gray-100 disabled:opacity-30">↑</button>
               <button type="button" aria-label="Move down" disabled={disabled || i === phases.length - 1} onClick={() => move(i, i + 1)} className="rounded px-1.5 text-gray-400 hover:bg-gray-100 disabled:opacity-30">↓</button>

@@ -459,3 +459,14 @@ body.investor-pipeline-dragging a, body.investor-pipeline-dragging button { curs
 @media (prefers-reduced-motion: reduce) {
   .investor-pipeline-drop-armed, .investor-pipeline-count-pulse, .investor-pipeline-plus-one { animation: none; }
 }
+
+/* Prompt 918 (I1) — the call editor on a screen held in the hand (below Tailwind's `lg`, or any touch screen): everything a finger has to hit is at least 44 px high. A blanket rule, so a control
+   added later is covered without anybody remembering. Radio buttons and check boxes are hit through their label, which is given the height itself. */
+@media (max-width: 1023px), (pointer: coarse) {
+  [data-calls-touch] button,
+  [data-calls-touch] select,
+  [data-calls-touch] [role="tab"],
+  [data-calls-touch] input:not([type="radio"]):not([type="checkbox"]):not([type="range"]):not([type="hidden"]),
+  [data-calls-touch] textarea { min-height: 44px; }
+  [data-calls-touch] a[href] { display: inline-flex; align-items: center; min-height: 44px; }
+}

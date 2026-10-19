@@ -715,3 +715,19 @@ describe('apply tells the truth (917 fix)', () => {
     expect(fieldsOf(target.id)).toHaveLength(3);
   });
 });
+
+// --- Prompt 918 (I1): the state of the call carries what the Setup steps need ------------------------------------------------------------------------------------
+describe('the state the Setup steps read (918 I1)', () => {
+  it('says how many people are on the team (the step "Team & distribution" shows ✓ once someone besides the creator is on it) and carries the target of each missing thing', async () => {
+    as('ana');
+    const before = await read(await oneGet(json('GET'), params(target.id)));
+    expect(before.body.teamMembers).toBe(1);                                                    // the creator is on the team from the start
+    db.tables.call_team_members.push({ id: 'tm-1', call_id: target.id, user_id: 'ana', category_id: 'cat-1' }, { id: 'tm-2', call_id: target.id, user_id: 'bob', category_id: 'cat-1' });
+    db.tables.call_team_members.push({ id: 'tm-x', call_id: 'another-call', user_id: 'ana', category_id: 'cat-1' });
+    const after = await read(await oneGet(json('GET'), params(target.id)));
+    expect(after.body.teamMembers).toBe(3);                                                     // only THIS call's team (the creator and the two added)
+    const targets = (after.body.issues as { tab: string; target?: string }[]).map((i) => [i.tab, i.target]);
+    expect(targets).toContainEqual(['general', 'opens']);
+    expect(targets).toContainEqual(['general', 'closes']);
+  });
+});
