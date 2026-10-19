@@ -76,7 +76,8 @@ describe('Open Graph images', () => {
 
   // next/og (@vercel/og) locates its bundled font with path.join(import.meta.url, …), which on Windows turns the file:/// URL into a backslash path and
   // throws "Invalid URL" in `next build` (19/10/2026, Next 14.2.35). This project's gate is a local build, so a generated image would stop it.
-  it('no source file draws an image with next/og: the cards are files', () => {
+  // (Reads every file under src/: it timed out at the default 5 s in a loaded full run on 19/10/2026 and passes alone in under a second — hence the 30 s.)
+  it('no source file draws an image with next/og: the cards are files', { timeout: 30_000 }, () => {
     const walk = (d: string): string[] => readdirSync(join(process.cwd(), d)).flatMap((e) => (statSync(join(process.cwd(), d, e)).isDirectory() ? walk(join(d, e)) : [join(d, e)]));
     const users = walk('src').filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f)).filter((f) => /from 'next\/og'/.test(read(f)));
     expect(users).toEqual([]);

@@ -53,12 +53,14 @@ describe('fonts: self-hosted by next/font, named once', () => {
     expect(layout).toContain("fontFamily: 'var(--font-inter), system-ui, sans-serif'");
   });
 
-  it('no other file names the two families: a literal would silently fall back to the system font, with no error and no failing page', () => {
+  // The next two tests read every file under src/. In a full run (400+ test files in parallel, other sessions busy on the same machine) the default
+  // 5 s per test was exceeded on 19/10/2026 — four scanning tests timed out together and all passed alone in 3 s — so these two say how long a scan may take.
+  it('no other file names the two families: a literal would silently fall back to the system font, with no error and no failing page', { timeout: 30_000 }, () => {
     const offenders = srcFiles().filter((f) => f !== join('src', 'app', 'layout.tsx') && !/\.test\.tsx?$/.test(f)).filter((f) => /Comfortaa|fonts\.googleapis\.com\/css2\?family=Inter/.test(read(f)));
     expect(offenders).toEqual([]);
   });
 
-  it('every place that uses the brand family reads the variable (the 20 that wrote the literal stack)', () => {
+  it('every place that uses the brand family reads the variable (the 20 that wrote the literal stack)', { timeout: 30_000 }, () => {
     const users = srcFiles().filter((f) => !/\.test\.tsx?$/.test(f)).filter((f) => read(f).includes('var(--font-comfortaa)'));
     expect(users.length).toBeGreaterThanOrEqual(15);
     for (const f of users) expect(read(f)).toContain('var(--font-comfortaa), var(--font-inter), sans-serif');
