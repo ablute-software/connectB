@@ -300,8 +300,25 @@ describe('the back office\'s card', () => {
     expect(t).toContain('PageSpeed key on this deployment: set');
   });
 
-  it('a missing key is flagged loudly (it is the first thing to check when Google answers "quota")', () => {
-    expect(text(bo({ ...boOk, keyConfigured: false }))).toContain('NOT SET — Google answers "quota" without one');
+  // Prompt 919 addendum (19/10/2026): without a key the feature is OFF for founders (no card, no check) — not "over quota" — and the back office is
+  // the place that says so, in words, with the instruction; the forced check is switched off too (the route refuses it as well).
+  it('a missing key is not a quiet line at the bottom: an alert says the feature is OFF for founders and what to do, and Force re-check is disabled', () => {
+    const html = bo({ ...boOk, keyConfigured: false });
+    expect(html).toContain('data-testid="wh-key-missing"');
+    expect(html).toContain('role="alert"');
+    const t = text(html);
+    expect(t).toContain('Switched OFF for founders.');
+    expect(t).toContain('PAGESPEED_API_KEY is not set on this deployment');
+    expect(t).toContain('founders do not see this card and no check can run');
+    expect(t).toContain('docs/ops/CONFIG_REGISTRY.md §1.4b');
+    expect(t).toContain('PageSpeed key on this deployment: NOT SET — the check is off');
+    expect(isDisabled(buttonOf(html, /Force re-check/))).toBe(true);
+  });
+
+  it('with the key set there is no alert and the button is enabled', () => {
+    const html = bo(boOk);
+    expect(html).not.toContain('wh-key-missing');
+    expect(isDisabled(buttonOf(html, /Force re-check/))).toBe(false);
   });
 
   it('"Force re-check" is always there for a startup with a website (it ignores the 7 days); disabled while it runs, and for a startup with no website', () => {

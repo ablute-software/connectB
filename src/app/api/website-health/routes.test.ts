@@ -207,11 +207,24 @@ describe('POST /api/website-health/check — free, once per 7 days, always store
     expect(JSON.stringify(rowsOf())).not.toContain(KEY);
   });
 
-  it('without a key configured the request carries none (Google then answers quota; the back office sees the key is missing)', async () => {
-    vi.stubEnv('PAGESPEED_API_KEY', '');
+  // Prompt 919 addendum (19/10/2026): a deployment with no PAGESPEED_API_KEY has the feature OFF. A keyless request can only be answered with
+  // quota 0 — "used up, try later" would be a lie to a founder, and a stored row would put it on their card for a gap that is ours to close.
+  it.each(['', '   '])('without a key (%j) the feature is OFF: 503 "not available", Google is never asked, nothing is stored, nothing is logged as a refusal', async (key) => {
+    vi.stubEnv('PAGESPEED_API_KEY', key);
     google = () => new Response(KEYLESS_BODY, { status: 429 });
-    await check(call('POST', '/api/website-health/check'));
-    expect(googleUrls.every((u) => !u.searchParams.has('key'))).toBe(true);
+    const res = await check(call('POST', '/api/website-health/check'));
+    expect(res.status).toBe(503);
+    expect(await json(res)).toEqual({ ok: false, available: false, error: 'Website health is not available in your workspace yet.' });
+    expect(googleUrls).toEqual([]);
+    expect(rowsOf()).toEqual([]);
+    expect(dataWrites()).toEqual([]);
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it('without a key the founder\'s card is not offered either: GET answers available:false, as when the migration is not applied', async () => {
+    vi.stubEnv('PAGESPEED_API_KEY', '');
+    expect(await json(await GET(call('GET', '/api/website-health')))).toEqual({ ok: true, available: false });
+    expect(googleUrls).toEqual([]);
   });
 
   it('one analysis per org per 7 days: the second attempt is refused with the date, Google is not asked again, nothing is stored; after 7 days it runs', async () => {
@@ -258,8 +271,8 @@ describe('POST /api/website-health/check — free, once per 7 days, always store
     expect(googleUrls).toEqual([]);
   });
 
-  it('when Google refuses (no key / quota), a row per strategy says so — the card has something true to show — and the logs say it is OURS to fix', async () => {
-    vi.stubEnv('PAGESPEED_API_KEY', '');
+  it('when Google refuses (the key is set, the quota is used up), a row per strategy says so — the card has something true to show — and the logs say it is OURS to fix', async () => {
+    // (the key is set by beforeEach: a deployment WITHOUT one never gets here — see the "feature is OFF" test above)
     google = () => new Response(KEYLESS_BODY, { status: 429 });
     const res = await check(call('POST', '/api/website-health/check'));
     expect(res.status).toBe(200);
@@ -269,7 +282,7 @@ describe('POST /api/website-health/check — free, once per 7 days, always store
     expect(rowsOf().every((r) => r.score_performance === null && (r.audits as { error: { kind: string } }).error.kind === 'quota')).toBe(true);
     expect(body.analyses.mobile.error).toEqual({ kind: 'quota', copy: "Google's free quota for this check is used up right now. Try again later." });
     expect(JSON.stringify(body)).not.toContain('Quota exceeded for quota metric'); // Google's raw text is for the back office
-    expect(errors).toHaveBeenCalledWith('[website-health] PageSpeed refused', expect.objectContaining({ orgId: ORG_A, kind: 'quota', httpStatus: 429, keyConfigured: false }));
+    expect(errors).toHaveBeenCalledWith('[website-health] PageSpeed refused', expect.objectContaining({ orgId: ORG_A, kind: 'quota', httpStatus: 429, keyConfigured: true }));
     // …and a failed attempt does not burn the week: only a short cooldown
     const retry = await check(call('POST', '/api/website-health/check'));
     expect(retry.status).toBe(429);

@@ -11,7 +11,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 import { websiteHealthAvailable } from '@/lib/website-health-capability';
-import { fetchPageSpeedAnalysis } from '@/lib/website-health-psi';
+import { fetchPageSpeedAnalysis, pageSpeedApiKey } from '@/lib/website-health-psi';
 import { runWebsiteCheck } from '@/lib/website-health-run';
 import { FOUNDER_ROW_COLUMNS, buildFounderState } from '@/lib/website-health-state';
 import { formatCheckedDate, type StoredRowLike } from '@/lib/website-health';
@@ -31,11 +31,14 @@ export const POST = withActingOrg(async function POST(req: Request) {
   if (!acting.orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
   const orgId = acting.orgId as string;
 
-  if (!(await websiteHealthAvailable())) return NextResponse.json({ ok: false, available: false, error: 'Website health is not available in your workspace yet.' }, { status: 503 });
+  // Prompt 919 addendum (19/10/2026) — no Google key on this deployment: the feature is OFF, exactly as when the migration is not applied. No
+  // request goes to Google (a keyless one can only answer quota 0), no row is stored, and the founder is not told to "try again later" for
+  // something that will never work until the key is set. The back office sees why (keyConfigured, WebsiteHealthBackofficeCard).
+  const apiKey = pageSpeedApiKey();
+  if (!apiKey || !(await websiteHealthAvailable())) return NextResponse.json({ ok: false, available: false, error: 'Website health is not available in your workspace yet.' }, { status: 503 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const { data: org } = await admin.from('orgs').select('website, website_score_visible').eq('id', orgId).maybeSingle();
-  const apiKey = process.env.PAGESPEED_API_KEY || undefined;
 
   const outcome = await runWebsiteCheck({ orgId, website: (org?.website as string | null | undefined) ?? null }, {
     now: () => new Date(),

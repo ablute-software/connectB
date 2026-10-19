@@ -164,9 +164,14 @@ describe('a GET reads and nothing else (Developer Viewer rule)', () => {
 });
 
 describe('the Google key', () => {
-  it('is read in exactly two places (the founder\'s check and the back office\'s force), never public', () => {
+  it('is read in exactly ONE place (pageSpeedApiKey, in the PSI client), never public — and every route that asks Google or decides the feature exists goes through it', () => {
+    // Prompt 919 addendum (19/10/2026): it used to be read in the founder\'s check and the back office\'s force; with "no key = the feature is OFF" the
+    // founder\'s GET needs the answer too, so the reading moved behind one function instead of a third copy of `process.env.PAGESPEED_API_KEY`.
     const readers = SRC.filter((f) => /process\.env\.PAGESPEED_API_KEY/.test(read(f)));
-    expect(readers).toEqual(['src/app/api/backoffice/website-health/[orgId]/route.ts', 'src/app/api/website-health/check/route.ts']);
+    expect(readers).toEqual(['src/lib/website-health-psi.ts']);
+    for (const f of ['src/app/api/website-health/route.ts', 'src/app/api/website-health/check/route.ts', 'src/app/api/backoffice/website-health/[orgId]/route.ts']) {
+      expect(read(f), f).toContain('pageSpeedApiKey()');
+    }
     expect(SRC.filter((f) => /NEXT_PUBLIC_PAGESPEED/.test(read(f)))).toEqual([]);
   });
   it('no Google API key is written anywhere a repo carries one: sources, docs, scripts, migrations, env example', () => {

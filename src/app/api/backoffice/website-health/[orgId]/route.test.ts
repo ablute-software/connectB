@@ -138,14 +138,27 @@ describe('POST — Force re-check', () => {
     expect(audit[0].detail).toEqual({ orgName: 'zz-test-site-A', website: 'https://www.example.com', results: [{ strategy: 'mobile', ok: true, error: null }, { strategy: 'desktop', ok: true, error: null }], keyConfigured: true });
   });
 
-  it('when Google refuses, the refusal is stored and reported to the admin as it is (anyOk:false) — and still audited', async () => {
-    vi.stubEnv('PAGESPEED_API_KEY', '');
+  it('when Google refuses (the key is set, the quota is used up), the refusal is stored and reported to the admin as it is (anyOk:false) — and still audited', async () => {
     google = () => new Response(JSON.stringify({ error: { code: 429, message: 'Quota exceeded', status: 'RESOURCE_EXHAUSTED' } }), { status: 429 });
     const body = await json(await POST(req('POST'), ctx(ORG)));
-    expect(body).toMatchObject({ ok: true, anyOk: false, keyConfigured: false });
+    expect(body).toMatchObject({ ok: true, anyOk: false, keyConfigured: true });
     expect(body.latest.mobile).toMatchObject({ ok: false, error: { kind: 'quota', httpStatus: 429 } });
-    expect(googleUrls.every((u) => !u.searchParams.has('key'))).toBe(true);
-    expect(db.tables.admin_audit_log[0].detail).toMatchObject({ keyConfigured: false, results: [{ ok: false, error: 'quota' }, { ok: false, error: 'quota' }] });
+    expect(googleUrls.every((u) => u.searchParams.get('key') === KEY)).toBe(true);
+    expect(db.tables.admin_audit_log[0].detail).toMatchObject({ keyConfigured: true, results: [{ ok: false, error: 'quota' }, { ok: false, error: 'quota' }] });
+  });
+
+  // Prompt 919 addendum (19/10/2026) — no key is not a "quota" the admin can retry later; nothing can ever succeed, so nothing is sent.
+  it.each(['', '  '])('without a key (%j) a forced check is refused with the instruction: 503, Google is not asked, nothing is stored, nothing is audited', async (key) => {
+    vi.stubEnv('PAGESPEED_API_KEY', key);
+    const res = await POST(req('POST'), ctx(ORG));
+    expect(res.status).toBe(503);
+    const body = await json(res);
+    expect(body).toMatchObject({ ok: false, keyConfigured: false });
+    expect(body.error).toContain('PAGESPEED_API_KEY is not set on this deployment');
+    expect(body.error).toContain('CONFIG_REGISTRY.md §1.4b');
+    expect(googleUrls).toEqual([]);
+    expect(db.writes).toEqual([]);
+    expect(db.tables.admin_audit_log).toEqual([]);
   });
 
   it('a startup with no website on file: 400, Google not asked, no audit row', async () => {

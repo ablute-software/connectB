@@ -6,7 +6,7 @@ import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { logAdminAction } from '@/lib/audit';
 import { websiteHealthAvailable } from '@/lib/website-health-capability';
-import { fetchPageSpeedAnalysis } from '@/lib/website-health-psi';
+import { fetchPageSpeedAnalysis, pageSpeedApiKey } from '@/lib/website-health-psi';
 import { runWebsiteCheck } from '@/lib/website-health-run';
 import {
   checkAllowance, hasScores, latestByStrategy, normalizeWebsiteUrl, readStoredAudits, type StoredRowLike, type WebsiteStrategy,
@@ -49,7 +49,7 @@ export async function GET(_req: Request, ctx: Ctx) {
   const list = (rows ?? []) as unknown as StoredRowLike[];
   return NextResponse.json({
     ok: true, available: true, orgName: org.name, rawWebsite: org.website ?? null, website,
-    keyConfigured: !!process.env.PAGESPEED_API_KEY, visibleToInvestors: org.website_score_visible === true,
+    keyConfigured: !!pageSpeedApiKey(), visibleToInvestors: org.website_score_visible === true,
     latest: summarise(list, website), allowance: checkAllowance(list, website, new Date()),
   });
 }
@@ -62,9 +62,18 @@ export async function POST(_req: Request, ctx: Ctx) {
   if (!UUID.test(orgId)) return NextResponse.json({ ok: false, error: 'Bad org id.' }, { status: 400 });
   if (!(await websiteHealthAvailable())) return NextResponse.json({ ok: false, available: false, error: 'Website health is not applied in this database yet.' }, { status: 503 });
 
+  // Prompt 919 addendum (19/10/2026) — no Google key: nothing is sent (a keyless request can only answer quota 0, and storing that as a row
+  // would put "quota" on a founder's card for a configuration gap that is ours), nothing is audited, and the admin is told exactly what to do.
+  const apiKey = pageSpeedApiKey();
+  if (!apiKey) {
+    return NextResponse.json({
+      ok: false, keyConfigured: false,
+      error: 'PAGESPEED_API_KEY is not set on this deployment, so Google would refuse every request (quota 0) — nothing was sent. Set it in Vercel (docs/ops/CONFIG_REGISTRY.md §1.4b), redeploy, then force the check.',
+    }, { status: 503 });
+  }
+
   const { data: org } = await admin.from('orgs').select('name, website').eq('id', orgId).maybeSingle();
   if (!org) return NextResponse.json({ ok: false, error: 'Startup not found.' }, { status: 404 });
-  const apiKey = process.env.PAGESPEED_API_KEY || undefined;
 
   const outcome = await runWebsiteCheck({ orgId, website: (org.website as string | null) ?? null, force: true }, {
     now: () => new Date(),

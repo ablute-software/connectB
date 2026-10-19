@@ -3,11 +3,14 @@
 // fetches a founder's website itself (so there is no SSRF to guard here — the address is only validated for sanity, see
 // normalizeWebsiteUrl).
 //
-// The key (PAGESPEED_API_KEY, in the Vercel project; Nuno creates it in the Google Cloud Console) is read by the caller and passed in.
-// It is never logged, never stored, never put in an error message: an error that could echo the request URL is scrubbed below.
+// The key (PAGESPEED_API_KEY, in the Vercel project; Nuno creates it in the Google Cloud Console) is read by pageSpeedApiKey() below — the only
+// place that reads it — and passed in by the caller. It is never logged, never stored, never put in an error message: an error that could echo
+// the request URL is scrubbed below.
 //
 // What was seen on 16/10/2026 with NO key: HTTP 429 RESOURCE_EXHAUSTED with `quota_limit_value: "0"` for Google's shared project — the
-// anonymous route is closed, so in practice the key is required (the code still tries without one and classifies the answer as "quota").
+// anonymous route is closed, so the key is required. The routes therefore treat a missing key as the feature being OFF (Prompt 919 addendum,
+// 19/10/2026) and never send a keyless request; this module still builds one without a key when called without it (a pure function of its inputs)
+// and classifies Google's answer as "quota", which is what it would be.
 import 'server-only';
 import {
   classifyPageSpeedHttpError, reducePageSpeedResponse, type ReduceResult, type WebsiteCheckError, type WebsiteStrategy,
@@ -20,6 +23,19 @@ export const PSI_ENDPOINT = 'https://www.googleapis.com/pagespeedonline/v5/runPa
  */
 export const PSI_TIMEOUT_MS = 55_000;
 const CATEGORIES = ['performance', 'seo', 'accessibility', 'best-practices'] as const;
+
+/**
+ * The Google key, read in ONE place (Prompt 919 addendum, 19/10/2026). Whitespace-only counts as unset.
+ *
+ * Without it nothing can work: Google answers a keyless request with 429 RESOURCE_EXHAUSTED and `quota_limit_value: "0"` (seen on 16/10 and
+ * again on 19/10/2026) — not "the free quota is used up for now, try later" but "this will never succeed until a key is set". So a missing key
+ * means the founder-facing feature is OFF (no card, no request to Google, no row stored, nothing a founder is told to wait for), and the back
+ * office says so in words and refuses to run a forced check (docs/ops/CONFIG_REGISTRY.md §1.4b has the instruction to set it).
+ */
+export function pageSpeedApiKey(): string | undefined {
+  const key = process.env.PAGESPEED_API_KEY?.trim();
+  return key ? key : undefined;
+}
 
 export function buildPageSpeedRequestUrl(url: string, strategy: WebsiteStrategy, apiKey: string | undefined): string {
   const params = new URLSearchParams();

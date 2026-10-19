@@ -3,12 +3,14 @@
 //
 // Read-only, so it also answers in a Developer Viewer session (the VIEWED org's card): it reads what is stored and does nothing else —
 // no check is started, nothing is charged, nothing is written. Until the migration is applied it answers `available: false` and the card
-// does not appear (capability probe), instead of the Readiness page failing on a table that is not there yet.
+// does not appear (capability probe), instead of the Readiness page failing on a table that is not there yet. The same answer when the
+// deployment has no PAGESPEED_API_KEY: the feature is off, not "over quota".
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 import { websiteHealthAvailable } from '@/lib/website-health-capability';
+import { pageSpeedApiKey } from '@/lib/website-health-psi';
 import { FOUNDER_ROW_COLUMNS, buildFounderState } from '@/lib/website-health-state';
 import type { StoredRowLike } from '@/lib/website-health';
 
@@ -26,6 +28,9 @@ export const GET = withActingOrg(async function GET(req: Request) {
   const orgId = acting.orgId as string;
 
   if (!(await websiteHealthAvailable())) return NextResponse.json({ ok: true, available: false });
+  // Prompt 919 addendum (19/10/2026) — no Google key on this deployment means the check can never work (Google answers a keyless request
+  // with quota 0), so the feature is OFF: the card does not appear. The back office is told, in words (WebsiteHealthBackofficeCard).
+  if (!pageSpeedApiKey()) return NextResponse.json({ ok: true, available: false });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const [{ data: org }, { data: rows }] = await Promise.all([
