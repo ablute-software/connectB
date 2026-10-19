@@ -159,6 +159,10 @@ export default async function InvestorLandingPage() {
         </div>
       </nav>
 
+      {/* Prompt 920 addendum — the page had no <main> landmark (Lighthouse landmark-one-main); a plain block wrapper around everything
+          between the nav and the footer, so nothing about the layout changes (.landing is a block container; the only sibling rule,
+          ".split + .split", pairs two elements that stay siblings inside it). */}
+      <main>
       {/* ============ HERO ============ */}
       <header className={s.hero} id="top">
         <div className={s.wrap}>
@@ -335,7 +339,7 @@ export default async function InvestorLandingPage() {
           Prompt 920 §B.2 (Nuno's "sim") — an additive section between the two splits above and the pricing: the direct answer to "how do I find
           startups that fit my thesis?", then three cards built from this page's own components. Plain HTML, no reveal animation, so the text is
           there for a reader and a crawler from the first byte. Text: src/content/site/investors.ts (docs/site-copy-920.md §3.3). */}
-      <section className={s.sec} id="first-contact">
+      <section className={`${s.sec} ${s.firstContact}`} id="first-contact">
         <div className={s.wrap}>
           <div className={s.secHead}>
             <span className={s.eyebrow}>{INVESTOR_FIT_SECTION.eyebrow}</span>
@@ -385,6 +389,7 @@ export default async function InvestorLandingPage() {
           </div>
         </div>
       </section>
+      </main>
 
       {/* ============ FOOTER ============ */}
       <footer className={s.footerEl}>

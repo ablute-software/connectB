@@ -40,9 +40,13 @@ const STATUS_COLOR: Record<TicketSummary['status'], string> = {
 // shared state/context needed for 3 independent trees.
 const SUPPORT_TICKET_READ_EVENT = 'sherlock-support-ticket-read';
 
-export function useSupportUnreadCount(): number {
+// `enabled` (Prompt 920 addendum): the Shell mounts this on every route, the bare public ones included; for those it passes false and
+// nothing is fetched (the endpoint answers an anonymous visitor 401, which the browser prints as a console error). The other callers
+// are screens that only exist for a signed-in user and keep the default.
+export function useSupportUnreadCount(enabled = true): number {
   const [count, setCount] = useState(0);
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     function load() {
       fetch('/api/support/my-tickets').then((r) => r.json()).then((body) => {
@@ -53,7 +57,7 @@ export function useSupportUnreadCount(): number {
     load();
     window.addEventListener(SUPPORT_TICKET_READ_EVENT, load);
     return () => { cancelled = true; window.removeEventListener(SUPPORT_TICKET_READ_EVENT, load); };
-  }, []);
+  }, [enabled]);
   return count;
 }
 

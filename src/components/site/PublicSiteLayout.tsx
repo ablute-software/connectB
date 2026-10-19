@@ -5,7 +5,7 @@
 // The footer is the three-column one of §E (Product / Company / Legal). The home and /investors keep their existing footer rows and only gain
 // the About and FAQ links (§F.2), so the landing does not change shape.
 import Link from 'next/link';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { Fraunces, Inter } from 'next/font/google';
 import { LogoLockup } from '@/components/Logo';
 import { AudienceToggle } from '@/components/landing/AudienceToggle';
@@ -21,6 +21,12 @@ const inter = Inter({
   subsets: ['latin'], weight: ['400', '500', '600', '700'],
   variable: '--font-inter', display: 'swap',
 });
+
+// Prompt 920 addendum — the landing's --muted (#5b7077) on the audience toggle's tint (--teal-soft, #e3f0f2) is 4.47:1, a hair under WCAG AA's 4.5
+// (Lighthouse color-contrast on every one of these pages, whose nav is always in its white state). 2% darker is 4.60:1 and cannot be told apart.
+// Set on the wrapper as an inline custom property so no stylesheet-order race can undo it; the same tweak for the home and /investors is Nuno's
+// call (docs/screenshots-920/contrast-proposal.md).
+const SITE_TOKENS = { '--muted': '#596e75' } as CSSProperties;
 
 export const FOOTER_COLUMNS: { title: string; links: { label: string; href: string }[] }[] = [
   {
@@ -54,7 +60,7 @@ export const FOOTER_COLUMNS: { title: string; links: { label: string; href: stri
 
 export function PublicSiteLayout({ children, active = null }: { children: ReactNode; active?: 'startup' | 'investor' | null }) {
   return (
-    <div className={`${fraunces.variable} ${inter.variable} ${s.landing} ${p.site}`}>
+    <div className={`${fraunces.variable} ${inter.variable} ${s.landing} ${p.site}`} style={SITE_TOKENS}>
       <nav className={s.nav} data-scrolled="true" aria-label="Main">
         <div className={`${s.wrap} ${p.navWrap}`}>
           <Link className={s.logo} href="/">

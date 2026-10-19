@@ -133,11 +133,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // styled afterItems block. This state is the "onSelect" side of the
   // controlled HelpSupportWidget mounted below, alongside sidebarItems.
   const [helpOpen, setHelpOpen] = useState(false);
-  // P134-C — unread Sherlock messaging threads, for the Messages nav badge.
-  // Prompt 182 — was a one-shot fetch-on-mount local state that never
-  // refetched after a thread was read, unlike Support's own badge; now the
-  // same live-refresh hook pattern (see DealThreadView.tsx's own header).
-  const unreadMessages = useUnreadMessagesCount();
+  // The three nav badges (unread messages, unread support replies, pending interest requests) are read below, after the route is
+  // classified (Prompt 920 addendum): they must not fetch for a route that renders no nav.
   // Prompt 125 Block A — reports this nav's real rendered height (only
   // ever present on mobile, md:hidden) to ReportProblemWidget.
   const mobileNavRef = useBottomNavRef<HTMLElement>();
@@ -146,19 +143,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     fetch('/api/me').then((r) => r.json()).then(setMe).catch(() => setMe({ authEnabled: false, user: null, role: 'none' }));
   }, []);
-
-  // Item 13 — the Messages nav badge used to count only deal_messages
-  // threads; a support ticket with an unread admin reply is exactly the
-  // same kind of "something's waiting on you" signal and now lives under
-  // the same page's Support tab, so it counts toward the same badge.
-  const unreadSupport = useSupportUnreadCount();
-
-  // Prompt 220 §A — pedidos de nível 3 pendentes. Até aqui só eram visíveis
-  // no card de /settings, onde o founder nunca passava: um investidor a
-  // pedir contacto direto ficava pending para sempre. O badge vive na
-  // Pipeline (é lá que o founder pensa em investidores), e o hook re-verifica
-  // quando qualquer superfície decide (evento INTEREST_REQUEST_DECIDED_EVENT).
-  const pendingInterest = usePendingInterestCount();
 
   // Dual-role (e.g. Nuno: founder of ablute_ AND platform admin) gets a
   // switcher into the fully separate back-office console (own layout/chrome
@@ -223,6 +207,28 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // Prompt 603 §C — once per version, founders only, and only while the
   // server-side gate is switched on (legal review pending).
   useCommitmentsGate(me?.authEnabled === true && me.role === 'founder' && !isBareShellRoute, path);
+  // Prompt 920 addendum — the three nav badges. They used to run on EVERY route, the bare public ones included, so an anonymous visitor
+  // to the landing fired /api/support/my-tickets (401 — the "Failed to load resource" that cost Lighthouse best-practices 4 points on
+  // production) and /api/founder/messages and /api/founder/interest-level-requests (each a 307 to /login, which fetch follows and
+  // downloads as a whole HTML page). A route that renders no sidebar has no badge to feed, and a session that is not signed in has
+  // nothing to count; the hooks stay called on every render, in the same order — only whether they fetch changes.
+  const badgesEnabled = me?.authEnabled === true && !isBareShellRoute;
+  // P134-C — unread Sherlock messaging threads, for the Messages nav badge.
+  // Prompt 182 — was a one-shot fetch-on-mount local state that never
+  // refetched after a thread was read, unlike Support's own badge; now the
+  // same live-refresh hook pattern (see DealThreadView.tsx's own header).
+  const unreadMessages = useUnreadMessagesCount(badgesEnabled);
+  // Item 13 — the Messages nav badge used to count only deal_messages
+  // threads; a support ticket with an unread admin reply is exactly the
+  // same kind of "something's waiting on you" signal and now lives under
+  // the same page's Support tab, so it counts toward the same badge.
+  const unreadSupport = useSupportUnreadCount(badgesEnabled);
+  // Prompt 220 §A — pedidos de nível 3 pendentes. Até aqui só eram visíveis
+  // no card de /settings, onde o founder nunca passava: um investidor a
+  // pedir contacto direto ficava pending para sempre. O badge vive na
+  // Pipeline (é lá que o founder pensa em investidores), e o hook re-verifica
+  // quando qualquer superfície decide (evento INTEREST_REQUEST_DECIDED_EVENT).
+  const pendingInterest = usePendingInterestCount(badgesEnabled);
   // /pair is the MatchDeal PWA (MD-08). It was missing from this list, so
   // the phone screen behind the QR code inherited the founder CRM chrome —
   // "ablute_" header, outreach caps pill, "+ Log interaction", and the
@@ -379,7 +385,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           matchDeal={{ kind: 'startup', tooltip: 'Connect the MatchDeal app — swipe-based matching with investors.' }}
           left={
             <>
-              <div className="text-[15px] font-bold text-[#0E7490] md:hidden" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>{db.org.name || BRAND_NAME}</div>
+              <div className="text-[15px] font-bold text-[#0E7490] md:hidden" style={{ fontFamily: 'var(--font-comfortaa), var(--font-inter), sans-serif' }}>{db.org.name || BRAND_NAME}</div>
               <div className="hidden items-center gap-2 md:flex">
                 <span className="text-sm text-gray-300">Outreach discipline, enforced</span>
               </div>

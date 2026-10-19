@@ -8,7 +8,7 @@ import p from '@/components/site/site-page.module.css';
 import { PublicSiteLayout } from '@/components/site/PublicSiteLayout';
 import { FaqList } from '@/components/site/FaqList';
 import { JsonLd } from '@/components/seo/JsonLd';
-import { FAQ_META } from '@/content/site/pages';
+import { FAQ_META, OG_DEFAULT_IMAGE } from '@/content/site/pages';
 import { allFaqItems, buildFaqGroups } from '@/content/site/faq';
 import { abs, breadcrumbNode, faqPageNode, graph, organizationNode, websiteNode } from '@/lib/site-schema';
 
@@ -19,8 +19,8 @@ export const metadata: Metadata = {
   description: FAQ_META.description,
   metadataBase: new URL(APP_URL),
   alternates: { canonical: PATH },
-  openGraph: { title: FAQ_META.title, description: FAQ_META.description, url: abs(PATH), siteName: BRAND_NAME, type: 'website', locale: 'en' },
-  twitter: { card: 'summary', title: FAQ_META.title, description: FAQ_META.description },
+  openGraph: { title: FAQ_META.title, description: FAQ_META.description, url: abs(PATH), siteName: BRAND_NAME, type: 'website', locale: 'en', images: [OG_DEFAULT_IMAGE] },
+  twitter: { card: 'summary_large_image', title: FAQ_META.title, description: FAQ_META.description, images: [{ url: OG_DEFAULT_IMAGE.url, alt: OG_DEFAULT_IMAGE.alt }] },
 };
 
 export default function FaqPage() {

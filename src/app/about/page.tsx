@@ -8,7 +8,7 @@ import { CONTROLLER_LEGAL_NAME } from '@/lib/controller';
 import p from '@/components/site/site-page.module.css';
 import { PublicSiteLayout } from '@/components/site/PublicSiteLayout';
 import { JsonLd } from '@/components/seo/JsonLd';
-import { ABOUT_META } from '@/content/site/pages';
+import { ABOUT_META, OG_DEFAULT_IMAGE } from '@/content/site/pages';
 import { COUNTRIES_FLOOR, OPERATOR_LOCALITY } from '@/content/site/facts';
 import { abs, aboutPageNode, breadcrumbNode, graph, organizationNode, websiteNode } from '@/lib/site-schema';
 
@@ -19,8 +19,8 @@ export const metadata: Metadata = {
   description: ABOUT_META.description,
   metadataBase: new URL(APP_URL),
   alternates: { canonical: PATH },
-  openGraph: { title: ABOUT_META.title, description: ABOUT_META.description, url: abs(PATH), siteName: BRAND_NAME, type: 'website', locale: 'en' },
-  twitter: { card: 'summary', title: ABOUT_META.title, description: ABOUT_META.description },
+  openGraph: { title: ABOUT_META.title, description: ABOUT_META.description, url: abs(PATH), siteName: BRAND_NAME, type: 'website', locale: 'en', images: [OG_DEFAULT_IMAGE] },
+  twitter: { card: 'summary_large_image', title: ABOUT_META.title, description: ABOUT_META.description, images: [{ url: OG_DEFAULT_IMAGE.url, alt: OG_DEFAULT_IMAGE.alt }] },
 };
 
 export default function AboutPage() {

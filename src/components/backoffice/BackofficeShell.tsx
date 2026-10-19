@@ -318,7 +318,7 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
           for the frame before that effect has run. */}
       <div className="min-w-0 flex-1 md:ml-16 min-[1440px]:ml-[var(--sb-w,300px)]">
         <WorkspaceHeader
-          left={<div className="text-[15px] font-bold text-[#0E7490] md:hidden" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>{BRAND_NAME} · Back-office</div>}
+          left={<div className="text-[15px] font-bold text-[#0E7490] md:hidden" style={{ fontFamily: 'var(--font-comfortaa), var(--font-inter), sans-serif' }}>{BRAND_NAME} · Back-office</div>}
           right={<span className="text-xs text-gray-300">Platform team console</span>}
         />
         <main className="mx-auto max-w-6xl p-4 md:p-8">{children}</main>

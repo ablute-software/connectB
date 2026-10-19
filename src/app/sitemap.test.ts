@@ -32,7 +32,9 @@ describe('sitemap.xml', () => {
   it('carries a fixed, real date per page — never "now" (a sitemap that says today on every request teaches a crawler to ignore it)', () => {
     for (const e of entries) {
       expect(e.lastModified, e.url).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      expect(Date.parse(String(e.lastModified)), e.url).toBeLessThanOrEqual(Date.parse('2026-10-16T23:59:59Z'));
+      // A ratchet, not a clock: the day of the latest change recorded in SITEMAP_PAGES (19/10/2026: /contact became a server-rendered page with
+      // a title of its own). It moves only when a page's content really changes on a later day — never to "today", which is the thing this test forbids.
+      expect(Date.parse(String(e.lastModified)), e.url).toBeLessThanOrEqual(Date.parse('2026-10-19T23:59:59Z'));
     }
   });
 });

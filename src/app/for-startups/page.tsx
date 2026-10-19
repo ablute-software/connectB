@@ -9,7 +9,7 @@ import p from '@/components/site/site-page.module.css';
 import { PublicSiteLayout } from '@/components/site/PublicSiteLayout';
 import { FaqList } from '@/components/site/FaqList';
 import { JsonLd } from '@/components/seo/JsonLd';
-import { FOR_STARTUPS_META } from '@/content/site/pages';
+import { FOR_STARTUPS_META, OG_DEFAULT_IMAGE } from '@/content/site/pages';
 import {
   FOR_STARTUPS_ANSWER, FOR_STARTUPS_H1, FOR_STARTUPS_STEPS, LISTS_FAIL, LISTS_FAIL_INTRO, sherlockDoesThisParagraphs,
 } from '@/content/site/for-startups';
@@ -23,8 +23,8 @@ export const metadata: Metadata = {
   description: FOR_STARTUPS_META.description,
   metadataBase: new URL(APP_URL),
   alternates: { canonical: PATH },
-  openGraph: { title: FOR_STARTUPS_META.title, description: FOR_STARTUPS_META.description, url: abs(PATH), siteName: BRAND_NAME, type: 'article', locale: 'en' },
-  twitter: { card: 'summary', title: FOR_STARTUPS_META.title, description: FOR_STARTUPS_META.description },
+  openGraph: { title: FOR_STARTUPS_META.title, description: FOR_STARTUPS_META.description, url: abs(PATH), siteName: BRAND_NAME, type: 'article', locale: 'en', images: [OG_DEFAULT_IMAGE] },
+  twitter: { card: 'summary_large_image', title: FOR_STARTUPS_META.title, description: FOR_STARTUPS_META.description, images: [{ url: OG_DEFAULT_IMAGE.url, alt: OG_DEFAULT_IMAGE.alt }] },
 };
 
 export default function ForStartupsPage() {

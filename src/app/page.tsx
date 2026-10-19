@@ -203,6 +203,10 @@ export default async function LandingPage() {
         </div>
       </nav>
 
+      {/* Prompt 920 addendum — the page had no <main> landmark (Lighthouse landmark-one-main); a plain block wrapper around everything
+          between the nav and the footer, so nothing about the layout changes (.landing is a block container and no rule selects a direct
+          child of it). */}
+      <main>
       {/* ============ HERO ============ */}
       <header className={s.hero} id="top">
         <Lens className={`${s.lens} ${s.l1}`} size={260} />
@@ -234,18 +238,18 @@ export default async function LandingPage() {
               </div>
               <div className={s.cols}>
                 <div className={s.col}>
-                  <h4>Contacted <b>8</b></h4>
+                  <div className={s.colTitle}>Contacted <b>8</b></div>
                   <div className={s.kcard}><div className={s.nm}>Northbridge Capital</div><span className={`${s.tg} ${s.tealTag}`}>Intro sent</span></div>
                   <div className={s.kcard}><div className={s.nm}>Atlas Ventures</div><span className={`${s.tg} ${s.due}`}>Follow-up due</span></div>
                   <div className={s.kcard}><div className={s.nm}>Beacon Angels</div><span className={`${s.tg} ${s.tealTag}`}>Deck viewed</span></div>
                 </div>
                 <div className={s.col}>
-                  <h4>In talks <b>5</b></h4>
+                  <div className={s.colTitle}>In talks <b>5</b></div>
                   <div className={s.kcard}><div className={s.nm}>Harbour Partners</div><span className={`${s.tg} ${s.warm}`}>Warm · call Fri</span></div>
                   <div className={s.kcard}><div className={s.nm}>Vega Family Office</div><span className={`${s.tg} ${s.ok}`}>NDA signed</span></div>
                 </div>
                 <div className={s.col}>
-                  <h4>Diligence <b>2</b></h4>
+                  <div className={s.colTitle}>Diligence <b>2</b></div>
                   <div className={s.kcard}><div className={s.nm}>Meridian Growth</div><span className={`${s.tg} ${s.ok}`}>Data room open</span></div>
                   <div className={s.kcard}><div className={s.nm}>Quartz Capital</div><span className={`${s.tg} ${s.warm}`}>Partner meeting</span></div>
                 </div>
@@ -385,6 +389,7 @@ export default async function LandingPage() {
           </div>
         </div>
       </section>
+      </main>
 
       {/* ============ FOOTER ============ */}
       <footer className={s.footerEl}>

@@ -40,3 +40,9 @@ export const INVESTOR_FIT_SECTION = {
     },
   ],
 } as const;
+
+/** The text of /investors' Open Graph image — the section's own answer (INVESTOR_FIT_SECTION.lead), shortened to the two things it says. */
+export const OG_INVESTORS = {
+  headline: 'Find the startups that fit your thesis, before anyone sends you a deck.',
+  sub: 'Scored against your mandate: sectors, stages, cheque range, geographies and instruments.',
+} as const;
