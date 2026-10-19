@@ -1,6 +1,6 @@
 'use client';
 // Prompt 909 (I3) — the nine permissions as switches, for a category or for one person. The two that the server
-// enforces already are plain; the other seven are stored and shown, with "Used from the next stage" beside them.
+// enforces already are plain; the other six are stored and shown, with "Used from the next stage" beside them.
 import { PERMISSIONS, type PermissionKey, type PermissionSet } from '@/lib/calls/permissions';
 
 export function PermissionToggles({ values, onToggle, disabled, idPrefix, markAdjusted }: {

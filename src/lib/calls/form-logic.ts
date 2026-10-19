@@ -1,10 +1,11 @@
 // Prompt 905 — the rules a call's form obeys when someone ANSWERS it, in one pure module: the editor's
 // preview runs it in the browser, and Prompt 906's submit runs the very same functions on the server
 // (spec §6.2: "as condições são verificadas também no servidor"). No I/O, no React.
+import { MAX_NUMBER_DIGITS, type AnswerValue, type Answers, type FieldCondition, type FormField } from './types';
 import {
-  DEFAULT_MAX_FILE_MB, MAX_FILE_MB_CEILING, MAX_NUMBER_DIGITS,
-  type AnswerValue, type Answers, type FieldCondition, type FormField,
-} from './types';
+  FILE_FORMATS, MAX_URL_LENGTH, entriesOf, fileFormatsOf, fileValues, formatOfName, formatsText, groupMin, groupOf, groupStarted, isEmail, isFileValue, isGroupEntry, isHttpUrl,
+  maxFileMbOf, maxFilesOf, presetEntriesFor, subFieldAsField,
+} from './field-config';
 
 export const orderFields = (fields: FormField[]): FormField[] =>
   [...fields].sort((a, b) => a.page - b.page || a.position - b.position);
@@ -14,8 +15,13 @@ export const orderFields = (fields: FormField[]): FormField[] =>
 export function isAnswered(value: AnswerValue): value is Exclude<AnswerValue, null | undefined> {
   if (value == null) return false;
   if (typeof value === 'string') return value.trim() !== '';
-  if (Array.isArray(value)) return value.length > 0;
-  return typeof value === 'object' && typeof value.fileName === 'string' && value.fileName !== '';
+  if (Array.isArray(value)) {
+    if (value.length === 0) return false;
+    // A group is answered when at least one of its entries holds something; a list of options or of files, when it is not empty.
+    if (isGroupEntry(value[0])) return (value as unknown[]).some((e) => isGroupEntry(e) && Object.values(e.values).some((v) => isAnswered(v)));
+    return true;
+  }
+  return isFileValue(value) && value.fileName !== '';
 }
 
 // --- Display conditions (§6.2) -----------------------------------------------------------------------
@@ -27,7 +33,7 @@ function matches(cond: FieldCondition, answer: AnswerValue): boolean {
     case 'equals':
     case 'not_equals': {
       const target = cond.value ?? '';
-      const hit = Array.isArray(answer) ? answer.includes(target) : typeof answer === 'string' ? answer === target : false;
+      const hit = Array.isArray(answer) ? (answer as unknown[]).includes(target) : typeof answer === 'string' ? answer === target : false;
       return cond.operator === 'equals' ? hit : !hit;
     }
   }
@@ -105,8 +111,58 @@ export function isRealDate(s: string): boolean {
   return d.getUTCFullYear() === Number(m[1]) && d.getUTCMonth() === Number(m[2]) - 1 && d.getUTCDate() === Number(m[3]);
 }
 
+/**
+ * The problems inside a group's entries, by "entryId/subFieldId" (what the repeater draws under each input), and the one about the NUMBER of entries
+ * under "count". Empty = fine. A required question inside an entry is required in every entry.
+ */
+export function groupErrors(field: FormField, value: AnswerValue): Record<string, string> {
+  const cfg = groupOf(field);
+  if (!cfg) return {};
+  const errors: Record<string, string> = {};
+  // An OPTIONAL group asks for nothing until the person starts filling it in (then its minimum and its required questions apply); a required one always does.
+  if (!field.required && !groupStarted(cfg, value)) return errors;
+  // The rows the entity fixed are always there: the person never has to "add" them.
+  const entries = presetEntriesFor(cfg, value);
+  const min = groupMin(field, cfg);
+  const noun = cfg.entryLabel.toLowerCase();
+  if (entries.length < min) errors.count = min === 1 ? `Add at least one ${noun}.` : `Add at least ${min} entries (${noun}).`;
+  if (entries.length > cfg.max) errors.count = `At most ${cfg.max} entries (${noun}).`;
+  for (const e of entries) {
+    for (const s of cfg.subFields) {
+      const err = validateAnswer(subFieldAsField(s), e.values[s.id]);
+      if (err) errors[`${e.id}/${s.id}`] = err;
+    }
+  }
+  return errors;
+}
+
+/**
+ * EVERY problem of a group, one by one: the one about the number of entries, then each entry's each question, in the order of the form. The final check lists them all at
+ * once (a group used to count as one item, showing only its first problem — the rest appeared one at a time after each correction).
+ */
+export function groupIssues(field: FormField, value: AnswerValue): { key: string; message: string }[] {
+  const cfg = groupOf(field);
+  if (!cfg) return [];
+  const errors = groupErrors(field, value);
+  const out: { key: string; message: string }[] = [];
+  if (errors.count) out.push({ key: `${field.id}#count`, message: errors.count });
+  const entries = presetEntriesFor(cfg, value);         // the fixed rows count even when nothing was typed in them
+  for (const [i, e] of entries.entries()) {
+    for (const s of cfg.subFields) {
+      const err = errors[`${e.id}/${s.id}`];
+      if (err) out.push({ key: `${field.id}#${e.id}/${s.id}`, message: `${cfg.entryLabel} ${i + 1} — ${s.label}: ${err}` });
+    }
+  }
+  return out;
+}
+
+function validateGroup(field: FormField, value: AnswerValue): string | null {
+  return groupIssues(field, value)[0]?.message ?? null;
+}
+
 /** null = fine. Only meaningful for a SHOWN field; an empty optional answer is always fine. */
 export function validateAnswer(field: FormField, value: AnswerValue): string | null {
+  if (field.kind === 'group') return validateGroup(field, value);
   if (!isAnswered(value)) return field.required ? 'This answer is required.' : null;
   switch (field.kind) {
     case 'short_text':
@@ -131,12 +187,20 @@ export function validateAnswer(field: FormField, value: AnswerValue): string | n
       const ids = Array.isArray(value) ? value : [];
       return ids.length > 0 && ids.every((v) => field.options.some((o) => o.id === v)) ? null : 'Please choose from the options.';
     }
+    case 'url': return typeof value === 'string' && isHttpUrl(value) ? null : value && typeof value === 'string' && value.length > MAX_URL_LENGTH ? 'That link is too long.' : 'Enter a link that starts with http:// or https://.';
+    case 'email': return typeof value === 'string' && isEmail(value) ? null : 'Enter a valid email address.';
     case 'file': {
-      if (typeof value !== 'object' || Array.isArray(value)) return 'Please attach a PDF.';
-      const name = value.fileName.toLowerCase();
-      if (!name.endsWith('.pdf') || (value.mime && value.mime !== 'application/pdf')) return 'Only PDF files are accepted.';
-      const maxMb = Math.min(field.validations.maxFileMb ?? DEFAULT_MAX_FILE_MB, MAX_FILE_MB_CEILING);
-      if (value.size > maxMb * 1024 * 1024) return `The file is too large (maximum ${maxMb} MB).`;
+      const files = fileValues(value);
+      if (files.length === 0) return 'Please attach a file.';
+      const formats = fileFormatsOf(field.validations);
+      const maxFiles = maxFilesOf(field.validations);
+      if (files.length > maxFiles) return maxFiles === 1 ? 'Only one file can be attached here.' : `You can attach at most ${maxFiles} files.`;
+      const allowedMime = formats.flatMap((f) => FILE_FORMATS[f].mime);
+      const maxMb = maxFileMbOf(field.validations);
+      for (const f of files) {
+        if (!formatOfName(f.fileName, formats) || (f.mime && !allowedMime.includes(f.mime))) return `Only ${formatsText(formats)} files are accepted.`;
+        if (f.size > maxMb * 1024 * 1024) return `The file is too large (maximum ${maxMb} MB).`;
+      }
       return null;
     }
   }

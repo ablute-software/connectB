@@ -7,6 +7,7 @@ import { BottomNavHeightProvider } from '@/lib/bottom-nav-context';
 import { ConfirmProvider } from '@/lib/confirm';
 import { BRAND_NAME } from '@/lib/brand';
 import { ChunkErrorRecovery } from '@/components/ChunkErrorRecovery';
+import { NewVersionBanner } from '@/components/NewVersionBanner';
 
 export const metadata: Metadata = {
   title: `${BRAND_NAME} — Investor Relations`,
@@ -31,6 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <ConfirmProvider>
                 <Shell>{children}</Shell>
                 <ReportProblemWidget />
+                <NewVersionBanner />
               </ConfirmProvider>
             </BottomNavHeightProvider>
           </StoreProvider>

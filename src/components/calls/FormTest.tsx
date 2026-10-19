@@ -5,9 +5,9 @@
 // submitted. THE ANSWERS LIVE IN THIS COMPONENT'S STATE ONLY: they never leave the browser (this file does not talk to
 // the server, to storage or to anything else), they vanish when the person leaves, and they never create an
 // application or count anywhere. Available to whoever may configure the call, in any state.
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { visiblePages } from '@/lib/calls/form-logic';
-import { TEST_BANNER, testStep, type FinalIssue } from '@/lib/calls/preview-logic';
+import { TEST_BANNER, testStep, visibleIds, type FinalIssue } from '@/lib/calls/preview-logic';
 import type { Answers, AnswerValue, FormField, PlatformMappingKey } from '@/lib/calls/types';
 import { FieldInput } from './FieldInput';
 
@@ -37,8 +37,11 @@ export function FormTest({ fields, currency, title, onExit }: { fields: FormFiel
 
   const set = (id: string, v: AnswerValue) => { setAnswers((a) => ({ ...a, [id]: v })); setErrors((e) => { const { [id]: _drop, ...rest } = e; return rest; }); setFinal(null); };
 
+  // The questions shown at the previous final check: what a later answer makes appear is marked as new.
+  const lastShown = useRef<Set<string> | null>(null);
   function next() {
-    const step = testStep(fields, merged, index);
+    const step = testStep(fields, merged, index, lastShown.current ?? undefined);
+    if (step.kind === 'final') lastShown.current = visibleIds(fields, merged);
     if (step.kind === 'blocked') { setErrors(step.errors); return; }
     setErrors({});
     if (step.kind === 'next') setPageIndex(step.index); else setFinal(step.issues);
@@ -68,8 +71,8 @@ export function FormTest({ fields, currency, title, onExit }: { fields: FormFiel
               <p className="text-base font-semibold text-gray-900">Final check: {final.length} thing{final.length === 1 ? ' is' : 's are'} missing</p>
               <ul className="space-y-1.5 text-sm" data-testid="final-issues">
                 {final.map((i) => (
-                  <li key={i.fieldId} className="flex items-start justify-between gap-3 rounded-lg bg-red-50 px-3 py-2">
-                    <span className="text-gray-800"><b>Page {i.pageNumber}</b> · {i.label}<span className="block text-xs text-[#B00000]">{i.message}</span></span>
+                  <li key={i.key} className="flex items-start justify-between gap-3 rounded-lg bg-red-50 px-3 py-2">
+                    <span className="text-gray-800"><b>Page {i.pageNumber}</b> · {i.label}<span className="block text-xs text-[#B00000]">{i.message}</span>{i.newBecause && <span className="block text-xs font-medium text-amber-700" data-testid="new-because">New: shown because you answered «{i.newBecause.label}» on page {i.newBecause.pageNumber}</span>}</span>
                     <button type="button" className="shrink-0 text-xs font-semibold text-[#0E7490] hover:underline"
                       onClick={() => { setPageIndex(Math.max(0, i.pageNumber - 1)); setFinal(null); setErrors(Object.fromEntries(final.filter((x) => x.page === i.page).map((x) => [x.fieldId, x.message]))); }}>Go to the page</button>
                   </li>
@@ -97,7 +100,7 @@ export function FormTest({ fields, currency, title, onExit }: { fields: FormFiel
         </div>
       </div>
       <div className="space-y-5 px-5 py-5">
-        {current.fields.map((f) => <FieldInput key={f.id} field={f} value={merged[f.id]} error={errors[f.id]} currency={currency} onChange={(v) => set(f.id, v)} />)}
+        {current.fields.map((f) => <FieldInput key={f.id} field={f} value={merged[f.id]} error={errors[f.id]} currency={currency} showAllErrors={!!errors[f.id]} onChange={(v) => set(f.id, v)} />)}
       </div>
       {Object.keys(errors).length > 0 && <p role="alert" className="px-5 pb-2 text-xs font-medium text-[#B00000]" data-testid="blocked">Something on this page needs your attention before you can continue.</p>}
       <div className="flex items-center justify-between border-t border-gray-100 px-5 py-3">

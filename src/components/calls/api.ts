@@ -7,10 +7,15 @@ import type { ImportMode, ImportSource } from '@/lib/calls/form-import';
 import type { TeamPayload } from '@/lib/calls/team-payload';
 import type { Proposal, ProposalFieldItem, ProposalGeneral, ProposalPhaseItem } from '@/lib/calls/ai-import/proposal';
 import type { SourceKind } from '@/lib/calls/ai-import/limits';
+import { NETWORK_MESSAGE, importFailure } from '@/lib/calls/ai-import/client-errors';
 
 export interface PromoterInfo { kind: PromoterKind; id: string; name: string; canManage: boolean }
 
-export interface CallListItem extends Call { effectiveStatus: CallStatus; applications: number; applicationsTotal: number; fields: number; phases: number; canConfigure: boolean }
+export interface CallListItem extends Call {
+  effectiveStatus: CallStatus; applications: number; applicationsTotal: number; fields: number; phases: number; canConfigure: boolean;
+  /** Prompt 917 (Adenda 1): a reading in progress, or a proposal waiting for review, and which run it is. */
+  importRun?: { id: string; status: 'reading' | 'proposed' } | null;
+}
 
 export interface CallEvent { id: number; event: string; actor_user_id: string | null; detail: Record<string, unknown>; created_at: string }
 
@@ -24,9 +29,10 @@ export interface CallState {
   phases: CallPhase[];
   fields: FormField[];
   issues: ReadinessIssue[];
+  teamMembers?: number;
   summary: CallSummary;
   actions: ReturnType<typeof availableActions>;
-  applications: { submitted: number; inProgress: number; withdrawn: number; total: number };
+  applications: { submitted: number; total: number };
   events: CallEvent[];
 }
 
@@ -66,20 +72,38 @@ export const callsApi = {
   team: (id: string) => call<TeamPayload>(`/api/calls/${id}/team`),
   teamAction: (id: string, body: Record<string, unknown>) => call<TeamPayload>(`/api/calls/${id}/team`, send('POST', body)),
   /** Prompt 909 (I4): the import from documents. The upload is multipart, so it does not go through call(). */
-  importFromDocuments: async (id: string, form: FormData): Promise<ApiResult<{ run: { id: string; status: string; proposal: Proposal } }>> => {
+  /**
+   * Prompt 909 (I4, Adenda 2): starts the reading of the documents. The route answers at once with a run in state "reading"; the proposal comes
+   * later, from importRun(). An answer that is not JSON (a gateway timeout, an error page) gets its own sentence and keeps the HTTP code.
+   */
+  importFromDocuments: async (id: string, form: FormData): Promise<ApiResult<{ run: { id: string; status: string }; runId?: string }> & { httpStatus: number | null }> => {
     try {
       const res = await fetch(`/api/calls/${id}/import-ai`, { method: 'POST', body: form });
-      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; code?: string; run: { id: string; status: string; proposal: Proposal } };
-      return { ok: res.ok && body.ok !== false, status: res.status, body };
+      let parsed = true;
+      const body = (await res.json().catch(() => { parsed = false; return {}; })) as { ok?: boolean; error?: string; code?: string; runId?: string; run: { id: string; status: string } };
+      const ok = res.ok && parsed && body.ok !== false;
+      if (!ok) { const f = importFailure(res.status, body, parsed); body.error = f.message; return { ok: false, status: res.status, body, httpStatus: f.httpStatus }; }
+      return { ok, status: res.status, body, httpStatus: null };
     } catch {
-      return { ok: false, status: 0, body: { error: 'We could not reach the server. Check your connection and try again.', code: 'network' } as never };
+      return { ok: false, status: 0, body: { error: NETWORK_MESSAGE, code: 'network' } as never, httpStatus: null };
     }
   },
+  /** Where the reading is: reading (nothing else), proposed (with the proposal) or failed (with the sentence). */
+  importRun: (id: string, runId: string) =>
+    call<{ run: { id: string; status: 'reading' | 'proposed' | 'applied' | 'discarded' | 'failed'; startedAt: string; proposal?: Proposal; error?: string | null; code?: string | null } }>(`/api/calls/${id}/import-ai/${runId}`),
+  /** The person's own unseen "proposal ready" / "could not read" notices (Adenda 2b). */
+  importNotices: () => call<{ notices: { id: string; kind: 'import_ready' | 'import_failed'; title: string; body: string | null; callId: string; createdAt: string; runId: string | null }[] }>('/api/calls/import-notices'),
+  markImportNoticesSeen: (target: { ids: string[] } | { callId: string }) => call<Record<string, never>>('/api/calls/import-notices', send('POST', target)),
+  /** What the screen needs when it opens: a reading in progress, a proposal waiting, the last failure. */
+  importState: (id: string) =>
+    call<{ pending: { id: string; proposal: Proposal } | null; reading: { id: string; createdAt: string } | null; lastFailure: { id: string; message: string | null; code: string | null; at: string } | null }>(`/api/calls/${id}/import-ai`),
   sourceDocuments: (id: string) =>
-    call<{ documents: { id: string; kind: SourceKind; fileName: string; sizeBytes: number; pages: number | null; createdAt: string }[]; foundLater: { eligibility: string[]; evaluation: string[] } }>(`/api/calls/${id}/import-ai`),
+    call<{ documents: { id: string; kind: SourceKind; mimeType?: string; fileName: string; sizeBytes: number; pages: number | null; createdAt: string; publicToApplicants?: boolean }[]; foundLater: { eligibility: string[]; evaluation: string[] } }>(`/api/calls/${id}/import-ai`),
   applyImport: (id: string, runId: string, body: { baseVersion: number; fieldsMode: 'add' | 'replace'; accepted: { general?: ProposalGeneral; phases?: ProposalPhaseItem[]; fields?: ProposalFieldItem[] } }) =>
     call<CallState & { applied: { general: boolean; phases: number; fields: number } }>(`/api/calls/${id}/import-ai/${runId}`, send('POST', { action: 'apply', ...body })),
   discardImport: (id: string, runId: string) => call<{ discarded: boolean }>(`/api/calls/${id}/import-ai/${runId}`, send('POST', { action: 'discard' })),
+  setSourceDocumentPublic: (id: string, docId: string, publicToApplicants: boolean) =>
+    call<Record<string, never>>(`/api/calls/${id}/source-documents/${docId}`, send('PATCH', { publicToApplicants })),
   deleteSourceDocument: (id: string, docId: string) => call<Record<string, never>>(`/api/calls/${id}/source-documents/${docId}`, { method: 'DELETE' }),
   /** Delete a call nobody applied to (the server decides). */
   remove: (id: string) => call<{ deleted: boolean; name: string }>(`/api/calls/${id}/action`, send('POST', { action: 'delete' })),

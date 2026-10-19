@@ -16,7 +16,6 @@ export function GeneralTab({ call, promoterName, disabled, onChange }: {
   call: Call; promoterName: string; disabled: boolean; onChange: (patch: GeneralPatch) => void;
 }) {
   const zones = useMemo(() => timeZoneOptions(), []);
-  const unit = call.limitUnit === 'legal_entity' ? 'legal entity' : 'project';
 
   // The wall-clock time shown in the chosen zone. Changing the zone keeps what was TYPED (the wall time) and
   // re-reads it in the new zone — the preview line under each field says which instant that is.
@@ -42,7 +41,7 @@ export function GeneralTab({ call, promoterName, disabled, onChange }: {
     <div className="max-w-2xl space-y-5" data-testid="general-tab">
       <div>
         <label className={LABEL} htmlFor="call-name">Name</label>
-        <input id="call-name" autoComplete="off" className={FIELD} value={call.name} disabled={disabled} maxLength={200}
+        <input id="call-name" data-jump="name" autoComplete="off" className={FIELD} value={call.name} disabled={disabled} maxLength={200}
           onChange={(e) => onChange({ name: e.target.value })} />
       </div>
       <div>
@@ -60,13 +59,13 @@ export function GeneralTab({ call, promoterName, disabled, onChange }: {
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className={LABEL} htmlFor="call-opens">Applications open</label>
-            <input id="call-opens" type="datetime-local" autoComplete="off" className={FIELD} value={opensWall} disabled={disabled}
+            <input id="call-opens" data-jump="opens" type="datetime-local" autoComplete="off" className={FIELD} value={opensWall} disabled={disabled}
               onChange={(e) => setWall('opensAt', e.target.value)} />
             <p className={HINT}>{utcLine(call.opensAt)}</p>
           </div>
           <div>
             <label className={LABEL} htmlFor="call-closes">Applications close</label>
-            <input id="call-closes" type="datetime-local" autoComplete="off" className={FIELD} value={closesWall} disabled={disabled}
+            <input id="call-closes" data-jump="closes" type="datetime-local" autoComplete="off" className={FIELD} value={closesWall} disabled={disabled}
               onChange={(e) => setWall('closesAt', e.target.value)} />
             <p className={HINT}>{utcLine(call.closesAt)}</p>
           </div>
@@ -96,18 +95,31 @@ export function GeneralTab({ call, promoterName, disabled, onChange }: {
         </div>
       </fieldset>
 
-      <fieldset className="rounded-lg border border-gray-200 p-4">
-        <legend className="px-1 text-xs font-semibold text-gray-700">Applications per…</legend>
-        <select aria-label="Application limit" className={FIELD} value={call.limitUnit} disabled={disabled}
-          onChange={(e) => onChange({ limitUnit: e.target.value as Call['limitUnit'] })}>
-          <option value="project">One per project / startup</option>
-          <option value="legal_entity">One per legal entity</option>
-        </select>
-        <label className="mt-3 flex items-start gap-2 text-sm">
-          <input type="checkbox" checked={call.allowMultiple} disabled={disabled} onChange={(e) => onChange({ allowMultiple: e.target.checked })} className="mt-1" />
-          <span>Allow more than one application per {unit}<span className={`${HINT} block`}>Each one keeps its own form, documents, status, evaluations and result.</span></span>
-        </label>
-        <p className={HINT}>Projects without an incorporated company can apply: no company data is required unless you ask for it.</p>
+      <fieldset className="rounded-lg border border-gray-200 p-4" data-testid="applications-limit">
+        <legend className="px-1 text-xs font-semibold text-gray-700">Applications</legend>
+        <p className="text-sm font-medium text-gray-800" id="count-by-label">Count applications by</p>
+        <div role="radiogroup" aria-labelledby="count-by-label" className="mt-1 space-y-1 text-sm">
+          <label className="flex min-h-[44px] items-center gap-2 sm:min-h-0">
+            <input type="radio" name="limit-unit" checked={call.limitUnit === 'project'} disabled={disabled} onChange={() => onChange({ limitUnit: 'project' })} />
+            <span>Project / startup</span>
+          </label>
+          <label className="flex min-h-[44px] items-center gap-2 sm:min-h-0">
+            <input type="radio" name="limit-unit" checked={call.limitUnit === 'legal_entity'} disabled={disabled} onChange={() => onChange({ limitUnit: 'legal_entity' })} />
+            <span>Legal entity (company)</span>
+          </label>
+        </div>
+        <p className="mt-4 text-sm font-medium text-gray-800" id="can-submit-label">Each one can submit</p>
+        <div role="radiogroup" aria-labelledby="can-submit-label" className="mt-1 space-y-1 text-sm">
+          <label className="flex min-h-[44px] items-center gap-2 sm:min-h-0">
+            <input type="radio" name="allow-multiple" checked={!call.allowMultiple} disabled={disabled} onChange={() => onChange({ allowMultiple: false })} />
+            <span>Only one application</span>
+          </label>
+          <label className="flex min-h-[44px] items-center gap-2 sm:min-h-0">
+            <input type="radio" name="allow-multiple" checked={call.allowMultiple} disabled={disabled} onChange={() => onChange({ allowMultiple: true })} />
+            <span>More than one application</span>
+          </label>
+        </div>
+        <p className={HINT}>With more than one, each application keeps its own form, documents, status, evaluations and result. Projects without an incorporated company can apply: no company data is required unless you ask for it.</p>
       </fieldset>
 
       <div className="grid gap-4 sm:grid-cols-2">

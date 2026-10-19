@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { extractDocument, docxText, readZipEntry } from './extract';
 import { docx, scannedPdf, textPdf, xlsx } from './test-fixtures';
 import { EMPTY_PROPOSAL, MAX_PROPOSED_FIELDS, fieldItemsToFormFields, flagOutdated, sanitizeProposal } from './proposal';
-import { IMPORT_FORMATS_TEXT, IMPORT_MAX_PDF_PAGES, IMPORT_PRIVACY_NOTICE, SCANNED_PDF_MESSAGE } from './limits';
+import { IMPORT_FORMATS_TEXT, IMPORT_MAX_PDF_PAGES, IMPORT_PRIVACY_NOTICE, SCANNED_PDF_MESSAGE, SOURCE_KINDS, SOURCE_KIND_LABELS } from './limits';
 import { buildContent, neutraliseDocumentText, proposeFromDocuments, type ModelRequest, type PreparedDoc } from './propose';
 import { PROPOSE_SYSTEM_PROMPT, PROPOSE_TOOL, PROPOSE_TOOL_NAME } from './prompt';
 import { FIELD_KINDS } from '../types';
@@ -75,7 +75,9 @@ describe('what the screen says', () => {
     expect(IMPORT_FORMATS_TEXT).toContain('Word (.docx)');
     expect(IMPORT_FORMATS_TEXT).toContain('Excel (.xlsx)');
     expect(IMPORT_FORMATS_TEXT).toContain('scanned PDF');
-    expect(IMPORT_PRIVACY_NOTICE).toBe('The document is read by our AI provider to propose a configuration. Do not upload applicants’ documents.');
+    expect(IMPORT_PRIVACY_NOTICE).toBe("We read your document on our platform. If a part is unclear, that part is sent to our AI provider to complete the proposal. Do not upload applicants' documents or confidential evaluation grids.");
+    expect(SOURCE_KINDS).toEqual(['regulation', 'form', 'other']);                // no evaluation grid in the picker
+    expect(Object.values(SOURCE_KIND_LABELS)).toEqual(['Regulation', 'Previous form', 'Other document']);
   });
 });
 

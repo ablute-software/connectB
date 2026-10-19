@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  resolvedFromAddress, resolvedReplyTo, domainOfSender, isSandboxSender, SANDBOX_SENDER_DOMAIN,
+  resolvedFromAddress, domainOfSender, isSandboxSender, SANDBOX_SENDER_DOMAIN,
 } from './email-sender-identity';
 
 // Prompt 537 §2/§3 — the sender identity the health card reports MUST be the
@@ -35,11 +35,11 @@ describe('the configured sender wins, always', () => {
     expect(domainOfSender(resolvedFromAddress())).toBe(SANDBOX_SENDER_DOMAIN);
   });
 
-  it('reply-to follows RESEND_REPLY_TO and is undefined when unset', () => {
+  it('there is no default reply-to: RESEND_REPLY_TO is not read at all (Prompt 911 follow-up)', async () => {
+    const mod = await import('./email-sender-identity');
+    expect('resolvedReplyTo' in mod).toBe(false);
     process.env.RESEND_REPLY_TO = 'sherlockdeal.com@gmail.com';
-    expect(resolvedReplyTo()).toBe('sherlockdeal.com@gmail.com');
-    delete process.env.RESEND_REPLY_TO;
-    expect(resolvedReplyTo()).toBeUndefined();
+    expect(JSON.stringify(Object.keys(mod))).not.toContain('Reply');
   });
 });
 

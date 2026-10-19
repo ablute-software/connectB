@@ -105,11 +105,15 @@ describe('a startup (kind = org)', () => {
   });
 
   it('lists only the PENDING invitations, newest first, and marks the one whose date has passed', async () => {
+    // The fixture dates are fixed (the pending invitation expires on 17 Oct 2026), so the clock is fixed too: this test failed for real the day after, on 19/10/2026.
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-14T12:00:00Z'));
+    try {
     const invites = (await ficha('org', ORG)).json.customer?.invites as Record<string, unknown>[];
     expect(invites.map((i) => i.id)).toEqual(['inv-pending', 'inv-lapsed']);
     expect(invites[0]).toMatchObject({ email: 'pending@zz-test-907.example', role: 'admin', sentAt: '2026-10-10T08:00:00Z', expiresAt: '2026-10-17T08:00:00Z' });
     expect(invites[0].expired).toBe(false);
     expect(invites[1].expired).toBe(true);
+    } finally { vi.useRealTimers(); }
   });
 
   it('never carries an invitation token, nor another customer\'s people', async () => {

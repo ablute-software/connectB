@@ -6,12 +6,10 @@
 //     while something is missing, and a final check at the end listing what is missing. Answers live in the browser
 //     only and are never sent anywhere.
 // Pure and client-safe, so the rules are tested without a browser.
-import { visibleFields, visiblePages, validateAnswers, validatePage } from './form-logic';
+import { groupIssues, validateAnswer, visibleFields, visiblePages, validatePage } from './form-logic';
 import { orderFields } from './form-logic';
-import {
-  DEFAULT_MAX_FILE_MB, MAX_FILE_MB_CEILING, MAX_NUMBER_DIGITS, platformMappingLabel,
-  type Answers, type FormField,
-} from './types';
+import { MAX_NUMBER_DIGITS, URL_HINT_LABELS, platformMappingLabel, type Answers, type FormField } from './types';
+import { fileFormatsOf, formatsText, groupMin, groupOf, maxFileMbOf, maxFilesOf } from './field-config';
 
 // --- What is written under a field ------------------------------------------------------------------------------------
 
@@ -34,10 +32,25 @@ export function validationHints(field: FormField): string[] {
     case 'single_choice': out.push('Choose one'); break;
     case 'multiple_choice': out.push('Choose one or more'); break;
     case 'file': {
-      const mb = Math.min(field.validations.maxFileMb ?? DEFAULT_MAX_FILE_MB, MAX_FILE_MB_CEILING);
-      out.push(`PDF only, max ${mb} MB`);
+      const mb = maxFileMbOf(field.validations);
+      const n = maxFilesOf(field.validations);
+      out.push(`${formatsText(fileFormatsOf(field.validations))} only, max ${mb} MB${n > 1 ? ` each, up to ${n} files` : ''}`);
       if (field.expectedType) out.push(`Expected: ${field.expectedType}`);
       if (field.maxAgeMonths) out.push(`Issued within the last ${field.maxAgeMonths} month${field.maxAgeMonths === 1 ? '' : 's'}`);
+      break;
+    }
+    case 'url':
+      out.push('A link starting with http:// or https://');
+      if (field.validations.urlHint) out.push(`Expected: a ${URL_HINT_LABELS[field.validations.urlHint].toLowerCase()}`);
+      break;
+    case 'email': out.push('A valid email address'); break;
+    case 'group': {
+      const g = groupOf(field);
+      if (g) {
+        const min = groupMin(field, g);
+        out.push(g.presetRows.length > 0 ? `${g.presetRows.length} fixed rows` : `${min > 0 ? `${min} to ` : 'Up to '}${g.max} ${g.entryLabel.toLowerCase()} entries`);
+        out.push(g.display === 'table' ? 'Shown as a table' : 'Shown as cards');
+      }
       break;
     }
   }
@@ -80,15 +93,36 @@ export function previewPages(fields: FormField[], applicantView: boolean, answer
 
 // --- Test mode -------------------------------------------------------------------------------------------------------------
 
-export interface FinalIssue { fieldId: string; label: string; page: number; pageNumber: number; message: string }
+export interface FinalIssue {
+  fieldId: string; label: string; page: number; pageNumber: number; message: string;
+  /** Unique per problem (a group has one per entry and question). */
+  key: string;
+  /** Set when this question was NOT shown at the previous check and is now because of an answer given since: "New: shown because you answered «…» in page N". */
+  newBecause?: { label: string; pageNumber: number };
+}
 
-/** The final check: everything still missing or wrong in the questions that are shown, in the order of the form. */
-export function finalCheck(fields: FormField[], answers: Answers): FinalIssue[] {
-  const errors = validateAnswers(fields, answers);
+/** The ids of the questions shown for these answers (kept between two checks, to tell what a later answer made appear). */
+export const visibleIds = (fields: FormField[], answers: Answers): Set<string> => new Set(visibleFields(fields, answers).map((f) => f.id));
+
+/**
+ * The final check: EVERYTHING still missing or wrong in the questions that are shown — every page, every group and every entry of it, one item per problem — in the
+ * order of the form. The only thing a later check may add is a conditional question that an answer given since made appear; it is then marked as new, with the answer
+ * that made it appear (pass the ids shown at the previous check).
+ */
+export function finalCheck(fields: FormField[], answers: Answers, previouslyVisible?: ReadonlySet<string>): FinalIssue[] {
   const pages = visiblePages(fields, answers).map((p) => p.page);
-  return visibleFields(fields, answers).filter((f) => errors[f.id]).map((f) => ({
-    fieldId: f.id, label: f.label, page: f.page, pageNumber: pages.indexOf(f.page) + 1, message: errors[f.id],
-  }));
+  const byId = new Map(fields.map((f) => [f.id, f]));
+  const out: FinalIssue[] = [];
+  for (const f of visibleFields(fields, answers)) {
+    const problems = f.kind === 'group'
+      ? groupIssues(f, answers[f.id])
+      : (() => { const message = validateAnswer(f, answers[f.id]); return message ? [{ key: f.id, message }] : []; })();
+    if (problems.length === 0) continue;
+    const controller = previouslyVisible && !previouslyVisible.has(f.id) && f.condition ? byId.get(f.condition.fieldId) : undefined;
+    const newBecause = controller ? { label: controller.label, pageNumber: pages.indexOf(controller.page) + 1 } : undefined;
+    for (const p of problems) out.push({ fieldId: f.id, key: p.key, label: f.label, page: f.page, pageNumber: pages.indexOf(f.page) + 1, message: p.message, ...(newBecause ? { newBecause } : {}) });
+  }
+  return out;
 }
 
 export type TestStep =
@@ -100,14 +134,14 @@ export type TestStep =
  * What "Next" does in test mode, from the page the person is on: blocked while anything on this page is missing; to the
  * next page otherwise; and on the last page, the final check (which may still list things, e.g. after going back).
  */
-export function testStep(fields: FormField[], answers: Answers, pageIndex: number): TestStep {
+export function testStep(fields: FormField[], answers: Answers, pageIndex: number, previouslyVisible?: ReadonlySet<string>): TestStep {
   const pages = visiblePages(fields, answers);
   const index = Math.min(pageIndex, Math.max(0, pages.length - 1));
   const current = pages[index];
   const errors = current ? validatePage(fields, answers, current.page) : {};
   if (Object.keys(errors).length > 0) return { kind: 'blocked', errors };
   if (index < pages.length - 1) return { kind: 'next', index: index + 1 };
-  return { kind: 'final', issues: finalCheck(fields, answers) };
+  return { kind: 'final', issues: finalCheck(fields, answers, previouslyVisible) };
 }
 
 export const TEST_BANNER = 'Test mode — nothing is saved or submitted';

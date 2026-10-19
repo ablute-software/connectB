@@ -51,6 +51,7 @@ import { HatSwitcher } from '@/components/incubator/HatSwitcher';
 // CALLS_MODE="off", the emergency brake, hides it).
 import { CallsWorkspace } from '@/components/calls/CallsWorkspace';
 import { useCallsAccess } from '@/components/calls/useCallsAccess';
+import { useImportNoticeCount } from '@/components/calls/useImportNoticeCount';
 
 // Prompt 337 — 'archive' is no longer its own tab: ArchivePanel's content
 // moved into PipelinePanel as an "Archived" filter (same content, same
@@ -121,6 +122,10 @@ export function InvestorWorkspaceShell({
   // preview a feature behind a switch): it is a separate view that replaces the tab content while it is open.
   const callsEnabled = useCallsAccess('catalog_entity');
   const [callsOpen, setCallsOpen] = useState(false);
+  // Prompt 909 (Adenda 2b): a proposal that finished reading while the person was elsewhere — a badge on the Calls tab.
+  const callsNotices = useImportNoticeCount(callsEnabled);
+  // A link to a call (?call=…, with section/step or an old ?tab=) opens the Calls area on it (Prompt 918, I1).
+  useEffect(() => { if (callsEnabled && new URLSearchParams(window.location.search).get('call')) setCallsOpen(true); }, [callsEnabled]);
   const shownTab: Tab | null = callsOpen && callsEnabled ? null : tab;
   const investorMobileNavRef = useBottomNavRef<HTMLElement>();
   const investorBottomNavHeight = useBottomNavHeight();
@@ -235,7 +240,7 @@ export function InvestorWorkspaceShell({
   if (callsEnabled) {
     // Right after Pipeline, in the same group (Data room / Pipeline / Calls).
     const at = navItems.findIndex((n) => n.key === 'pipeline');
-    navItems.splice(at + 1, 0, { key: 'calls', icon: '◇', label: 'Calls', group: 2, active: callsOpen, onSelect: () => setCallsOpen(true) });
+    navItems.splice(at + 1, 0, { key: 'calls', icon: '◇', label: 'Calls', group: 2, active: callsOpen, badge: callsNotices > 0 ? callsNotices : undefined, onSelect: () => setCallsOpen(true) });
   }
 
   return (

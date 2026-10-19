@@ -8,13 +8,13 @@ import { useRef, useState } from 'react';
 import { formatInZone, utcToWall, wallToUtcIso } from '@/lib/calls/tz';
 import { callLink } from '@/lib/calls/link';
 import { CONTENT_LANGUAGES, type Call, type CallPhase, type FormField } from '@/lib/calls/types';
-import type { CallSummary, EditorTab, ReadinessIssue, availableActions } from '@/lib/calls/lifecycle';
+import type { CallSummary, ReadinessIssue, availableActions } from '@/lib/calls/lifecycle';
+import { stepLabel, stepOfIssue, type StepKey } from '@/lib/calls/editor-nav';
 import { FormPreview } from './FormPreview';
 import { FormTest } from './FormTest';
 import { StatusBadge } from './StatusBadge';
 import type { CallStatus } from '@/lib/calls/types';
 
-const TAB_NAMES: Record<EditorTab, string> = { general: 'General', phases: 'Phases', form: 'Form', preview: 'Preview', team: 'Team' };
 
 export type LifecycleAction = 'confirm' | 'edit' | 'publish' | 'extend' | 'close' | 'archive';
 
@@ -25,7 +25,8 @@ export { callLink };
 export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summary, actions, canManage, busy, error, origin, onJump, onAction }: {
   call: Call; effectiveStatus: CallStatus; phases: CallPhase[]; fields: FormField[]; issues: ReadinessIssue[]; summary: CallSummary;
   actions: ReturnType<typeof availableActions>; canManage: boolean; busy: boolean; error: string; origin: string;
-  onJump: (tab: EditorTab) => void; onAction: (a: LifecycleAction, extra?: { closesAt?: string }) => void;
+  /** Takes the person to the step — and to the field — that the problem is about. */
+  onJump: (step: StepKey, target?: string) => void; onAction: (a: LifecycleAction, extra?: { closesAt?: string }) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -100,9 +101,9 @@ export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summ
           {issues.length > 0 && (
             <ul className="mt-2 space-y-1.5 text-xs">
               {issues.map((i, n) => (
-                <li key={n} className="flex items-start justify-between gap-2">
-                  <span className="text-gray-700">{i.message}</span>
-                  <button type="button" onClick={() => onJump(i.tab)} className="shrink-0 font-medium text-[#0E7490] hover:underline">Go to {TAB_NAMES[i.tab]}</button>
+                <li key={n} className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
+                  <span className="min-w-0 flex-1 text-gray-700">{i.message}</span>
+                  <button type="button" onClick={() => onJump(stepOfIssue(i), i.target)} data-testid="missing-go" className="min-h-[44px] shrink-0 px-1 font-medium text-[#0E7490] hover:underline sm:min-h-0">Go to {stepLabel(stepOfIssue(i))}</button>
                 </li>
               ))}
             </ul>
@@ -160,7 +161,7 @@ export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summ
             </div>
             {copyHint && <p role="status" className="mt-1.5 text-[11px] font-medium text-emerald-900" data-testid="copy-hint">{copyHint}</p>}
             <p className="mt-2 text-[11px] text-emerald-900/70">
-              For now the link opens a page that says when applications open. The full applicant screen — registration and the form — arrives in the next stage.
+              Applicants open this link, register or sign in, and fill in and submit the form. Until the call opens, the page tells them when it does.
             </p>
           </section>
         )}

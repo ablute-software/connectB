@@ -45,7 +45,7 @@ O motor nunca propõe nem preenche pontuações oficiais. A plataforma pode calc
 
 Na v1, **nenhum dado ou documento de candidato é enviado a um fornecedor de IA externo.** A elegibilidade e a verificação de documentos usam regras determinísticas, a extração do texto de PDFs digitais e a deteção de padrões, tudo dentro da infraestrutura da plataforma. O que não for decidível assim vai para revisão humana (To validate).
 
-A IA externa só pode ser usada sobre documentos da própria entidade promotora: regulamento, formulário e grelha de edições anteriores (secção 5.3).
+A IA externa só pode ser usada sobre documentos da própria entidade promotora: o **regulamento** e **formulários de edições anteriores** (secção 5.3). **As grelhas de avaliação são confidenciais e nunca vão para IA externa** (decisão do Nuno, 15/10/2026): o tipo "grelha" não existe na importação por IA e o servidor recusa-o; o aviso do ecrã di-lo. Importar uma grelha faz-se **dentro da plataforma**, de forma determinística, no editor de grelhas da Etapa 3 (secção 5.3).
 
 ### 2.4. Simplicidade
 
@@ -126,9 +126,15 @@ O resultado da última fase é o resultado final. Uma call simples tem uma só f
 
 - Criar manualmente.
 - Duplicar uma call anterior: copia a configuração, o formulário, as regras, as fases, a grelha e a equipa. Nunca copia candidaturas, avaliações nem decisões.
-- **Importar** o regulamento, um formulário anterior e/ou uma grelha de avaliação (PDF, Word, Excel; os formatos efetivamente suportados têm de ser comunicados na interface). O motor propõe uma configuração **em rascunho**. Destaca o que pode estar desatualizado: datas, prazos, referências a edições anteriores, limites de idade da empresa.
+- **Importar** o regulamento e/ou um formulário anterior (PDF, Word, Excel; os formatos efetivamente suportados têm de ser comunicados na interface). O motor propõe uma configuração **em rascunho**. Destaca o que pode estar desatualizado: datas, prazos, referências a edições anteriores, limites de idade da empresa.
 
-  A importação usa IA sobre documentos da entidade, nunca de candidatos (secção 2.3).
+  **Leitura interna primeiro; IA externa só para o que o motor interno não resolve** **[Decisão]** (Prompt 917, Adenda 1 B, 16/10/2026). A plataforma lê o formulário dentro de si (numeração, opções, sim/não, tipo por palavras-chave em PT e EN, perguntas condicionais "Se sim", listas por pessoa como grupo repetível, tabelas-modelo como grupo em tabela, referências desatualizadas) e mede-se: cobertura dos itens numerados ≥ 95%, confiança nos tipos ≥ 80%, nenhuma estrutura por resolver (limiares numa constante). Cumprido tudo, **nada vai à IA externa** (modo "internal"); se falha uma parte, só **essa parte** vai ("internal+ai"); só um texto que não é um formulário que a plataforma perceba (cobertura < 60%) vai inteiro ("ai"). Sem chave de IA o que a plataforma leu fica e o que faltou diz-se. A revisão mostra quem leu cada pergunta, o modo e as medidas; o que a pessoa corrige fica registado por importação e o back office mostra as correções mais frequentes, para melhorar as regras do motor.
+
+  A importação usa IA externa (só nas partes que a plataforma não resolve) sobre documentos da entidade, nunca de candidatos nem de grelhas de avaliação (secção 2.3); o aviso no ecrã di-lo. A leitura corre em segundo plano (a pessoa não fica presa ao ecrã); quando a IA lê o texto do PDF, extraído na plataforma, lê-o em partes em paralelo.
+
+  **A proposta usa todos os tipos da secção 6.1 e não se repete** (Prompt 917, I2): uma pergunta de ficheiro por documento pedido (mantendo a numeração), o código de acesso como texto, "outros documentos" como ficheiro com vários ficheiros, vários ficheiros do mesmo tipo como grupo ou ficheiro múltiplo (nunca um ZIP), sim/não com valor como duas perguntas com condição, dados por pessoa como grupo repetível, tabelas-modelo como grupo em tabela, links como Link. Um aviso por número de pergunta, nenhuma pergunta duas vezes, avisos que dizem o que se fez, e "Not covered by the form" só para o que a plataforma realmente não consegue.
+
+- **Importar uma grelha de avaliação** (Etapa 3, ainda não construído): o editor de grelhas terá "Import grid", que lê o Excel, o Word ou o PDF com texto **dentro da plataforma**, de forma determinística (tabela com critério, descrição, peso e escala), e propõe a grelha para a entidade adaptar diretamente no editor. O ficheiro nunca sai da plataforma.
 
 ## 6. Tab Form
 
@@ -155,7 +161,22 @@ Tipos de campo:
 | Yes/No | Sem valor por omissão |
 | Single choice | Única forma que pode alimentar cotas (secção 11.2) |
 | Multiple choice | |
-| File | **Só PDF.** **[Decisão]** Tamanho máximo configurável |
+| File | **Formatos escolhidos pela entidade** (Prompt 917): PDF por omissão; também Word (.docx), Excel (.xlsx), PowerPoint (.pptx) e imagens (JPG, PNG). **O formato verifica-se pelo conteúdo do ficheiro, não pela extensão** (os bytes têm de ser do formato, e um Office tem de conter mesmo a sua parte principal), com o mesmo scan de malware dos outros uploads. **ZIP nunca é aceite** (o conteúdo não se consegue verificar nem analisar) nem os formatos antigos (.doc, .xls, .ppt). Tamanho máximo por ficheiro configurável (até 50 MB). **"Allow several files":** a entidade escolhe o máximo, até 10; o candidato vê "Add another file" e cada ficheiro é uma entrada própria, com nome e tamanho. O Vault continua a poder ser origem (só de PDFs), com a autorização em nome da call e a versão fixada. **[Decisão]** |
+| Link (URL) | Só `http://` e `https://`, validado no servidor (nunca `javascript:`, `data:`, `file:`…). A entidade pode indicar o tipo esperado ("Video (YouTube, Vimeo…)", "Website", "Other"): é uma **dica** para o candidato, não uma restrição. Na tab Submissions o link abre num separador novo, com `rel="noopener noreferrer"`; **nunca há incorporação nem pré-visualização** do conteúdo. |
+| Email | Validação de formato no servidor. Serve sobretudo dentro de grupos (o email de cada membro da equipa). |
+| Repeatable group | **Grupo repetível ("Add another").** A entidade define os sub-campos (qualquer tipo simples, incluindo ficheiro e email), o mínimo e o máximo de entradas (até 50) e o nome de cada entrada ("Team member"). O candidato adiciona, edita, reordena e remove entradas; cada entrada valida os seus obrigatórios e o número de entradas respeita o mínimo e o máximo. **Apresentação como tabela** (opção): as colunas são os sub-campos e as linhas as entradas; a entidade pode deixar as linhas abertas ou **pré-definir as linhas** e o texto das primeiras colunas de cada uma (por exemplo "Your company", "Competitor 1", "Competitor 2"): nesse caso o candidato preenche o resto e não acrescenta nem remove linhas (e o servidor repõe o texto fixo, seja o que for que o browser envie). Em ecrãs estreitos a tabela mostra-se como cartões. |
+
+**Grupos opcionais e tabelas com linhas fixas** (Prompt 917, 16/10/2026): as linhas que a entidade fixou estão **sempre** visíveis para o candidato (primeira coluna preenchida e só de leitura, as outras editáveis), no formulário, no preview/teste e na Submissions. Um grupo **opcional** não pede nada até a pessoa começar a preenchê-lo: o texto diz só que é opcional; começado, aplicam-se o mínimo e as perguntas obrigatórias de cada linha; um grupo **obrigatório** aplica-os sempre. Uma tabela opcional que ninguém preencheu não se guarda.
+
+**Limites da v1 dos tipos novos** (escritos aqui, decididos a 15/10/2026, Prompt 917 I1):
+
+- **um grupo não pode ter outro grupo dentro**;
+- **as condições de apresentação não podem depender de um grupo nem de um sub-campo de um grupo** (os sub-campos não são perguntas do formulário);
+- não há condições dentro de um grupo;
+- o Vault só oferece PDFs; uma pergunta que não aceite PDF recebe só uploads;
+- as respostas de grupo e de vários ficheiros têm estrutura própria (uma lista de entradas, uma lista de ficheiros); as candidaturas já submetidas mantêm a sua forma, sem migração.
+
+**Onde vale:** o editor do formulário da entidade, a pré-visualização e o modo de teste (§8), o preenchimento pelo candidato (rascunho automático, pré-preenchimento sem sobrepor o editado, obrigatórios e condições também no servidor), a versão submetida (imutável: os ficheiros de cada entrada ficam congelados com a sua extensão, e o formulário como estava, com a configuração do grupo, fica no retrato da submissão) e a tab Submissions (só de leitura). Duplicar uma call e importar o formulário de outra copiam os tipos novos e as suas definições.
 
 ### 6.2. Condições de apresentação
 
@@ -243,6 +264,8 @@ O administrador descreve o requisito, a plataforma apresenta a interpretação q
 - **Cada correção é guardada como exemplo de avaliação do motor:** a regra, o resultado do motor com o motivo e a evidência, a decisão humana, o autor, a justificação e a data. Distinguir os erros de reconhecimento das exceções próprias daquela call. Estes dados servem para medir a performance do motor no backoffice; o ecrã de análise fica para depois, mas **os dados guardam-se desde já**.
 
 ## 8. Preview, confirmação e ciclo da call
+
+**Organização do editor da call** **[Decisão]** (Prompt 918, I1, 19/10/2026): **quatro separadores** — **Setup**, **Applications** (as candidaturas; ganha as sub-vistas de elegibilidade na Etapa 2), **Evaluation** e **Results** (estes dois, "Coming in the next stage"). Uma call em rascunho abre na Setup; uma publicada, em Applications. A **Setup** monta-se em **sete passos**, por esta ordem: General, Phases, Form, Eligibility rules, Team & distribution, Evaluation grid, Review & publish (a pré-visualização e a confirmação deste capítulo). Cada passo mostra o seu estado (✓ completo, ⚠ falta algo com o número, ou not started), o "What is missing" do Review & publish leva ao passo e ao campo, e depois de validada a Setup fica só de leitura (com "Edit configuration" até a call abrir). Os links antigos por separador (`?tab=form`, `?tab=submissions`…) continuam a abrir o sítio certo. **Os ecrãs adaptam-se** (verificados a 375, 768 e 1280 px, sem scroll horizontal e com alvos de toque de pelo menos 44 px): lista de passos à esquerda e fixa; num tablet na vertical um botão "Steps"; num telemóvel "Step 3 of 7: Form", Previous/Next, o painel de uma pergunta em ecrã inteiro e as candidaturas em cartões.
 
 **Estados:** Draft → Validated → Scheduled/Open → Closed → (fases de avaliação) → Results published → Archived.
 
@@ -585,6 +608,8 @@ Garantias obrigatórias:
 
 Se faltar algo, aparece um popup com o nome de cada campo e a página onde está.
 
+**A verificação lista tudo de uma vez** (16/10/2026): corre sobre o formulário inteiro — todas as páginas, todos os grupos e todas as entradas —, um item por problema, e inclui os documentos que já não se conseguem ler. A única exceção é uma pergunta condicional que passou a estar visível por uma resposta dada depois da verificação anterior: o item diz "New: shown because you answered «…» on page N".
+
 ### 14.3. Submissão
 
 - Regista a data e a hora.
@@ -820,8 +845,9 @@ Cada notificação sai **por email e dentro da plataforma**, reutilizando o meca
 |---|---|
 | 0 | Envio de email (Resend e Supabase Auth), registo com palavra-passe e código, seats de planos custom e código promocional preso à entidade. **Prompt 904** |
 | 1 | Separador Calls; General; Phases (estrutura); Form; link e ecrã da call; registo e entrada; pré-preenchimento; gravação; submissão; área do candidato; notificações base |
-| 2 | Eligibility (regras, documentos, subtabs, correções e dataset); fila de processamento; duplicados; reportar problema |
-| 1C | **Antecipado do 3 e do 5 (Nuno, 12/10/2026, Prompt 909):** eliminar e arquivar uma call; importar o formulário de outra call; tab Team (categorias ao nível da organização, as 9 permissões, equipa da call com seats, ajustes individuais, conflitos declarados à partida; "Configure call" e "Manage team & permissions" já aplicadas no servidor); importação por IA de regulamento, formulário e grelha, em rascunho (§5.3); **I5 (Adenda 1):** pré-visualização livre, modo de teste do formulário e "Validate form and settings" (validar não publica) |
+| 2 | **Prompt 918:** I1 a call com 4 separadores e a Setup em passos (§8; entregue 19/10/2026); I2 passo Eligibility rules; I3 motor interno, fila e resultados em Applications; I4 análise dos documentos com IA externa (altera a §2.3 para a elegibilidade). Eligibility (regras, documentos, subtabs, correções e dataset); fila de processamento; duplicados; reportar problema |
+| 1B | **Lado do candidato (Prompt 907, 14/10/2026; tipos de campo novos no Prompt 917, I1 — §6.1):** link da call (cabeçalho, registo por código, memória do link, passo "startup"); preencher o formulário (pré-preenchimento sem pisar o editado, condições no servidor, documentos Number/File/Vault autorizados em nome da call, gravação com estados); submeter (verificação final, popup do que falta, versão imutável e idempotente); área "Calls" da startup (Open calls / My applications / Past applications) e separador "Submissions" só de leitura na entidade (nunca rascunhos); prazo e notificações (prorrogação avisa quem tem rascunho; lembrete 48 h antes só a rascunhos; "Contact email for applicants" = Reply-To dessa call). Relatório: `docs/calls/ETAPA1B_907.md` |
+| 1C | **Antecipado do 3 e do 5 (Nuno, 12/10/2026, Prompt 909):** eliminar e arquivar uma call; importar o formulário de outra call; tab Team (categorias ao nível da organização, as 9 permissões, equipa da call com seats, ajustes individuais, conflitos declarados à partida; "Configure call" e "Manage team & permissions" já aplicadas no servidor); importação por IA de regulamento e formulário (a grelha ficou de fora da IA externa, 15/10/2026), em rascunho (§5.3); **I5 (Adenda 1):** pré-visualização livre, modo de teste do formulário e "Validate form and settings" (validar não publica) |
 | 3 | Distribuição; construtor de grelha (manual); avaliação; "Declare conflict" em cada candidatura; prazos dos avaliadores; as outras 7 permissões passam a ser aplicadas. (Categorias, permissões e conflitos à partida: ver 1C.) |
 | 4 | Seriação (mínimos, cotas, vagas); passagem de fase; decisão final; publicação; contestações; painéis |
 | 5 | ~~Importação por IA de regulamento, formulário e grelha~~ — **entregue na Etapa 1C (Prompt 909)**; fica o que a importação guarda em texto (regras de elegibilidade, critérios de avaliação) para serem configurados nas Etapas 2 e 3 |

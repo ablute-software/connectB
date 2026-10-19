@@ -29,6 +29,7 @@ import { accessRequestsAvailable, guestGrantTokenAvailable } from '@/lib/access-
 import { ecosystemFactsAvailable } from '@/lib/ecosystem-facts-capability';
 import { vaultPinOwnerManagedAvailable } from '@/lib/vault-pin-owner-managed-capability';
 import { taskRemindersAvailable } from '@/lib/task-reminders-capability';
+import { callsMode } from '@/lib/calls/mode';
 import { resolveUserPlanDetail } from '@/lib/plan-server';
 import { planEntitlements, REVIEW_QUOTA } from '@/lib/plans';
 import { aiWalletStatus, aiWalletStatusForViewer } from '@/lib/ai-credits';
@@ -69,6 +70,8 @@ export const GET = withActingOrg(async function GET(req: NextRequest) {
     ecosystemFacts: await ecosystemFactsAvailable(),
     vaultPinOwnerManaged: await vaultPinOwnerManagedAvailable(),
     taskReminders: await taskRemindersAvailable(),
+    // Prompt 907 (I4): the startup's "Calls" entry in the menu is there unless Calls were switched off explicitly (CALLS_MODE=off).
+    calls: callsMode() !== 'off',
   };
   // dev:verify only (see scripts/dev-verify.mjs + CLAUDE.md's "Verifying a
   // change in the browser" §1): verifyIdentity is attached ONLY here, on the

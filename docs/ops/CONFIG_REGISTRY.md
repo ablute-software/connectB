@@ -42,6 +42,8 @@ desconhecido.
 
 | Nome | Valor | Estado | Quem decidiu e quando | Fonte |
 |---|---|---|---|---|
+| `VERCEL_GIT_COMMIT_SHA` (lida só em `next.config.mjs`, no build) | **variável de sistema da Vercel; não é para definir.** Dá o id do build (`buildId` do Next = o commit); fora da Vercel usa-se `local-<hora>` | feito (automática) | Nuno, 16/10/2026 (aviso de nova versão) | `next.config.mjs` |
+| `NEXT_PUBLIC_BUILD_ID` / `SHERLOCK_BUILD_ID` | **derivadas no build por `next.config.mjs`; não definir no painel.** O primeiro é o id do build embutido na página e devolvido por `/api/version`; o segundo só garante que todos os processos do build usam o mesmo id | feito (derivadas) | Nuno, 16/10/2026 | `next.config.mjs`, `src/lib/build-version.ts`, `src/app/api/version/route.ts` |
 | `NEXT_PUBLIC_SUPABASE_URL` (prod+prev) | definido | feito | desde a criação do projeto | `CLAUDE.md` Stack; a app funciona |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` (prod+prev) | definido | feito | idem. **Tem de ser não-sensível** no Vercel, senão o bundle do cliente não a recebe | `CLAUDE.md` Stack |
 | `SUPABASE_SERVICE_ROLE_KEY` (prod+prev) | definido | feito | idem | `CLAUDE.md` Stack |
@@ -57,7 +59,7 @@ Sem `NEXT_PUBLIC_APP_URL` os links dos emails (convites, Stripe, "Open your work
 |---|---|---|---|---|
 | `RESEND_API_KEY` | definido | feito | Nuno. Prova: 29 envios com sucesso desde 02/09 | observado em `email_send_log` |
 | `RESEND_FROM_EMAIL` | `Sherlock Deal <noreply@sherlockdeal.com>` | feito | Claude 02/09/2026 (Prompts 536/537), confirmado em produção: é o `from` de todos os envios 02/09 a 07/10. Ver **C1** | DECISIONS L4076; observado |
-| `RESEND_REPLY_TO` | `sherlockdeal.com@gmail.com` | desconhecido | Nuno 06/08/2026 ("pode ser posto hoje") e reafirmado 02/09/2026. **O valor está decidido; o que não consigo ver é se está definido no Vercel.** Verificar sem painel: `/backoffice/email-delivery` mostra `replyToInEffect` | DECISIONS L3628, L4077; 904A |
+| `RESEND_REPLY_TO` | **já não é lida. Não definir; se existir no Vercel, apagar.** Os emails da plataforma saem **sem Reply-To** e com um rodapé: "This is an automated message. Replies are not read. Need help? Contact us at sherlockdeal.com/contact" (com ligação a `/contact`). Nos emails de uma call, o Reply-To passa a ser o "Contact email for applicants" dessa call, quando existir (Prompt 907+). **Quando `support@sherlockdeal.com` tiver reencaminhamento, passa a ser esse o Reply-To por omissão** | feito | Nuno, **13/10/2026** (substitui a decisão de 06/08 e 02/09, que apontava para `sherlockdeal.com@gmail.com`: a caixa do dono nunca deve aparecer a utilizadores) | Prompt 911 (follow-up); `src/lib/email-footer.ts`, `src/lib/resend.ts` |
 | `RESEND_WEBHOOK_SECRET` | definido | feito | Decidido 04/09/2026. Sem ele o endpoint rejeita tudo, e há 8 eventos `delivered` gravados (último 07/10) | DECISIONS L4752; observado |
 | `SUPPORT_NOTIFY_EMAIL` | **sem decisão registada** | pendente | — | `src/app/api/investor-access-request/route.ts:81`. Sem ela, um pedido de acesso de investidor fica guardado **sem notificar ninguém** |
 
@@ -92,6 +94,9 @@ Sem `NEXT_PUBLIC_APP_URL` os links dos emails (convites, Stripe, "Open your work
 | Nome | Valor | Estado | Quem decidiu e quando | Fonte |
 |---|---|---|---|---|
 | `vercel.json` crons | `/api/automations` às `0 9 * * *` (uma vez por dia) | feito | 22/07/2026. **Hobby: no máximo 1 por dia**; um horário sub-diário faz o deploy falhar (`cron_jobs_limits_reached`) | `vercel.json`; `CLAUDE.md` Stack |
+| Lembrete de Calls (48 h antes do fecho) | **sem cron novo**: é mais um passo independente de `/api/automations` (`callDraftReminders` na resposta). Com um cron diário, quem não abre a app recebe o lembrete entre 24 e 48 h antes do prazo; quem abre a área Calls recebe-o logo | feito (código) · por testar em produção | Nuno, 09/10/2026 (spec §23) / Prompt 907, 14/10/2026 | `src/lib/calls/applicant/notices.ts`; `src/app/api/automations/route.ts` |
+| Duração máxima de uma função (`maxDuration`) | A maioria das rotas: 30 ou 60 s. **`/api/calls/[id]/import-ai`: 300 s** (a leitura do modelo corre depois da resposta, com `waitUntil`, e tem relógio próprio de 270 s). A build de um preview aceitou 300 s neste projeto; que a Vercel o **cumpra** em runtime só se prova com uma importação longa | feito (código) · por provar em produção | Nuno, 14/10/2026 (Prompt 909, Adenda 2) | `src/app/api/calls/[id]/import-ai/route.ts`; `src/lib/calls/ai-import/job.ts` |
+| Leitura de PDF na importação por IA | `unpdf` (texto por página, na plataforma) em vez de enviar o PDF ao modelo; partes lidas em paralelo (até 6 chamadas por importação, mesmo modelo e chave). Sem variáveis novas | feito (código) · por medir em produção | Nuno, 15/10/2026 (Prompt 909, Adenda 2b) | `src/lib/calls/ai-import/extract.ts`, `chunks.ts`, `propose.ts` |
 | Plano Vercel | Hobby | feito | — | `CLAUDE.md` Stack |
 
 ### 1.7 Só em máquinas de desenvolvimento (não vão para o Vercel)
@@ -127,9 +132,12 @@ ou `pendente`. Caminhos no painel entre parênteses. **SMTP, rate limits, OTP e 
 - as mensagens de erro de autenticação **não mostram nenhum endereço**: em vez de "write to us at …" dizem "If it keeps failing, contact us" e
   "contact us" é uma ligação a **`/contact`**, o formulário de contacto (`src/lib/auth-errors.ts`: `CONTACT_PATH`, `CONTACT_PHRASE`;
   `src/components/auth/AuthMessage.tsx`). Um teste proíbe qualquer endereço da plataforma ou do dono no código desses ecrãs;
-- **`sherlockdeal.com@gmail.com` nunca deve aparecer a utilizadores.** Atenção: é o valor decidido de `RESEND_REPLY_TO` (§1.2), e um
-  `Reply-To` **vê-se** quando alguém responde a um email da plataforma. É uma tensão com esta regra, **por decidir** (ver o relatório do 911):
-  não a alterei, porque o valor está decidido desde 06/08 e 02/09.
+- **`sherlockdeal.com@gmail.com` nunca deve aparecer a utilizadores.** Um `Reply-To` vê-se quando alguém responde a um email, e era esse o valor
+  de `RESEND_REPLY_TO`; por isso **o Nuno mandou-o remover a 13/10/2026** (§1.2): os emails da plataforma saem sem Reply-To e dizem no rodapé
+  "This is an automated message. Replies are not read. Need help? Contact us at sherlockdeal.com/contact". **Isto vale também para os
+  templates de email do Supabase Auth** (Confirm signup, Reset password, …), que são emails da plataforma: o texto final do 911 (§C do relatório)
+  já leva esse rodapé, e cola-se no painel.
+- Quando `support@sherlockdeal.com` tiver reencaminhamento, esse endereço passa a ser o Reply-To por omissão (muda-se numa constante).
 
 ### 2.1 Como confirmar que o SMTP do Auth funciona (Prompt 911)
 
@@ -160,7 +168,7 @@ código e texto do erro, hora. Só o serviço lhe chega (RLS sem políticas); l�
 |---|---|---|---|---|
 | Domínio `sherlockdeal.com` verificado | verificado (SPF, DKIM e DMARC presentes) | feito | Nuno, entre 27/07 e 02/09/2026. Prova: envios entregues a terceiros desde 02/09. Ver **C1** | 904A §A1; DECISIONS L4076; observado |
 | Remetente | `Sherlock Deal <noreply@sherlockdeal.com>` | feito | ver `RESEND_FROM_EMAIL` | §1.2 |
-| Reply-to | `sherlockdeal.com@gmail.com` | desconhecido | ver `RESEND_REPLY_TO` | §1.2 |
+| Reply-to | **nenhum por omissão** (ver `RESEND_REPLY_TO`, §1.2). O rodapé de todo o email da plataforma manda para `/contact` | feito | Nuno, 13/10/2026 | §1.2; Prompt 911 (follow-up) |
 | Webhook (Resend → `https://www.sherlockdeal.com/api/resend/webhook`) | ativo; eventos a chegar | feito | Decidido 04/09/2026 | observado |
 | Plano | **subir para Pro antes da primeira call real** (o gratuito tem teto diário baixo; uma call ≈ 1 000 emails, ≈ 450 em 48 h). Nada foi comprado | pendente | Recomendado 09/10/2026; decisão do Nuno | 904A §A3 |
 
@@ -207,9 +215,9 @@ Supabase sobre SMTP, rate limits, OTP e template ficaram `feito` (confirmado pel
 1b. **Supabase → Authentication → Emails → Templates → Confirm signup** (§2): **colar o template final do 911 (§C do relatório) DEPOIS do
    deploy**, para o link do email voltar ao destino de cada registo. Até lá o provisório (botão primeiro, `next=%2F`) funciona para o registo
    normal e para a confirmação pelo link; só o registo por uma call (907) precisa do final para voltar à call.
-2. **Vercel → connect-b → Settings → Environment Variables** (§1): confirmar que estão definidas, **sem trocar valores
-   já decididos**: `RESEND_REPLY_TO` = `sherlockdeal.com@gmail.com` (alternativa sem painel: `/backoffice/email-delivery`
-   mostra `replyToInEffect`); `NEXT_PUBLIC_APP_URL` = `https://www.sherlockdeal.com`. Depois, redeploy.
+2. **Vercel → connect-b → Settings → Environment Variables** (§1): confirmar que está definida, **sem trocar valores já decididos**:
+   `NEXT_PUBLIC_APP_URL` = `https://www.sherlockdeal.com`. **`RESEND_REPLY_TO` já não é lida** (13/10): se existir, pode apagar-se, por arrumação.
+   Depois, redeploy.
 3. **Vercel** (§4): **nada a fazer** para o código funcionar. `AUTH_CODE_MODE=allowlist` (que a produção tem) e `AUTH_CODE_TEST_EMAILS`
    já não contam: o código vale para todos. Quando tiveres o painel aberto, podes apagar as duas por arrumação; só `AUTH_CODE_MODE=off`
    (escrito) faz alguma coisa (o travão de emergência).

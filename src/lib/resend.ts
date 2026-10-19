@@ -6,7 +6,8 @@
 import 'server-only';
 import { BRAND_NAME } from './brand';
 import { logEmailSend, type EmailContext } from './email-send-log';
-import { resolvedFromAddress, resolvedReplyTo } from './email-sender-identity';
+import { resolvedFromAddress } from './email-sender-identity';
+import { withAutomatedFooter } from './email-footer';
 
 export const resendConfigured = !!process.env.RESEND_API_KEY;
 
@@ -42,21 +43,23 @@ export async function sendTransactionalEmail(opts: {
 
   // Item 12 — "send as sherlockdeal.com@gmail.com" is impossible: an ESP
   // can't send FROM a domain it hasn't verified, and gmail.com isn't ours to
-  // verify. Sending from it anyway gets rejected outright or, worse,
-  // delivered with broken SPF/DKIM and dumped in spam. reply_to solves the
-  // actual intent (replies land in the inbox Nuno reads) without any of
-  // that: it isn't authenticated by SPF/DKIM, so it can point anywhere
-  // today, no domain verification needed. Sender display name is the
-  // brand; the address stays the verified Resend one until sherlockdeal.com
-  // is verified in the provider (infra, not code — see DECISIONS.md).
-  // RESEND_FROM_EMAIL/RESEND_REPLY_TO (when set) override both.
+  // verify. (Item 12's answer was a Reply-To pointing at that inbox; Prompt 911,
+  // 13/10/2026, REMOVED it: platform emails carry NO Reply-To — the owner's inbox
+  // must never reach a user — and say "replies are not read, contact us at
+  // sherlockdeal.com/contact" in the footer. A Reply-To exists only when the
+  // caller passes one explicitly, e.g. a call's "Contact email for applicants".)
+  // Sender display name is the brand; the address stays the verified Resend
+  // one (infra, not code — see DECISIONS.md). RESEND_FROM_EMAIL (when set)
+  // overrides it; RESEND_REPLY_TO is no longer read.
   // Prompt 537 §2 — the SAME expression as before, moved to
   // email-sender-identity.ts so the back-office health card reports the value
   // this line actually resolves rather than a second copy of it. Behaviour
   // is byte-identical: RESEND_FROM_EMAIL when set, the pre-existing sandbox
   // fallback otherwise. No address added, none replaced.
   const from = resolvedFromAddress();
-  const replyTo = opts.replyTo || resolvedReplyTo();
+  const replyTo = opts.replyTo || undefined;
+  // Prompt 911 — every platform email (no explicit Reply-To) ends with the "automated message, replies are not read, contact us" line.
+  const content = withAutomatedFooter({ html: opts.html, text: opts.text, replyTo });
   try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -67,8 +70,8 @@ export async function sendTransactionalEmail(opts: {
       // an accessibility and a deliverability improvement. Callers that omit
       // it behave exactly as before. The `from` identity above is untouched.
       body: JSON.stringify({
-        from, to: opts.to, subject: opts.subject, html: opts.html,
-        ...(opts.text ? { text: opts.text } : {}),
+        from, to: opts.to, subject: opts.subject, html: content.html,
+        ...(content.text ? { text: content.text } : {}),
         ...(replyTo ? { reply_to: replyTo } : {}),
       }),
     });

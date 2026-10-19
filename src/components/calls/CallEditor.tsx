@@ -9,8 +9,9 @@
 // editor is read-only and says why.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Call, FormField } from '@/lib/calls/types';
-import type { EditorTab } from '@/lib/calls/lifecycle';
+import { MAIN_TABS, navQuery, parseLinkQuery, resolveNav, stepStates, type MainTab, type Nav, type StepKey } from '@/lib/calls/editor-nav';
 import { callsApi, type CallState } from './api';
+import { ComingNext, SetupShell } from './SetupShell';
 import { GeneralTab, type GeneralPatch } from './GeneralTab';
 import { PhasesTab, type PhaseDraft } from './PhasesTab';
 import { FormTab } from './FormTab';
@@ -19,7 +20,10 @@ import { SaveStatus, type SaveState } from './SaveStatus';
 import { StatusBadge } from './StatusBadge';
 import { CallDangerZone } from './CallDangerZone';
 import { TeamTab } from './TeamTab';
+import { SubmissionsTab } from './SubmissionsTab';
+import { ContactEmailField } from './ContactEmailField';
 import { ImportFromDocuments, type ApplyOutcome } from './ImportFromDocuments';
+import { useImportStatus } from './useImportStatus';
 import { SourceDocumentsPanel } from './SourceDocumentsPanel';
 import type { ProposalFieldItem, ProposalGeneral, ProposalPhaseItem } from '@/lib/calls/ai-import/proposal';
 import type { ImportOutcome } from './ImportFormDialog';
@@ -28,29 +32,30 @@ import type { ImportMode } from '@/lib/calls/form-import';
 type Section = 'general' | 'phases' | 'form';
 const DEBOUNCE_MS = 700;
 
-const TABS: { key: EditorTab | 'eligibility' | 'team' | 'evaluation'; label: string; soon?: boolean }[] = [
-  { key: 'general', label: 'General' },
-  { key: 'phases', label: 'Phases' },
-  { key: 'form', label: 'Form' },
-  { key: 'eligibility', label: 'Eligibility', soon: true },
-  { key: 'team', label: 'Team & distribution' },
-  { key: 'evaluation', label: 'Evaluation', soon: true },
-  { key: 'preview', label: 'Preview & validate' },
-];
-
-export function CallEditor({ callId, onBack, startImport = false }: { callId: string; onBack: () => void; startImport?: boolean }) {
+export function CallEditor({ callId, onBack, startImport = false, startRunId = null }: { callId: string; onBack: () => void; startImport?: boolean; startRunId?: string | null }) {
   const [server, setServer] = useState<CallState | null>(null);
   const [loadError, setLoadError] = useState('');
   const [call, setCall] = useState<Call | null>(null);
   const [phases, setPhases] = useState<PhaseDraft[]>([]);
   const [fields, setFields] = useState<FormField[]>([]);
-  const [tab, setTab] = useState<EditorTab>('general');
+  // Prompt 918 (I1): four tabs, and the steps of Setup. `nav` is decided when the call has loaded (a link may say where; otherwise a draft opens on Setup, a published call on
+  // Applications). `jump` is a field to scroll to and focus once its step is on screen ("What is missing" → the field).
+  const [nav, setNav] = useState<Nav | null>(null);
+  // What the address said when the editor opened, read ONCE (the editor rewrites the address as the person moves around, and cleans it when it closes).
+  const linkQuery = useRef<ReturnType<typeof parseLinkQuery> | null>(null);
+  if (linkQuery.current === null && typeof window !== 'undefined') linkQuery.current = parseLinkQuery(window.location.search, callId);
+  const [jump, setJump] = useState<{ target: string; n: number } | null>(null);
   const [save, setSave] = useState<{ state: SaveState; message?: string }>({ state: 'idle' });
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState('');
   // Prompt 909 (I4): the import from documents dialog (opened from Form, from General, or when a call is created from documents).
   const [importDocs, setImportDocs] = useState(startImport);
+  // The proposal the dialog opens ON (from "Review" / the pill); null = the upload form.
+  const [importRunId, setImportRunId] = useState<string | null>(startRunId);
   const [docsReload, setDocsReload] = useState(0);
+  // Prompt 909 (Adenda 2b): a reading in progress, or a proposal waiting for review, shown next to the Import buttons.
+  const { status: importStatus, runId: pendingRunId } = useImportStatus(callId, docsReload);
+  const reviewProposal = () => { setImportRunId(pendingRunId); setImportDocs(true); };
 
   // The latest local values and the save machinery live in refs: a save in flight must see edits made meanwhile.
   const callRef = useRef<Call | null>(null);
@@ -143,6 +148,43 @@ export function CallEditor({ callId, onBack, startImport = false }: { callId: st
   const editPhases = (next: PhaseDraft[]) => { phasesRef.current = next; setPhases(next); schedule('phases'); };
   const editFields = (next: FormField[]) => { fieldsRef.current = next; setFields(next); schedule('form'); };
 
+  const goTab = (main: MainTab) => { setNav({ main, step: main === 'setup' ? nav?.step ?? 'general' : 'general' }); setJump(null); };
+  function goStep(step: StepKey, target?: string) {
+    setNav({ main: 'setup', step });
+    setJump(target ? { target, n: Date.now() } : null);
+    if (!target && typeof window !== 'undefined') window.scrollTo({ top: 0 });
+  }
+
+  // Where the call opens: what the address says (the new section/step, or an old ?tab=), else by the call's state.
+  useEffect(() => {
+    if (server && !nav) setNav(resolveNav(linkQuery.current ?? {}, server.effectiveStatus));
+  }, [server, nav]);
+  // The address follows what is shown, so a reload (or a copied link) lands in the same place; and it is cleaned when the editor closes.
+  useEffect(() => {
+    if (!nav) return;
+    const u = new URL(window.location.href);
+    const q = navQuery(nav);
+    u.searchParams.set('call', callId); u.searchParams.set('section', q.section);
+    if (q.step) u.searchParams.set('step', q.step); else u.searchParams.delete('step');
+    window.history.replaceState(window.history.state, '', u);
+  }, [nav, callId]);
+  useEffect(() => () => {
+    const u = new URL(window.location.href);
+    for (const k of ['call', 'section', 'step']) u.searchParams.delete(k);
+    window.history.replaceState(window.history.state, '', u);
+  }, []);
+  // "What is missing" → the field: once the step is on screen, scroll to it and put the cursor there.
+  useEffect(() => {
+    if (!jump) return;
+    const id = window.setTimeout(() => {
+      const el = document.querySelector<HTMLElement>(`[data-jump="${CSS.escape(jump.target)}"]`);
+      if (!el) return;
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      if (el.matches('input, textarea, select, button')) el.focus({ preventScroll: true });
+    }, 60);
+    return () => window.clearTimeout(id);
+  }, [jump]);
+
   async function act(action: LifecycleAction, extra: { closesAt?: string } = {}) {
     setBusy(true); setActionError('');
     try {
@@ -152,7 +194,7 @@ export function CallEditor({ callId, onBack, startImport = false }: { callId: st
       const res = await callsApi.act(callId, action, extra);
       if (!res.ok) { setActionError(res.body.error ?? 'Something went wrong. Please try again.'); if (res.body.code === 'conflict') void load(); return; }
       adopt(res.body, true);
-      if (action === 'confirm' || action === 'publish') setTab('preview');
+      if (action === 'confirm' || action === 'publish') goStep('review');
     } finally { setBusy(false); }
   }
 
@@ -207,7 +249,7 @@ export function CallEditor({ callId, onBack, startImport = false }: { callId: st
       </div>
     );
   }
-  if (!server || !call) return <p className="text-sm text-gray-400">Loading…</p>;
+  if (!server || !call || !nav) return <p className="text-sm text-gray-400">Loading…</p>;
 
   const readOnly = !server.canManage || call.status !== 'draft';
   const reason = !server.canManage
@@ -217,7 +259,7 @@ export function CallEditor({ callId, onBack, startImport = false }: { callId: st
     : 'This call is open or closed: questions and options can no longer change.';
 
   return (
-    <div data-testid="call-editor">
+    <div data-testid="call-editor" data-calls-touch>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <button type="button" onClick={() => { void flush().then(onBack); }} className="text-sm text-gray-500 hover:text-[#0E7490]">← Calls</button>
@@ -227,42 +269,53 @@ export function CallEditor({ callId, onBack, startImport = false }: { callId: st
         <SaveStatus state={save.state} message={save.message} onRetry={() => void flush()} onReload={() => void load()} />
       </div>
 
-      <div role="tablist" aria-label="Call configuration" className="mb-5 flex flex-wrap gap-1 border-b border-gray-200">
-        {TABS.map((t) => (
-          <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} disabled={t.soon}
-            title={t.soon ? 'Coming in the next stage' : undefined}
-            onClick={() => !t.soon && setTab(t.key as EditorTab)}
-            className={`-mb-px border-b-2 px-3 py-2 text-sm ${tab === t.key ? 'border-[#0E7490] font-semibold text-[#0E7490]' : t.soon ? 'cursor-not-allowed border-transparent text-gray-300' : 'border-transparent text-gray-600 hover:text-gray-900'}`}>
-            {t.label}{t.soon && <span className="ml-1 text-[9px] font-normal uppercase tracking-wide">soon</span>}
+      <div role="tablist" aria-label="Call" className="mb-5 flex gap-1 overflow-x-auto whitespace-nowrap border-b border-gray-200" data-testid="main-tabs">
+        {MAIN_TABS.map((t) => (
+          <button key={t.key} type="button" role="tab" aria-selected={nav.main === t.key} data-testid={`tab-${t.key}`} onClick={() => goTab(t.key)}
+            className={`-mb-px min-h-[44px] shrink-0 border-b-2 px-4 py-2 text-sm ${nav.main === t.key ? 'border-[#0E7490] font-semibold text-[#0E7490]' : 'border-transparent text-gray-600 hover:text-gray-900'}`}>
+            {t.label}
           </button>
         ))}
       </div>
 
-      {reason && <p role="status" className="mb-4 rounded-lg bg-sky-50 px-4 py-2.5 text-xs text-sky-900" data-testid="lock-reason">{reason}</p>}
+      {nav.main === 'setup' && reason && <p role="status" className="mb-4 rounded-lg bg-sky-50 px-4 py-2.5 text-xs text-sky-900" data-testid="lock-reason">{reason}</p>}
 
-      {tab === 'general' && (
-        <>
-          <GeneralTab call={call} promoterName={server.promoterName} disabled={readOnly} onChange={editGeneral} />
-          <SourceDocumentsPanel callId={callId} canConfigure={server.canManage} locked={readOnly} reloadKey={docsReload} onImport={() => setImportDocs(true)} />
-          <CallDangerZone actions={server.actions} status={server.effectiveStatus} applicationsTotal={server.applications.total}
-            canManage={server.canManage} busy={busy} onDelete={() => void removeCall()} onArchive={() => void act('archive')} />
-          {actionError && <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{actionError}</p>}
-        </>
+      {nav.main === 'applications' && <SubmissionsTab callId={callId} timezone={call.timezone} currency={call.currency} />}
+      {nav.main === 'evaluation' && <ComingNext testId="evaluation-soon" title="Evaluation" text="Coming in the next stage. Here the team will evaluate the applications with the grid you set up." />}
+      {nav.main === 'results' && <ComingNext testId="results-soon" title="Results" text="Coming in the next stage. Here you will see the ranking and publish the results." />}
+
+      {nav.main === 'setup' && (
+        <SetupShell step={nav.step} onStep={(s) => goStep(s)}
+          states={stepStates({ call, phases: server.phases, fields, issues: server.issues, teamMembers: server.teamMembers ?? 0 })}>
+          {nav.step === 'general' && (
+            <>
+              <GeneralTab call={call} promoterName={server.promoterName} disabled={readOnly} onChange={editGeneral} />
+              <ContactEmailField callId={callId} initial={call.contactEmail ?? null} canConfigure={server.canManage} />
+              <SourceDocumentsPanel callId={callId} canConfigure={server.canManage} locked={readOnly} reloadKey={docsReload} onImport={() => { setImportRunId(null); setImportDocs(true); }} importStatus={importStatus} onReview={reviewProposal} />
+              <CallDangerZone actions={server.actions} status={server.effectiveStatus} applicationsTotal={server.applications.total}
+                canManage={server.canManage} busy={busy} onDelete={() => void removeCall()} onArchive={() => void act('archive')} />
+              {actionError && <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{actionError}</p>}
+            </>
+          )}
+          {nav.step === 'phases' && <PhasesTab phases={phases} disabled={readOnly} onChange={editPhases} />}
+          {nav.step === 'form' && <FormTab callId={callId} fields={fields} disabled={readOnly} lockedReason={reason} onChange={editFields} onImport={importForm} onImportDocuments={() => { setImportRunId(null); setImportDocs(true); }} importStatus={importStatus} onReview={reviewProposal} selectId={jump?.target} />}
+          {nav.step === 'eligibility' && <ComingNext testId="eligibility-soon" title="Eligibility rules" text="Coming next. Here you will say who is eligible, rule by rule, tied to the questions and documents of your form." />}
+          {nav.step === 'team' && <TeamTab callId={callId} />}
+          {nav.step === 'grid' && <ComingNext testId="grid-soon" title="Evaluation grid" text="Coming in the next stage. The grid the evaluators will use is set up here." />}
+          {nav.step === 'review' && (
+            <PreviewTab
+              call={call} effectiveStatus={server.effectiveStatus} phases={server.phases} fields={fields} issues={server.issues} summary={server.summary}
+              actions={server.actions} canManage={server.canManage} busy={busy} error={actionError}
+              origin={typeof window !== 'undefined' ? window.location.origin : ''}
+              onJump={goStep} onAction={(a, extra) => void act(a, extra)}
+            />
+          )}
+        </SetupShell>
       )}
-      {tab === 'phases' && <PhasesTab phases={phases} disabled={readOnly} onChange={editPhases} />}
-      {tab === 'team' && <TeamTab callId={callId} />}
-      {tab === 'form' && <FormTab callId={callId} fields={fields} disabled={readOnly} lockedReason={reason} onChange={editFields} onImport={importForm} onImportDocuments={() => setImportDocs(true)} />}
+
       {importDocs && (
         <ImportFromDocuments callId={callId} timezone={call.timezone} currentFieldCount={fields.length}
-          onClose={() => { setImportDocs(false); setDocsReload((n) => n + 1); }} onApply={applyImport} />
-      )}
-      {tab === 'preview' && (
-        <PreviewTab
-          call={call} effectiveStatus={server.effectiveStatus} phases={server.phases} fields={fields} issues={server.issues} summary={server.summary}
-          actions={server.actions} canManage={server.canManage} busy={busy} error={actionError}
-          origin={typeof window !== 'undefined' ? window.location.origin : ''}
-          onJump={setTab} onAction={(a, extra) => void act(a, extra)}
-        />
+          openRunId={importRunId} onClose={() => { setImportDocs(false); setImportRunId(null); setDocsReload((n) => n + 1); }} onApply={applyImport} />
       )}
     </div>
   );

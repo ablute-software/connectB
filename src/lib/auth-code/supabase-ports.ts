@@ -31,6 +31,9 @@ export function throwawayPassword(): string {
 }
 
 export function makeSupabasePorts(admin: SupabaseClient): AuthCodePorts {
+  // The cookie-writing client that verifyOtp signed the person in with. The typed password is applied THROUGH THIS SAME CLIENT
+  // (finalizeAccount), so the session that was just created is the one that applies it.
+  let sessionClient: Awaited<ReturnType<typeof serverClient>> | null = null;
   return {
     async ipLimited(ip, kind) {
       const { data, error } = await admin.rpc('auth_code_ip_hit', {
@@ -114,19 +117,22 @@ export function makeSupabasePorts(admin: SupabaseClient): AuthCodePorts {
       const sb = await serverClient();
       const { data, error } = await sb.auth.verifyOtp({ email, token: code, type: 'signup' });
       if (error || !data.user || !data.session) return { ok: false };
+      sessionClient = sb;
       return { ok: true, userId: data.user.id };
     },
 
-    async finalizeAccount(userId, password, profile) {
-      const { data: existing } = await admin.auth.admin.getUserById(userId);
-      const { error } = await admin.auth.admin.updateUserById(userId, {
-        password,
-        user_metadata: {
-          ...(existing?.user?.user_metadata ?? {}),
-          full_name: profile.fullName, org_name: profile.startup, country: profile.country, title: profile.role,
-          password_set: true,
-        },
-      });
+    async finalizeAccount(_userId, password, profile) {
+      // Prompt 911 (fix, 13/10/2026): the typed password is applied with the SESSION'S OWN client (auth.updateUser), never with
+      // the admin API. Found in production (sherlockdeal.com+codigo2, 14:30): admin.updateUserById({ password }) ENDS every session
+      // of the user, so right after the right code the person had no session (GET /user -> 403 "Session not found") and landed on the
+      // home page, signed out. updateUser on the session that verifyOtp just created keeps that session. The security rule is unchanged:
+      // the password is still only applied AFTER the code was verified (this runs only once verifyCode succeeded).
+      const sb = sessionClient ?? (await serverClient());
+      // Only what the form actually collected: an invite has no profile, and an empty string must not blank what the account already has.
+      const metadata: Record<string, unknown> = { password_set: true };
+      const fields: Record<string, string> = { full_name: profile.fullName, org_name: profile.startup, country: profile.country, title: profile.role };
+      for (const [k, v] of Object.entries(fields)) if (v) metadata[k] = v;
+      const { error } = await sb.auth.updateUser({ password, data: metadata });
       return error ? { ok: false, error: error.message } : { ok: true };
     },
 

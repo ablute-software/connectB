@@ -139,7 +139,7 @@ export default function EmailDeliveryPage() {
             </div>
             <div className="flex gap-2">
               <dt className="text-gray-500">Reply-to</dt>
-              <dd className="break-all font-mono text-gray-800">{health.replyToInEffect ?? '—'}</dd>
+              <dd className="break-all font-mono text-gray-800">{health.replyToInEffect ?? 'none — replies are not read (footer links to /contact)'}</dd>
             </div>
           </dl>
 
