@@ -9,9 +9,9 @@
 import { NextResponse } from 'next/server';
 import { withActingOrg } from '@/lib/acting-org';
 import { authApplication } from '@/lib/calls/applicant/auth';
-import { findSubmissionByKey, freezeFile, loadFiles } from '@/lib/calls/applicant/store';
+import { fileReadable, findSubmissionByKey, freezeFile, loadFiles } from '@/lib/calls/applicant/store';
 import { sanitizeAnswers } from '@/lib/calls/applicant/answers';
-import { formSnapshot, frozenPath, planSubmission } from '@/lib/calls/applicant/submit';
+import { filesInSubmission, formSnapshot, frozenPath, planSubmission, unreadableFileIssues } from '@/lib/calls/applicant/submit';
 import { notifySubmissionReceived } from '@/lib/calls/applicant/notices';
 
 export const dynamic = 'force-dynamic';
@@ -40,8 +40,13 @@ export const POST = withActingOrg(async function POST(req: Request, { params }: 
   const files = await loadFiles(a.admin, a.app.id);
   const stored = sanitizeAnswers(a.fields, a.app.answers, files);
   const result = planSubmission(a.fields, stored, files);
-  if (!result.ok) {
-    return NextResponse.json({ ok: false, code: 'incomplete', error: 'Some answers are missing.', failures: result.failures.map((f) => ({ fieldId: f.fieldId, label: f.label, page: f.pageNumber, message: f.message })) }, { status: 409 });
+  // EVERYTHING that blocks the submission is told at once: what is missing or wrong in every page and group, AND the documents that can no longer be read.
+  const readable = await Promise.all(filesInSubmission(a.fields, stored, files).map(async (f) => ({ f, ok: await fileReadable(a.admin, files.find((x) => x.id === f.id)!) })));
+  const unreadable = unreadableFileIssues(a.fields, stored, readable.filter((r) => !r.ok).map((r) => r.f));
+  if (!result.ok || unreadable.length > 0) {
+    const all = [...(result.ok ? [] : result.failures), ...unreadable].sort((x, y) => x.pageNumber - y.pageNumber);     // the order of the form (a stable sort: page by page)
+    const failures = all.map((f) => ({ fieldId: f.fieldId, key: f.key, label: f.label, page: f.pageNumber, message: f.message }));
+    return NextResponse.json({ ok: false, code: result.ok ? 'file_missing' : 'incomplete', error: result.ok ? unreadable[0].message : 'Some answers are missing.', failures }, { status: 409 });
   }
 
   // Freeze the documents: the copies that belong to the submitted version.

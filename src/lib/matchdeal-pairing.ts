@@ -10,7 +10,8 @@ import { createHash, randomBytes } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logEvent } from './analytics-events';
 import { resolveActiveInvestorMember } from './investor-membership';
-import { MATCHDEAL_WEEKLY, normalizePlan } from './plans';
+import { MATCHDEAL_WEEKLY } from './plans';
+import { effectivePlanForOrg } from './effective-plan-server';
 
 // relatorio_verificacao_..._20260805 §2 point 2 — 5 minutes was calibrated
 // for "QR on screen, phone in hand," but the token also has to survive an
@@ -256,5 +257,8 @@ export async function startupDeckLimit(admin: SupabaseClient, profileId: string)
   if (!orgId) return 10; // unchanged fallback — matches the deck's pre-existing hardcoded default
   const { data: org } = await admin.from('orgs').select('plan').eq('id', orgId).maybeSingle();
   if (!org) return 10;
-  return MATCHDEAL_WEEKLY[normalizePlan(org.plan as string | null)].deck;
+  // Prompt 914 — the plan the org is on today (stored ⊕ free trial ⊕ badge). NOTE what this does and does not do: it is the size the
+  // deck ASKS for; the weekly quota the RPCs enforce is keyed on matchdeal_profiles.plan_tier, which a voucher never writes — see
+  // DECISIONS.md (Prompt 914), "o que ficou de fora".
+  return MATCHDEAL_WEEKLY[await effectivePlanForOrg(admin, orgId, { storedPlan: org.plan as string | null })].deck;
 }

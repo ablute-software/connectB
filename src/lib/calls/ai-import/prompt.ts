@@ -31,6 +31,13 @@ export const PROPOSE_SYSTEM_PROMPT = [
   '  6. Structured data per person or per row (name, age, role…): ONE repeatable group (kind "group") with its sub_fields, min and max.',
   '  7. A TEMPLATE TABLE: a group with display "table", its columns as sub_fields and, when the document gives the rows, preset_rows (the text of the first columns).',
   '  8. A LINK (a video, a website): kind "url", with url_hint "video" or "website".',
+  '  9. REQUIRED or OPTIONAL: a question is required unless the document says it is not. Set required to false when the text says "if applicable", "if available", "if any",',
+  '     "if you consider it useful/relevant", "other documents you consider relevant", "optional", "you may include" (in Portuguese: "se aplicável", "se disponíveis", "caso tenha",',
+  '     "caso considere útil", "outros documentos que considere relevantes", "opcional", "facultativo"). "Other documents" is always optional.',
+  '  10. AGE OF A DOCUMENT: set max_document_age_months ONLY when the text of THAT question states a deadline outright ("issued less than 3 months ago", "emitida há menos de',
+  '     3 meses", "dated within the last 30 days"). "updated"/"atualizada" on its own is NOT a deadline: leave it out and, at most, add a "done" note asking the person to confirm.',
+  '     Never copy a deadline from one question to another.',
+  '  11. A presentation or pitch deck asked for in PowerPoint accepts PDF as well: file_formats ["powerpoint","pdf"].',
   '  A document the applicant must upload says in expected_document_type what it is. A question that depends on the answer to a previous yes/no ("If yes, which?") carries',
   '  condition {depends_on_number, value}.',
   '- needs_attention is for two things, and at most ONE entry per question number. (a) kind "not_covered": ONLY what the platform really cannot do (a signature, uploading a',
@@ -76,7 +83,7 @@ export const CORRECT_ROLE = [
 const OPTIONS = { type: 'array', items: { type: 'string' }, description: 'For single_choice and multiple_choice.' } as const;
 const FILE_PROPS = {
   expected_document_type: { type: 'string', description: 'For file questions: what document is expected.' },
-  max_document_age_months: { type: 'integer', description: 'For file questions: how old the document may be, if stated.' },
+  max_document_age_months: { type: 'integer', description: 'For file questions: how old the document may be — ONLY when the text of this very question states a deadline ("issued less than 3 months ago"); "updated" alone is not one; never copied from another question.' },
   file_formats: { type: 'array', items: { type: 'string', enum: [...FILE_FORMAT_KEYS] }, description: 'For file questions: the formats accepted (default pdf). Never a zip.' },
   max_files: { type: 'integer', description: 'For file questions that take several files (2 to 10).' },
 } as const;

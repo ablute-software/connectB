@@ -18,6 +18,7 @@ import 'server-only';
 // is_org_member(p_org_id) check needs a real auth.uid() session to mean
 // anything; a service-role call has none and would always be refused.
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { effectivePlanForOrg } from './effective-plan-server';
 
 export interface ChargeResult {
   ok: boolean;
@@ -102,8 +103,11 @@ export async function aiWalletStatusForViewer(admin: SupabaseClient, orgId: stri
   const used = lapsed ? 0 : ((org.ai_credits_used_this_period as number | null) ?? 0);
   const resetAt = lapsed ? new Date(new Date(now).setMonth(now.getMonth() + 1)) : storedReset;
 
+  // Prompt 914 — the limit follows the plan the org is on RIGHT NOW, exactly like ai_wallet_status() does in SQL (effective_plan()):
+  // a viewer must read the same number the founder sees, not the stored plan's.
+  const effective = await effectivePlanForOrg(admin, orgId, { storedPlan: org.plan as string | null });
   const [{ data: plan }, { data: limitOverride }, { data: action }, { data: costOverride }] = await Promise.all([
-    admin.from('plans').select('monthly_ai_credits').eq('key', org.plan as string).maybeSingle(),
+    admin.from('plans').select('monthly_ai_credits').eq('key', effective).maybeSingle(),
     admin.from('plan_overrides').select('monthly_credits_override').eq('org_id', orgId).is('action_key', null).maybeSingle(),
     admin.from('ai_actions').select('credit_cost, enabled').eq('key', actionKey).maybeSingle(),
     admin.from('plan_overrides').select('credit_cost_override').eq('org_id', orgId).eq('action_key', actionKey).maybeSingle(),

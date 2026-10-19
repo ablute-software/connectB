@@ -28,9 +28,13 @@ export interface InterestRequest {
 
 export const INTEREST_REQUEST_DECIDED_EVENT = 'sherlock-interest-request-decided';
 
-export function useInterestRequests(): InterestRequest[] {
+// `enabled` (Prompt 920 addendum): the Shell passes false for a route that renders no nav or a session that is not signed in, so a
+// visitor to the public pages does not download the login page behind a 307 for a badge that is not drawn. Callers that only exist
+// for a signed-in founder keep the default.
+export function useInterestRequests(enabled = true): InterestRequest[] {
   const [requests, setRequests] = useState<InterestRequest[]>([]);
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     function load() {
       fetch('/api/founder/interest-level-requests').then((r) => r.json()).then((d) => {
@@ -40,12 +44,12 @@ export function useInterestRequests(): InterestRequest[] {
     load();
     window.addEventListener(INTEREST_REQUEST_DECIDED_EVENT, load);
     return () => { cancelled = true; window.removeEventListener(INTEREST_REQUEST_DECIDED_EVENT, load); };
-  }, []);
+  }, [enabled]);
   return requests;
 }
 
-export function usePendingInterestCount(): number {
-  return useInterestRequests().filter((r) => r.status === 'pending').length;
+export function usePendingInterestCount(enabled = true): number {
+  return useInterestRequests(enabled).filter((r) => r.status === 'pending').length;
 }
 
 // Prompt 413 §2 — the copy the founder reads right where they act, shared

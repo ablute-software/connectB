@@ -371,6 +371,8 @@ export function IncubatorWorkspace() {
   const callsEnabled = useCallsAccess('incubator');
   // Prompt 909 (Adenda 2b): a proposal that finished reading while the person was elsewhere — a badge on the Calls tab.
   const callsNotices = useImportNoticeCount(callsEnabled);
+  // A link to a call (?call=…, with section/step or an old ?tab=) opens the Calls tab on it (Prompt 918, I1).
+  useEffect(() => { if (callsEnabled && new URLSearchParams(window.location.search).get('call')) setTab('calls'); }, [callsEnabled]);
 
   const loadMe = useCallback(() => {
     fetch('/api/incubator/me').then((r) => r.json()).then((d: MeResponse) => {

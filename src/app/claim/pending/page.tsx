@@ -53,7 +53,7 @@ export default function ClaimPendingPage() {
 
   return (
     <div className="mx-auto max-w-lg px-4 py-10">
-      <div className="mb-6 text-xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
+      <div className="mb-6 text-xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'var(--font-comfortaa), var(--font-inter), sans-serif' }}>
         {BRAND_NAME}
       </div>
 

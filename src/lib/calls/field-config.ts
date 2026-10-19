@@ -79,6 +79,27 @@ const newId = (): string => globalThis.crypto.randomUUID();
 export const newEntryId = (): string => `e_${newId().replace(/-/g, '').slice(0, 12)}`;
 export const newEntry = (): GroupEntry => ({ id: newEntryId(), values: {} });
 
+const filled = (v: unknown): boolean => v != null && v !== '' && !(typeof v === 'string' && v.trim() === '') && !(Array.isArray(v) && v.length === 0);
+
+/**
+ * The entries of a group as the person sees them. For a table with rows the entity set, the rows are ALWAYS there (their first columns filled in, read-only), whatever has
+ * or has not been typed: before this, nothing created them and the applicant saw only the headings. Otherwise, the entries that were added.
+ */
+export function presetEntriesFor(cfg: GroupConfig, value: AnswerValue): GroupEntry[] {
+  const existing = entriesOf(value);
+  if (cfg.presetRows.length === 0) return existing;
+  return cfg.presetRows.map((row, i) => {
+    const values: Record<string, SimpleAnswer> = { ...(existing.find((e) => e.id === `row${i + 1}`)?.values ?? (existing.some((e) => /^row\d+$/.test(e.id)) ? {} : existing[i]?.values) ?? {}) };
+    cfg.subFields.forEach((s, col) => { if (row[col]) values[s.id] = row[col]; });
+    return { id: `row${i + 1}`, values };
+  });
+}
+
+/** True once the person has put something of their own in the group (the entity's fixed text does not count). An optional group that was not started asks for nothing. */
+export function groupStarted(cfg: GroupConfig, value: AnswerValue): boolean {
+  return entriesOf(value).some((e, i) => cfg.subFields.some((s, col) => !cfg.presetRows[i]?.[col] && filled(e.values[s.id])));
+}
+
 /** A question inside a group, as a plain question: the same input, the same validation, the same sanitising as a top-level one. */
 export function subFieldAsField(sub: SubField, position = 0): FormField {
   return {
@@ -118,6 +139,8 @@ export function fileIdsInAnswers(fields: FormField[], answers: Record<string, An
 // --- Reading the configuration the editor sent ----------------------------------------------------------------------------------------------
 
 const clampInt = (v: unknown, min: number, max: number): number | undefined => {
+  // No value is no number: Number(null) is 0, which would be clamped UP to the minimum (a file saved with no age limit became "1 month", 16/10/2026).
+  if (v === null || v === undefined || typeof v === 'boolean' || (typeof v === 'string' && v.trim() === '')) return undefined;
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.floor(n))) : undefined;
 };

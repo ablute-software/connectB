@@ -40,7 +40,7 @@ export function GuestPreviewShell({ active, token, title, subtitle, children }: 
     <div className="min-h-screen bg-gray-50">
       <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col border-r border-gray-100 bg-white md:flex">
         <div className="px-6 pb-3 pt-6">
-          <div className="text-[26px] font-bold leading-none tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
+          <div className="text-[26px] font-bold leading-none tracking-tight text-[#0E7490]" style={{ fontFamily: 'var(--font-comfortaa), var(--font-inter), sans-serif' }}>
             {BRAND_NAME}
           </div>
           <div className="mt-1.5 text-[11px] font-medium uppercase tracking-widest text-gray-300">Investor Workspace</div>
@@ -68,7 +68,7 @@ export function GuestPreviewShell({ active, token, title, subtitle, children }: 
             had nothing to click at all. Same entries, same order, as a
             scrollable strip. No drawer, no new component library. */}
         <div className="sticky top-0 z-10 border-b border-gray-100 bg-white md:hidden">
-          <div className="px-4 pb-2 pt-4 text-[22px] font-bold leading-none tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
+          <div className="px-4 pb-2 pt-4 text-[22px] font-bold leading-none tracking-tight text-[#0E7490]" style={{ fontFamily: 'var(--font-comfortaa), var(--font-inter), sans-serif' }}>
             {BRAND_NAME}
           </div>
           <nav aria-label="Investor workspace" className="flex gap-1.5 overflow-x-auto px-4 pb-2.5">

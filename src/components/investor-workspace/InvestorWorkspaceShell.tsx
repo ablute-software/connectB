@@ -124,6 +124,8 @@ export function InvestorWorkspaceShell({
   const [callsOpen, setCallsOpen] = useState(false);
   // Prompt 909 (Adenda 2b): a proposal that finished reading while the person was elsewhere — a badge on the Calls tab.
   const callsNotices = useImportNoticeCount(callsEnabled);
+  // A link to a call (?call=…, with section/step or an old ?tab=) opens the Calls area on it (Prompt 918, I1).
+  useEffect(() => { if (callsEnabled && new URLSearchParams(window.location.search).get('call')) setCallsOpen(true); }, [callsEnabled]);
   const shownTab: Tab | null = callsOpen && callsEnabled ? null : tab;
   const investorMobileNavRef = useBottomNavRef<HTMLElement>();
   const investorBottomNavHeight = useBottomNavHeight();

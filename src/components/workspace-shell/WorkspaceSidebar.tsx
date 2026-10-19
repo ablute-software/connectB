@@ -199,7 +199,7 @@ export function WorkspaceSidebar({
       style={collapsible ? ({ '--sb-w': `${width}px` } as React.CSSProperties) : undefined}
     >
       <div className={collapsible ? 'px-2 pb-3 pt-6 text-center min-[1440px]:px-6 min-[1440px]:text-left' : 'px-6 pb-3 pt-6'}>
-        <div className={`text-[26px] font-bold leading-none tracking-tight ${brandTextTheme} ${hideBlockWhenNarrow}`} style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
+        <div className={`text-[26px] font-bold leading-none tracking-tight ${brandTextTheme} ${hideBlockWhenNarrow}`} style={{ fontFamily: 'var(--font-comfortaa), var(--font-inter), sans-serif' }}>
           {brandName}
         </div>
         <div className={`mt-1.5 text-[11px] font-medium uppercase tracking-widest ${subtitleTheme} ${hideBlockWhenNarrow}`}>{subtitle}</div>
@@ -207,7 +207,7 @@ export function WorkspaceSidebar({
             than an empty header: the first letter, same accent as the
             wordmark it stands in for. */}
         {collapsible && (
-          <div className={`text-[22px] font-bold leading-none min-[1440px]:hidden ${brandTextTheme}`} style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
+          <div className={`text-[22px] font-bold leading-none min-[1440px]:hidden ${brandTextTheme}`} style={{ fontFamily: 'var(--font-comfortaa), var(--font-inter), sans-serif' }}>
             {typeof brandName === 'string' ? brandName[0] : '·'}
           </div>
         )}

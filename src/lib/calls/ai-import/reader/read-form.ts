@@ -13,7 +13,7 @@ import { defaultGroupConfig, newSubField, parseSimpleValidations } from '../../f
 import { readTemplateTable } from './table';
 import type { FileFormatKey, GroupConfig, SimpleKind, SubField } from '../../types';
 import {
-  ACCESS_CODE, AGE_OF_COMPANY, ATTACHMENTS_SECTION, CHOICE_CUE, COMPANY_CONSTITUTED, CV_CUE, DATE_CUE, EMAIL_CUE, FILE_NOUN, FILE_VERB, FOLLOW_UP_INLINE, FORMAT_WORDS, IF_NO, IF_YES,
+  ACCESS_CODE, AGE_OF_COMPANY, FRESHNESS_HINT, explicitDocumentAgeMonths, ATTACHMENTS_SECTION, CHOICE_CUE, COMPANY_CONSTITUTED, CV_CUE, DATE_CUE, EMAIL_CUE, FILE_NOUN, FILE_VERB, FOLLOW_UP_INLINE, FORMAT_WORDS, IF_NO, IF_YES,
   LIMIT_CUE, LONG_TEXT_CUE, MULTIPLE_CUE, NUMBER_CUE, OPTIONAL_CUE, OTHER_DOCUMENTS, PEOPLE_NOUNS, PER_PERSON, REQUIRED_CUE, SHORT_TEXT_CUE, STRUCTURE_MARKER, TOPICS_PARENT,
   URL_CUE, WH_WORD, YES_NO_CUE, YES_NO_CUE_RAW, YES_NO_THEN_AMOUNT, fold,
 } from './cues';
@@ -192,8 +192,10 @@ const shorten = (s: string, max: number): string => {
 
 function formatsOf(text: string): FileFormatKey[] {
   const f = fold(text);
-  const found = FORMAT_WORDS.filter((w) => w.re.test(f)).map((w) => w.format);
-  return found.length > 0 ? [...new Set(found)] : ['pdf'];
+  const found = [...new Set(FORMAT_WORDS.filter((w) => w.re.test(f)).map((w) => w.format))];
+  // A presentation / pitch deck asked for in PowerPoint is just as well sent as a PDF (Nuno, 16/10/2026): both by default.
+  if (found.length === 1 && found[0] === 'powerpoint' && /apresentac|pitch|deck|presentation|slides?/.test(f)) return ['powerpoint', 'pdf'];
+  return found.length > 0 ? found : ['pdf'];
 }
 
 type TypeRule = { kind: ProposalFieldItem['kind']; clear: boolean; extra?: Partial<ProposalFieldItem> };
@@ -336,7 +338,10 @@ export function readForm(docs: ReaderDoc[]): ReaderResult {
         k.absorbed = true; resolved++;
         const isCode = ACCESS_CODE.test(fold(kt));
         if (isCode) texts++; else files++;
-        push({ tmpId: nextId(), page, kind: isCode ? 'short_text' : 'file', label: `${k.num} ${shorten(kt, 250)}`, instruction: intro, required: !optionalList, options: [], expectedType: null, maxAgeMonths: null,
+        // The deadline of a document is the one written in ITS OWN line — never the intro's, never a neighbour's.
+        const ownAge = isCode ? null : explicitDocumentAgeMonths(kt);
+        if (!ownAge && FRESHNESS_HINT.test(fold(kt))) attention.push({ kind: 'done', what: `${k.num} says the document must be up to date`, why: 'No deadline is written, so none was set. If the entity needs one (for example "issued less than 3 months ago"), set it on the question.' });
+        push({ tmpId: nextId(), page, kind: isCode ? 'short_text' : 'file', label: `${k.num} ${shorten(kt, 250)}`, instruction: intro, required: !optionalList && !isOptional(kt), options: [], expectedType: null, maxAgeMonths: ownAge,
           ...(isCode ? {} : { validations: parseSimpleValidations('file', { fileFormats: formatsOf(kt) }) }),
           ...(constituted ? { condition: { tmpId: constituted.tmpId, value: 'yes' as const } } : {}), number: k.num, source: 'internal' }, true);
       }
@@ -382,12 +387,15 @@ export function readForm(docs: ReaderDoc[]): ReaderResult {
     const ifYes = IF_YES.test(fold(full)); const ifNo = IF_NO.test(fold(full));
     const ctl = (ifYes || ifNo) && num ? parentYesNo(num) : null;
     const f: ProposalFieldItem = {
-      tmpId: nextId(), page, kind: rule.kind, label: labelOf(read.label), instruction: null, required: !optional, options: rule.kind === 'single_choice' || rule.kind === 'multiple_choice' ? read.options : [],
+      tmpId: nextId(), page, kind: rule.kind, label: labelOf(read.label), instruction: null, required: !(optional || (rule.kind === 'file' && OTHER_DOCUMENTS.test(fold(read.label)))), options: rule.kind === 'single_choice' || rule.kind === 'multiple_choice' ? read.options : [],
       expectedType: null, maxAgeMonths: null, number: num, source: 'internal', ...(rule.extra ?? {}),
       ...(ctl ? { condition: { tmpId: ctl.tmpId, value: ifYes ? ('yes' as const) : ('no' as const) } } : {}),
     };
     if (rule.kind === 'file') {
-      const m = /(?:ultim[oa]s?|last)\s+(\d{1,3})\s*(?:meses|months)/.exec(fold(full)); if (m) f.maxAgeMonths = Number(m[1]);
+      // A deadline only when THIS question's text states one ("emitida há menos de 3 meses"); "atualizada" alone is not one — it becomes a note to confirm.
+      const age = explicitDocumentAgeMonths(full);
+      if (age) f.maxAgeMonths = age;
+      else if (FRESHNESS_HINT.test(fold(full))) attention.push({ kind: 'done', what: `${num ?? 'A document'} says the document must be up to date`, why: 'No deadline is written, so none was set. If the entity needs one (for example "issued less than 3 months ago"), set it on the question.' });
       const nounM = /(?:inclua|incluir|anexe|anexar|insira|include|attach|upload)\s+(?:um|uma|o|a|the|your)?\s*([^,.;:()]{6,80})/i.exec(full); if (nounM) f.expectedType = nounM[1].trim();
     }
     // the age brackets of the company: possibly out of date — said once, for this question

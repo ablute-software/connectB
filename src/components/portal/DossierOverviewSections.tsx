@@ -21,6 +21,8 @@ import { MediaGallery, type GalleryItem } from './MediaGallery';
 import { CapTableChart } from '@/components/CapTableChart';
 import { toCapTableSlices } from '@/lib/cap-table';
 import { MiniPitchDeck } from '@/components/mini-pitch/MiniPitchSlideView';
+import { InvestorBadges } from './InvestorBadges';
+import type { BadgePublic } from '@/lib/company-badges';
 import { InvestorWebsiteHealth } from './InvestorWebsiteHealth';
 import type { WebsiteHealthPublic } from '@/lib/website-health';
 
@@ -84,10 +86,11 @@ export interface Dossier {
   // rather than a new one.
   roadmap?: { id: string; title: string; description?: string; date: string; end_date?: string; status: 'done' | 'planned'; category_id?: string; document_id?: string }[];
   roadmapCategories?: { id: string; label: string; color: string; shape: string }[];
-  // Prompt 326 — already fully masked (projectBadgesForInvestor): disputed
-  // badges and internal fields (verification_note, evidence_document_id)
-  // never reach this shape at all.
-  badges?: { id: string; name: string; description: string | null; year: number | null; verificationStatus: 'unverified' | 'verified' }[];
+  // Prompt 326 — already fully masked (projectBadgesForInvestor). Prompt 918:
+  // ONLY verified badges, each with its public source; the verification note,
+  // the evidence document and any unverified/disputed badge never reach this
+  // shape at all.
+  badges?: BadgePublic[];
   // Prompt 334 — already stripped of claim ids and the internal evidence-
   // class taxonomy (projectMiniPitchForInvestor); absent unless the founder
   // has both reached level 1 AND actually activated a mini-pitch.
@@ -240,35 +243,16 @@ export function DossierOverviewSections({
           {overview?.founded_year && <span>Founded {overview.founded_year}</span>}
           {(overview?.hq_city || overview?.country) && <span>{[overview?.hq_city, overview?.country].filter(Boolean).join(', ')}</span>}
         </div>
-        {/* Prompt 326 Pedido E — verified (color) vs unverified (grayscale +
-            reduced opacity) is the whole point: never hide an unverified
-            claim, never invent confidence it hasn't earned. A disputed
-            badge is already absent from this array entirely (server-side,
-            projectBadgesForInvestor) — there is nothing to special-case
-            here for that state.
-            Prompt 357 §C2 — given its own discrete labeled block (icon +
-            name + verified state) instead of sitting inline as unlabeled
-            pills, same "bloco discreto e bonito" ask; read-only, no edit
-            affordance, no internal state (verification_note/disputed) ever
-            reaches this far — projectBadgesForInvestor already stripped it. */}
-        {dossier.badges && dossier.badges.length > 0 && (
-          <div className="mt-3 border-t border-gray-100 pt-3">
-            <h3 className="text-xs font-semibold text-gray-500">Badges &amp; awards</h3>
-            <div className="mt-1.5 flex flex-wrap gap-2">
-              {dossier.badges.map((b) => (
-                <span key={b.id}
-                  title={b.verificationStatus === 'verified' ? 'Verified' : 'Not yet verified'}
-                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-                    b.verificationStatus === 'verified'
-                      ? 'border-cyan-200 bg-cyan-50 text-[#0E7490]'
-                      : 'border-gray-200 bg-gray-50 text-gray-400 opacity-60 grayscale'
-                  }`}>
-                  🏅 {b.name}{b.year ? ` (${b.year})` : ''}{b.verificationStatus === 'verified' && <span aria-hidden>✓</span>}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
+        {/* Prompt 326 Pedido E showed an unverified badge greyed out ("never
+            hide an unverified claim"). Prompt 918 INVERTED that: a badge with
+            nothing behind it, even greyed, is a statement without a source on
+            the profile. Only a badge Sherlock confirmed against a public source
+            is here, with that source attached; unverified and disputed ones are
+            absent from the array (server-side, projectBadgesForInvestor), and
+            there is no "0 badges" line — InvestorBadges renders nothing for an
+            empty list. Prompt 357 §C2's discrete labeled block lives there now,
+            shared with the founder's preview. */}
+        <InvestorBadges badges={dossier.badges} />
         <MediaGallery items={companyMedia} />
         {technologyMedia.length > 0 && (
           <div className="mt-3 border-t border-gray-100 pt-3">

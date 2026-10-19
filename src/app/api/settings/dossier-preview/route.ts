@@ -12,6 +12,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { projectDossier, type InterestLevel } from '@/lib/investor-interest-level';
 import { fetchDossierRawData } from '@/lib/dossier-fetch';
+import { founderBadgeLogoPath } from '@/lib/company-badges';
 import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
 
 function parseLevel(raw: string | null): InterestLevel {
@@ -38,7 +39,8 @@ export const GET = withActingOrg(async function GET(req: Request) {
   // No real investor on the other side of a self-preview, so contactHistory
   // stays [] — same as it would for any level<2 or identity-less caller of
   // the real route (Pedido 1: "não inventar dados").
-  const raw = await fetchDossierRawData(admin, orgId, level, null);
+  // Prompt 918 — the preview's badge logos come from the founder's own route; the investor's refuses anyone who is not an investor.
+  const raw = await fetchDossierRawData(admin, orgId, level, null, { badgeLogoRoute: founderBadgeLogoPath });
 
   // Level 3 is the ceiling of what ANY investor could ever be granted
   // (shareEmail is its own separate founder decision on the level-3 grant

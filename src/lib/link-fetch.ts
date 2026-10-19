@@ -66,7 +66,8 @@ export function resolveDirectDownloadUrl(raw: string): string {
 // compromised/misconfigured resolver, or simply widening the allowlist
 // later without re-deriving this check). Deliberately checked on every
 // hop, not just the first — a redirect target re-enters the same gate.
-function isPrivateIPv4(addr: string): boolean {
+// Prompt 918 — exported (no behaviour change) so public-fetch.ts, which fetches ANY public https page for a badge source, applies this very guard.
+export function isPrivateIPv4(addr: string): boolean {
   const parts = addr.split('.').map(Number);
   if (parts.length !== 4 || parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) return true; // malformed -> never trust it
   const [a, b] = parts;
@@ -80,7 +81,7 @@ function isPrivateIPv4(addr: string): boolean {
   return false;
 }
 
-function isPrivateIPv6(addr: string): boolean {
+export function isPrivateIPv6(addr: string): boolean {
   const a = addr.toLowerCase();
   if (a === '::1' || a === '::') return true; // loopback / unspecified
   if (a.startsWith('fc') || a.startsWith('fd')) return true; // fc00::/7 unique local
@@ -90,7 +91,7 @@ function isPrivateIPv6(addr: string): boolean {
   return false;
 }
 
-async function hostResolvesToPrivateAddress(hostname: string): Promise<boolean> {
+export async function hostResolvesToPrivateAddress(hostname: string): Promise<boolean> {
   let results: { address: string; family: number }[];
   try {
     results = await dns.lookup(hostname, { all: true });

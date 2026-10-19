@@ -166,6 +166,8 @@ Tipos de campo:
 | Email | Validação de formato no servidor. Serve sobretudo dentro de grupos (o email de cada membro da equipa). |
 | Repeatable group | **Grupo repetível ("Add another").** A entidade define os sub-campos (qualquer tipo simples, incluindo ficheiro e email), o mínimo e o máximo de entradas (até 50) e o nome de cada entrada ("Team member"). O candidato adiciona, edita, reordena e remove entradas; cada entrada valida os seus obrigatórios e o número de entradas respeita o mínimo e o máximo. **Apresentação como tabela** (opção): as colunas são os sub-campos e as linhas as entradas; a entidade pode deixar as linhas abertas ou **pré-definir as linhas** e o texto das primeiras colunas de cada uma (por exemplo "Your company", "Competitor 1", "Competitor 2"): nesse caso o candidato preenche o resto e não acrescenta nem remove linhas (e o servidor repõe o texto fixo, seja o que for que o browser envie). Em ecrãs estreitos a tabela mostra-se como cartões. |
 
+**Grupos opcionais e tabelas com linhas fixas** (Prompt 917, 16/10/2026): as linhas que a entidade fixou estão **sempre** visíveis para o candidato (primeira coluna preenchida e só de leitura, as outras editáveis), no formulário, no preview/teste e na Submissions. Um grupo **opcional** não pede nada até a pessoa começar a preenchê-lo: o texto diz só que é opcional; começado, aplicam-se o mínimo e as perguntas obrigatórias de cada linha; um grupo **obrigatório** aplica-os sempre. Uma tabela opcional que ninguém preencheu não se guarda.
+
 **Limites da v1 dos tipos novos** (escritos aqui, decididos a 15/10/2026, Prompt 917 I1):
 
 - **um grupo não pode ter outro grupo dentro**;
@@ -262,6 +264,8 @@ O administrador descreve o requisito, a plataforma apresenta a interpretação q
 - **Cada correção é guardada como exemplo de avaliação do motor:** a regra, o resultado do motor com o motivo e a evidência, a decisão humana, o autor, a justificação e a data. Distinguir os erros de reconhecimento das exceções próprias daquela call. Estes dados servem para medir a performance do motor no backoffice; o ecrã de análise fica para depois, mas **os dados guardam-se desde já**.
 
 ## 8. Preview, confirmação e ciclo da call
+
+**Organização do editor da call** **[Decisão]** (Prompt 918, I1, 19/10/2026): **quatro separadores** — **Setup**, **Applications** (as candidaturas; ganha as sub-vistas de elegibilidade na Etapa 2), **Evaluation** e **Results** (estes dois, "Coming in the next stage"). Uma call em rascunho abre na Setup; uma publicada, em Applications. A **Setup** monta-se em **sete passos**, por esta ordem: General, Phases, Form, Eligibility rules, Team & distribution, Evaluation grid, Review & publish (a pré-visualização e a confirmação deste capítulo). Cada passo mostra o seu estado (✓ completo, ⚠ falta algo com o número, ou not started), o "What is missing" do Review & publish leva ao passo e ao campo, e depois de validada a Setup fica só de leitura (com "Edit configuration" até a call abrir). Os links antigos por separador (`?tab=form`, `?tab=submissions`…) continuam a abrir o sítio certo. **Os ecrãs adaptam-se** (verificados a 375, 768 e 1280 px, sem scroll horizontal e com alvos de toque de pelo menos 44 px): lista de passos à esquerda e fixa; num tablet na vertical um botão "Steps"; num telemóvel "Step 3 of 7: Form", Previous/Next, o painel de uma pergunta em ecrã inteiro e as candidaturas em cartões.
 
 **Estados:** Draft → Validated → Scheduled/Open → Closed → (fases de avaliação) → Results published → Archived.
 
@@ -604,6 +608,8 @@ Garantias obrigatórias:
 
 Se faltar algo, aparece um popup com o nome de cada campo e a página onde está.
 
+**A verificação lista tudo de uma vez** (16/10/2026): corre sobre o formulário inteiro — todas as páginas, todos os grupos e todas as entradas —, um item por problema, e inclui os documentos que já não se conseguem ler. A única exceção é uma pergunta condicional que passou a estar visível por uma resposta dada depois da verificação anterior: o item diz "New: shown because you answered «…» on page N".
+
 ### 14.3. Submissão
 
 - Regista a data e a hora.
@@ -839,7 +845,7 @@ Cada notificação sai **por email e dentro da plataforma**, reutilizando o meca
 |---|---|
 | 0 | Envio de email (Resend e Supabase Auth), registo com palavra-passe e código, seats de planos custom e código promocional preso à entidade. **Prompt 904** |
 | 1 | Separador Calls; General; Phases (estrutura); Form; link e ecrã da call; registo e entrada; pré-preenchimento; gravação; submissão; área do candidato; notificações base |
-| 2 | Eligibility (regras, documentos, subtabs, correções e dataset); fila de processamento; duplicados; reportar problema |
+| 2 | **Prompt 918:** I1 a call com 4 separadores e a Setup em passos (§8; entregue 19/10/2026); I2 passo Eligibility rules; I3 motor interno, fila e resultados em Applications; I4 análise dos documentos com IA externa (altera a §2.3 para a elegibilidade). Eligibility (regras, documentos, subtabs, correções e dataset); fila de processamento; duplicados; reportar problema |
 | 1B | **Lado do candidato (Prompt 907, 14/10/2026; tipos de campo novos no Prompt 917, I1 — §6.1):** link da call (cabeçalho, registo por código, memória do link, passo "startup"); preencher o formulário (pré-preenchimento sem pisar o editado, condições no servidor, documentos Number/File/Vault autorizados em nome da call, gravação com estados); submeter (verificação final, popup do que falta, versão imutável e idempotente); área "Calls" da startup (Open calls / My applications / Past applications) e separador "Submissions" só de leitura na entidade (nunca rascunhos); prazo e notificações (prorrogação avisa quem tem rascunho; lembrete 48 h antes só a rascunhos; "Contact email for applicants" = Reply-To dessa call). Relatório: `docs/calls/ETAPA1B_907.md` |
 | 1C | **Antecipado do 3 e do 5 (Nuno, 12/10/2026, Prompt 909):** eliminar e arquivar uma call; importar o formulário de outra call; tab Team (categorias ao nível da organização, as 9 permissões, equipa da call com seats, ajustes individuais, conflitos declarados à partida; "Configure call" e "Manage team & permissions" já aplicadas no servidor); importação por IA de regulamento e formulário (a grelha ficou de fora da IA externa, 15/10/2026), em rascunho (§5.3); **I5 (Adenda 1):** pré-visualização livre, modo de teste do formulário e "Validate form and settings" (validar não publica) |
 | 3 | Distribuição; construtor de grelha (manual); avaliação; "Declare conflict" em cada candidatura; prazos dos avaliadores; as outras 7 permissões passam a ser aplicadas. (Categorias, permissões e conflitos à partida: ver 1C.) |

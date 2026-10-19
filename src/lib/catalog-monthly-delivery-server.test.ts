@@ -21,6 +21,10 @@ function makeFakeAdmin(opts: {
   claims?: { catalog_entity_id: string; claimant_user_id: string; status: string }[];
   members?: { id: string; catalog_entity_id: string; user_id: string }[];
   profiles?: Record<string, unknown>[];
+  // Prompt 914 — what the effective plan reads (effective-plan-server.ts): the org's redemptions (with the promo code embedded, the
+  // shape PostgREST returns) and platform badges. Empty by default: every test above keeps running on the stored plan.
+  redemptions?: Record<string, unknown>[];
+  badges?: Record<string, unknown>[];
 }) {
   const writes: { table: string; op: 'insert' | 'update'; payload: unknown }[] = [];
   const rpcCalls: { fn: string; args: unknown }[] = [];
@@ -44,6 +48,8 @@ function makeFakeAdmin(opts: {
         filters.every(([col, val, kind]) => (kind === 'eq' ? row[col] === val : (val as unknown[]).includes(row[col]))));
       return { data: rows, error: null };
     }
+    if (table === 'promo_redemptions') return { data: opts.redemptions ?? [], error: null };
+    if (table === 'platform_badges') return { data: opts.badges ?? [], error: null };
     if (table === 'catalog_deliveries') return { count: opts.deliveredCount ?? 0, data: null, error: null };
     if (table === 'entities') return { data: (opts.ownedNames ?? []).map((name) => ({ name })), error: null };
     if (table === 'catalog_entities') return { data: opts.catalogRows ?? [], error: null };
@@ -265,5 +271,72 @@ describe('deliverMonthlyForOrg — Prompt 407 claimed-profile precedence', () =>
 
     const insertedEntity = writes.find((w) => w.table === 'entities')!.payload as Record<string, unknown>[];
     expect(insertedEntity[0].website).toBe('https://researched-guess.example');
+  });
+});
+
+// Prompt 914 — on 1 October the job gave Wisify (stored idea, on a 100%-off trial of "It's the butler!" since 8 September) Elementary's
+// +10 instead of +50, because it read orgs.plan. The increment now follows the plan the org is on the day the job runs
+// (effective-plan.ts: stored ⊕ running 100% trial ⊕ badge free tier), and "the day" is the run's own timestamp.
+describe('deliverMonthlyForOrg — Prompt 914: the increment follows the plan on the day', () => {
+  const day = (n: number) => new Date(Date.parse(NOW) + n * 86_400_000).toISOString();
+  const trial = (over: { pct?: number; plans?: string[]; endsInDays?: number | null; deleted?: boolean } = {}) => ({
+    benefit_ends_at: over.endsInDays === null ? null : day(over.endsInDays ?? 30),
+    promo_codes: { code: 'PIONEER_100', discount_pct: over.pct ?? 100, applicable_plans: over.plans ?? ['motherfunding'], deleted_at: over.deleted ? day(-1) : null },
+  });
+  const badge = (over: { tier?: string | null; revoked?: boolean } = {}) => ({
+    badge: 'tech_master', free_tier: over.tier === undefined ? 'motherfunding' : over.tier, free_until: null, revoked_at: over.revoked ? day(-2) : null,
+  });
+  async function run(over: Parameters<typeof makeFakeAdmin>[0] = {}, plan = 'idea', quota = 3, at = NOW) {
+    const { admin, rpcCalls, writes } = makeFakeAdmin({ deliveredCount: 0, matches: [], ...over });
+    const org: MonthlyDeliveryOrgRow = { id: 'org-914', plan, catalog_quota: quota, catalog_last_monthly_delivery: null, is_test: false };
+    const result = await deliverMonthlyForOrg(admin, org, at);
+    return { result, writes, pLimit: (rpcCalls[0]?.args as { p_limit: number } | undefined)?.p_limit };
+  }
+
+  it('Wisify: stored idea + a 100% trial covering motherfunding, still running → +50 (not +10), and the quota written says so', async () => {
+    const { result, writes, pLimit } = await run({ redemptions: [trial()] });
+    expect(result.newQuota).toBe(53);
+    expect(pLimit).toBe(50);
+    expect(writes.find((w) => w.table === 'orgs')?.payload).toMatchObject({ catalog_quota: 53 });
+  });
+
+  it('control: the same org with no voucher stays on +10', async () => {
+    const { result, pLimit } = await run();
+    expect(result.newQuota).toBe(13);
+    expect(pLimit).toBe(10);
+  });
+
+  it.each([
+    ['a trial that ended yesterday', { redemptions: [trial({ endsInDays: -1 })] }],
+    ['a 99% voucher (a partial discount grants nothing)', { redemptions: [trial({ pct: 99 })] }],
+    ['a voucher whose code was DELETED (deleting revokes every holder)', { redemptions: [trial({ deleted: true })] }],
+    ['a voucher that only names a tier nobody has', { redemptions: [trial({ plans: ['pro'] })] }],
+    ['a revoked badge', { badges: [badge({ revoked: true })] }],
+    ['a badge with no free tier', { badges: [badge({ tier: null })] }],
+  ])('%s → still +10', async (_label, over) => {
+    const { result, pLimit } = await run(over);
+    expect(result.newQuota).toBe(13);
+    expect(pLimit).toBe(10);
+  });
+
+  const lifts: [string, Parameters<typeof makeFakeAdmin>[0], string, number][] = [
+    ['a trial with no end date', { redemptions: [trial({ endsInDays: null })] }, 'idea', 53],
+    ['a platform badge whose free tier is motherfunding', { badges: [badge()] }, 'idea', 53],
+    ['a garage voucher on an idea org lifts it one tier: +25', { redemptions: [trial({ plans: ['garage'] })] }, 'idea', 28],
+  ];
+  it.each(lifts)('%s', async (_label, over, plan, newQuota) => {
+    const { result } = await run(over, plan, 3);
+    expect(result.newQuota).toBe(newQuota);
+  });
+
+  it('never lowers: stored motherfunding + a voucher that only covers garage is still +50', async () => {
+    const { result } = await run({ redemptions: [trial({ plans: ['garage'] })] }, 'motherfunding', 3);
+    expect(result.newQuota).toBe(53);
+  });
+
+  it('"the day" is the run\'s own timestamp: a trial that ends in 5 days counts on 1 September and not on 10 September', async () => {
+    const redemptions = [trial({ endsInDays: 5 })];
+    expect((await run({ redemptions }, 'idea', 3, NOW)).result.newQuota).toBe(53);
+    expect((await run({ redemptions }, 'idea', 3, day(9))).result.newQuota).toBe(13);
   });
 });

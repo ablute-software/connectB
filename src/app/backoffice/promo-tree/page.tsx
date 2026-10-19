@@ -8,14 +8,12 @@
 // list is not warranted.
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { CopyLineButton } from '@/components/backoffice/CopyLineButton';
+import { promoNodeLine, promoTreeDate as fmtDate } from '@/lib/promo-tree-copy';
 
 interface PromoNode {
   orgId: string; orgName: string; code: string; parentOrgId: string | null;
   redeemedAt: string; wave: number; directChildren: number; totalDescendants: number;
-}
-
-function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function GenealogyBranch({ node, byId, childrenOf, highlight }: {
@@ -29,6 +27,7 @@ function GenealogyBranch({ node, byId, childrenOf, highlight }: {
         <span className="font-mono text-[11px] text-gray-400">{node.code}</span>
         <span className="text-[11px] text-gray-400">wave {node.wave}</span>
         <span className="text-[11px] text-gray-400">{fmtDate(node.redeemedAt)}</span>
+        <CopyLineButton text={promoNodeLine(node)} label={node.orgName} />
       </div>
       {kids.length > 0 && (
         <ul className="ml-1.5 mt-0.5 space-y-0.5">
@@ -174,7 +173,12 @@ export default function PromoTreePage() {
                       <td className="py-2 text-xs text-gray-500">{fmtDate(n.redeemedAt)}</td>
                       <td className="py-2 text-gray-600">{n.directChildren}</td>
                       <td className="py-2 text-gray-600">{n.totalDescendants}</td>
-                      <td className="py-2 text-xs text-[#0E7490]">View →</td>
+                      <td className="py-2 text-xs text-[#0E7490]">
+                        <span className="inline-flex items-center gap-1.5">
+                          <CopyLineButton text={promoNodeLine(n)} label={n.orgName} />
+                          <span>View →</span>
+                        </span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

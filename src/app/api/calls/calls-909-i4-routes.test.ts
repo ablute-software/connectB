@@ -5,6 +5,7 @@
 // Adenda 2 (14/10/2026): the model now works AFTER the response (the route answers 202 with a run "reading"; the test waits for the background work
 // and then asks the run, as the screen does). `upload()` does both and returns the settled shape; `start()` is the raw answer.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
 import { NextRequest } from 'next/server';
 import { callsDb, fakeCallsAdmin, type CallsDb, type FakeStorage } from '@/test/fake-calls-db';
 import { docx, scannedPdf, textPdf, xlsx } from '@/lib/calls/ai-import/test-fixtures';
@@ -644,5 +645,89 @@ describe('internal first (917 I2 + Adenda 1 Part B)', () => {
     const run2 = (await upload(target.id, form())).body.run;
     await runPost(json('POST', { action: 'apply', baseVersion: row(target.id).config_version, accepted: { fields: run2.proposal.fields } }), { params: { id: target.id, runId: run2.id } });
     expect(db.tables.call_import_corrections.filter((r) => r.run_id === run2.id)).toEqual([]);
+  });
+});
+
+// --- Prompt 917 fix: the REAL INNOV-ID form, read by the platform, accepted entirely and applied: every question must reach call_form_fields ------------------
+const REAL_PDF = process.env.INNOV_ID_PDF ?? 'C:/Users/Alexandra/Downloads/Formulário_2edCall-INNOV-ID_PT_Final-2.pdf';
+describe.skipIf(!fs.existsSync(REAL_PDF))('the real INNOV-ID form, end to end (internal reader -> Accept all -> apply)', () => {
+  beforeEach(() => { db.clock = Date.now(); answer = async () => { throw new Error('the AI must not be asked'); }; });
+  it('every question accepted is written, with groups, conditions and several files', async () => {
+    const res = await upload(target.id, [{ name: 'form.pdf', bytes: fs.readFileSync(REAL_PDF), kind: 'form' }]);
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    const run = res.body.run as { id: string; mode: string; proposal: { fields: { tmpId: string; kind: string }[] } };
+    expect(run.mode).toBe('internal');
+    // what the screen sends after "Accept all": the proposal's fields, as stored and read back through the API (JSON)
+    const accepted = JSON.parse(JSON.stringify(run.proposal.fields));
+    const out = await read(await runPost(json('POST', { action: 'apply', baseVersion: row(target.id).config_version, fieldsMode: 'add', accepted: { fields: accepted } }), { params: { id: target.id, runId: run.id } }));
+    expect(out.status, JSON.stringify(out.body).slice(0, 400)).toBe(200);
+    expect(out.body.applied.fields).toBe(accepted.length);
+    const saved = fieldsOf(target.id);
+    expect(saved).toHaveLength(accepted.length);
+    expect(saved.filter((f) => f.kind === 'group')).toHaveLength(2);
+    // the 16/10 bug: a file saved with no age limit became "1 month" (Number(null) clamped up to 1). None of the 7 files states a deadline: none is stored.
+    const filesSaved = saved.filter((f) => f.kind === 'file');
+    expect(filesSaved).toHaveLength(7);
+    expect(filesSaved.every((f) => f.max_age_months == null)).toBe(true);
+    expect(saved.find((f) => String(f.label).startsWith('6.6'))!.required).toBe(false);
+    expect((saved.find((f) => String(f.label).startsWith('6.1'))!.validations as { fileFormats: string[] }).fileFormats).toEqual(['pdf', 'powerpoint']);
+    expect(saved.filter((f) => f.condition).length).toBeGreaterThanOrEqual(9);
+    expect(saved.some((f) => f.kind === 'file' && (f.validations as { maxFiles?: number }).maxFiles === 10)).toBe(true);
+    expect(events(target.id, 'import_applied')[0].detail).toMatchObject({ fields: accepted.length });
+  });
+});
+
+// --- Prompt 917 fix: the apply never says "ok" for questions that were not stored, and never drops an accepted question in silence ---------------------------
+describe('apply tells the truth (917 fix)', () => {
+  beforeEach(() => { db.clock = Date.now(); });
+  const FORM = ['1. Perfil', '1.1 Nome do responsável', '1.2 Endereço de e-mail', '1.3 Data de constituição'];
+  const prepare = async () => (await upload(target.id, [{ name: 'form.docx', bytes: docx(FORM), kind: 'form' }])).body.run as { id: string; proposal: { fields: Record<string, unknown>[] } };
+  const apply = (runId: string, accepted: unknown) => runPost(json('POST', { action: 'apply', baseVersion: row(target.id).config_version, accepted }), { params: { id: target.id, runId } }).then(read);
+
+  it('an accepted question the check refuses is named, nothing is applied, and the proposal stays open', async () => {
+    answer = async () => { throw new Error('no AI'); };
+    const run = await prepare();
+    const res = await apply(run.id, { fields: [run.proposal.fields[0], { ...run.proposal.fields[1], label: '   ' }, run.proposal.fields[2]] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/1 of the 3 accepted questions cannot be applied: a question with no text/);
+    expect(fieldsOf(target.id)).toHaveLength(0);
+    expect(db.tables.call_import_runs.find((r) => r.id === run.id)!.status).toBe('proposed');
+    expect(events(target.id, 'import_applied')).toHaveLength(0);
+  });
+
+  it('a failed write is an error (never "applied: 0"): the run stays proposed, the event says why, and trying again works', async () => {
+    answer = async () => { throw new Error('no AI'); };
+    const run = await prepare();
+    const real = db.tables.call_form_fields;
+    Object.defineProperty(db.tables, 'call_form_fields', { get() { throw new Error('connection reset'); }, configurable: true });
+    let failed;
+    try { failed = await apply(run.id, { fields: run.proposal.fields }); }
+    finally { Object.defineProperty(db.tables, 'call_form_fields', { value: real, writable: true, configurable: true }); }
+    expect(failed.status).toBe(500);
+    expect(failed.body).toMatchObject({ ok: false, code: 'apply_failed' });
+    expect(failed.body.error).toContain('still open');
+    expect(db.tables.call_import_runs.find((r) => r.id === run.id)!.status).toBe('proposed');
+    expect(events(target.id, 'import_apply_failed')).toHaveLength(1);
+    expect(events(target.id, 'import_applied')).toHaveLength(0);
+    const again = await apply(run.id, { fields: run.proposal.fields });
+    expect(again.status, JSON.stringify(again.body)).toBe(200);
+    expect(again.body.applied.fields).toBe(3);
+    expect(fieldsOf(target.id)).toHaveLength(3);
+  });
+});
+
+// --- Prompt 918 (I1): the state of the call carries what the Setup steps need ------------------------------------------------------------------------------------
+describe('the state the Setup steps read (918 I1)', () => {
+  it('says how many people are on the team (the step "Team & distribution" shows ✓ once someone besides the creator is on it) and carries the target of each missing thing', async () => {
+    as('ana');
+    const before = await read(await oneGet(json('GET'), params(target.id)));
+    expect(before.body.teamMembers).toBe(1);                                                    // the creator is on the team from the start
+    db.tables.call_team_members.push({ id: 'tm-1', call_id: target.id, user_id: 'ana', category_id: 'cat-1' }, { id: 'tm-2', call_id: target.id, user_id: 'bob', category_id: 'cat-1' });
+    db.tables.call_team_members.push({ id: 'tm-x', call_id: 'another-call', user_id: 'ana', category_id: 'cat-1' });
+    const after = await read(await oneGet(json('GET'), params(target.id)));
+    expect(after.body.teamMembers).toBe(3);                                                     // only THIS call's team (the creator and the two added)
+    const targets = (after.body.issues as { tab: string; target?: string }[]).map((i) => [i.tab, i.target]);
+    expect(targets).toContainEqual(['general', 'opens']);
+    expect(targets).toContainEqual(['general', 'closes']);
   });
 });

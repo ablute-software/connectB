@@ -75,12 +75,15 @@ export function ReportProblemWidget() {
       const meta = data.user?.user_metadata as { full_name?: string } | undefined;
       setName(meta?.full_name ?? '');
       setEmail(data.user?.email ?? '');
+      // Prompt 920 addendum — an anonymous visitor (this widget is mounted on the public pages too) has no suggestion right to look
+      // up; the endpoint only answers them with a 307 to /login, which fetch follows and downloads as a page.
+      if (!data.user) return;
+      fetch('/api/suggestions/eligibility', { cache: 'no-store' }).then((r) => r.json())
+        .then((body) => setCanSuggest(!!body.canSuggest))
+        .catch(() => {});
     });
     fetch('/api/me', { cache: 'no-store' }).then((r) => r.json())
       .then((me) => setSource(me.role === 'investor' ? 'investor_portal' : 'founder_app'))
-      .catch(() => {});
-    fetch('/api/suggestions/eligibility', { cache: 'no-store' }).then((r) => r.json())
-      .then((body) => setCanSuggest(!!body.canSuggest))
       .catch(() => {});
   }, []);
 

@@ -94,7 +94,7 @@ export function ContactForm({ source, defaultName = '', defaultEmail = '', defau
           className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
       </div>
       {!hideCategory && (
-        <select value={category} onChange={(e) => setCategory(e.target.value)}
+        <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category"
           className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
           {CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
         </select>

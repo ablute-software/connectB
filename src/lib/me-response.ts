@@ -22,6 +22,7 @@
 import type { Role } from './supabase';
 import type { Hats, OrgMemberRole } from './supabase-server';
 import type { Entitlements, PlanTier } from './plans';
+import type { PlanOrigin } from './effective-plan';
 
 export type MeCapabilities = Record<string, boolean>;
 
@@ -94,7 +95,11 @@ export interface AuthenticatedMeResponse {
   pendingIncubatorMemberInvite?: boolean;
   signupIntent?: string | null;
   orgRole: OrgMemberRole | null;
+  /** The plan the org is entitled to right now: stored ⊕ running 100%-off free trial ⊕ badge free tier (effective-plan.ts). */
   plan: PlanTier;
+  /** Prompt 914 — why `plan` is what it is (the stored plan, a free trial via a code, a platform badge) and what orgs.plan says. */
+  planOrigin?: PlanOrigin;
+  storedPlan?: PlanTier;
   entitlements: Entitlements;
   capabilities: MeCapabilities;
   watson: { quota: number; used: number; remaining: number; resetAt: string } | null;

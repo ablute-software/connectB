@@ -42,10 +42,12 @@ desconhecido.
 
 | Nome | Valor | Estado | Quem decidiu e quando | Fonte |
 |---|---|---|---|---|
+| `VERCEL_GIT_COMMIT_SHA` (lida só em `next.config.mjs`, no build) | **variável de sistema da Vercel; não é para definir.** Dá o id do build (`buildId` do Next = o commit); fora da Vercel usa-se `local-<hora>` | feito (automática) | Nuno, 16/10/2026 (aviso de nova versão) | `next.config.mjs` |
+| `NEXT_PUBLIC_BUILD_ID` / `SHERLOCK_BUILD_ID` | **derivadas no build por `next.config.mjs`; não definir no painel.** O primeiro é o id do build embutido na página e devolvido por `/api/version`; o segundo só garante que todos os processos do build usam o mesmo id | feito (derivadas) | Nuno, 16/10/2026 | `next.config.mjs`, `src/lib/build-version.ts`, `src/app/api/version/route.ts` |
 | `NEXT_PUBLIC_SUPABASE_URL` (prod+prev) | definido | feito | desde a criação do projeto | `CLAUDE.md` Stack; a app funciona |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` (prod+prev) | definido | feito | idem. **Tem de ser não-sensível** no Vercel, senão o bundle do cliente não a recebe | `CLAUDE.md` Stack |
 | `SUPABASE_SERVICE_ROLE_KEY` (prod+prev) | definido | feito | idem | `CLAUDE.md` Stack |
-| `NEXT_PUBLIC_APP_URL` (?) | **por confirmar.** Valor a ter: `https://www.sherlockdeal.com` | desconhecido | Nuno 23/07/2026: definir para o domínio próprio e redeploy ("uma só mudança"). Ver **contradição C2** | DECISIONS L138, L153; `src/lib/brand.ts:22` |
+| `NEXT_PUBLIC_APP_URL` (prod) | `https://www.sherlockdeal.com` | feito (observado 16/10/2026) | Nuno 23/07/2026: definir para o domínio próprio e redeploy ("uma só mudança"). **Prova (16/10/2026, Prompt 920):** em `https://www.sherlockdeal.com/` o `<link rel="canonical">` e o `og:url` são `https://www.sherlockdeal.com` — não o fallback `.vercel.app` —, logo a variável está definida com o `www`. Ver **contradição C2** | DECISIONS L138, L153; `src/lib/brand.ts:22`; observado em produção |
 | `SUPABASE_URL` | não é preciso | feito | só `scripts/verify-migrations.ts`, como alternativa a `NEXT_PUBLIC_SUPABASE_URL` | `scripts/verify-migrations.ts:96` |
 
 Sem `NEXT_PUBLIC_APP_URL` os links dos emails (convites, Stripe, "Open your workspace") caem no fallback do código,
@@ -204,7 +206,7 @@ código e texto do erro, hora. Só o serviço lhe chega (RLS sem políticas); l�
   até 18/09). Não há registo de a de 06/08 (`support@`) ter sido usada (o log só existe desde 02/09).
 - **C2 — `NEXT_PUBLIC_APP_URL`.** A decisão de 23/07/2026 diz `https://sherlockdeal.com` (apex); o domínio canónico de
   hoje é `https://www.sherlockdeal.com` (o apex redireciona-lhe, 308) e o `CLAUDE.md` já diz `www`. Valor a pôr: o `www`.
-  Além disso não se sabe se a variável está definida (o fallback do código é um `.vercel.app`).
+  A variável **está definida** com o `www` (observado a 16/10/2026 pelo `canonical` e `og:url` da home; o fallback do código é um `.vercel.app`).
 - **C3 — `CALLS_MODE`.** O Prompt 905 (09/10/2026) fixou "omisso = `off`"; o Prompt 908 (12/10/2026, Nuno) inverteu para
   "omisso = `on`, só `off` desliga". Vale o 908; o texto antigo está marcado como substituído em
   `docs/calls/ETAPA1A_ENTIDADE.md`.
