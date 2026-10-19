@@ -1,0 +1,75 @@
+{
+  "_comment": "Prompt 914 — the parity cases for the plan an org is on RIGHT NOW. The SAME file is read by effective-plan.test.ts (TypeScript: effectivePlanDetailForOrg over an in-memory database) and by scripts/compose-effective-plan-rehearsal.mjs (SQL: effective_plan() inside the rolled-back rehearsal). `expected` is the tier; `origin` is TypeScript-only (SQL has no origin). Dates are relative (endsInDays: null = never ends, negative = already ended; freeUntilInDays likewise) so SQL and TypeScript see the same situation whenever they run. `real` cases are snapshots of production rows taken on 13/10/2026 (TypeScript reads the snapshot; the SQL rehearsal reads the live row by orgId and is only meaningful while the situation lasts).",
+  "now": "2026-10-13T12:00:00.000Z",
+  "fixtures": [
+    { "id": "zz1", "label": "zz-test fixture: no voucher (stored garage)", "stored": "garage", "redemptions": [], "badges": [], "expected": "garage", "origin": "stored" },
+    { "id": "zz2", "label": "zz-test fixture: 100% voucher, still running (stored idea, covers garage)", "stored": "idea", "redemptions": [{ "code": "A", "pct": 100, "plans": ["garage"], "deleted": false, "deactivated": false, "endsInDays": 30 }], "badges": [], "expected": "garage", "origin": "free_trial" },
+    { "id": "zz3", "label": "zz-test fixture: 100% voucher, expired yesterday (stored idea)", "stored": "idea", "redemptions": [{ "code": "A", "pct": 100, "plans": ["garage"], "deleted": false, "deactivated": false, "endsInDays": -1 }], "badges": [], "expected": "idea", "origin": "stored" }
+  ],
+  "matrix": [
+    { "id": "m01", "label": "stored idea, nothing else", "stored": "idea", "redemptions": [], "badges": [], "expected": "idea", "origin": "stored" },
+    { "id": "m02", "label": "stored motherfunding, nothing else", "stored": "motherfunding", "redemptions": [], "badges": [], "expected": "motherfunding", "origin": "stored" },
+    { "id": "m03", "label": "idea + 100% running, covers motherfunding", "stored": "idea", "redemptions": [{ "code": "A", "pct": 100, "plans": ["motherfunding"], "deleted": false, "deactivated": false, "endsInDays": 30 }], "badges": [], "expected": "motherfunding", "origin": "free_trial" },
+    { "id": "m04", "label": "idea + 100% that never ends (benefit_ends_at null)", "stored": "idea", "redemptions": [{ "code": "A", "pct": 100, "plans": ["motherfunding"], "deleted": false, "deactivated": false, "endsInDays": null }], "badges": [], "expected": "motherfunding", "origin": "free_trial" },
+    { "id": "m05", "label": "garage + 100% running covering motherfunding (a higher tier wins)", "stored": "garage", "redemptions": [{ "code": "A", "pct": 100, "plans": ["motherfunding"], "deleted": false, "deactivated": false, "endsInDays": 30 }], "badges": [], "expected": "motherfunding", "origin": "free_trial" },
+    { "id": "m06", "label": "motherfunding + 100% covering garage (never lowers)", "stored": "motherfunding", "redemptions": [{ "code": "A", "pct": 100, "plans": ["garage"], "deleted": false, "deactivated": false, "endsInDays": 30 }], "badges": [], "expected": "motherfunding", "origin": "stored" },
+    { "id": "m07", "label": "idea + 100% that ended yesterday", "stored": "idea", "redemptions": [{ "code": "A", "pct": 100, "plans": ["motherfunding"], "deleted": false, "deactivated": false, "endsInDays": -1 }], "badges": [], "expected": "idea", "origin": "stored" },
+    { "id": "m08", "label": "idea + 99% running (a partial discount grants nothing)", "stored": "idea", "redemptions": [{ "code": "A", "pct": 99, "plans": ["motherfunding"], "deleted": false, "deactivated": false, "endsInDays": 30 }], "badges": [], "expected": "idea", "origin": "stored" },
+    { "id": "m09", "label": "idea + 100% whose code was DELETED (deleting revokes every holder)", "stored": "idea", "redemptions": [{ "code": "A", "pct": 100, "plans": ["motherfunding"], "deleted": true, "deactivated": false, "endsInDays": 30 }], "badges": [], "expected": "idea", "origin": "stored" },
+    { "id": "m10", "label": "idea + 100% whose code was only DEACTIVATED (a holder keeps it until it runs out)", "stored": "idea", "redemptions": [{ "code": "A", "pct": 100, "plans": ["motherfunding"], "deleted": false, "deactivated": true, "endsInDays": 30 }], "badges": [], "expected": "motherfunding", "origin": "free_trial" },
+    { "id": "m11", "label": "idea + one code covering garage AND motherfunding (the higher one)", "stored": "idea", "redemptions": [{ "code": "A", "pct": 100, "plans": ["garage", "motherfunding"], "deleted": false, "deactivated": false, "endsInDays": 30 }], "badges": [], "expected": "motherfunding", "origin": "free_trial" },
+    { "id": "m12", "label": "idea + two 100% codes, garage and motherfunding (the higher one)", "stored": "idea", "redemptions": [{ "code": "A", "pct": 100, "plans": ["garage"], "deleted": false, "deactivated": false, "endsInDays": 30 }, { "code": "B", "pct": 100, "plans": ["motherfunding"], "deleted": false, "deactivated": false, "endsInDays": 30 }], "badges": [], "expected": "motherfunding", "origin": "free_trial" },
+    { "id": "m13", "label": "idea + a 100% code that names a tier nobody has", "stored": "idea", "redemptions": [{ "code": "A", "pct": 100, "plans": ["pro"], "deleted": false, "deactivated": false, "endsInDays": 30 }], "badges": [], "expected": "idea", "origin": "stored" },
+    { "id": "m14", "label": "garage + 100% covering only idea (nothing to add)", "stored": "garage", "redemptions": [{ "code": "A", "pct": 100, "plans": ["idea"], "deleted": false, "deactivated": false, "endsInDays": 30 }], "badges": [], "expected": "garage", "origin": "stored" },
+    { "id": "m15", "label": "idea + one deleted 100% code and one valid garage code (the valid one counts)", "stored": "idea", "redemptions": [{ "code": "A", "pct": 100, "plans": ["motherfunding"], "deleted": true, "deactivated": false, "endsInDays": 30 }, { "code": "B", "pct": 100, "plans": ["garage"], "deleted": false, "deactivated": false, "endsInDays": 30 }], "badges": [], "expected": "garage", "origin": "free_trial" },
+    { "id": "m16", "label": "idea + tech master badge, free forever (free_until null)", "stored": "idea", "redemptions": [], "badges": [{ "badge": "tech_master", "freeTier": "motherfunding", "freeUntilInDays": null, "revoked": false }], "expected": "motherfunding", "origin": "badge" },
+    { "id": "m17", "label": "idea + pioneer badge, free period still running", "stored": "idea", "redemptions": [], "badges": [{ "badge": "pioneer", "freeTier": "motherfunding", "freeUntilInDays": 20, "revoked": false }], "expected": "motherfunding", "origin": "badge" },
+    { "id": "m18", "label": "idea + pioneer badge, free period ended yesterday", "stored": "idea", "redemptions": [], "badges": [{ "badge": "pioneer", "freeTier": "motherfunding", "freeUntilInDays": -1, "revoked": false }], "expected": "idea", "origin": "stored" },
+    { "id": "m19", "label": "idea + badge that was revoked", "stored": "idea", "redemptions": [], "badges": [{ "badge": "tech_master", "freeTier": "motherfunding", "freeUntilInDays": null, "revoked": true }], "expected": "idea", "origin": "stored" },
+    { "id": "m20", "label": "idea + badge with no free tier (the shape of the legacy pioneer flag)", "stored": "idea", "redemptions": [], "badges": [{ "badge": "pioneer", "freeTier": null, "freeUntilInDays": null, "revoked": false }], "expected": "idea", "origin": "stored" },
+    { "id": "m21", "label": "idea + garage voucher + motherfunding badge (the badge is higher)", "stored": "idea", "redemptions": [{ "code": "A", "pct": 100, "plans": ["garage"], "deleted": false, "deactivated": false, "endsInDays": 30 }], "badges": [{ "badge": "tech_master", "freeTier": "motherfunding", "freeUntilInDays": null, "revoked": false }], "expected": "motherfunding", "origin": "badge" },
+    { "id": "m22", "label": "idea + motherfunding voucher + motherfunding badge (a tie: the voucher is named)", "stored": "idea", "redemptions": [{ "code": "A", "pct": 100, "plans": ["motherfunding"], "deleted": false, "deactivated": false, "endsInDays": 30 }], "badges": [{ "badge": "tech_master", "freeTier": "motherfunding", "freeUntilInDays": null, "revoked": false }], "expected": "motherfunding", "origin": "free_trial" },
+    { "id": "m23", "label": "garage + garage voucher + garage badge (nothing outranks the stored plan)", "stored": "garage", "redemptions": [{ "code": "A", "pct": 100, "plans": ["garage"], "deleted": false, "deactivated": false, "endsInDays": 30 }], "badges": [{ "badge": "tech_master", "freeTier": "garage", "freeUntilInDays": null, "revoked": false }], "expected": "garage", "origin": "stored" }
+  ],
+  "typescriptOnly": [
+    { "id": "t01", "label": "legacy stored value 'paid' is the entry paid tier", "stored": "paid", "redemptions": [], "badges": [], "expected": "garage", "origin": "stored", "why": "orgs.plan is a foreign key to plans(key): 'paid' cannot exist in the database" },
+    { "id": "t02", "label": "no plan at all is the free tier", "stored": null, "redemptions": [], "badges": [], "expected": "idea", "origin": "stored", "why": "orgs.plan is not null" },
+    { "id": "t03", "label": "an unknown stored value is the free tier", "stored": "enterprise-plus", "redemptions": [], "badges": [], "expected": "idea", "origin": "stored", "why": "foreign key to plans(key)" }
+  ],
+  "real": [
+    {
+      "id": "r1", "label": "Wisify Tech Solutions — stored idea, PIONEER_100 running", "orgId": "4d2f492d-a631-480a-8901-aa315f4f41b4", "stored": "idea",
+      "redemptions": [{ "code": "PIONEER_100", "pct": 100, "plans": ["motherfunding"], "deleted": false, "endsAt": "2027-01-08T22:52:27.255+00:00" }], "badges": [],
+      "expected": "motherfunding", "origin": "free_trial"
+    },
+    {
+      "id": "r2", "label": "ABOUT FOOD — stored motherfunding, ZEROCOST running", "orgId": "7c1a5974-000b-4dd2-8632-87f99250cf68", "stored": "motherfunding",
+      "redemptions": [{ "code": "ZEROCOST", "pct": 100, "plans": ["motherfunding"], "deleted": false, "endsAt": "2027-02-07T15:51:36.786+00:00" }], "badges": [],
+      "expected": "motherfunding", "origin": "stored"
+    },
+    {
+      "id": "r3", "label": "Gripwise Tech, Lda — stored motherfunding, no voucher", "orgId": "1d3dff6e-fc41-420a-868a-339d08151c58", "stored": "motherfunding",
+      "redemptions": [], "badges": [], "expected": "motherfunding", "origin": "stored"
+    },
+    {
+      "id": "r4", "label": "Lunia — stored idea, no voucher", "orgId": "8c669401-bea8-4f10-87ac-c05917ca2f1f", "stored": "idea",
+      "redemptions": [], "badges": [], "expected": "idea", "origin": "stored"
+    },
+    {
+      "id": "r5", "label": "ablute_ — stored idea; every voucher deleted; the pioneer free period ended 11/09", "orgId": "bca54499-03c8-469b-a48d-b9f442e44f69", "stored": "idea",
+      "redemptions": [
+        { "code": "NUNO100", "pct": 100, "plans": ["motherfunding"], "deleted": true, "endsAt": "2026-08-28T15:46:21.055+00:00" },
+        { "code": "NUN90", "pct": 100, "plans": ["motherfunding"], "deleted": true, "endsAt": "2033-03-28T23:50:08.562+00:00" },
+        { "code": "TESTE99OFF", "pct": 99, "plans": ["motherfunding"], "deleted": true, "endsAt": "2026-09-10T13:39:26.553+00:00" },
+        { "code": "TEST", "pct": 100, "plans": ["motherfunding", "garage"], "deleted": true, "endsAt": null }
+      ],
+      "badges": [{ "badge": "pioneer", "freeTier": "motherfunding", "freeUntil": "2026-09-11T00:00:00+00:00", "revoked": false }],
+      "expected": "idea", "origin": "stored"
+    },
+    {
+      "id": "r6", "label": "Insignals — stored idea, PVPIONEER100 running (not on the prompt's list; affected all the same)", "orgId": "94dc7fe1-ff32-4d24-9ceb-a058c1cfa963", "stored": "idea",
+      "redemptions": [{ "code": "PVPIONEER100", "pct": 100, "plans": ["motherfunding"], "deleted": false, "endsAt": "2027-01-07T17:34:25.953+00:00" }], "badges": [],
+      "expected": "motherfunding", "origin": "free_trial"
+    }
+  ]
+}

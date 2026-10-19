@@ -99,7 +99,7 @@ function SetPasswordInner() {
   return (
     <AuthShell>
       <div className="w-full max-w-sm rounded-2xl border border-gray-100 bg-white p-7 shadow-2xl">
-        <div className="mb-1 flex items-center gap-2 text-2xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
+        <div className="mb-1 flex items-center gap-2 text-2xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'var(--font-comfortaa), var(--font-inter), sans-serif' }}>
           <LogoLockup size={28} accentClassName="text-[#2a7f8e]" />
         </div>
         {alreadySet === null && <p className="py-4 text-sm text-gray-400" data-testid="set-password-loading">Just a moment…</p>}

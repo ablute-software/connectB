@@ -12,7 +12,8 @@ import {
   type PipelineUnlockInput,
 } from './pipeline-unlock';
 import { PRESET_FOLDER_NAMES, PRESET_FOLDER_COUNT } from './vault-preset-folders';
-import { normalizePlan } from './plans';
+import { effectivePlanForOrg } from './effective-plan-server';
+import type { PlanTier } from './types';
 
 // Prompt 180 — the ONE place that gathers the real, per-org inputs the
 // pipeline-unlock formula runs on. Reused by computeVisiblePipelineSize
@@ -24,8 +25,12 @@ import { normalizePlan } from './plans';
 // ceiling is allowed to grow). One calculation site, two derived numbers —
 // per the prompt's own instruction not to invent a second place this gets
 // computed.
+//
+// Prompt 914 — the tier the formula runs on is the plan the org is on RIGHT NOW (stored ⊕ free trial ⊕ badge), not orgs.plan: an org
+// on a 100%-off trial of "It's the butler!" was getting Elementary's base and monthly addition. `opts.planTier` lets a caller that
+// already resolved many orgs at once (the back-office Startups table: two queries for all of them) pass it in.
 async function gatherPipelineUnlockInputs(
-  admin: SupabaseClient, orgId: string,
+  admin: SupabaseClient, orgId: string, opts: { planTier?: PlanTier } = {},
 ): Promise<{ input: Omit<PipelineUnlockInput, 'eligiblePoolSize'>; eligiblePoolSize: number } | null> {
   const [{ data: org }, { data: folders }, { data: documents }, { count: eligiblePoolSize }, { data: entities }] = await Promise.all([
     admin.from('orgs').select('*').eq('id', orgId).maybeSingle(),
@@ -35,6 +40,8 @@ async function gatherPipelineUnlockInputs(
     admin.from('entities').select('id, source').eq('org_id', orgId),
   ]);
   if (!org) return null;
+  // Started now, awaited below: it runs alongside the interactions reads.
+  const planPromise = opts.planTier ? Promise.resolve(opts.planTier) : effectivePlanForOrg(admin, orgId, { storedPlan: org.plan as string | null });
 
   const entityIds = (entities ?? []).map((e) => e.id as string);
   const firstManualAddLogged = (entities ?? []).some((e) => e.source === 'manual');
@@ -73,7 +80,7 @@ async function gatherPipelineUnlockInputs(
 
   return {
     input: {
-      planTier: normalizePlan(org.plan as string | null),
+      planTier: await planPromise,
       profileGateComplete: gateComplete,
       investorDeckUploaded,
       businessPlanUploaded,
@@ -89,9 +96,9 @@ async function gatherPipelineUnlockInputs(
 }
 
 export async function computeVisiblePipelineSize(
-  admin: SupabaseClient, orgId: string,
+  admin: SupabaseClient, orgId: string, opts: { planTier?: PlanTier } = {},
 ): Promise<{ visible: number; gateComplete: boolean; eligiblePoolSize: number; catalogQuotaTarget: number }> {
-  const gathered = await gatherPipelineUnlockInputs(admin, orgId);
+  const gathered = await gatherPipelineUnlockInputs(admin, orgId, opts);
   if (!gathered) return { visible: 0, gateComplete: false, eligiblePoolSize: 0, catalogQuotaTarget: 0 };
   const { input, eligiblePoolSize } = gathered;
   const visible = visiblePipelineSize({ ...input, eligiblePoolSize });

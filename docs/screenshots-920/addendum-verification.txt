@@ -1,0 +1,80 @@
+# Prompt 920 — adenda de 19/10/2026: o que se mediu, com que instrumento, e o que NÃO se pôde medir
+
+Código verificado: branch feat/920-public-site, commits 958bb9da + 3b55b692 (HEAD do código; os commits de docs vêm depois). Máquina Windows, Chrome 141+ (headless), Lighthouse 13.5.0
+(móvel simulado, as quatro categorias), Playwright 1.61, axe-core 4.12. Tudo local, sobre a build de produção (`next build` + `next start`).
+
+## 0. Portões (código de saída, nunca `grep`)
+
+  tsc --noEmit                                  EXIT=0
+  eslint (--no-eslintrc --config .eslintrc.json) EXIT=0 · 0 erros · 251 avisos (eram 252: o do <link> ao Google Fonts desapareceu; só o layout.tsx mudou de contagem)
+  npm run build                                 BUILD_EXIT=0 (duas vezes: sem variáveis do Supabase, e com a autenticação ligada + um Supabase de mentira)
+  vitest completo                               EXIT=1 · 6192 passam · 3 saltados · 2 falham — NENHUMA é deste trabalho:
+      market-facts-view.test.ts   (já conhecida: separador de milhares do locale desta máquina; falha igual no checkout principal)
+      backoffice-customer-people.test.ts   (NOVA desde 17/10: usa o relógio real contra datas fixas — `loadOrgPeople(..., NOW)` não é chamado com NOW —; a fixture "pending" expirou a
+                                            2026-10-17T08:00Z; nem o teste nem o código tocados por este prompt; assinalada à parte como tarefa)
+  check-no-signed-url-leak                      EXIT=0 · 0 violações
+  check-migration-order                         EXIT=0 (só prefixos: sem o dump do ledger a verificação de inversões não corre); este trabalho não acrescenta migração
+  testes novos da adenda: public-page-load.test.ts + public-page-structure.test.ts = 32 (fontes, hooks, Shell, widget, OG, marcos, contraste, /contact)
+  17 mutações deliberadas dos dois ficheiros: 17 apanhadas (15 à 1.ª passagem; a M4 não se aplicou — texto a partir terminado em \n num ficheiro CRLF — e a M9 ficou presa 240 s no
+      arranque do vitest sem correr nenhum teste; repetidas, as duas foram apanhadas)  -> addendum-mutations.txt
+
+## 1. Lighthouse (móvel). perf / acessibilidade / boas práticas / SEO
+
+  PRODUÇÃO, 19/10, só leitura (código ANTES):
+      /            83 / 93 /  96 / 92     LCP 4047 ms  (render delay 2124 ms; bloqueio do Google Fonts "desperdiçou" 934 ms; /investors 900; /contact 883)   erro de consola: 401 /api/support/my-tickets
+      /investors   86 / 95 /  96 / 92     LCP 3996 ms                                                                           idem
+      /contact     93 / 94 /  96 / 91                                                                                            idem
+  LOCAL, build SEM Supabase (demo, páginas estáticas), código ANTES -> DEPOIS (mediana de corridas quentes; a 1ª corrida após o arranque é fria):
+      /            94 -> 93   (FCP 1602 -> 1362 ms; uma corrida só antes)      a11y 93 -> 96
+      /investors   66 -> 77-80 (FCP 2992 -> 2274 ms)                           a11y 95 -> 96
+      /contact     83 -> 92                                                    a11y 94 -> 100
+      /for-startups 80 -> 95    /about 80 -> 95    /faq 79 -> 97               a11y 96 -> 96
+      boas práticas 100 e SEO 100 em todas (a produção tem 96 e 92: erro de consola e robots.txt)
+  LOCAL, build com a autenticação ligada (as páginas / e /investors passam a DINÂMICAS, como em produção), código DEPOIS:
+      /            82-84 (3 corridas)  FCP 2290 ms  LCP 3970-4310 ms   a11y 96   BP 100   SEO 100
+      /investors   80-83 (3 corridas)  FCP 2280-2320 ms                a11y 96   BP 100   SEO 100
+      /contact 92/100/100/100 · /for-startups 95/96/100/100 · /about 95/96/100/100 · /faq 95/96/100/100
+  O que isto diz, sem enfeitar:
+      - o bloqueio do Google Fonts desapareceu (render-blocking: a folha do Google já não aparece; nenhum pedido a hosts externos; FCP das páginas novas 2777 -> 1213 ms);
+      - na home a poupança de fontes NÃO se vê no score local (94 -> 93) porque o que a segura são os 5 CSS bloqueantes do próprio Next (27 KB) e o estilo/layout do hero;
+      - a diferença 93 (estática) vs 82-84 (dinâmica) é a renderização por pedido: o documento demora 17 ms numa e 123 ms na outra. Em produção a home é dinâmica
+        (`Cache-Control: private, no-store`, `X-Vercel-Cache: MISS`: lê a sessão para redirecionar quem já tem conta). É a alavanca que falta para os 90 (ver DECISIONS);
+      - `/investors` fica abaixo de 90 por uma tarefa longa de 336 ms no arranque (style/layout + hidratação de ~53 KB de payload RSC, ~33 KB dos quais são dos providers do layout raiz);
+      - NÃO consigo medir a produção antes do deploy. As metas da adenda (performance >= 90, acessibilidade >= 98) ficam por provar em produção; a acessibilidade >= 98 depende da decisão
+        de contraste (contrast-proposal.md).
+
+## 2. O que um visitante ANÓNIMO faz em cada página pública (build com autenticação ligada; Chrome real; Playwright)
+
+  ANTES (build demo, código antigo; shots-before): em todas as páginas  GET /api/support/my-tickets · GET /api/founder/messages · GET /api/founder/interest-level-requests · GET /api/me
+                                                    + GET fonts.googleapis.com/css2 + fonts.gstatic.com (Inter; e Comfortaa em /contact)
+  DEPOIS:
+      /              GET /api/me · GET /api/plan-credits (os preços)            hosts externos: nenhum   erros na consola: 0
+      /investors, /for-startups, /about, /faq, /contact:  GET /api/me           hosts externos: nenhum   erros na consola: 0
+  CONTRA-PROVA (o instrumento vê a falha): num Supabase de substituição que responde como o real, `GET /api/support/my-tickets` sem sessão responde 401 e, chamado à mão na mesma página,
+  imprime na consola "Failed to load resource: the server responded with a status of 401 (Unauthorized)" — exactamente o erro de produção. No carregamento da página já não aparece.
+  Limite: a ausência do erro na produção só se confirma depois do deploy (boas práticas 96 -> 100).
+
+## 3. Os píxeis (comparação pixel a pixel, 6 páginas x 390/768/1280 px, página inteira, limiar 8/255; ANTES = build anterior às alterações)
+
+  14 de 18 IDÊNTICAS: a home inteira nos três tamanhos, /investors (768 e 1280), /for-startups, /about, /faq.
+  /contact (3 tamanhos): 356 px — o texto do <select> da categoria está 1 px mais acima (o mesmo raster deslocado; alinhamento exacto dx 0, dy -1 dá 0 píxeis de diferença). Não consegui
+        explicar a causa (não é o aria-label, nem o <h1> sr-only, nem a pilha de fontes). Cosmético.
+  /investors 390: 406 px numa faixa de 4 px — a barra de progresso do <video> (quanto já está em buffer), ruído de carregamento.
+  Uma primeira medição apanhou 1363 px no "←" de "← Back to sherlockdeal.com": a pilha gerada pelo next/font (um Arial com métricas ajustadas à frente do system-ui) mudava o glifo de tudo o que o
+  Inter não tem. `adjustFontFallback: false` repôs a pilha antiga (1 px). Teste a fixá-lo.
+
+## 4. Imagens de partilha (HTML construída)
+
+  / e /login .......... og:image /opengraph-image.jpg?<hash>, tipo image/jpeg 1200x630, alt do .alt.txt, twitter:card summary_large_image, twitter:image
+  /investors .......... og:image /investors/opengraph-image.jpg?<hash> (a do investidor), idem
+  /for-startups, /about, /faq, /contact .... og:image /opengraph-image.jpg (nomeada em `OG_DEFAULT_IMAGE`; sem isso NÃO tinham imagem: o objecto openGraph da página substitui o da raiz)
+  as duas rotas respondem 200 image/jpeg, `Cache-Control: public, immutable, max-age=31536000`, sem sessão (o matcher do middleware exclui .jpg). 98 KB cada (<300 KB: o WhatsApp deixa de mostrar acima).
+  next/og NÃO compila em Windows ("Invalid URL" no `next build`), por isso são ficheiros desenhados por scripts/render-og-images.mjs.
+  Domínio nas tags desta build local: connect-b-delta.vercel.app (NEXT_PUBLIC_APP_URL não está definida aqui); em produção é https://www.sherlockdeal.com.
+
+## 5. O que NÃO foi feito, e porquê
+
+  - Rich Results Test / validador de partilha do LinkedIn sobre a página real: só depois do deploy (precisam de um URL público).
+  - Lighthouse em produção: só depois do deploy.
+  - contraste: proposta pronta (contrast-proposal.md), à espera do Nuno.
+  - tornar a landing cacheável para anónimos (a alavanca dos 90 na home): decisão arquitectural, não a tomei.

@@ -19,6 +19,9 @@ import { LogoLockup } from '@/components/Logo';
 import { LandingEffects } from '@/components/landing/LandingEffects';
 import { PricingSection } from '@/components/landing/PricingSection';
 import { AudienceToggle } from '@/components/landing/AudienceToggle';
+import { JsonLd } from '@/components/seo/JsonLd';
+import { HOME_META } from '@/content/site/pages';
+import { homeGraph } from '@/lib/site-schema';
 import s from './landing.module.css';
 
 const fraunces = Fraunces({
@@ -30,8 +33,11 @@ const inter = Inter({
   variable: '--font-inter', display: 'swap',
 });
 
-const TITLE = `${BRAND_NAME} — Investor relations, investigated`;
-const DESCRIPTION = `${BRAND_NAME} is the investor relations workspace for founders: track every investor, keep every fact straight, and never let a warm lead go cold.`;
+// Prompt 920 §A (Nuno's "sim", 16/10/2026) — the title and description are invisible metadata and change: the title names what the product does
+// for both sides and starts with the brand (the name collides with other "Sherlock" companies), the description says it in one sentence.
+// The text is in src/content/site/pages.ts, approved in docs/site-copy-920.md §1. Nothing visible on the landing changes except §F.
+const TITLE = HOME_META.title;
+const DESCRIPTION = HOME_META.description;
 
 export const metadata: Metadata = {
   title: TITLE,
@@ -197,6 +203,10 @@ export default async function LandingPage() {
         </div>
       </nav>
 
+      {/* Prompt 920 addendum — the page had no <main> landmark (Lighthouse landmark-one-main); a plain block wrapper around everything
+          between the nav and the footer, so nothing about the layout changes (.landing is a block container and no rule selects a direct
+          child of it). */}
+      <main>
       {/* ============ HERO ============ */}
       <header className={s.hero} id="top">
         <Lens className={`${s.lens} ${s.l1}`} size={260} />
@@ -204,6 +214,11 @@ export default async function LandingPage() {
           <div>
             <span className={s.badge}><span className={s.dot} />The investor relations workspace for founders</span>
             <h1>Crack the case on your <em>fundraise.</em></h1>
+            {/* Prompt 920 §F.3 (Nuno's "sim") — one factual line under the H1, in the subtitle's own style, so the page says in plain words what
+                the product does for both sides (the rest of the hero describes the founder's workspace). */}
+            <p className={s.lead} style={{ marginBottom: 14 }}>
+              {BRAND_NAME} matches startups with the investors that fit them, and puts startups that match their mandate in front of investors.
+            </p>
             <p className={s.lead}>
               Every investor, every conversation, every confirmed fact — in one case file. {BRAND_NAME} keeps
               your raise organised, consistent and moving, so no warm lead ever goes cold.
@@ -223,18 +238,18 @@ export default async function LandingPage() {
               </div>
               <div className={s.cols}>
                 <div className={s.col}>
-                  <h4>Contacted <b>8</b></h4>
+                  <div className={s.colTitle}>Contacted <b>8</b></div>
                   <div className={s.kcard}><div className={s.nm}>Northbridge Capital</div><span className={`${s.tg} ${s.tealTag}`}>Intro sent</span></div>
                   <div className={s.kcard}><div className={s.nm}>Atlas Ventures</div><span className={`${s.tg} ${s.due}`}>Follow-up due</span></div>
                   <div className={s.kcard}><div className={s.nm}>Beacon Angels</div><span className={`${s.tg} ${s.tealTag}`}>Deck viewed</span></div>
                 </div>
                 <div className={s.col}>
-                  <h4>In talks <b>5</b></h4>
+                  <div className={s.colTitle}>In talks <b>5</b></div>
                   <div className={s.kcard}><div className={s.nm}>Harbour Partners</div><span className={`${s.tg} ${s.warm}`}>Warm · call Fri</span></div>
                   <div className={s.kcard}><div className={s.nm}>Vega Family Office</div><span className={`${s.tg} ${s.ok}`}>NDA signed</span></div>
                 </div>
                 <div className={s.col}>
-                  <h4>Diligence <b>2</b></h4>
+                  <div className={s.colTitle}>Diligence <b>2</b></div>
                   <div className={s.kcard}><div className={s.nm}>Meridian Growth</div><span className={`${s.tg} ${s.ok}`}>Data room open</span></div>
                   <div className={s.kcard}><div className={s.nm}>Quartz Capital</div><span className={`${s.tg} ${s.warm}`}>Partner meeting</span></div>
                 </div>
@@ -374,6 +389,7 @@ export default async function LandingPage() {
           </div>
         </div>
       </section>
+      </main>
 
       {/* ============ FOOTER ============ */}
       <footer className={s.footerEl}>
@@ -386,6 +402,9 @@ export default async function LandingPage() {
             <a href="#pricing">Pricing</a>
             <Link href="/">For Startups</Link>
             <Link href="/investors">For Investors</Link>
+            {/* Prompt 920 §F.2 (Nuno's "sim") — the minimum: two links on the row that already exists, no new columns. */}
+            <Link href="/about">About</Link>
+            <Link href="/faq">FAQ</Link>
             <Link href="/contact">Contact</Link>
             <Link href="/login">Sign in</Link>
             <Link href="/signup">Create account</Link>
@@ -403,6 +422,9 @@ export default async function LandingPage() {
           <p className={s.cp}>© {new Date().getFullYear()} {BRAND_NAME} · Investor relations, investigated.</p>
         </div>
       </footer>
+
+      {/* Prompt 920 §A.3 — Organization, WebSite and SoftwareApplication (the three priced plans, read from plans.ts). Invisible. */}
+      <JsonLd data={homeGraph()} />
     </div>
   );
 }

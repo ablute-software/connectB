@@ -30,7 +30,7 @@ import { ecosystemFactsAvailable } from '@/lib/ecosystem-facts-capability';
 import { vaultPinOwnerManagedAvailable } from '@/lib/vault-pin-owner-managed-capability';
 import { taskRemindersAvailable } from '@/lib/task-reminders-capability';
 import { callsMode } from '@/lib/calls/mode';
-import { resolveUserPlan } from '@/lib/plan-server';
+import { resolveUserPlanDetail } from '@/lib/plan-server';
 import { planEntitlements, REVIEW_QUOTA } from '@/lib/plans';
 import { aiWalletStatus, aiWalletStatusForViewer } from '@/lib/ai-credits';
 import { stripeConfigured } from '@/lib/stripe-env';
@@ -91,7 +91,8 @@ export const GET = withActingOrg(async function GET(req: NextRequest) {
     resolveActingOrg(req, user, sb),
   ]);
   const orgRole = acting.role as OrgMemberRole | null;
-  const { orgId, plan } = await resolveUserPlan(user.id, sb, acting);
+  // Prompt 914 — `plan` is the effective plan (stored ⊕ free trial ⊕ badge); `planOrigin` says why, for the screens that show it.
+  const { orgId, plan, stored: storedPlan, origin: planOrigin } = await resolveUserPlanDetail(user.id, sb, acting);
   const role = decideRole(signals);
   // Prompt I-01 — every workspace this account can open (the hat switcher in
   // the founder shell, the portal and the incubator shell reads this).
@@ -169,5 +170,5 @@ export const GET = withActingOrg(async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json(buildAuthenticatedMeResponse({ authEnabled: true, user: { id: user.id, email: user.email }, role, hats, pendingIncubatorMemberInvite, signupIntent, orgRole, plan, entitlements, capabilities, watson, reviewQuota, viewer, pioneerBadge }));
+  return NextResponse.json(buildAuthenticatedMeResponse({ authEnabled: true, user: { id: user.id, email: user.email }, role, hats, pendingIncubatorMemberInvite, signupIntent, orgRole, plan, planOrigin, storedPlan, entitlements, capabilities, watson, reviewQuota, viewer, pioneerBadge }));
 });

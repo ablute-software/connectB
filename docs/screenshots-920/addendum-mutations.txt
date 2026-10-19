@@ -1,0 +1,86 @@
+# Prompt 920 (adenda de 19/10/2026) — dezassete mutações deliberadas dos testes novos
+# Método: partir UMA coisa de cada vez no código, correr só os dois ficheiros de teste novos (public-page-load.test.ts e public-page-structure.test.ts),
+# registar se algum teste falha (e qual), e repor o ficheiro com 'git checkout -- <ficheiro>'. O controlo (sem mutação) tem de dar EXIT=0 antes de cada passagem.
+# Uma mutação cujo texto a partir não se encontra exactamente uma vez aparece como NOT APPLIED — nunca como 'apanhada'.
+# Resultado final: 17 de 17 apanhadas. Na 1.ª passagem 15 foram apanhadas; a M4 não se aplicou (o meu texto a partir terminava em \n e o ficheiro tem CRLF) e a M9 ficou presa
+# 240 s no arranque do vitest sem executar nenhum teste (exit null = morto pelo limite de tempo; não se repetiu). As duas foram repetidas (2.ª passagem, no fim) e apanhadas.
+# Depois das duas passagens: git status --porcelain só mostra os documentos novos por seguir (nenhum ficheiro seguido ficou alterado).
+
+## 1.ª passagem (as 17)
+CONTROL (no mutation): EXIT=0
+M1  a page writes the family name by hand again (login): CAUGHT
+     -> no other file names the two families: a literal would silently fall back to the system font, with no error and no failing page 231ms
+     -> every place that uses the brand family reads the variable (the 20 that wrote the literal stack) 189ms
+M2  a Google Fonts <link> comes back to the root layout: CAUGHT
+     -> the root layout loads Comfortaa and Inter through next/font and no longer links to Google Fonts 13ms
+     -> src/lib/public-page-load.test.ts > fonts: self-hosted by next/font, named once > the root layout loads Comfortaa and Inter through next/font and no longer links to Google
+M3  next/font regenerates the Arial fallback (adjustFontFallback back to default): CAUGHT
+     -> the generated Arial fallback is off: it changed the glyph of every "←"/symbol the face lacks (1363 pixels on /contact; 1 with it off) — the stack stays the old one 11ms
+     -> src/lib/public-page-load.test.ts > fonts: self-hosted by next/font, named once > the generated Arial fallback is off: it changed the glyph of every "←"/symbol the face la
+M4  the layout loses metadataBase: NOT APPLIED
+M5  useSupportUnreadCount ignores `enabled`: CAUGHT
+     -> useSupportUnreadCount: disabled -> no request and no listener 10ms
+     -> src/lib/public-page-load.test.ts > the Shell's nav badges do not fetch for a visitor who has no nav > useSupportUnreadCount: disabled -> no request and no listener
+M6  useUnreadMessagesCount ignores `enabled`: CAUGHT
+     -> useUnreadMessagesCount: disabled -> no request and no listener 16ms
+     -> src/lib/public-page-load.test.ts > the Shell's nav badges do not fetch for a visitor who has no nav > useUnreadMessagesCount: disabled -> no request and no listener
+M7  useInterestRequests ignores `enabled`: CAUGHT
+     -> useInterestRequests: disabled -> no request and no listener 10ms
+     -> usePendingInterestCount: disabled -> no request and no listener 7ms
+M8  the Shell turns the badge hooks on for everyone: CAUGHT
+     -> the Shell hands ONE gate to all three, and the gate needs a signed-in session and a route that draws a nav 16ms
+     -> src/lib/public-page-load.test.ts > the Shell's nav badges do not fetch for a visitor who has no nav > the Shell hands ONE gate to all three, and the gate needs a signed-i
+M9  the report widget asks about eligibility without a user: NOT CAUGHT (exit null)
+M10 the home loses its <main>: CAUGHT
+     -> src/app/page.tsx has exactly one <main> (Lighthouse landmark-one-main), between the nav and the footer 17ms
+     -> src/lib/public-page-structure.test.ts > accessibility structure of the landing pages > src/app/page.tsx has exactly one <main> (Lighthouse landmark-one-main), between the
+M11 /investors loses its <main>: CAUGHT
+     -> src/app/investors/page.tsx has exactly one <main> (Lighthouse landmark-one-main), between the nav and the footer 16ms
+     -> src/lib/public-page-structure.test.ts > accessibility structure of the landing pages > src/app/investors/page.tsx has exactly one <main> (Lighthouse landmark-one-main), b
+M12 a hero-mock column title is an <h4> again: CAUGHT
+     -> the home's mock column titles are not headings: an <h4> straight after the <h2>s skipped a level (Lighthouse heading-order) 14ms
+     -> src/lib/public-page-structure.test.ts > accessibility structure of the landing pages > the home's mock column titles are not headings: an <h4> straight after the <h2>s sk
+M13 /about loses its share image: CAUGHT
+     -> the pages that declare their own openGraph name the default card in it and in twitter, so they are not shared as a bare link 38ms
+     -> src/lib/public-page-structure.test.ts > metadata: the large card everywhere, and defaults that say what the home says > the pages that declare their own openGraph name th
+M14 /contact loses its share image: CAUGHT
+     -> the pages that declare their own openGraph name the default card in it and in twitter, so they are not shared as a bare link 32ms
+     -> src/lib/public-page-structure.test.ts > metadata: the large card everywhere, and defaults that say what the home says > the pages that declare their own openGraph name th
+M15 the share image constant disagrees with the JPEG (width 1200 -> 1000): CAUGHT
+     -> the pages that declare their own openGraph name the default card in it and in twitter, so they are not shared as a bare link 20ms
+     -> src/lib/public-page-structure.test.ts > metadata: the large card everywhere, and defaults that say what the home says > the pages that declare their own openGraph name th
+M16 the category <select> loses its accessible name: CAUGHT
+     -> puts a heading, the text and the form in the HTML itself, and labels the category <select> (Lighthouse select-name) 32ms
+     -> src/lib/public-page-structure.test.ts > /contact > puts a heading, the text and the form in the HTML itself, and labels the category <select> (Lighthouse select-name)
+M17 the public pages go back to the old --muted (4.47:1 on the toggle): CAUGHT
+     -> the 2% tone tweaks clear WCAG AA (4.5:1) where Lighthouse measured the originals just under it 42ms
+     -> src/lib/public-page-structure.test.ts > accessibility structure of the landing pages > the 2% tone tweaks clear WCAG AA (4.5:1) where Lighthouse measured the originals ju
+
+git status --porcelain after all mutations (only untracked docs expected):
+?? docs/screenshots-920/addendum-verification.txt
+?? docs/screenshots-920/axe-contrast.txt
+?? docs/screenshots-920/contrast-proposal.md
+?? docs/screenshots-920/contrast-proposal/
+
+
+15 of 17 caught; 2 not caught / not applied
+MUTATIONS_EXIT=0
+
+## 2.ª passagem (M4 corrigida, e M9 repetida)
+CONTROL (no mutation): EXIT=0
+M4  the layout loses metadataBase: CAUGHT
+     -> the root layout's defaults (login, signup, the app) are the home's approved title and description, resolved on the canonical domain 46ms
+     -> src/lib/public-page-structure.test.ts > metadata: the large card everywhere, and defaults that say what the home says > the root layout's defaults (login, signup, the app
+M9  the report widget asks about eligibility without a user: CAUGHT
+     -> the floating "Tell us" widget (mounted on the public pages too) asks whether the user may suggest only once it knows there is a user 8ms
+     -> src/lib/public-page-load.test.ts > the Shell's nav badges do not fetch for a visitor who has no nav > the floating "Tell us" widget (mounted on the public pages too) asks
+
+git status --porcelain after all mutations (only untracked docs expected):
+?? docs/screenshots-920/addendum-verification.txt
+?? docs/screenshots-920/axe-contrast.txt
+?? docs/screenshots-920/contrast-proposal.md
+?? docs/screenshots-920/contrast-proposal/
+
+
+2 of 17 caught; 0 not caught / not applied
+RERUN_EXIT=0

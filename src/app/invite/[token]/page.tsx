@@ -102,7 +102,7 @@ export default function InvitePage({ params }: { params: { token: string } }) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F7F9FA] px-4">
         <div className="w-full max-w-sm rounded-2xl border border-gray-100 bg-white p-7 shadow-sm" data-testid="invite-code-step">
-          <div className="mb-4 text-2xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>{BRAND_NAME}</div>
+          <div className="mb-4 text-2xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'var(--font-comfortaa), var(--font-inter), sans-serif' }}>{BRAND_NAME}</div>
           <EmailCodeConfirm
             email={codeEmail} password={password} sentAt={sentAt} redirectPath={`/invite/${token}`}
             onVerified={() => acceptAfterCode()}
@@ -117,7 +117,7 @@ export default function InvitePage({ params }: { params: { token: string } }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#F7F9FA] px-4">
       <div className="w-full max-w-sm rounded-2xl border border-gray-100 bg-white p-7 shadow-sm">
-        <div className="mb-4 text-2xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
+        <div className="mb-4 text-2xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'var(--font-comfortaa), var(--font-inter), sans-serif' }}>
           {BRAND_NAME}
         </div>
 

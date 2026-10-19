@@ -1,0 +1,108 @@
+# Prompt 920 — what changed in the HTML of the home page (and of /investors), measured against the pristine baseline
+# Baseline: the worktree at eb4d9a0f (before any code change), dev:verify, GET /. After: the same server with the 920 changes.
+# Each page's HTML was split one tag per line and diffed; build-version query strings (?v=…) and the RSC payload line are noise and removed.
+# Anything not listed below is byte-identical. Lines starting '<' are the BEFORE, '>' the AFTER.
+
+################ / (home) ################
+6,9c6,9
+17,18c17,18
+< <title>Sherlock Deal — Investor relations, investigated</title>
+< <meta name="description" content="Sherlock Deal is the investor relations workspace for founders: track every investor, keep every fact straight, and never let a warm lead go cold."/>
+> <title>Sherlock Deal — Find the right investors for your startup, and the right startups for your thesis</title>
+> <meta name="description" content="Sherlock Deal matches startups with investors that fit — by sector, stage, ticket size and geography — and gives investors startups that fit their mandate."/>
+20,21c20,21
+< <meta property="og:title" content="Sherlock Deal — Investor relations, investigated"/>
+< <meta property="og:description" content="Sherlock Deal is the investor relations workspace for founders: track every investor, keep every fact straight, and never let a warm lead go cold."/>
+> <meta property="og:title" content="Sherlock Deal — Find the right investors for your startup, and the right startups for your thesis"/>
+> <meta property="og:description" content="Sherlock Deal matches startups with investors that fit — by sector, stage, ticket size and geography — and gives investors startups that fit their mandate."/>
+27,28c27,28
+< <meta name="twitter:title" content="Sherlock Deal — Investor relations, investigated"/>
+< <meta name="twitter:description" content="Sherlock Deal is the investor relations workspace for founders: track every investor, keep every fact straight, and never let a warm lead go cold."/>
+> <meta name="twitter:title" content="Sherlock Deal — Find the right investors for your startup, and the right startups for your thesis"/>
+> <meta name="twitter:description" content="Sherlock Deal matches startups with investors that fit — by sector, stage, ticket size and geography — and gives investors startups that fit their mandate."/>
+58c58
+< <a role="tab" aria-selected="true" class="landing_audienceOpt__639H3 landing_audienceOptOn__l8k6i" href="/">For Startups</a>
+> <a role="tab" aria-selected="true" class="landing_audienceOpt__639H3 landing_audienceOptOn__l8k6i" href="/for-startups">For Startups</a>
+79a80
+> <p class="landing_lead__2_9Uy" style="margin-bottom:14px">Sherlock Deal<!-- --> matches startups with the investors that fit them, and puts startups that match their mandate in front of investors.</p>
+592a594,595
+> <a href="/about">About</a>
+> <a href="/faq">FAQ</a>
+605a609
+> <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Organization","@id":"https://connect-b-delta.vercel.app/#organization","name":"Sherlock Deal","alternateName":"SherlockDeal","legalName":"Exotictarget, Lda","url":"https://connect-b-delta.vercel.app","logo":"https://connect-b-delta.vercel.app/icon.svg","description":"Sherlock Deal is a fundraising workspace a
+612c616
+614a619
+
+################ /investors ################
+6,9c6,9
+58c58
+< <a role="tab" aria-selected="false" class="landing_audienceOpt__639H3 " href="/">For Startups</a>
+> <a role="tab" aria-selected="false" class="landing_audienceOpt__639H3 " href="/for-startups">For Startups</a>
+378a379,425
+> <section class="landing_sec__pQDmr" id="first-contact">
+> <div class="landing_wrap__a5_s_">
+> <div class="landing_secHead__fNH_e">
+> <span class="landing_eyebrow__xr4rD">First contact</span>
+> <h2>How to find startups that fit your thesis</h2>
+> <p>The most reliable way to find startups that fit your thesis is to turn the thesis into criteria — sectors, stages, cheque range, geographies, instruments and exclusions — and have every startup measured against them before anyone sends you a deck. That is what Sherlock Deal does: you write your mandate once, and startups that match it reach you in curated waves, scored against your criter
+> </div>
+> <div class="landing_grid3__Qp3dG">
+> <div class="landing_fcard__Ol54C">
+> <div class="landing_ic__qayr_">
+> <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+> <circle cx="12" cy="12" r="10" fill="#e2f4e8">
+> </circle>
+> <path d="M8 12.5l2.6 2.6L16.5 9" stroke="#20714a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+> </path>
+> </svg>
+> </div>
+> <h3>What “fit” means in practice</h3>
+> <p>Every match is measured on sector, stage, cheque plausibility, geography and instrument. Exclusions are hard filters: a startup in a sector you exclude is scored zero instead of being ranked lower. Each match shows which criteria it met and which are still unconfirmed, so a missing fact is never counted as a match.</p>
+> </div>
+> <div class="landing_fcard__Ol54C">
+> <div class="landing_ic__qayr_">
+> <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+> <circle cx="12" cy="12" r="10" fill="#e2f4e8">
+> </circle>
+> <path d="M8 12.5l2.6 2.6L16.5 9" stroke="#20714a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+> </path>
+> </svg>
+> </div>
+> <h3>How Sherlock Deal delivers first contact</h3>
+> <p>Startups arrive in waves, and you work each wave — pass or express interest — before the next one opens. Your plan sets how many new startups arrive each month, so the pipeline stays workable. A startup appears in your pipeline only once its core profile is complete, and its evidence is labelled: fact, company claim, estimate, unknown or stale. You browse in private: founders are not noti
+> </div>
+> <div class="landing_fcard__Ol54C">
+> <div class="landing_ic__qayr_">
+> <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+> <circle cx="12" cy="12" r="10" fill="#e2f4e8">
+> </circle>
+> <path d="M8 12.5l2.6 2.6L16.5 9" stroke="#20714a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+> </path>
+> </svg>
+> </div>
+> <h3>What you never see</h3>
+> <p>Sherlock Deal never shows investors a founder&#x27;s internal performance data — not the founder&#x27;s outreach activity, not their notes, and not where they stand with other investors. You see the profile the founder chose to show, and more only as the founder grants it.</p>
+> </div>
+> </div>
+> </div>
+> </section>
+594a642,653
+> <details class="landing_faqItem__19L1H">
+> <summary>How do investors find startups that match their investment thesis?</summary>
+> <p>They write the thesis down as criteria — sectors, stages, cheque range, geographies, instruments and exclusions — and have startups measured against it, instead of waiting for introductions. On Sherlock Deal an investor builds a mandate once; startups that match it arrive in curated waves, scored against the mandate with the criteria shown, and an introduction happens only when both sides
+> </details>
+> <details class="landing_faqItem__19L1H">
+> <summary>Can I compare startups side by side?</summary>
+> <p>Yes. The comparison view puts startups next to each other on match score and the criteria behind it, round size and stage, together with your own scorecard and valuation estimate if you use them. Your scores and notes are private to your organisation; the founder never sees them.</p>
+> </details>
+> <details class="landing_faqItem__19L1H">
+> <summary>Can I keep following startups I did not invest in, and re-evaluate them later?</summary>
+> <p>Yes. Add a startup to your Watching list and choose what should bring it back to your attention: new evidence of traction, a new round or a changed target, a roadmap milestone, or a match score that rises above a level you set. The list, its order and the thresholds are private to you.</p>
+> </details>
+630a690,691
+> <a href="/about">About</a>
+> <a href="/faq">FAQ</a>
+642a704
+> <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Organization","@id":"https://connect-b-delta.vercel.app/#organization","name":"Sherlock Deal","alternateName":"SherlockDeal","legalName":"Exotictarget, Lda","url":"https://connect-b-delta.vercel.app","logo":"https://connect-b-delta.vercel.app/icon.svg","description":"Sherlock Deal is a fundraising workspace a
+649c711
+651a714,716

@@ -672,7 +672,7 @@ function PortalPageInner() {
               user-visible names a product itself; /portal was the last screen
               still doing it. Same LogoLockup call as /login and /signup. */}
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2 text-xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
+            <div className="flex items-center gap-2 text-xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'var(--font-comfortaa), var(--font-inter), sans-serif' }}>
               <LogoLockup size={28} accentClassName="text-[#2a7f8e]" />
             </div>
             <span className="text-sm text-gray-400">Investor data room</span>

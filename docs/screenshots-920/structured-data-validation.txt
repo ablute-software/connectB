@@ -1,0 +1,49 @@
+# Prompt 920 — structured data (JSON-LD) validated with Google's Rich Results Test and the Schema Markup Validator, 16/10/2026
+
+Input. The JSON-LD each of the five pages emits, read from the production build of this branch (`next build` + `next start`, demo mode, commit 012f3985),
+one HTML document per page holding exactly that <script type="application/ld+json"> block, pasted into the "Code" tab of each tool.
+One difference from the raw output, stated so nobody has to guess: the build run locally has no NEXT_PUBLIC_APP_URL, so it falls back to
+https://connect-b-delta.vercel.app; on Vercel the variable is https://www.sherlockdeal.com (the production canonical today). The pasted documents use the
+production domain; nothing else was edited. (The FAQ document pasted is byte-for-byte the build's output with that one substitution: 13 181 characters, 20 questions.)
+
+Screenshots: 11–15 (Rich Results Test: home, for-startups, investors, about, faq), 16–20 (Schema Markup Validator: same order), in this folder. The result screen of a
+pasted-code test does not name the page it tested, so the order above is the only label; 12, 14 and 15 look alike (12 and 14 are byte-identical) because
+/for-startups, /about and /faq all yield the same two detected items. The Schema Markup Validator screens (16–20) show the editor with the page's own <title>.
+
+## 1. Google Rich Results Test (search.google.com/test/rich-results, "Code" tab) — "is the markup valid, and what rich results can Google build from it?"
+
+  page            valid items  detected                                           non-critical (optional-field) notes
+  /               2            Organization, Software application                 Organization: streetAddress, postalCode · Software application: aggregateRating
+  /for-startups   2            Breadcrumbs, Organization                          Organization: streetAddress, postalCode
+  /about          2            Breadcrumbs, Organization                          Organization: streetAddress, postalCode
+  /faq            2            Breadcrumbs, Organization                          Organization: streetAddress, postalCode
+  /investors      3            Article, Breadcrumbs, Organization                 Article: image · Organization: streetAddress, postalCode
+
+  Errors: none on any page. "Critical" problems: none.
+  The optional fields are deliberately absent: the Organization carries the town only (Viana do Castelo) — the registered office, with street and postal code, is
+  already public in the Terms (src/lib/controller.ts CONTROLLER_ADDRESS), so adding streetAddress/postalCode would disclose nothing new, but it is Nuno's call, not
+  mine (listed as an optional "sim" in the report); no review/rating data (aggregateRating would be an invented number); no article image (the Open Graph image is
+  decision D10, deferred).
+
+  Fixed during this validation: the Article's datePublished/dateModified were the bare date "2026-10-16", which the tool reads as an invalid date-time without a time
+  zone (4 optional-field notes). They are now ISO date-times, "2026-10-16T12:00:00Z" (noon UTC: the reviewed DAY is the fact, the time is nominal and noon keeps
+  the calendar day in every time zone from UTC-12 to UTC+11). The Article went from 5 notes to 1 (image). site-schema.test.ts pins it.
+
+  What this tool does NOT list, and why: FAQPage, HowTo and AboutPage. Google stopped producing FAQ rich results for ordinary sites in 2023 (it keeps them for
+  well-known government and health sites) and removed HowTo rich results the same year; AboutPage has never been a rich-result type. They are in the markup as
+  machine-readable structure for answer engines and any consumer of schema.org, not as a promise of a Google rich result (docs/site-copy-920.md §0, D9).
+  Their syntax is what the second tool checks.
+
+## 2. Schema Markup Validator (validator.schema.org, "Code snippet") — "is it correct schema.org?" (types and properties, all of them, rich result or not)
+
+  page            errors  warnings  items (top-level)
+  /               0       0         SoftwareApplication, WebSite                       (Organization is checked as the publisher nested in both)
+  /for-startups   0       0         HowTo, BreadcrumbList, WebSite, FAQPage
+  /about          0       0         BreadcrumbList, AboutPage                          (WebSite checked nested, as isPartOf)
+  /faq            0       0         BreadcrumbList, WebSite, FAQPage                   (20 questions)
+  /investors      0       0         BreadcrumbList, Article, WebSite, FAQPage          (7 questions)
+
+## 3. Not covered here
+
+  - Search Console's own report (it needs the property verified, and the pages indexed) — Nuno's step after the deploy (docs/site-copy-920.md §H).
+  - The Rich Results Test "URL" tab against the live pages — only possible after the deploy; to repeat then on https://www.sherlockdeal.com/for-startups, /about, /faq.
