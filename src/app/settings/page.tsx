@@ -7,7 +7,7 @@
 // the former /queue (which is back to being just Outbox — see
 // src/app/outbox/page.tsx). The active separador lives in ?tab=
 // (useTabParam), never component state alone.
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
@@ -28,7 +28,7 @@ import { PhotosMediaCard } from '@/components/company/PhotosMediaCard';
 import { MiniPitchCard } from '@/components/company/MiniPitchCard';
 import { CompletenessBar } from '@/components/company/CompletenessBar';
 import { STICK_BELOW_WORKSPACE_HEADER } from '@/components/workspace-shell/WorkspaceHeader';
-import { SETTINGS_HEADER_OFFSET_PX } from '@/components/company/settings-layout';
+import { useSettingsStickyHeight } from '@/components/company/use-settings-sticky-height';
 import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import { APP_URL } from '@/lib/brand';
 import { PageTour } from '@/components/onboarding/PageTour';
@@ -384,6 +384,10 @@ const NON_COMPANY_TABS = ['automations', 'import-history', 'team', 'roadmap', 'p
 
 function SettingsInner() {
   useTrackPageView('/settings');
+  // The header block below sticks under the workspace bar; its height is published so everything that sticks or scrolls to just under it follows it
+  // (settings-layout.ts) instead of a constant measured once.
+  const stickyHeaderRef = useRef<HTMLDivElement>(null);
+  useSettingsStickyHeight(stickyHeaderRef);
   const searchParams = useSearchParams();
   const [tab, setTab] = useTabParam('company');
   const [importSubtab, setImportSubtab] = useTabParam('history', 'subtab');
@@ -524,8 +528,8 @@ function SettingsInner() {
           CompletenessBar all live in this one sticky block, at the SAME
           top offset (0 — this is the topmost sticky element) that
           CompanyPanel's own sub-menu/badges columns are measured against
-          (settings-layout.ts's SETTINGS_HEADER_OFFSET_PX = this block's own
-          rendered height). `position: sticky` in normal page flow, not a
+          (settings-layout.ts: this block's own rendered height, measured live
+          by useSettingsStickyHeight). `position: sticky` in normal page flow, not a
           `position: fixed` overlay — CLAUDE.md's createPortal rule for
           full-viewport overlays doesn't apply here. */}
       {/* Prompt 613 §H — was `lg:top-0 lg:z-20`, on the claim that this is
@@ -545,7 +549,7 @@ function SettingsInner() {
           Tailwind generates classes by scanning source TEXT, so a
           `lg:top-[${'${x}'}px]` built at runtime produces no rule at all and fails
           silently. Same shape CompanyPanel already uses for its own offset. */}
-      <div className="lg:sticky lg:z-[5] lg:bg-[#F7F9FA] lg:pb-2"
+      <div ref={stickyHeaderRef} className="lg:sticky lg:z-[5] lg:bg-[#F7F9FA] lg:pb-2"
         style={{ top: STICK_BELOW_WORKSPACE_HEADER } as React.CSSProperties}>
         {/* Prompt 615 §A.1 — title, controls and the preview link on ONE row.
             The header was taking about a third of a 1366x768 screen before any
