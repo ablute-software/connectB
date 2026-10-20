@@ -31,7 +31,7 @@ const LEVELS: { level: Level; label: string }[] = [
 
 export default function DossierPreviewPage() {
   useTrackPageView('/settings/preview');
-  const { db } = useStore();
+  const { db, loading } = useStore();
   // Pedido: "abre sempre no nível máximo (3)".
   const [level, setLevel] = useState<Level>(3);
   const [data, setData] = useState<{ dossier: Dossier; swotToggleOn: boolean; roadmapToggleOn: boolean; hasMiniPitch: boolean } | null>(null);
@@ -51,7 +51,7 @@ export default function DossierPreviewPage() {
     return () => { cancelled = true; };
   }, [level]);
 
-  const completeness = calcCompanyCompleteness(db.org, db.companyPeople).pct;
+  const completeness = calcCompanyCompleteness(db.org, db.companyPeople, { roadmapEvents: loading ? undefined : db.roadmapEvents }).pct;
 
   // The "compact Pipeline card" tier — Discovery-visible to ANY investor
   // regardless of disclosure level (see /api/portal/startup/[orgId]'s own

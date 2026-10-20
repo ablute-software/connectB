@@ -397,7 +397,7 @@ function SettingsInner() {
   const [viewer, setViewer] = useState(false);
   const [companyProfileAvailable, setCompanyProfileAvailable] = useState<boolean | null>(null);
   const [flashId, setFlashId] = useState<string | null>(null);
-  const { db } = useStore();
+  const { db, loading } = useStore();
   useEffect(() => {
     if (!authEnabled) { setCompanyProfileAvailable(false); return; }
     fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then((me) => {
@@ -483,7 +483,9 @@ function SettingsInner() {
   // Prompt 377 §B — CompletenessBar joined the page's own sticky header
   // (see this component's return below); computed once here so CompanyPanel
   // never needs its own independent completeness calc/fetch.
-  const { pct, missing } = calcCompanyCompleteness(db.org, db.companyPeople);
+  // The roadmap takes part in the score once the store has loaded it (a company that has existed for a year is asked for its history); while it is still
+  // loading the roadmap is left out rather than counted as empty, which would flash a lower number at everyone.
+  const { pct, missing } = calcCompanyCompleteness(db.org, db.companyPeople, { roadmapEvents: loading ? undefined : db.roadmapEvents });
   const canEditCompany = !authEnabled || can(orgRole, 'manage_org_settings');
   const reviewBadge = needsReviewBadge(db);
 
@@ -572,7 +574,7 @@ function SettingsInner() {
         <Tabs items={tabs} active={effectiveTab} onChange={setTab} />
         {isCompanyTab && companyProfileAvailable && (
           <div className="mt-1" data-tour-id="settings-completeness">
-            <CompletenessBar pct={pct} missing={missing} orgId={db.org.id} onFlash={setFlashId} />
+            <CompletenessBar pct={pct} missing={missing} orgId={db.org.id} onFlash={setFlashId} onOpenTab={setTab} />
           </div>
         )}
       </div>
@@ -591,7 +593,7 @@ function SettingsInner() {
       )}
       {effectiveTab === 'photos-media' && <PhotosMediaCard canEdit={canEditCompany} viewer={viewer} />}
       {effectiveTab === 'team' && <TeamPanel />}
-      {effectiveTab === 'roadmap' && <RoadmapPanel canEdit={canEditCompany} />}
+      {effectiveTab === 'roadmap' && <RoadmapPanel canEdit={canEditCompany} viewer={viewer} />}
       {effectiveTab === 'matchdeal' && <MiniPitchCard canEdit={canEditCompany} viewer={viewer} />}
       {effectiveTab === 'programs' && <ProgramsPanel />}
       {isCompanyTab && (

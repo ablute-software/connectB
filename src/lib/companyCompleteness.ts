@@ -8,14 +8,42 @@
 // something genuinely not applicable.
 import type { CompanyPerson, Org } from './types';
 
+// What the score needs to know that is not on the org row or in the team: the roadmap. A caller that cannot see the roadmap leaves it out, and the roadmap
+// then takes no part in the score at all (rather than counting as empty, which would be a penalty for a thing the caller never looked at).
+export interface CompletenessContext {
+  /** The roadmap events stored for the org. The derived "Company founded" mark is not an event and is not in this list. */
+  roadmapEvents?: { status: string }[];
+  /** Injected clock for "has the company existed for a year"; the caller's own `now`, never read from here. */
+  now?: Date;
+}
+
 export interface CompletenessField {
   id: string;
   label: string;
   weight: number;
   // Which card owns this field, so the bar can scroll to the right one
-  // even before the field itself is mounted/visible.
-  card: 'identity' | 'team' | 'round';
-  isFilled: (org: Org, people: CompanyPerson[]) => boolean;
+  // even before the field itself is mounted/visible. 'roadmap' is not a section of the Company tab: it is the Roadmap tab itself.
+  card: 'identity' | 'team' | 'round' | 'roadmap';
+  isFilled: (org: Org, people: CompanyPerson[], ctx: CompletenessContext) => boolean;
+  /** When set and false, the field is not part of the score at all (not asked, not counted). */
+  applies?: (org: Org, ctx: CompletenessContext) => boolean;
+}
+
+// 20/10/2026 (Nuno, looking at Mob2is: "a company must not show 100% or close to it with no roadmap — if it has existed for at least a year it must have roadmap
+// data, at least the history"). Mob2is, founded in 2023, with an empty roadmap, read 97%. The roadmap's HISTORY — milestones already reached — is asked of a
+// company that has existed for a year or more, and carries the weight of a section, not of decoration: with everything else complete, the bar now reads 86%
+// instead of 100%. The FUTURE part of the roadmap is deliberately not scored: investors appreciate it, and the Roadmap tab says so, but a founder who does not want
+// to publish a plan is not penalised for it.
+export const ROADMAP_HISTORY_MIN_AGE_YEARS = 1;
+
+/**
+ * How many years the company has existed, by its founding year. null when unknown. founded_year is only a year, so a company founded late last year is counted
+ * as one year old a few weeks early — preferred to missing a twenty-month-old one.
+ */
+export function companyAgeYears(org: Pick<Org, 'founded_year'>, now: Date): number | null {
+  const y = org.founded_year;
+  if (!y || !Number.isFinite(y)) return null;
+  return Math.max(0, now.getUTCFullYear() - y);
 }
 
 // Fields only counted while a round is actually being raised (round_raising
@@ -93,6 +121,13 @@ export const COMPLETENESS_FIELDS: CompletenessField[] = [
   { id: 'round.use_of_funds', label: 'Use of funds', weight: 4, card: 'round', isFilled: (o) => !!o.round_use_of_funds?.trim() },
   { id: 'round.target_close_date', label: 'Target close date', weight: 3, card: 'round', isFilled: (o) => !!o.round_target_close_date },
   { id: 'round.runway', label: 'Runway', weight: 3, card: 'round', isFilled: (o) => o.round_runway_months != null },
+
+  // Roadmap — the history, once the company is old enough to have one. Asked only where the caller can see the roadmap (ctx.roadmapEvents).
+  {
+    id: 'roadmap.history', label: 'Roadmap: milestones reached so far', weight: 20, card: 'roadmap',
+    applies: (o, ctx) => ctx.roadmapEvents !== undefined && (companyAgeYears(o, ctx.now ?? new Date()) ?? 0) >= ROADMAP_HISTORY_MIN_AGE_YEARS,
+    isFilled: (_o, _p, ctx) => (ctx.roadmapEvents ?? []).some((e) => e.status === 'done'),
+  },
 ];
 
 export interface CompletenessResult {
@@ -100,12 +135,12 @@ export interface CompletenessResult {
   missing: CompletenessField[];
 }
 
-export function calcCompanyCompleteness(org: Org, people: CompanyPerson[]): CompletenessResult {
+export function calcCompanyCompleteness(org: Org, people: CompanyPerson[], ctx: CompletenessContext = {}): CompletenessResult {
   const raisingNow = org.round_raising !== false; // true or unanswered (null/undefined) both keep round fields in scope
-  const applicable = COMPLETENESS_FIELDS.filter((f) => raisingNow || !ROUND_ONLY_WHILE_RAISING.has(f.id));
+  const applicable = COMPLETENESS_FIELDS.filter((f) => (raisingNow || !ROUND_ONLY_WHILE_RAISING.has(f.id)) && (!f.applies || f.applies(org, ctx)));
 
   const totalWeight = applicable.reduce((s, f) => s + f.weight, 0);
-  const missing = applicable.filter((f) => !f.isFilled(org, people));
+  const missing = applicable.filter((f) => !f.isFilled(org, people, ctx));
   const filledWeight = totalWeight - missing.reduce((s, f) => s + f.weight, 0);
   const pct = totalWeight ? Math.round((filledWeight / totalWeight) * 100) : 0;
 

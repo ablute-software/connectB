@@ -145,7 +145,8 @@ export function CompanyPanel({ canEdit, viewer = false, companyProfileAvailable,
   useEffect(() => {
     if (!flashParam) return;
     const field = COMPLETENESS_FIELDS.find((f) => f.id === flashParam);
-    if (field) setActive(field.card);
+    // a field of the Roadmap tab has no section here to switch to
+    if (field && field.card !== 'roadmap') setActive(field.card);
   }, [flashParam]);
 
   // Prompt 426 §C — `?capTableRequestItem=<id>` (from the document-request

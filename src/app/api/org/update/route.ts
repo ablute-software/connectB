@@ -12,6 +12,7 @@ import { loadOrgMatrix } from '@/lib/org-matrix-server';
 import { canWithMatrix } from '@/lib/org-permissions';
 import { patchTouchesArchiveRelevantFields, regenerateNowSummary } from '@/lib/startup-snapshot';
 import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
+import { orgHasRoadmapHistory, roadmapContextFromHistory } from '@/lib/roadmap-history';
 import { logEvent } from '@/lib/analytics-events';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { withActingOrg, resolveActingOrg } from '@/lib/acting-org';
@@ -132,7 +133,9 @@ export const POST = withActingOrg(async function POST(req: Request) {
   const { data: freshOrg } = await admin.from('orgs').select('*').eq('id', acting.orgId).single();
   if (freshOrg && !freshOrg.profile_reached_80_at) {
     const { data: people } = await admin.from('company_people').select('*').eq('org_id', acting.orgId);
-    const { pct } = calcCompanyCompleteness(freshOrg, people ?? []);
+    // The roadmap's history is part of the score for a company that has existed for a year; the milestone asks the same question as the Settings bar.
+    const roadmapCtx = roadmapContextFromHistory(await orgHasRoadmapHistory(admin, acting.orgId as string));
+    const { pct } = calcCompanyCompleteness(freshOrg, people ?? [], roadmapCtx);
     if (pct >= 80) {
       const reachedAt = new Date().toISOString();
       await admin.from('orgs').update({ profile_reached_80_at: reachedAt }).eq('id', acting.orgId);

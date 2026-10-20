@@ -28,8 +28,10 @@ import { RoadmapCanvas } from './RoadmapCanvas';
 import { RoadmapEventDetailPanel } from './RoadmapEventDetailPanel';
 import { CategoryManager } from './RoadmapCard';
 import { SuggestedEventsPanel } from './SuggestedEventsPanel';
+import { RoadmapGuidanceCard } from './RoadmapGuidanceCard';
 import { GLASS_CARD, GLASS_PILL } from './roadmap-visual';
 import { derivedFoundedEvent } from '@/lib/roadmap-derived';
+import { roadmapGuidance } from '@/lib/roadmap-guidance';
 import type { RoadmapEventStatus } from '@/lib/types';
 
 // Prompt 359 §A.3 — the default lanes an investor actually reads a company
@@ -56,7 +58,11 @@ const DEFAULT_LANES: { label: string; color: 'blue' | 'green' | 'amber' | 'purpl
 // truth — update both together.
 const DEMO_STORAGE_KEY = 'ablute-crm-demo-v3';
 
-export function RoadmapPanel({ canEdit }: { canEdit: boolean }) {
+export function RoadmapPanel({ canEdit, viewer = false }: {
+  canEdit: boolean;
+  /** A Developer Viewer session: reads what the founder sees (the guidance included), changes nothing. */
+  viewer?: boolean;
+}) {
   const { db, loading, updateOrg, seedRoadmapCategories, addRoadmapEvent, updateRoadmapEvent, removeRoadmapEvent } = useStore();
   const confirm = useConfirm();
   // Prompt 359 §A.3 — seeding the defaults races the demo store's OWN
@@ -158,6 +164,12 @@ export function RoadmapPanel({ canEdit }: { canEdit: boolean }) {
   // still needs the detail panel, or clicking that mark would do nothing.
   const hasEvents = canvasEvents.length > 0;
 
+  // 20/10/2026 — what investors would still like to see on this roadmap (its history, once the company is a year old; its plan), said here instead of left to a
+  // percentage on another tab. Only STORED events count; the derived founding mark is not a milestone the founder reached.
+  const guidance = useMemo(() => (loading ? null : roadmapGuidance({
+    events: db.roadmapEvents, foundedYear: db.org.founded_year ?? null, companyName: db.org.name, now: new Date(), hasDocuments: db.documents.length > 0,
+  })), [loading, db.roadmapEvents, db.org.founded_year, db.org.name, db.documents.length]);
+
   return (
     <div className={`${roadmapFont.className} max-w-6xl space-y-6`}>
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -184,6 +196,10 @@ export function RoadmapPanel({ canEdit }: { canEdit: boolean }) {
       </header>
 
       {error && <p className="text-xs text-[#ba1a1a]">{error}</p>}
+
+      {guidance && (canEdit || viewer) && (
+        <RoadmapGuidanceCard guidance={guidance} onAdd={canEdit ? () => setPrefillTitle('') : undefined} />
+      )}
 
       {/* Prompt 540 RC1 §3 — the canvas waits for the store, instead of
           rendering an empty timeline over data that is still arriving. The
