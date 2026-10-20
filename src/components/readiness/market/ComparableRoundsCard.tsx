@@ -32,7 +32,7 @@ interface ComparableRound {
 }
 
 function fmtEur(v: number | null): string | null {
-  return v == null ? null : `€${v.toLocaleString()}`;
+  return v == null ? null : `€${v.toLocaleString('en-US')}`;
 }
 
 // Prompt 481 §2 — always available, never gated by the state of the public
