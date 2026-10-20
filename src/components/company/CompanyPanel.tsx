@@ -46,6 +46,7 @@ import { InvestorQACard, RoundUpdatesCard, SoftCommitsCard } from './InvestorEng
 import { StartupAxisClassifications } from './StartupAxisClassifications';
 import { CompanySubMenu, type CompanySection } from './CompanySubMenu';
 import { SETTINGS_HEADER_OFFSET_CSS } from './settings-layout';
+import { cardVisibleToReader } from '@/lib/card-visibility';
 import { COMPLETENESS_FIELDS, type CompletenessField } from '@/lib/companyCompleteness';
 
 const SECTIONS: CompanySection[] = [
@@ -74,8 +75,11 @@ function DemoResetCard() {
   );
 }
 
-export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashId }: {
-  canEdit: boolean; companyProfileAvailable: boolean | null; missing: CompletenessField[]; flashId: string | null;
+export function CompanyPanel({ canEdit, viewer = false, companyProfileAvailable, missing, flashId }: {
+  canEdit: boolean;
+  /** A Developer Viewer session: sees what an owner/admin sees (the cap table, previous funding), read-only. */
+  viewer?: boolean;
+  companyProfileAvailable: boolean | null; missing: CompletenessField[]; flashId: string | null;
 }) {
   const { db } = useStore();
   const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null);
@@ -240,12 +244,12 @@ export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashI
 
         {active === 'previous-funding' && (
           <div id="settings-previous-funding" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_CSS }}>
-            {canEdit && <PreviousFundingCard />}
+            {cardVisibleToReader({ canEdit, viewer }) && <PreviousFundingCard readOnly={!canEdit} />}
           </div>
         )}
         {active === 'cap-table' && (
           <div id="settings-cap-table" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_CSS }}>
-            {canEdit && <CapTableCard />}
+            {cardVisibleToReader({ canEdit, viewer }) && <CapTableCard readOnly={!canEdit} />}
           </div>
         )}
 

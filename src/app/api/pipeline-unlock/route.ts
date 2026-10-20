@@ -85,15 +85,29 @@ export const GET = withActingOrg(async function GET(req: NextRequest) {
   // instead of ever letting the sentinel itself out as a number.
   let deliverable = 0;
   let unlimited = false;
+  let quota = 0;
+  let delivered = 0;
   if (gateComplete) {
+    // 20/10/2026 (Nuno: "why is Mob2is' pipeline empty?"): catalog_effective_quota() answers for the CALLER, and answers 0 to anyone who is not a member of
+    // the org — which is exactly what a developer in a viewer session is. So the viewer was told "your next batch arrives with your plan's monthly renewal"
+    // about a founder who had three investors WAITING for one click on "Unlock my pipeline" (deliverable computed as 0). A viewer session now reads what the
+    // founder's own page load would produce: the stored quota, raised to the target the floor would raise it to (the write itself stays skipped above).
+    const quotaRead = isViewerSession
+      ? Promise.resolve({ data: Math.max((org?.catalog_quota as number | null | undefined) ?? 0, catalogQuotaTarget) })
+      : sb.rpc('catalog_effective_quota', { check_org: orgId });
     const [{ data: quotaData }, { count: deliveredCount }] = await Promise.all([
-      sb.rpc('catalog_effective_quota', { check_org: orgId }),
+      quotaRead,
       admin.from('catalog_deliveries').select('catalog_id', { count: 'exact', head: true })
         .eq('org_id', orgId).eq('quota_exempt', false),
     ]);
-    const quota = typeof quotaData === 'number' ? quotaData : 0;
-    ({ deliverable, unlimited } = await computeDeliverable(admin, orgId, quota, deliveredCount ?? 0));
+    quota = typeof quotaData === 'number' ? quotaData : 0;
+    delivered = deliveredCount ?? 0;
+    ({ deliverable, unlimited } = await computeDeliverable(admin, orgId, quota, delivered));
   }
 
-  return NextResponse.json({ ok: true, gateComplete, visible, eligiblePoolSize, catalogQuotaTarget, deliverable, unlimited, missing, anchorsAvailable, plan });
+  // `quota` and `delivered` let the Pipeline say WHY it is empty in numbers (N of N delivered, next batch on the 1st) instead of a sentence that fits every case.
+  return NextResponse.json({
+    ok: true, gateComplete, visible, eligiblePoolSize, catalogQuotaTarget, deliverable, unlimited, missing, anchorsAvailable, plan,
+    quota: unlimited ? null : quota, delivered,
+  });
 });

@@ -92,7 +92,8 @@ function PipelineCleanupCard() {
   );
 }
 
-export function PreviousFundingCard() {
+// `readOnly`: the Developer Viewer's version — the rounds and the total, no form, no remove links, no pipeline-cleanup suggestions (Nuno, 20/10/2026).
+export function PreviousFundingCard({ readOnly = false }: { readOnly?: boolean }) {
   const { db, addFundingRound, removeFundingRound } = useStore();
   const [investorName, setInvestorName] = useState('');
   const [label, setLabel] = useState('');
@@ -120,8 +121,10 @@ export function PreviousFundingCard() {
                 {r.investor_name && <span className="text-gray-600">· {r.investor_name}</span>}
                 <span className="tabular-nums text-gray-700">{fmtEur(Number(r.amount_eur))}</span>
                 {r.closed_year && <span className="text-xs text-gray-400">{r.closed_year}</span>}
-                <button onClick={() => removeFundingRound(r.id)}
-                  className="ml-auto text-[11px] text-gray-400 hover:text-[#B00000]">remove</button>
+                {!readOnly && (
+                  <button onClick={() => removeFundingRound(r.id)}
+                    className="ml-auto text-[11px] text-gray-400 hover:text-[#B00000]">remove</button>
+                )}
               </li>
             ))}
             <li className="border-t border-gray-100 pt-1 text-sm font-semibold text-gray-900">
@@ -132,6 +135,7 @@ export function PreviousFundingCard() {
           <p className="mb-3 text-xs text-gray-400">Nothing recorded yet.</p>
         )}
 
+        {!readOnly && (
         <div className="flex flex-wrap items-end gap-2">
           <input value={investorName} onChange={(e) => setInvestorName(e.target.value)} placeholder="Investor name"
             className="w-40 rounded border border-gray-300 px-2 py-1.5 text-sm" />
@@ -155,8 +159,9 @@ export function PreviousFundingCard() {
             Add
           </button>
         </div>
+        )}
       </Card>
-      <PipelineCleanupCard />
+      {!readOnly && <PipelineCleanupCard />}
     </>
   );
 }

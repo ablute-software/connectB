@@ -204,7 +204,9 @@ function ConvertibleNotePanel({ orgId, documents, label, pct, onFillLabel, onFil
   );
 }
 
-export function CapTableCard() {
+// `readOnly` is the Developer Viewer's version of the card: the rows and the total, without the form, the remove links or the Watson fill — a developer
+// reads what the founder sees and changes nothing (Nuno, 20/10/2026: the cap table was not shown in the viewer at all).
+export function CapTableCard({ readOnly = false }: { readOnly?: boolean }) {
   const { db, addCapTableEntry, removeCapTableEntry } = useStore();
   const [category, setCategory] = useState<CapTableEntry['category']>('founder');
   const [label, setLabel] = useState('');
@@ -262,7 +264,7 @@ export function CapTableCard() {
                 <span className="tabular-nums text-gray-700">{fmtPct(e.pct)}</span>
                 {conversionNote && <span className="text-xs text-gray-500">🔄 {conversionNote}</span>}
                 <span className="text-xs text-gray-400">as of {e.as_of}</span>
-                <button onClick={() => removeCapTableEntry(e.id)} className="ml-auto text-[11px] text-gray-400 hover:text-[#B00000]">remove</button>
+                {!readOnly && <button onClick={() => removeCapTableEntry(e.id)} className="ml-auto text-[11px] text-gray-400 hover:text-[#B00000]">remove</button>}
               </li>
             );
           })}
@@ -275,6 +277,7 @@ export function CapTableCard() {
         <p className="mb-3 text-xs text-gray-400">Nothing recorded yet.</p>
       )}
 
+      {!readOnly && (<>
       <div className="flex flex-wrap items-end gap-2">
         <select value={category} onChange={(e) => setCategory(e.target.value as CapTableEntry['category'])}
           className="rounded border border-gray-300 px-2 py-1.5 text-sm">
@@ -317,6 +320,7 @@ export function CapTableCard() {
       </div>
 
       <CapTableAiFillPanel addCapTableEntry={addCapTableEntry} />
+      </>)}
     </Card>
   );
 }

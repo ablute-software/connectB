@@ -392,6 +392,9 @@ function SettingsInner() {
   const [tab, setTab] = useTabParam('company');
   const [importSubtab, setImportSubtab] = useTabParam('history', 'subtab');
   const [orgRole, setOrgRole] = useState<OrgRole | null>(null);
+  // A Developer Viewer session: a developer reading this company's workspace, read-only. No role in the viewed org (so canEdit is false), but entitled to SEE
+  // everything the founder sees — which is what a card that hides itself for "someone who cannot edit" must not do to them (Nuno, 20/10/2026).
+  const [viewer, setViewer] = useState(false);
   const [companyProfileAvailable, setCompanyProfileAvailable] = useState<boolean | null>(null);
   const [flashId, setFlashId] = useState<string | null>(null);
   const { db } = useStore();
@@ -399,6 +402,7 @@ function SettingsInner() {
     if (!authEnabled) { setCompanyProfileAvailable(false); return; }
     fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then((me) => {
       setOrgRole(me.orgRole ?? null);
+      setViewer(!!me.viewer);
       setCompanyProfileAvailable(!!me.capabilities?.companyProfile);
     }).catch(() => setCompanyProfileAvailable(false));
   }, []);
@@ -585,13 +589,13 @@ function SettingsInner() {
           {effectiveSubtab === 'needs-review' ? <NeedsReviewPanel /> : <ImportPanel />}
         </div>
       )}
-      {effectiveTab === 'photos-media' && <PhotosMediaCard canEdit={canEditCompany} />}
+      {effectiveTab === 'photos-media' && <PhotosMediaCard canEdit={canEditCompany} viewer={viewer} />}
       {effectiveTab === 'team' && <TeamPanel />}
       {effectiveTab === 'roadmap' && <RoadmapPanel canEdit={canEditCompany} />}
-      {effectiveTab === 'matchdeal' && <MiniPitchCard canEdit={canEditCompany} />}
+      {effectiveTab === 'matchdeal' && <MiniPitchCard canEdit={canEditCompany} viewer={viewer} />}
       {effectiveTab === 'programs' && <ProgramsPanel />}
       {isCompanyTab && (
-        <CompanyPanel canEdit={canEditCompany} companyProfileAvailable={companyProfileAvailable} missing={missing} flashId={flashId} />
+        <CompanyPanel canEdit={canEditCompany} viewer={viewer} companyProfileAvailable={companyProfileAvailable} missing={missing} flashId={flashId} />
       )}
     </div>
   );

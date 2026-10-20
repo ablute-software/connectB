@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Card } from '@/components/ui';
 import { MEDIA_CATEGORIES, MAX_MEDIA_PER_ORG, type MediaCategory } from '@/lib/company-media';
 import { LoadingState } from '@/components/workspace-shell/LoadingState';
+import { cardVisibleToReader } from '@/lib/card-visibility';
 
 interface MediaItem {
   id: string; kind: 'image' | 'video_upload' | 'video_link'; category: MediaCategory; caption: string;
@@ -18,7 +19,7 @@ const SCAN_LABEL: Record<MediaItem['malware_scan_status'], string> = {
   pending: 'Scanning…', clean: '', flagged: 'Blocked — flagged by malware scan',
 };
 
-export function PhotosMediaCard({ canEdit }: { canEdit: boolean }) {
+export function PhotosMediaCard({ canEdit, viewer = false }: { canEdit: boolean; viewer?: boolean }) {
   const [items, setItems] = useState<MediaItem[] | null>(null);
   const [category, setCategory] = useState<MediaCategory>('company');
   const [caption, setCaption] = useState('');
@@ -81,7 +82,8 @@ export function PhotosMediaCard({ canEdit }: { canEdit: boolean }) {
     });
   }
 
-  if (!canEdit && (!items || items.length === 0)) return null;
+  // A Developer Viewer sees the card even when it is empty ("No photos or videos yet" is information about this company; a blank tab is not).
+  if (!cardVisibleToReader({ canEdit, viewer, hasContentForReaders: (items?.length ?? 0) > 0 })) return null;
 
   return (
     <Card title="Photos & media">

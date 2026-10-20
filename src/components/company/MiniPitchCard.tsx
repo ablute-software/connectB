@@ -20,6 +20,7 @@ import Link from 'next/link';
 import { Card } from '@/components/ui';
 import { authEnabled } from '@/lib/supabase';
 import { MiniPitchDeck, MINI_PITCH_SLIDE_LABEL, type MiniPitchSlideKind } from '@/components/mini-pitch/MiniPitchSlideView';
+import { cardVisibleToReader } from '@/lib/card-visibility';
 
 interface GateField { key: string; label: string; href: string }
 interface Gate { eligible: boolean; missing: GateField[] }
@@ -36,7 +37,7 @@ const ACTIVATION_COPY = 'A mini-pitch is generated automatically from your compa
   + 'provide, the better your chances of the perfect match, and the smoother the process continues once an investor '
   + 'shows interest.';
 
-export function MiniPitchCard({ canEdit }: { canEdit: boolean }) {
+export function MiniPitchCard({ canEdit, viewer = false }: { canEdit: boolean; viewer?: boolean }) {
   const [gate, setGate] = useState<Gate | null>(null);
   const [pitch, setPitch] = useState<Pitch | null>(null);
   const [mediaLibrary, setMediaLibrary] = useState<MediaItem[]>([]);
@@ -103,7 +104,9 @@ export function MiniPitchCard({ canEdit }: { canEdit: boolean }) {
       .finally(() => setBusy(false));
   }
 
-  if (!canEdit && !pitch?.activatedAt) return null;
+  // Someone who cannot edit sees the card only once it is LIVE for investors — except a Developer Viewer, who sees what the founder sees (the gate, the
+  // preview, the state), read-only: every control below is behind `canEdit` already. It used to return null here, so the MatchDeal tab was blank in the viewer.
+  if (!cardVisibleToReader({ canEdit, viewer, hasContentForReaders: !!pitch?.activatedAt })) return null;
   if (!gate) return null;
 
   const slides = pitch?.slides ?? [];
