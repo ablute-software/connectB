@@ -22,6 +22,7 @@ import { CapTableChart } from '@/components/CapTableChart';
 import { toCapTableSlices } from '@/lib/cap-table';
 import { MiniPitchDeck } from '@/components/mini-pitch/MiniPitchSlideView';
 import { InvestorBadges } from './InvestorBadges';
+import { PersonAvatar } from '@/components/PersonAvatar';
 import type { BadgePublic } from '@/lib/company-badges';
 import { InvestorWebsiteHealth } from './InvestorWebsiteHealth';
 import type { WebsiteHealthPublic } from '@/lib/website-health';
@@ -466,13 +467,9 @@ export function DossierOverviewSections({
                 <li key={p.id} className="flex items-start gap-2.5 text-xs">
                   {/* Prompt 388 §A — round avatar, initials fallback when
                       photoUrl is empty (never an empty/broken image box). */}
-                  {p.photoUrl ? (
-                    <img src={p.photoUrl} alt="" className="mt-0.5 h-8 w-8 shrink-0 rounded-full object-cover" />
-                  ) : (
-                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#E8F4F8] text-[10px] font-semibold text-[#0E7490]">
-                      {p.fullName.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('')}
-                    </span>
-                  )}
+                  {/* A link that does not open falls back to the initials too (PersonAvatar), not only an empty one. */}
+                  <PersonAvatar name={p.fullName} photoUrl={p.photoUrl} className="mt-0.5 h-8 w-8 shrink-0 rounded-full"
+                    fallbackClassName="bg-[#E8F4F8] text-[10px] font-semibold text-[#0E7490]" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-gray-700">
