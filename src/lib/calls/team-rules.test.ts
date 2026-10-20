@@ -66,7 +66,7 @@ describe('category names', () => {
     expect(validateNewCategoryName(cats, '')).toMatchObject({ ok: false });
   });
   it('the suggested list is the spec\'s', () => {
-    expect([...SUGGESTED_CATEGORIES]).toEqual(['Manager', 'Analyst', 'Finance specialist', 'Technical specialist', 'Legal', 'Evaluator']);
+    expect([...SUGGESTED_CATEGORIES]).toEqual(['Evaluator', 'Manager', 'Analyst', 'Finance specialist', 'Technical specialist', 'Legal']);
   });
   it('a category with people cannot be deleted: they must be moved first', () => {
     const cat = state().categories[1];
