@@ -1,0 +1,92 @@
+{
+ "initial": {
+  "scrollY": 0,
+  "stickyBottom": 218,
+  "sectionId": "settings-identity",
+  "sectionTop": 218,
+  "hiddenUnderHeader": 0,
+  "scrollMargin": "186px",
+  "workspaceHeaderVar": "53px",
+  "settingsStickyHeightVar": "133px"
+ },
+ "from top → Team": {
+  "scrollY": 0,
+  "stickyBottom": 218,
+  "sectionId": "settings-team",
+  "sectionTop": 218,
+  "hiddenUnderHeader": 0,
+  "scrollMargin": "186px",
+  "workspaceHeaderVar": "53px",
+  "settingsStickyHeightVar": "133px"
+ },
+ "from top → Round": {
+  "scrollY": 0,
+  "stickyBottom": 218,
+  "sectionId": "settings-round",
+  "sectionTop": 218,
+  "hiddenUnderHeader": 0,
+  "scrollMargin": "186px",
+  "workspaceHeaderVar": "53px",
+  "settingsStickyHeightVar": "133px"
+ },
+ "from top → Previous funding": {
+  "scrollY": 0,
+  "stickyBottom": 218,
+  "sectionId": "settings-previous-funding",
+  "sectionTop": 218,
+  "hiddenUnderHeader": 0,
+  "scrollMargin": "186px",
+  "workspaceHeaderVar": "53px",
+  "settingsStickyHeightVar": "133px"
+ },
+ "from top → Cap table": {
+  "scrollY": 0,
+  "stickyBottom": 218,
+  "sectionId": "settings-cap-table",
+  "sectionTop": 218,
+  "hiddenUnderHeader": 0,
+  "scrollMargin": "186px",
+  "workspaceHeaderVar": "53px",
+  "settingsStickyHeightVar": "133px"
+ },
+ "from top → Traction metrics": {
+  "scrollY": 0,
+  "stickyBottom": 218,
+  "sectionId": "settings-traction",
+  "sectionTop": 218,
+  "hiddenUnderHeader": 0,
+  "scrollMargin": "186px",
+  "workspaceHeaderVar": "53px",
+  "settingsStickyHeightVar": "133px"
+ },
+ "from top → Facts & Clarifications": {
+  "scrollY": 0,
+  "stickyBottom": 218,
+  "sectionId": "settings-facts",
+  "sectionTop": 218,
+  "hiddenUnderHeader": 0,
+  "scrollMargin": "186px",
+  "workspaceHeaderVar": "53px",
+  "settingsStickyHeightVar": "133px"
+ },
+ "from top → Identity": {
+  "scrollY": 0,
+  "stickyBottom": 218,
+  "sectionId": "settings-identity",
+  "sectionTop": 218,
+  "hiddenUnderHeader": 0,
+  "scrollMargin": "186px",
+  "workspaceHeaderVar": "53px",
+  "settingsStickyHeightVar": "133px"
+ },
+ "from deep → Round": {
+  "scrollY": 0,
+  "stickyBottom": 218,
+  "sectionId": "settings-round",
+  "sectionTop": 218,
+  "hiddenUnderHeader": 0,
+  "scrollMargin": "186px",
+  "workspaceHeaderVar": "53px",
+  "settingsStickyHeightVar": "133px"
+ }
+}
