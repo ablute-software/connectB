@@ -62,8 +62,11 @@ export function factZone(fact: Pick<FactView, 'validationStatus' | 'verification
   return 'founder_reported';
 }
 
+// Explicit 'en-US'. The words around the number are English, and a bare toLocaleString() follows the MACHINE's language: "6 000 000 000" on a pt-PT machine
+// (this module's own test failed there on every full run), "6,000,000,000" on Vercel — the same fact read differently in the browser and on the server. The
+// same convention as format-money.ts, deal-terms.ts and the other money formatters.
 function fmtNum(n: number): string {
-  return Math.abs(n) >= 1000 ? n.toLocaleString() : String(n);
+  return Math.abs(n) >= 1000 ? n.toLocaleString('en-US') : String(n);
 }
 
 function valuePart(fact: Pick<FactView, 'factType' | 'payload'>): string {

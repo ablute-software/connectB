@@ -65,7 +65,7 @@ function RingRow({ ring, onChanged }: { ring: Ring | null; ringKey: RingKey; onC
           {ring.definition && <p className="mt-0.5 text-xs text-gray-500">{ring.definition}</p>}
           <p className="mt-1 text-sm text-gray-700">
             {ring.size_value_eur != null
-              ? `€${ring.size_value_eur.toLocaleString()}${ring.size_year ? ` (${ring.size_year})` : ''} — ${SIZE_METHOD_LABEL[ring.size_method ?? ''] ?? 'unspecified method'}`
+              ? `€${ring.size_value_eur.toLocaleString('en-US')}${ring.size_year ? ` (${ring.size_year})` : ''} — ${SIZE_METHOD_LABEL[ring.size_method ?? ''] ?? 'unspecified method'}`
               : <span className="text-gray-400">No sourced number yet — better empty than invented.</span>}
           </p>
           {/* Prompt 378 §B.2 — a figure cited to one of the founder's own

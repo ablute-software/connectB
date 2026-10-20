@@ -3,6 +3,7 @@ import {
   factZone, factSummaryLine, groupIncompleteByMarket, incompleteZoneSummary,
   missingFieldsLabel, NO_MARKET_STATED_LABEL, type FactView,
 } from './market-facts-view';
+import { underDefaultLocale } from '@/test/default-locale';
 
 function fact(overrides: Partial<Pick<FactView, 'validationStatus' | 'verificationStatus'>> = {}) {
   return { validationStatus: 'valid' as const, verificationStatus: 'founder_reported' as const, ...overrides };
@@ -68,6 +69,37 @@ describe('factSummaryLine', () => {
       payload: { marketDefinition: null, geography: null, metric: 'CAGR', estimateShape: 'lower_bound', value: null, lowerBound: 8, upperBound: null },
     });
     expect(line).toBe('Growth ≥8% CAGR');
+  });
+});
+
+// The copy around the number is English; the machine's language must not decide how the number is grouped. A bare toLocaleString() printed "6 000 000 000" on a
+// pt-PT machine (this module's own test above failed there on every full run, and a pt-PT reader's browser showed the same), so the DEFAULT locale is stubbed here:
+// the assertions hold on any machine, and a bare call comes back red everywhere instead of only where the developer happens to live.
+describe('factSummaryLine — numbers are grouped the same way whatever the machine\'s language', () => {
+  const marketSize = (shape: 'point' | 'interval' | 'lower_bound', over: Record<string, number | null> = {}) => factSummaryLine({
+    factType: 'market_size',
+    payload: { marketDefinition: 'Digital health', geography: 'EU', metric: 'TAM', estimateShape: shape, value: 6_000_000_000, lowerBound: null, upperBound: null, currency: 'EUR', asOfYear: 2026, ...over },
+  });
+
+  it('the stub is real: on those machines a bare toLocaleString() does NOT print 6,000,000,000 (so a bare call in the formatter would be caught)', () => {
+    for (const locale of ['pt-PT', 'de-DE', 'fr-FR']) {
+      expect(underDefaultLocale(locale, () => (6_000_000_000).toLocaleString()), locale).not.toBe('6,000,000,000');
+    }
+  });
+
+  it.each(['pt-PT', 'de-DE', 'fr-FR'])('on a %s machine a point estimate still reads 6,000,000,000', (locale) => {
+    expect(underDefaultLocale(locale, () => marketSize('point'))).toBe('Market size EUR 6,000,000,000 TAM · Digital health · EU · 2026');
+  });
+
+  it.each(['pt-PT', 'de-DE', 'fr-FR'])('on a %s machine an interval and a bound group their thousands the same way', (locale) => {
+    expect(underDefaultLocale(locale, () => marketSize('interval', { value: null, lowerBound: 1_500_000, upperBound: 2_500_000 })))
+      .toBe('Market size EUR 1,500,000–2,500,000 TAM · Digital health · EU · 2026');
+    expect(underDefaultLocale(locale, () => marketSize('lower_bound', { value: null, lowerBound: 12_000 })))
+      .toBe('Market size EUR ≥12,000 TAM · Digital health · EU · 2026');
+  });
+
+  it('numbers below a thousand are untouched, on any machine', () => {
+    expect(underDefaultLocale('de-DE', () => marketSize('point', { value: 950 }))).toBe('Market size EUR 950 TAM · Digital health · EU · 2026');
   });
 });
 
