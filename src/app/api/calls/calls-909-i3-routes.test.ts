@@ -357,3 +357,65 @@ describe('the list knows which calls you may configure', () => {
     expect(ALL_PERMISSIONS.configure_call).toBe(true);
   });
 });
+
+// Prompt 918 (follow-up to the I1 test) — the person's own category list offers the suggestions that do not exist yet: picking one creates it with sensible permissions and puts the person in it.
+describe('a suggested category, picked from the person\'s own list', () => {
+  const perms = (name: string) => db.tables.call_team_categories.find((c) => c.name === name)!.permissions as Record<string, boolean>;
+  const on = (name: string) => Object.entries(perms(name)).filter(([, v]) => v).map(([k]) => k).sort();
+
+  it('Evaluator starts with "Evaluate assigned" only (so it sees only what is assigned); Analyst with "View all applications"; Manager with everything except "Manage team"', async () => {
+    const { id } = await newCall();
+    for (const name of ['Evaluator', 'Analyst', 'Manager']) expect((await post(id, { action: 'create_category', name }, 'ana')).status, name).toBe(200);
+    expect(on('Evaluator')).toEqual(['evaluate_assigned']);
+    expect(on('Analyst')).toEqual(['view_all_applications']);
+    expect(on('Manager')).toEqual(Object.keys(ALL_PERMISSIONS).filter((k) => k !== 'manage_team').sort());
+  });
+
+  it('a name that is not a suggestion starts with nothing, and an explicit set is always respected', async () => {
+    const { id } = await newCall();
+    await post(id, { action: 'create_category', name: 'Head of Research' }, 'ana');
+    await post(id, { action: 'create_category', name: 'Legal', permissions: { final_decision: true } }, 'ana');
+    expect(on('Head of Research')).toEqual([]);
+    expect(on('Legal')).toEqual(['final_decision']);
+  });
+
+  it('create_category with assignUserId adds a person who is not in the call, in the new category, and logs both', async () => {
+    const { id } = await newCall();
+    const res = await post(id, { action: 'create_category', name: 'Evaluator', assignUserId: 'bob' }, 'ana');
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(membersOf(id)).toContainEqual(expect.objectContaining({ user_id: 'bob', category_id: categoryId('Evaluator') }));
+    expect(res.body.members.find((m: { userId: string }) => m.userId === 'bob')).toMatchObject({ categoryId: categoryId('Evaluator'), effective: expect.objectContaining({ evaluate_assigned: true, configure_call: false }) });
+    expect(events(id, 'team_category_created')).toHaveLength(1);
+    expect(events(id, 'team_member_added')).toHaveLength(1);
+  });
+
+  it('…and moves a person who already is in the call', async () => {
+    const { id } = await newCall();
+    await post(id, { action: 'create_category', name: 'Analyst', assignUserId: 'bob' }, 'ana');
+    const res = await post(id, { action: 'create_category', name: 'Evaluator', assignUserId: 'bob' }, 'ana');
+    expect(res.status).toBe(200);
+    expect(membersOf(id).filter((m) => m.user_id === 'bob')).toMatchObject([{ category_id: categoryId('Evaluator') }]);
+    expect(events(id, 'team_member_category_changed')).toHaveLength(1);
+  });
+
+  it('is checked BEFORE anything is written: moving the only administrator out, or adding someone with no seat, leaves no half-made category', async () => {
+    const { id } = await newCall();
+    const alone = await post(id, { action: 'create_category', name: 'Evaluator', assignUserId: 'ana' }, 'ana');
+    expect(alone).toMatchObject({ status: 409 });
+    expect(alone.body.error).toBe(NO_ADMINISTRATOR);
+    const noSeat = await post(id, { action: 'create_category', name: 'Analyst', assignUserId: 'someone-without-a-seat' }, 'ana');
+    expect(noSeat).toMatchObject({ status: 409 });
+    expect(noSeat.body.error).toBe(NO_SEAT_REASON);
+    expect(db.tables.call_team_categories.map((c) => c.name)).toEqual(['Administrator']);
+  });
+
+  it('a repeated name is refused and nobody is moved; somebody who cannot manage the team cannot do it', async () => {
+    const { id } = await newCall();
+    await post(id, { action: 'add_member', userId: 'bob', categoryId: categoryId('Administrator') }, 'ana');
+    expect((await post(id, { action: 'create_category', name: 'administrator', assignUserId: 'bob' }, 'ana')).status).toBe(409);
+    await post(id, { action: 'create_category', name: 'Evaluator' }, 'ana');
+    await post(id, { action: 'set_category', userId: 'bob', categoryId: categoryId('Evaluator') }, 'ana');
+    expect((await post(id, { action: 'create_category', name: 'Analyst', assignUserId: 'bob' }, 'bob')).status).toBe(403);
+    expect(db.tables.call_team_categories.map((c) => c.name).sort()).toEqual(['Administrator', 'Evaluator']);
+  });
+});

@@ -9,7 +9,7 @@
 //        { action: 'remove_member', userId }
 //        { action: 'set_category', userId, categoryId }
 //        { action: 'set_overrides', userId, overrides }          "Adjust permissions for this person"
-//        { action: 'create_category', name, permissions? }       organisation-wide: reused in every call
+//        { action: 'create_category', name, permissions?, assignUserId? }   organisation-wide: reused in every call; a suggested name starts with sensible permissions; assignUserId puts that person in it (adds them to the call if they are not in it)
 //        { action: 'rename_category', categoryId, name }
 //        { action: 'delete_category', categoryId }               refused while anybody is in it
 //        { action: 'set_category_permissions', categoryId, permissions }   changes it in EVERY call that uses it
@@ -18,10 +18,10 @@
 // anybody who can configure it and manage its team.
 import { NextResponse } from 'next/server';
 import { authCall } from '@/lib/calls/access';
-import { normalizeOverrides, normalizePermissions, NO_PERMISSIONS } from '@/lib/calls/permissions';
+import { normalizeOverrides, normalizePermissions, NO_PERMISSIONS, suggestedPermissions } from '@/lib/calls/permissions';
 import {
   addMember, deleteCategoryProblem, hasAdministrator, NO_ADMINISTRATOR, removeMember, setCategoryPermissions, setMemberCategory, setMemberOverrides,
-  validateNewCategoryName, type TeamResult,
+  validateNewCategoryName, type TeamCategory, type TeamResult,
 } from '@/lib/calls/team-rules';
 import { buildTeamPayload } from '@/lib/calls/team-payload';
 import {
@@ -89,7 +89,31 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     case 'create_category': {
       const name = validateNewCategoryName(auth.team.categories, b.name);
       if (!name.ok) return refuse(name.error);
-      const created = await createCategory(admin, org, name.name, b.permissions === undefined ? { ...NO_PERMISSIONS } : normalizePermissions(b.permissions), auth.userId);
+      // A suggested name (Evaluator, Manager, Analyst…) starts with sensible permissions; any other name, with none (the person switches them on).
+      const permissions = b.permissions === undefined ? (suggestedPermissions(name.name) ?? { ...NO_PERMISSIONS }) : normalizePermissions(b.permissions);
+      // "Create it and put this person in it" in one step (the person's own list offers the suggestions): checked on the team as it WOULD be, before anything is written,
+      // so a refusal leaves no half-made category behind.
+      const assignTo = str(b.assignUserId);
+      if (assignTo) {
+        const trial: TeamCategory = { id: '__new__', name: name.name, permissions };
+        const withNew = { ...auth.team, categories: [...auth.team.categories, trial] };
+        const isMember = auth.team.members.some((m) => m.userId === assignTo);
+        if (!isMember && !(await isActiveOrgMember(admin, org, assignTo))) return refuse(NO_SEAT_REASON);
+        const bad = apply(isMember ? setMemberCategory(withNew, assignTo, trial.id) : addMember(withNew, assignTo, trial.id)); if (bad) return bad;
+        const created = await createCategory(admin, org, name.name, permissions, auth.userId);
+        if (!created.ok) return refuse(created.error);
+        await log('team_category_created', { category: name.name });
+        if (isMember) {
+          await updateMember(admin, call.id, assignTo, { category_id: created.category.id });
+          await log('team_member_category_changed', { userId: assignTo, category: name.name });
+        } else {
+          const ins = await insertMember(admin, call.id, assignTo, created.category.id, auth.userId);
+          if (!ins.ok) return refuse(ins.duplicate ? 'That person is already in the team of this call.' : 'Could not add the person.');
+          await log('team_member_added', { userId: assignTo, category: name.name });
+        }
+        return done();
+      }
+      const created = await createCategory(admin, org, name.name, permissions, auth.userId);
       if (!created.ok) return refuse(created.error);
       await log('team_category_created', { category: name.name });
       return done();

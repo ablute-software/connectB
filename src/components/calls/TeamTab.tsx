@@ -6,37 +6,31 @@
 // edited whatever the state of the call, and every change goes into the call's history. The server decides what is
 // allowed; this screen only shows it (and never offers what the server will refuse).
 import { useCallback, useEffect, useState } from 'react';
-import type { TeamPayload } from '@/lib/calls/team-payload';
-import { ADMIN_CATEGORY_NAME, SUGGESTED_CATEGORIES, type PermissionKey, type PermissionSet } from '@/lib/calls/permissions';
-import { callsApi } from './api';
+import { ADMIN_CATEGORY_NAME, SUGGESTED_CATEGORIES, sameCategoryName, type PermissionKey, type PermissionSet } from '@/lib/calls/permissions';
+import { CategoryPicker, type CategoryChoice } from './CategoryPicker';
 import { PermissionToggles } from './PermissionToggles';
+import { useTeamEngine } from './useTeamEngine';
 
 const INPUT = 'rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm disabled:bg-gray-50';
 const BUTTON = 'rounded-lg border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40';
 
 export function TeamTab({ callId }: { callId: string }) {
-  const [data, setData] = useState<TeamPayload | null>(null);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+  // A click shows its result at once and saves behind it (useTeamEngine); `busy` is only true while something that has to wait for the answer is on its way (a category being created, renamed or deleted).
+  const { data, error, enqueue, blocking: busy } = useTeamEngine(callId);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [adjusting, setAdjusting] = useState<Set<string>>(new Set());
   const [newCategory, setNewCategory] = useState('');
-  const [addCategory, setAddCategory] = useState<Record<string, string>>({});
+  const [addCategory, setAddCategory] = useState<Record<string, CategoryChoice>>({});
   const [conflict, setConflict] = useState({ userId: '', companyName: '', note: '' });
-
+  // The category a person was just put in opens by itself, so they do not seem to vanish into a closed box; for a category that is being created it opens once the server has made it.
+  const [reveal, setReveal] = useState<string | null>(null);
   useEffect(() => {
-    void callsApi.team(callId).then((r) => { if (r.ok) setData(r.body); else setError(r.body.error ?? 'Could not load the team.'); });
-  }, [callId]);
+    const hit = reveal && data?.categories.find((c) => sameCategoryName(c.name, reveal));
+    if (hit) { setOpen((o) => new Set(o).add(hit.id)); setReveal(null); }
+  }, [reveal, data]);
 
-  /** One change: the server answers with the whole picture (or the reason it refused). */
-  const run = useCallback(async (body: Record<string, unknown>): Promise<boolean> => {
-    setBusy(true); setError('');
-    const r = await callsApi.teamAction(callId, body);
-    setBusy(false);
-    if (!r.ok) { setError(r.body.error ?? 'That change was not accepted.'); return false; }
-    setData(r.body);
-    return true;
-  }, [callId]);
+  /** One change. Switches, a person's category and adding or removing someone show at once; the rest wait for the server. Resolves true when the server accepted it. */
+  const run = useCallback((body: Record<string, unknown> & { action: string }): Promise<boolean> => enqueue(body), [enqueue]);
 
   const toggleIn = (set: Set<string>, id: string) => { const n = new Set(set); if (n.has(id)) n.delete(id); else n.add(id); return n; };
 
@@ -45,7 +39,16 @@ export function TeamTab({ callId }: { callId: string }) {
   const org = data.organisation.name;
   const taken = new Set(data.categories.map((c) => c.name.toLowerCase()));
   const suggestions = SUGGESTED_CATEGORIES.filter((s) => !taken.has(s.toLowerCase()));
-  const defaultCategory = (data.categories.find((c) => c.name !== ADMIN_CATEGORY_NAME) ?? data.categories[0])?.id ?? '';
+  const defaultCategory: CategoryChoice = { kind: 'existing', id: (data.categories.find((c) => c.name !== ADMIN_CATEGORY_NAME) ?? data.categories[0])?.id ?? '' };
+  /** A person's category from the list: an existing one is a plain change; a suggestion or a new name is made first and the person put in it, in one step. */
+  const pickFor = (userId: string, inCall: boolean, picked: CategoryChoice) => {
+    // A suggestion or a name chosen earlier may have been created since (by this person's colleague, or for somebody else a moment ago): then it is simply that category, never a second one.
+    const already = picked.kind === 'existing' ? null : data.categories.find((c) => sameCategoryName(c.name, picked.name));
+    const choice: CategoryChoice = already ? { kind: 'existing', id: already.id } : picked;
+    if (choice.kind === 'existing') setOpen((o) => new Set(o).add(choice.id)); else setReveal(choice.name);
+    if (choice.kind === 'existing') return run(inCall ? { action: 'set_category', userId, categoryId: choice.id } : { action: 'add_member', userId, categoryId: choice.id });
+    return run({ action: 'create_category', name: choice.name, assignUserId: userId });
+  };
 
   return (
     <div className="space-y-8" data-testid="team-tab">
@@ -56,6 +59,21 @@ export function TeamTab({ callId }: { callId: string }) {
         {data.noAdministrator && <p role="alert" className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">This call has nobody who can both configure it and manage its team. Give someone both permissions.</p>}
         {error && <p role="alert" className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]" data-testid="team-error">{error}</p>}
       </div>
+
+      {/* Create a category: first thing in the section, so nobody has to look for it (Prompt 918, follow-up) */}
+      {can && (
+        <section aria-label="Create a category" className="rounded-xl border border-[#BAD9E3] bg-[#E8F4F8] p-4" data-testid="create-category-box">
+          <h2 className="text-sm font-semibold text-[#0E7490]">Create a category</h2>
+          <p className="mt-1 text-xs text-gray-700">Categories group permissions — e.g. Evaluator, Analyst. Create one, then assign people to it below.</p>
+          <form className="mt-3 flex w-full flex-col gap-2 sm:flex-row sm:items-center" onSubmit={(e) => { e.preventDefault(); void run({ action: 'create_category', name: newCategory }).then((ok) => { if (ok) setNewCategory(''); }); }}>
+            <label className="sr-only" htmlFor="new-category">Name of the new category</label>
+            <input id="new-category" list="category-suggestions" value={newCategory} onChange={(e) => setNewCategory(e.target.value)} autoComplete="off"
+              placeholder="Choose from the list or write a name" className={`${INPUT} w-full bg-white sm:w-72`} data-testid="new-category" />
+            <datalist id="category-suggestions">{suggestions.map((sg) => <option key={sg} value={sg} />)}</datalist>
+            <button type="submit" disabled={busy || !newCategory.trim()} className={`${BUTTON} w-full bg-white py-2 sm:w-auto sm:py-1`} data-testid="create-category">Create</button>
+          </form>
+        </section>
+      )}
 
       {/* Categories: one box each, expanding to its permissions and its people */}
       <section aria-label="Categories" className="space-y-2">
@@ -74,7 +92,7 @@ export function TeamTab({ callId }: { callId: string }) {
                 <div className="space-y-4 border-t border-gray-100 px-4 py-4">
                   <div>
                     <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Permissions of the category</p>
-                    <PermissionToggles idPrefix={`cat-${c.name}`} values={c.permissions} disabled={!can || busy}
+                    <PermissionToggles idPrefix={`cat-${c.name}`} values={c.permissions} disabled={!can}
                       onToggle={(key, value) => void run({ action: 'set_category_permissions', categoryId: c.id, permissions: { ...c.permissions, [key]: value } })} />
                   </div>
                   <div>
@@ -89,18 +107,15 @@ export function TeamTab({ callId }: { callId: string }) {
                                 <span className="text-sm text-gray-900">{m.name ?? m.email}{m.name && m.email && <span className="ml-2 text-xs text-gray-400">{m.email}</span>}
                                   {m.orgRole && <span className="ml-2 text-[10px] uppercase tracking-wide text-gray-400">{m.orgRole}</span>}</span>
                                 <span className="flex flex-wrap items-center gap-2">
-                                  <label className="sr-only" htmlFor={`cat-of-${m.userId}`}>Category of {m.name ?? m.email}</label>
-                                  <select id={`cat-of-${m.userId}`} value={m.categoryId} disabled={!can || busy} className={`${INPUT} py-1 text-xs`}
-                                    onChange={(e) => void run({ action: 'set_category', userId: m.userId, categoryId: e.target.value })}>
-                                    {data.categories.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-                                  </select>
+                                  <CategoryPicker id={`cat-of-${m.userId}`} label={`Category of ${m.name ?? m.email}`} categories={data.categories} value={{ kind: 'existing', id: m.categoryId }}
+                                    disabled={!can || busy} className={`${INPUT} py-1 text-xs`} onPick={(choice) => void pickFor(m.userId, true, choice)} />
                                   <button type="button" className={BUTTON} aria-expanded={adj} onClick={() => setAdjusting((s) => toggleIn(s, m.userId))}>Adjust permissions for this person</button>
-                                  {can && <button type="button" disabled={busy} className="text-xs text-[#B00000] hover:underline" onClick={() => void run({ action: 'remove_member', userId: m.userId })}>Remove</button>}
+                                  {can && <button type="button" className="text-xs text-[#B00000] hover:underline" onClick={() => void run({ action: 'remove_member', userId: m.userId })}>Remove</button>}
                                 </span>
                               </div>
                               {adj && (
                                 <div className="mt-3 border-t border-gray-200 pt-3" data-testid={`adjust-${m.email ?? m.userId}`}>
-                                  <PermissionToggles idPrefix={`person-${m.userId}`} values={m.effective} markAdjusted={m.overrides} disabled={!can || busy}
+                                  <PermissionToggles idPrefix={`person-${m.userId}`} values={m.effective} markAdjusted={m.overrides} disabled={!can}
                                     onToggle={(key: PermissionKey, value: boolean) => {
                                       // Only what differs from the category is stored as an adjustment.
                                       const next: Partial<PermissionSet> = { ...m.overrides };
@@ -108,7 +123,7 @@ export function TeamTab({ callId }: { callId: string }) {
                                       void run({ action: 'set_overrides', userId: m.userId, overrides: next });
                                     }} />
                                   {Object.keys(m.overrides).length > 0 && can && (
-                                    <button type="button" className="mt-2 text-[11px] text-[#0E7490] hover:underline" disabled={busy}
+                                    <button type="button" className="mt-2 text-[11px] text-[#0E7490] hover:underline"
                                       onClick={() => void run({ action: 'set_overrides', userId: m.userId, overrides: {} })}>Back to the category’s permissions</button>
                                   )}
                                 </div>
@@ -133,15 +148,6 @@ export function TeamTab({ callId }: { callId: string }) {
           );
         })}
 
-        {can && (
-          <form className="flex flex-wrap items-center gap-2 pt-2" onSubmit={(e) => { e.preventDefault(); void run({ action: 'create_category', name: newCategory }).then((ok) => { if (ok) setNewCategory(''); }); }}>
-            <label className="text-xs font-semibold text-gray-700" htmlFor="new-category">New category</label>
-            <input id="new-category" list="category-suggestions" value={newCategory} onChange={(e) => setNewCategory(e.target.value)} autoComplete="off"
-              placeholder="Choose from the list or write a name" className={`${INPUT} w-64`} data-testid="new-category" />
-            <datalist id="category-suggestions">{suggestions.map((s) => <option key={s} value={s} />)}</datalist>
-            <button type="submit" disabled={busy || !newCategory.trim()} className={BUTTON} data-testid="create-category">Create</button>
-          </form>
-        )}
       </section>
 
       {/* Who can be added */}
@@ -157,13 +163,10 @@ export function TeamTab({ callId }: { callId: string }) {
                   {!p.eligible && p.reason && <span className="block text-[11px]" data-testid="no-seat">{p.reason}</span>}</span>
                 {p.eligible && can && p.userId && (
                   <span className="flex items-center gap-2">
-                    <label className="sr-only" htmlFor={`add-cat-${p.userId}`}>Category for {p.name ?? p.email}</label>
-                    <select id={`add-cat-${p.userId}`} value={addCategory[p.userId] ?? defaultCategory} className={`${INPUT} py-1 text-xs`}
-                      onChange={(e) => setAddCategory((s) => ({ ...s, [p.userId as string]: e.target.value }))}>
-                      {data.categories.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-                    </select>
+                    <CategoryPicker id={`add-cat-${p.userId}`} label={`Category for ${p.name ?? p.email}`} categories={data.categories} value={addCategory[p.userId] ?? defaultCategory}
+                      disabled={busy} className={`${INPUT} py-1 text-xs`} onPick={(choice) => setAddCategory((st) => ({ ...st, [p.userId as string]: choice }))} />
                     <button type="button" disabled={busy} className={BUTTON} data-testid={`add-${p.email ?? p.userId}`}
-                      onClick={() => void run({ action: 'add_member', userId: p.userId, categoryId: addCategory[p.userId as string] ?? defaultCategory })}>Add to the call</button>
+                      onClick={() => void pickFor(p.userId as string, false, addCategory[p.userId as string] ?? defaultCategory).then((ok) => { if (ok) setAddCategory((st) => { const n = { ...st }; delete n[p.userId as string]; return n; }); })}>Add to the call</button>
                   </span>
                 )}
               </li>

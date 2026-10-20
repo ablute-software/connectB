@@ -66,8 +66,30 @@ export const isCallAdministrator = (p: PermissionSet): boolean => p.configure_ca
 // --- Categories ------------------------------------------------------------------------------------------------------
 
 export const ADMIN_CATEGORY_NAME = 'Administrator';
-export const SUGGESTED_CATEGORIES = ['Manager', 'Analyst', 'Finance specialist', 'Technical specialist', 'Legal', 'Evaluator'] as const;
+export const SUGGESTED_CATEGORIES = ['Evaluator', 'Manager', 'Analyst', 'Finance specialist', 'Technical specialist', 'Legal'] as const;
 export const MAX_CATEGORY_NAME = 60;
+
+const only = (...keys: PermissionKey[]): PermissionSet => ({ ...NO_PERMISSIONS, ...Object.fromEntries(keys.map((k) => [k, true])) });
+
+/**
+ * What a suggested category starts with when somebody picks it from a person's list (Prompt 918, follow-up). "View assigned" is not a switch of its own: it is
+ * what a person has when "View all applications" is OFF, so an Evaluator is just "Evaluate assigned". The experts (Finance, Technical, Legal) read and score
+ * what is assigned to them, like an Evaluator. Editable afterwards, like any category.
+ */
+export const SUGGESTED_CATEGORY_PERMISSIONS: Record<(typeof SUGGESTED_CATEGORIES)[number], PermissionSet> = {
+  Evaluator: only('evaluate_assigned'),
+  Analyst: only('view_all_applications'),
+  Manager: { ...ALL_PERMISSIONS, manage_team: false },
+  'Finance specialist': only('evaluate_assigned'),
+  'Technical specialist': only('evaluate_assigned'),
+  Legal: only('evaluate_assigned'),
+};
+
+/** The starting permissions of a name, if it is one of the suggestions (whatever the case); otherwise none, as a category made from scratch. */
+export function suggestedPermissions(name: string): PermissionSet | null {
+  const hit = SUGGESTED_CATEGORIES.find((s) => sameCategoryName(s, name));
+  return hit ? { ...SUGGESTED_CATEGORY_PERMISSIONS[hit] } : null;
+}
 
 /** A category name as it is stored: trimmed, inner spaces collapsed, not empty, not absurdly long. null = not acceptable. */
 export function cleanCategoryName(raw: unknown): string | null {
