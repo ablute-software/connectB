@@ -8,6 +8,7 @@ import { applicantApi } from '@/lib/calls/applicant/client';
 import type { ApplicationState } from '@/lib/calls/applicant/store';
 import type { PublicCallInfo } from './CallHeader';
 import { ApplicationForm } from './ApplicationForm';
+import { ReadOnlyNotice } from './ReadOnlyNotice';
 
 export interface CallSession {
   authenticated: boolean;
@@ -56,7 +57,8 @@ export function ApplicationArea({ token, call, session, onChanged }: { token: st
     void open(false);
   }, [call.phase, session.application, open, view]);
 
-  if (session.readOnly) return <p className="text-sm text-gray-500" data-testid="viewer-note">You are viewing this startup’s workspace read-only: applications cannot be started or changed from here.</p>;
+  // A Developer Viewer session: read-only is right, but never a dead end (Prompt 918, Adenda 2, B).
+  if (session.readOnly) return <ReadOnlyNotice email={session.email} startupName={session.startupName} onLeft={() => window.location.reload()} />;
 
   return (
     <div data-testid="application-area">

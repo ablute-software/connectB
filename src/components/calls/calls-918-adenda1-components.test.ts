@@ -27,7 +27,7 @@ describe('the entry page', () => {
     const h = render(createElement(CallIntro, { call: info({ coverUrl: '/api/calls/public/t/cover?v=1', logoUrl: '/api/calls/public/t/logo?v=1' }), cta: 'Start application', onStart: () => {} }));
     expect(h).toContain('data-has-cover="yes"');
     expect(h).toContain('src="/api/calls/public/t/cover?v=1"');
-    expect(h).toMatch(/data-testid="intro-logo"[\s\S]*src="\/api\/calls\/public\/t\/logo\?v=1" alt="Portugal Ventures"/);
+    expect(h).toMatch(/data-testid="intro-logo"[\s\S]*src="\/api\/calls\/public\/t\/logo\?v=1" alt=""/);                  // decorative: the name is written under it
     expect(h).toMatch(/data-testid="call-promoter">Portugal Ventures</);
     expect(h.indexOf('intro-logo')).toBeLessThan(h.indexOf('call-promoter'));            // the logo first, the name under it
     expect(h.indexOf('call-promoter')).toBeLessThan(h.indexOf('data-testid="call-name"'));
@@ -38,12 +38,13 @@ describe('the entry page', () => {
     expect((h.match(/data-testid="call-promoter"/g) ?? []).length).toBe(1);               // the name once, not twice
   });
 
-  it('without a cover: a band in the platform\'s colour; without a logo: no logo, the name stands', () => {
+  it('without a cover: a band in the platform\'s colour; without a logo: the initials of the entity in a square, the name under it', () => {
     const h = render(createElement(CallIntro, { call: info(), cta: 'Start application', onStart: () => {} }));
     expect(h).toContain('data-has-cover="no"');
     expect(h).toContain('from-[#0E7490]');
     expect(h).not.toContain('<img');
-    expect(h).not.toContain('data-testid="intro-logo"');
+    expect(h).toContain('data-logo="initials"');
+    expect(h).toMatch(/data-testid="intro-initials"[^>]*>PV</);
     expect(h).toContain('Portugal Ventures');
   });
 
@@ -87,7 +88,7 @@ describe('the entry page', () => {
     expect(h).toContain('INNOV-ID 2nd call');
     expect(h).toContain('Portugal Ventures');
     expect(h).toContain('About this call');
-    expect(render(createElement(EntityLogo, { url: null }))).toBe('');
+    expect(render(createElement(EntityLogo, { url: null, name: 'Portugal Ventures' }))).toMatch(/data-testid="entity-initials"[^>]*>PV</);   // no logo: the initials, never nothing and never a broken image
   });
 });
 

@@ -8,6 +8,9 @@
 // one clear button: "Start application" (or "Continue your application"). The form pages, the applicant's list and the emails carry the same logo and title, small.
 import { formatInZone } from '@/lib/calls/tz';
 import { RichText } from '@/components/RichText';
+import { CoverBand, EntityLogo, LogoTile } from './Pictures';
+
+export { EntityLogo };
 
 export interface PublicCallInfo {
   name: string; description: string | null; promoter: string;
@@ -16,14 +19,6 @@ export interface PublicCallInfo {
   eligibility: string[]; regulation: { fileName: string; url: string } | null;
   /** The cover image and the entity's logo (Prompt 918, Adenda 1 C): addresses on this platform, or — for a profile logo — an https address. Null when there is none. */
   coverUrl?: string | null; logoUrl?: string | null;
-}
-
-/** The entity's logo, small. Nothing is drawn when there is none (the name stands on its own). */
-export function EntityLogo({ url, size = 28, className = '' }: { url: string | null | undefined; size?: number; className?: string }) {
-  if (!url) return null;
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img src={url} alt="" width={size} height={size} loading="lazy" decoding="async" data-testid="entity-logo"
-    className={`shrink-0 rounded-md bg-white object-contain ${className}`} style={{ width: size, height: size }} />;
 }
 
 export function CallHeader({ call, showPromoter = true }: { call: PublicCallInfo; showPromoter?: boolean }) {
@@ -64,18 +59,10 @@ export function CallHeader({ call, showPromoter = true }: { call: PublicCallInfo
 export function CallIntro({ call, cta, onStart }: { call: PublicCallInfo; cta: string | null; onStart: () => void }) {
   return (
     <section data-testid="call-intro">
-      <div className="h-36 w-full overflow-hidden rounded-t-2xl bg-gradient-to-br from-[#0E7490] to-[#164e63] sm:h-52 md:h-60" data-testid="intro-cover" data-has-cover={call.coverUrl ? 'yes' : 'no'}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        {call.coverUrl && <img src={call.coverUrl} alt="" className="h-full w-full object-cover" loading="eager" decoding="async" />}
-      </div>
+      <CoverBand url={call.coverUrl} />
       <div className="px-5 pb-2 sm:px-8">
         <div className="-mt-9 flex items-end gap-3 sm:-mt-11">
-          {call.logoUrl && (
-            <span className="flex h-[72px] w-[72px] shrink-0 items-center justify-center rounded-2xl border border-gray-100 bg-white p-2 shadow-md sm:h-[88px] sm:w-[88px]" data-testid="intro-logo">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={call.logoUrl} alt={call.promoter} className="max-h-full max-w-full object-contain" />
-            </span>
-          )}
+          <LogoTile url={call.logoUrl} name={call.promoter} />
         </div>
         <p className="mt-2 text-xs font-medium uppercase tracking-wide text-gray-500" data-testid="call-promoter">{call.promoter}</p>
         <div className="mt-1"><CallHeader call={call} showPromoter={false} /></div>
@@ -99,7 +86,7 @@ export function CallIntro({ call, cta, onStart }: { call: PublicCallInfo; cta: s
 export function CallMiniHeader({ call, onAbout }: { call: PublicCallInfo; onAbout?: () => void }) {
   return (
     <div className="flex items-center gap-3" data-testid="call-mini-header">
-      <EntityLogo url={call.logoUrl} size={36} />
+      <EntityLogo url={call.logoUrl} name={call.promoter} size={36} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-[11px] font-medium uppercase tracking-wide text-gray-400">{call.promoter}</p>
         <p className="truncate text-sm font-semibold text-gray-900" data-testid="mini-name">{call.name}</p>

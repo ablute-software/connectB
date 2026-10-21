@@ -64,7 +64,7 @@ export function ApplicantCalls() {
               {openCards.map((c) => (
                 <li key={c.callId} className="flex flex-col rounded-xl border border-gray-200 bg-white p-4" data-testid="call-card">
                   <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-gray-400">
-                    <EntityLogo url={c.logoUrl} size={24} />
+                    <EntityLogo url={c.logoUrl} name={c.promoter} size={24} />
                     <span className="min-w-0 truncate">{c.promoter}{c.linkOnly ? ' · link only' : ''}</span>
                   </p>
                   <h2 className="mt-0.5 text-base font-semibold text-gray-900">{c.name}</h2>
@@ -86,7 +86,7 @@ export function ApplicantCalls() {
             <ul className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white" data-testid="my-applications">
               {data.mine.map((a) => (
                 <li key={a.applicationId} className="flex items-center justify-between gap-3 px-4 py-3" data-testid="application-row">
-                  <EntityLogo url={a.logoUrl} size={32} />
+                  <EntityLogo url={a.logoUrl} name={a.promoter} size={32} />
                   <span className="min-w-0 flex-1">
                     <b className="block truncate text-sm text-gray-900">{a.name}</b>
                     <span className="text-xs text-gray-500">{a.promoter} · {a.reference ?? '—'} · {a.stage === 'in_progress' ? `deadline ${formatInZone(a.closesAt, a.timezone)}` : a.submittedAt ? `submitted ${formatInZone(a.submittedAt, a.timezone)}` : ''}</span>

@@ -536,6 +536,9 @@ Preservar sempre as versões anteriores, e registar se o avaliador já tinha vis
 - **"Already have an account? Sign in"** está sempre visível. **[Decisão]**
 - O link mantém a memória: depois de entrar, a pessoa vai sempre para esta call. Se já tiver começado a candidatura, abre onde ficou.
 
+- **Uma imagem que não carrega nunca aparece partida** **[Decisão]** (Prompt 918, Adenda 2, 20/10/2026): sem capa — ou com uma que não carrega —, fica a faixa na cor da marca; sem logo — ou com um que não carrega —, ficam as **iniciais da entidade num quadrado**. Nunca o ícone de imagem partida nem o texto alternativo (as imagens são decorativas: o nome da entidade está sempre escrito ao lado). Vale na página de entrada, no cabeçalho pequeno dos formulários e nas listas do candidato. A capa e o logo abrem **sem sessão**, servidos pela plataforma, e só de calls publicadas e com o token certo; quando falham, o registo diz a razão real (qual o passo e o que o Storage respondeu), nunca só "unavailable".
+- **Uma sessão de Developer Viewer na ligação** **[Decisão]** (idem): uma conta da plataforma que está a ver uma startup em Developer Viewer vê a ligação em **só leitura** — não pode candidatar-se em nome dela. O ecrã **diz quem é a pessoa e o que está a ver**, e dá a saída: "Leave Developer Viewer and continue as myself", "Sign out and use another account" e "Report a problem". Nunca uma frase sem botões.
+
 ### 13.2. Registo (primeira página)
 
 - Campos:

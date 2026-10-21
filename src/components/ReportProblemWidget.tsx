@@ -28,6 +28,7 @@ import { authEnabled, browserClient } from '@/lib/supabase';
 import { useBottomNavHeight } from '@/lib/bottom-nav-context';
 import { areaFromPath } from '@/lib/support-area';
 import { captureViewport, screenshotFileName } from '@/lib/screen-capture';
+import { OPEN_REPORT_EVENT } from '@/lib/report-problem-event';
 import type { SupportSource } from './ContactForm';
 
 const TELL_US_LABEL = 'Tell us';
@@ -85,6 +86,13 @@ export function ReportProblemWidget() {
     fetch('/api/me', { cache: 'no-store' }).then((r) => r.json())
       .then((me) => setSource(me.role === 'investor' ? 'investor_portal' : 'founder_app'))
       .catch(() => {});
+  }, []);
+
+  // Another screen can offer "Report a problem" and ask this widget to open its problem form (Prompt 918, Adenda 2).
+  useEffect(() => {
+    const openProblem = () => { setMode('problem'); setOpen(true); };
+    window.addEventListener(OPEN_REPORT_EVENT, openProblem);
+    return () => window.removeEventListener(OPEN_REPORT_EVENT, openProblem);
   }, []);
 
   // Revoked on unmount as well as on discard: an object URL held for the life
