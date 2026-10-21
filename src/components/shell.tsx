@@ -19,6 +19,7 @@ import { PENDING_MEMBER_INVITE_PATH, goesToPendingMemberInvite } from '@/lib/lan
 import { ReminderPopup } from '@/components/ReminderPopup';
 import { InvestorInterestPopup } from '@/components/InvestorInterestPopup';
 import { DocumentRequestPopup } from '@/components/DocumentRequestPopup';
+import { FOUNDER_NAV, HELP_SUPPORT_NAV_GROUP } from '@/lib/founder-nav';
 import { useBottomNavHeight, useBottomNavRef } from '@/lib/bottom-nav-context';
 import { BRAND_NAME } from '@/lib/brand';
 import { isPublicSitePage } from '@/lib/public-site-routes';
@@ -93,33 +94,7 @@ type Me = {
 // demo-mode equivalent, same as the rest of the investor-workspace/
 // messaging surface this session.
 //
-// Prompt 314 §B — reordered into 5 groups (Nuno's mockup), each rendered
-// with a subtle divider between them (WorkspaceSidebar). `group` is the
-// ONLY thing that changed about ordering here — hrefs/labels/icons/badges/
-// capability gates are all unchanged from before this prompt.
-//   1. about {org} · Vault Data Room
-//   2. Pipeline · Tasks · Agenda
-//   3. My Network (new, Prompt 314 §C) · Messages
-//   4. Dashboard · Readiness & Train
-//   5. Plans & billing, Help & support (Prompt 331 — Help & support is a
-//      real sidebarItems entry now, appended after this array is mapped,
-//      not a separately-styled afterItems block; kept OUT of this NAV
-//      array itself so it never reaches mobileNavItems, which is built from
-//      the same array — see sidebarItems' own construction below)
-const NAV: { href: string; label: string; icon: string; requiresCapability?: 'companyCanon' | 'calls'; group: number }[] = [
-  { href: '/settings', label: 'about your company', icon: '⋯', group: 1 },
-  { href: '/documents', label: 'Vault Data Room', icon: '▣', group: 1 },
-  { href: '/pipeline', label: 'Pipeline', icon: '▤', group: 2 },
-  // Prompt 907 (I4): open calls from investors and ecosystem organisations, and the startup's applications. Behind the Calls switch.
-  { href: '/calls', label: 'Calls', icon: '◍', requiresCapability: 'calls', group: 2 },
-  { href: '/tasks', label: 'Tasks', icon: '☀', group: 2 },
-  { href: '/agenda', label: 'Agenda', icon: '◔', group: 2 },
-  { href: '/network', label: 'My Network', icon: '⬡', group: 3 },
-  { href: '/messages', label: 'Messages', icon: '✉', group: 3 },
-  { href: '/dashboard', label: 'Dashboard', icon: '◈', group: 4 },
-  { href: '/readiness', label: 'Readiness & Train', icon: '◎', requiresCapability: 'companyCanon', group: 4 },
-  { href: '/plans', label: 'Plans & billing', icon: '◇', group: 5 },
-];
+// The founder navigation (entries and which card each sits in) lives in lib/founder-nav.ts — pure data, tested there.
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
@@ -153,7 +128,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // Hidden (not just disabled) while /api/me hasn't answered yet and after —
   // same "never a flash of appearing then disappearing" rule the old
   // Dashboard tab followed for this exact capability.
-  const visibleNav = NAV.filter((n) => !n.requiresCapability || !!me?.capabilities?.[n.requiresCapability]);
+  const visibleNav = FOUNDER_NAV.filter((n) => !n.requiresCapability || !!me?.capabilities?.[n.requiresCapability]);
   const capClass =
     caps.today >= caps.dailyCap || caps.week >= caps.weeklyCap ? 'text-[#B00000] font-semibold'
       : caps.today === caps.dailyCap - 1 || caps.week === caps.weeklyCap - 1 ? 'text-amber-600 font-semibold'
@@ -306,14 +281,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
       label: isAbout ? aboutLabel : n.label, group: n.group,
     };
   };
-  // Prompt 331 — inserted into sidebarItems only, never into NAV/visibleNav:
-  // NAV feeds mobileNavItems too, and Prompt 314 was explicit that the
+  // Prompt 331 — inserted into sidebarItems only, never into FOUNDER_NAV/visibleNav:
+  // FOUNDER_NAV feeds mobileNavItems too, and Prompt 314 was explicit that the
   // mobile bottom nav takes neither dividers nor (implicitly) this item.
-  // group: 5 matches Plans & billing's own group exactly, so
-  // WorkspaceSidebar draws no divider between them — same Grupo 5, one item
+  // HELP_SUPPORT_NAV_GROUP is Plans & billing's own group, so
+  // WorkspaceSidebar draws no divider between them — one card, one item
   // after the other, exactly as 314's own mockup showed.
   const helpSupportNavItem: WorkspaceNavItem = {
-    key: 'help-support', label: 'Help & support', icon: '◈', active: false, group: 5,
+    key: 'help-support', label: 'Help & support', icon: '◈', active: false, group: HELP_SUPPORT_NAV_GROUP,
     onSelect: () => setHelpOpen(true),
   };
   const sidebarItems = [

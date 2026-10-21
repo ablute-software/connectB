@@ -27,6 +27,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { browserClient } from '@/lib/supabase';
 import { INSTRUMENT_LABELS, LEAD_OR_COLEAD_LABELS } from '@/lib/investor-taxonomy';
 import { HypeListOverlay } from './HypeListOverlay';
+import { PersonAvatar } from '@/components/PersonAvatar';
 
 export interface MatchDealProfile {
   id: string; kind: 'startup' | 'investor'; entity_name: string | null; photo_url: string | null;
@@ -237,13 +238,10 @@ function StartupMiniPitch({ i, pitchData, phaseChip, hiddenFields }: { i: number
                 key={idx} type="button" onClick={() => setActiveFounderIdx(activeFounderIdx === idx ? null : idx)}
                 className="flex flex-col items-center gap-1"
               >
-                <span
-                  className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full text-[13px] font-bold text-white"
-                  style={f.photo_url ? undefined : { background: `linear-gradient(135deg, ${gf}, ${gt})` }}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {f.photo_url ? <img src={f.photo_url} alt="" className="h-full w-full object-cover" /> : initialsOf(f.full_name)}
-                </span>
+                {/* A photo link that does not open falls back to the gradient + initials, like a missing one (PersonAvatar). */}
+                <PersonAvatar name={f.full_name} photoUrl={f.photo_url} initials={initialsOf(f.full_name)}
+                  className="h-12 w-12 rounded-full text-[13px] font-bold text-white"
+                  fallbackStyle={{ background: `linear-gradient(135deg, ${gf}, ${gt})` }} />
                 <span className="text-center text-[10px] font-medium leading-tight text-white/90">{f.full_name}</span>
                 {f.title && <span className="text-center text-[9px] leading-tight text-white/55">{f.title}</span>}
               </button>

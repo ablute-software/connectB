@@ -10,8 +10,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CompletenessField } from '@/lib/companyCompleteness';
 
-export function CompletenessBar({ pct, missing, orgId, onFlash }: {
+export function CompletenessBar({ pct, missing, orgId, onFlash, onOpenTab }: {
   pct: number; missing: CompletenessField[]; orgId: string; onFlash: (fieldId: string) => void;
+  /** Opens another Settings tab: a missing field that lives on the Roadmap tab is not on this page to scroll to. */
+  onOpenTab?: (tab: string) => void;
 }) {
   const [cycleIndex, setCycleIndex] = useState(0);
   const [celebrating, setCelebrating] = useState(false);
@@ -37,6 +39,8 @@ export function CompletenessBar({ pct, missing, orgId, onFlash }: {
     if (missing.length === 0) return;
     const field = missing[cycleIndex % missing.length];
     setCycleIndex((i) => i + 1);
+    // 20/10/2026 — the roadmap's history is asked on the Roadmap tab, not on a card of this one: take the founder there instead of scrolling to nothing.
+    if (field.card === 'roadmap' && onOpenTab) { onOpenTab('roadmap'); return; }
     onFlash(field.id);
     document.getElementById(field.id)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }

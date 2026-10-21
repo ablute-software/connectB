@@ -22,7 +22,7 @@
 // apart) — the content column has no special CSS of its own; it scrolls
 // with the page like anything else, which is exactly what "only the
 // content column scrolls" means once the other three are pinned via sticky.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/lib/store';
 import { useConfirm } from '@/lib/confirm';
@@ -45,7 +45,8 @@ import { TractionCard } from './TractionCard';
 import { InvestorQACard, RoundUpdatesCard, SoftCommitsCard } from './InvestorEngagementCards';
 import { StartupAxisClassifications } from './StartupAxisClassifications';
 import { CompanySubMenu, type CompanySection } from './CompanySubMenu';
-import { SETTINGS_HEADER_OFFSET_PX } from './settings-layout';
+import { SETTINGS_HEADER_OFFSET_CSS } from './settings-layout';
+import { cardVisibleToReader } from '@/lib/card-visibility';
 import { COMPLETENESS_FIELDS, type CompletenessField } from '@/lib/companyCompleteness';
 
 const SECTIONS: CompanySection[] = [
@@ -74,8 +75,11 @@ function DemoResetCard() {
   );
 }
 
-export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashId }: {
-  canEdit: boolean; companyProfileAvailable: boolean | null; missing: CompletenessField[]; flashId: string | null;
+export function CompanyPanel({ canEdit, viewer = false, companyProfileAvailable, missing, flashId }: {
+  canEdit: boolean;
+  /** A Developer Viewer session: sees what an owner/admin sees (the cap table, previous funding), read-only. */
+  viewer?: boolean;
+  companyProfileAvailable: boolean | null; missing: CompletenessField[]; flashId: string | null;
 }) {
   const { db } = useStore();
   const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null);
@@ -109,14 +113,23 @@ export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashI
     if (section) setActive(section.key);
   }, []);
 
-  // Prompt 394 §2 — once the target section has actually mounted (its `id`
-  // now exists), scroll to it. Runs on every `active` change, including
-  // clicks — a fresh section is short and starts right under the sticky
-  // header already, but this keeps a consistent landing spot regardless of
-  // how much the previous section had scrolled the page.
+  // Prompt 394 §2 — when the founder switches section, the new one starts at
+  // the top: only ONE section is mounted at a time, so a click replaces the
+  // content and the page may be scrolled somewhere that no longer exists in it.
+  //
+  // 20/10/2026 (Nuno: "every time a tab opens the app scrolls down, and some fields end up hidden — it should go to the top, or keep its position"):
+  //  · OPENING the tab is not a switch. This used to run on mount too, scrolling the first section to a landing spot that was a few pixels off the real
+  //    end of the sticky header (a constant, 148px, that the header outgrew), so every visit moved the page down and left the section's first rows
+  //    under the header. Now the first run does nothing: the page stays where it is (at the top on a fresh visit, wherever it was when coming back).
+  //    A deep link's own scroll (?flash=, the #hash) is done by whoever asked for it.
+  //  · SWITCHING goes to the top of the page, where the section sits directly below the header block — not to `scrollIntoView`, which put it under the
+  //    stuck header whenever the offset it was given was off by a few pixels. (scrollMarginTop on each section is still the measured offset
+  //    (settings-layout.ts), for the browser's own #hash scrolling.)
+  const openedRef = useRef(false);
   useEffect(() => {
     if (!contentEl) return;
-    document.getElementById(SECTIONS.find((s) => s.key === active)?.anchorId ?? '')?.scrollIntoView({ block: 'start' });
+    if (!openedRef.current) { openedRef.current = true; return; }
+    window.scrollTo({ top: 0 });
   }, [active, contentEl]);
 
   // Prompt 379 §A / Prompt 394 §2 — `?flash=<completenessFieldId>` names a
@@ -132,7 +145,8 @@ export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashI
   useEffect(() => {
     if (!flashParam) return;
     const field = COMPLETENESS_FIELDS.find((f) => f.id === flashParam);
-    if (field) setActive(field.card);
+    // a field of the Roadmap tab has no section here to switch to
+    if (field && field.card !== 'roadmap') setActive(field.card);
   }, [flashParam]);
 
   // Prompt 426 §C — `?capTableRequestItem=<id>` (from the document-request
@@ -195,7 +209,7 @@ export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashI
           unconditionally would also clip/shift the mobile chip-row layout,
           which never uses sticky/overflow at all). */}
       <div className="lg:sticky lg:top-[var(--settings-header-offset)] lg:overflow-y-auto lg:[max-height:calc(100vh-var(--settings-header-offset)-1rem)]"
-        style={{ '--settings-header-offset': `${SETTINGS_HEADER_OFFSET_PX}px` } as React.CSSProperties}>
+        style={{ '--settings-header-offset': SETTINGS_HEADER_OFFSET_CSS } as React.CSSProperties}>
         <CompanySubMenu sections={SECTIONS} active={active} onSelect={setActive} />
       </div>
 
@@ -206,13 +220,13 @@ export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashI
           the tour needs an anchor that's always resolvable. */}
       <div ref={setContentEl} className="space-y-4">
         {active === 'identity' && (
-          <div id="settings-identity" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
+          <div id="settings-identity" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_CSS }}>
             <IdentityCard canEdit={canEdit} missing={missing} flashId={flashId} />
           </div>
         )}
 
         {active === 'team' && (
-          <div id="settings-team" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
+          <div id="settings-team" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_CSS }}>
             <StartupTeamCard canEdit={canEdit} missing={missing} flashId={flashId} />
             {/* Prompt 613 §E — directly under the roster, because it is a
                 reading OF the roster: which functions this business needs and
@@ -222,7 +236,7 @@ export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashI
         )}
 
         {active === 'round' && (
-          <div id="settings-round" className="space-y-4" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
+          <div id="settings-round" className="space-y-4" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_CSS }}>
             <RoundCard canEdit={canEdit} missing={missing} flashId={flashId} />
             <RoundUpdatesCard />
             <SoftCommitsCard />
@@ -230,24 +244,24 @@ export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashI
         )}
 
         {active === 'previous-funding' && (
-          <div id="settings-previous-funding" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
-            {canEdit && <PreviousFundingCard />}
+          <div id="settings-previous-funding" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_CSS }}>
+            {cardVisibleToReader({ canEdit, viewer }) && <PreviousFundingCard readOnly={!canEdit} />}
           </div>
         )}
         {active === 'cap-table' && (
-          <div id="settings-cap-table" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
-            {canEdit && <CapTableCard />}
+          <div id="settings-cap-table" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_CSS }}>
+            {cardVisibleToReader({ canEdit, viewer }) && <CapTableCard readOnly={!canEdit} />}
           </div>
         )}
 
         {active === 'traction' && (
-          <div id="settings-traction" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
+          <div id="settings-traction" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_CSS }}>
             <TractionCard canEdit={canEdit} />
           </div>
         )}
 
         {active === 'facts' && (
-          <div id="settings-facts" className="space-y-4" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
+          <div id="settings-facts" className="space-y-4" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_CSS }}>
             {/* Prompt 733 §B Fase 1 — same stable id as the fallback layout
                 above, for a direct link from a clarification bullet
                 elsewhere. The section wrapper's own id (settings-facts) is
@@ -265,7 +279,7 @@ export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashI
       </div>
 
       <div className="lg:sticky lg:top-[var(--settings-header-offset)] lg:overflow-y-auto lg:[max-height:calc(100vh-var(--settings-header-offset)-1rem)]"
-        style={{ '--settings-header-offset': `${SETTINGS_HEADER_OFFSET_PX}px` } as React.CSSProperties}>
+        style={{ '--settings-header-offset': SETTINGS_HEADER_OFFSET_CSS } as React.CSSProperties}>
         <PlatformStatusCard variant="about" />
           <BadgesCard canEdit={canEdit} orgId={db.org.id} />
       </div>

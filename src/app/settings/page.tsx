@@ -7,7 +7,7 @@
 // the former /queue (which is back to being just Outbox — see
 // src/app/outbox/page.tsx). The active separador lives in ?tab=
 // (useTabParam), never component state alone.
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
@@ -28,7 +28,7 @@ import { PhotosMediaCard } from '@/components/company/PhotosMediaCard';
 import { MiniPitchCard } from '@/components/company/MiniPitchCard';
 import { CompletenessBar } from '@/components/company/CompletenessBar';
 import { STICK_BELOW_WORKSPACE_HEADER } from '@/components/workspace-shell/WorkspaceHeader';
-import { SETTINGS_HEADER_OFFSET_PX } from '@/components/company/settings-layout';
+import { useSettingsStickyHeight } from '@/components/company/use-settings-sticky-height';
 import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import { APP_URL } from '@/lib/brand';
 import { PageTour } from '@/components/onboarding/PageTour';
@@ -384,17 +384,25 @@ const NON_COMPANY_TABS = ['automations', 'import-history', 'team', 'roadmap', 'p
 
 function SettingsInner() {
   useTrackPageView('/settings');
+  // The header block below sticks under the workspace bar; its height is published so everything that sticks or scrolls to just under it follows it
+  // (settings-layout.ts) instead of a constant measured once.
+  const stickyHeaderRef = useRef<HTMLDivElement>(null);
+  useSettingsStickyHeight(stickyHeaderRef);
   const searchParams = useSearchParams();
   const [tab, setTab] = useTabParam('company');
   const [importSubtab, setImportSubtab] = useTabParam('history', 'subtab');
   const [orgRole, setOrgRole] = useState<OrgRole | null>(null);
+  // A Developer Viewer session: a developer reading this company's workspace, read-only. No role in the viewed org (so canEdit is false), but entitled to SEE
+  // everything the founder sees — which is what a card that hides itself for "someone who cannot edit" must not do to them (Nuno, 20/10/2026).
+  const [viewer, setViewer] = useState(false);
   const [companyProfileAvailable, setCompanyProfileAvailable] = useState<boolean | null>(null);
   const [flashId, setFlashId] = useState<string | null>(null);
-  const { db } = useStore();
+  const { db, loading } = useStore();
   useEffect(() => {
     if (!authEnabled) { setCompanyProfileAvailable(false); return; }
     fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then((me) => {
       setOrgRole(me.orgRole ?? null);
+      setViewer(!!me.viewer);
       setCompanyProfileAvailable(!!me.capabilities?.companyProfile);
     }).catch(() => setCompanyProfileAvailable(false));
   }, []);
@@ -475,7 +483,9 @@ function SettingsInner() {
   // Prompt 377 §B — CompletenessBar joined the page's own sticky header
   // (see this component's return below); computed once here so CompanyPanel
   // never needs its own independent completeness calc/fetch.
-  const { pct, missing } = calcCompanyCompleteness(db.org, db.companyPeople);
+  // The roadmap takes part in the score once the store has loaded it (a company that has existed for a year is asked for its history); while it is still
+  // loading the roadmap is left out rather than counted as empty, which would flash a lower number at everyone.
+  const { pct, missing } = calcCompanyCompleteness(db.org, db.companyPeople, { roadmapEvents: loading ? undefined : db.roadmapEvents });
   const canEditCompany = !authEnabled || can(orgRole, 'manage_org_settings');
   const reviewBadge = needsReviewBadge(db);
 
@@ -524,8 +534,8 @@ function SettingsInner() {
           CompletenessBar all live in this one sticky block, at the SAME
           top offset (0 — this is the topmost sticky element) that
           CompanyPanel's own sub-menu/badges columns are measured against
-          (settings-layout.ts's SETTINGS_HEADER_OFFSET_PX = this block's own
-          rendered height). `position: sticky` in normal page flow, not a
+          (settings-layout.ts: this block's own rendered height, measured live
+          by useSettingsStickyHeight). `position: sticky` in normal page flow, not a
           `position: fixed` overlay — CLAUDE.md's createPortal rule for
           full-viewport overlays doesn't apply here. */}
       {/* Prompt 613 §H — was `lg:top-0 lg:z-20`, on the claim that this is
@@ -545,7 +555,7 @@ function SettingsInner() {
           Tailwind generates classes by scanning source TEXT, so a
           `lg:top-[${'${x}'}px]` built at runtime produces no rule at all and fails
           silently. Same shape CompanyPanel already uses for its own offset. */}
-      <div className="lg:sticky lg:z-[5] lg:bg-[#F7F9FA] lg:pb-2"
+      <div ref={stickyHeaderRef} className="lg:sticky lg:z-[5] lg:bg-[#F7F9FA] lg:pb-2"
         style={{ top: STICK_BELOW_WORKSPACE_HEADER } as React.CSSProperties}>
         {/* Prompt 615 §A.1 — title, controls and the preview link on ONE row.
             The header was taking about a third of a 1366x768 screen before any
@@ -564,7 +574,7 @@ function SettingsInner() {
         <Tabs items={tabs} active={effectiveTab} onChange={setTab} />
         {isCompanyTab && companyProfileAvailable && (
           <div className="mt-1" data-tour-id="settings-completeness">
-            <CompletenessBar pct={pct} missing={missing} orgId={db.org.id} onFlash={setFlashId} />
+            <CompletenessBar pct={pct} missing={missing} orgId={db.org.id} onFlash={setFlashId} onOpenTab={setTab} />
           </div>
         )}
       </div>
@@ -581,13 +591,13 @@ function SettingsInner() {
           {effectiveSubtab === 'needs-review' ? <NeedsReviewPanel /> : <ImportPanel />}
         </div>
       )}
-      {effectiveTab === 'photos-media' && <PhotosMediaCard canEdit={canEditCompany} />}
+      {effectiveTab === 'photos-media' && <PhotosMediaCard canEdit={canEditCompany} viewer={viewer} />}
       {effectiveTab === 'team' && <TeamPanel />}
-      {effectiveTab === 'roadmap' && <RoadmapPanel canEdit={canEditCompany} />}
-      {effectiveTab === 'matchdeal' && <MiniPitchCard canEdit={canEditCompany} />}
+      {effectiveTab === 'roadmap' && <RoadmapPanel canEdit={canEditCompany} viewer={viewer} />}
+      {effectiveTab === 'matchdeal' && <MiniPitchCard canEdit={canEditCompany} viewer={viewer} />}
       {effectiveTab === 'programs' && <ProgramsPanel />}
       {isCompanyTab && (
-        <CompanyPanel canEdit={canEditCompany} companyProfileAvailable={companyProfileAvailable} missing={missing} flashId={flashId} />
+        <CompanyPanel canEdit={canEditCompany} viewer={viewer} companyProfileAvailable={companyProfileAvailable} missing={missing} flashId={flashId} />
       )}
     </div>
   );

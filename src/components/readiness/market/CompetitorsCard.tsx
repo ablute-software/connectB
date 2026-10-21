@@ -198,11 +198,11 @@ function CompetitorCard({ c, onChanged }: { c: CompetitorRow; onChanged: () => v
             {c.company.last_round_type && (
               <p>
                 <span className="font-medium">{c.company.last_round_type}</span>
-                {c.company.last_round_amount_eur ? ` · €${c.company.last_round_amount_eur.toLocaleString()}` : ''}
+                {c.company.last_round_amount_eur ? ` · €${c.company.last_round_amount_eur.toLocaleString('en-US')}` : ''}
                 {c.company.last_round_date ? ` · ${c.company.last_round_date.slice(0, 4)}` : ''}
               </p>
             )}
-            {c.company.last_known_valuation_eur && <p>Valuation €{c.company.last_known_valuation_eur.toLocaleString()}</p>}
+            {c.company.last_known_valuation_eur && <p>Valuation €{c.company.last_known_valuation_eur.toLocaleString('en-US')}</p>}
             {c.rounds.length > 0 && (
               <p className="text-gray-500">Investors: {c.rounds.map((r) => r.catalog_entities?.name).filter(Boolean).join(', ')}</p>
             )}

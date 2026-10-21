@@ -11,6 +11,8 @@ import { CompletenessField } from './CompletenessField';
 import type { CompletenessField as Field } from '@/lib/companyCompleteness';
 import type { CompanyPerson, TeamCommitment } from '@/lib/types';
 import { normalizeLinkedInUrl } from '@/lib/linkedin-url';
+import { normalizePersonPhotoUrl, personPhotoProblem } from '@/lib/person-photo';
+import { PersonAvatar } from '@/components/PersonAvatar';
 import { TeamAiFillPanel } from './TeamAiFillPanel';
 
 const BLANK = { full_name: '', title: '', is_founder: false, linkedin_url: '', email: '', bio: '', photo_url: '', commitment: '' };
@@ -33,6 +35,14 @@ function LinkedInHint({ value }: { value: string }) {
   const result = normalizeLinkedInUrl(value);
   if (result.ok) return null;
   return <p className="text-xs text-amber-600">{result.reason} It will not be saved as typed.</p>;
+}
+
+// The same idea for the photo link: a Google Drive / Dropbox share link is fixed on save (normalizePersonPhotoUrl), so the field only speaks up for a link
+// that can never be a picture. Spans the two columns of the grid it sits in.
+function PhotoHint({ value }: { value: string }) {
+  const problem = personPhotoProblem(value);
+  if (!problem) return null;
+  return <p className="col-span-2 text-xs text-amber-600" data-photo-hint>{problem}</p>;
 }
 
 function linkedInToStore(raw: string): string | undefined {
@@ -61,7 +71,8 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
       // row in production, and every reader in the app treated it as absent.
       linkedin_url: linkedInToStore(draft.linkedin_url), email: draft.email.trim() || undefined, bio: draft.bio.trim() || undefined,
       commitment: draft.commitment ? (draft.commitment as TeamCommitment) : null,
-      photo_url: draft.photo_url.trim() || undefined,
+      // A Google Drive / Dropbox share link is stored as the address of the picture itself (a "view" page cannot be drawn as an image).
+      photo_url: normalizePersonPhotoUrl(draft.photo_url) || undefined,
     });
     setDraft(BLANK); setAdding(false);
   }
@@ -79,7 +90,7 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
       full_name: editDraft.full_name.trim(), title: editDraft.title.trim() || undefined, is_founder: editDraft.is_founder,
       linkedin_url: linkedInToStore(editDraft.linkedin_url), email: editDraft.email.trim() || undefined, bio: editDraft.bio.trim() || undefined,
       commitment: editDraft.commitment ? (editDraft.commitment as TeamCommitment) : null,
-      photo_url: editDraft.photo_url.trim() || undefined,
+      photo_url: normalizePersonPhotoUrl(editDraft.photo_url) || undefined,
     });
     setEditingId(null);
   }
@@ -99,6 +110,9 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
       <LinkedInHint value={v.linkedin_url} />
       <input autoComplete="off" value={v.email} onChange={(e) => set({ ...v, email: e.target.value })} type="email" placeholder="Email (optional)" className="rounded border border-gray-300 px-2 py-1 text-sm" />
       <input autoComplete="off" value={v.photo_url} onChange={(e) => set({ ...v, photo_url: e.target.value })} placeholder="Photo URL (optional — shown on MatchDeal)" className="col-span-2 rounded border border-gray-300 px-2 py-1 text-sm" />
+      {/* Said at the moment of typing: a link that can never be a picture (a LinkedIn profile, a Drive folder) shows up as a broken box on the investor's
+          screen. Google Drive / Dropbox share links are fixed for them on save, so they only need to be told when it cannot work. */}
+      <PhotoHint value={v.photo_url} />
       <label className="col-span-2 flex items-center gap-1.5 text-xs text-gray-600">
         <input type="checkbox" checked={v.is_founder} onChange={(e) => set({ ...v, is_founder: e.target.checked })} /> Founder
       </label>
@@ -125,8 +139,8 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-start gap-2">
                       {p.photo_url && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={p.photo_url} alt="" className="mt-0.5 h-8 w-8 shrink-0 rounded-full object-cover" />
+                        <PersonAvatar name={p.full_name} photoUrl={p.photo_url} className="mt-0.5 h-8 w-8 shrink-0 rounded-full"
+                          fallbackClassName="bg-[#E8F4F8] text-[10px] font-semibold text-[#0E7490]" />
                       )}
                       <div>
                         <span className="font-medium text-gray-900">{p.full_name}</span>

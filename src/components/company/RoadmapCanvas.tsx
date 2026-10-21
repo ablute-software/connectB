@@ -15,7 +15,7 @@
 import { useMemo, useRef, useState, useEffect } from 'react';
 import {
   xFromDate, dateFromX, snapToMonth, clusterByProximity, zoomWindow, visibleLanes,
-  matchesTimeToggle, matchesCategoryVisibility, quarterLabel, quartersInRange,
+  matchesTimeToggle, matchesCategoryVisibility, quarterLabel, quartersInRange, defaultStatusForDate,
   semesterLabel, semestersInRange, yearLabel, yearsInRange, headerGranularity,
   type ZoomLevel, type TimeToggle, type Cluster,
 } from '@/lib/roadmap-canvas';
@@ -151,7 +151,8 @@ export function RoadmapCanvas({
   const [expandedCluster, setExpandedCluster] = useState<{ laneId: string; events: CanvasEvent[]; x: number } | null>(null);
 
   useEffect(() => {
-    if (!prefillTitle || !editable) return;
+    // null = nothing asked. An empty string opens the form with no title (the Roadmap's "Add a milestone" button).
+    if (prefillTitle === null || !editable) return;
     setDraft({ laneId: GENERAL_LANE.id, date: now.toISOString().slice(0, 10), end_date: null, x: 0, initialTitle: prefillTitle });
     onPrefillConsumed?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -537,20 +538,32 @@ function CreatePopover({ draft, categories, onCancel, onSave }: {
 }) {
   const [title, setTitle] = useState(draft.initialTitle ?? '');
   const [date, setDate] = useState(draft.date);
+  // A form opened from a button elsewhere on the page (the Roadmap's "Add a milestone", a suggestion card's "Add as event") appears down here, below the lanes —
+  // possibly out of sight of the button that was pressed. Bring it into view, once, when it opens (a click on an empty lane opens it under the pointer: no scroll).
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (draft.initialTitle !== undefined) rootRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [endDate, setEndDate] = useState(draft.end_date ?? '');
   const [categoryId, setCategoryId] = useState<string>(draft.laneId === GENERAL_LANE.id ? '' : draft.laneId);
   const [saving, setSaving] = useState(false);
-  const defaultStatus: RoadmapEventStatus = new Date(date) < new Date() ? 'done' : 'planned';
-  const [status, setStatus] = useState<RoadmapEventStatus>(defaultStatus);
+  const [status, setStatus] = useState<RoadmapEventStatus>(() => defaultStatusForDate(date, new Date()));
+  // The status follows the date (past → done, ahead → planned) until the founder picks one themselves.
+  const [statusTouched, setStatusTouched] = useState(false);
+  function changeDate(next: string) {
+    setDate(next);
+    if (!statusTouched) setStatus(defaultStatusForDate(next, new Date()));
+  }
 
   return (
-    <div className="mt-3 space-y-2 rounded-2xl border border-[#0041c8]/15 bg-[#eaedff]/50 p-3">
+    <div ref={rootRef} className="mt-3 space-y-2 rounded-2xl border border-[#0041c8]/15 bg-[#eaedff]/50 p-3">
       <input autoComplete="off" autoFocus value={title} onChange={(e) => setTitle(e.target.value)}
         placeholder="What happened (or will happen)?"
         onKeyDown={(e) => { if (e.key === 'Enter' && title.trim()) void submit(); }}
         className="w-full rounded-lg border border-[#c3c5d9] px-2 py-1.5 text-sm" />
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <label className="flex items-center gap-1">Date <input autoComplete="off" type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" /></label>
+        <label className="flex items-center gap-1">Date <input autoComplete="off" type="date" value={date} onChange={(e) => changeDate(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" /></label>
         <label className="flex items-center gap-1">
           End (optional) <input autoComplete="off" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" />
         </label>
@@ -558,7 +571,7 @@ function CreatePopover({ draft, categories, onCancel, onSave }: {
           <option value="">{GENERAL_LABEL}</option>
           {categories.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
         </select>
-        <select value={status} onChange={(e) => setStatus(e.target.value as RoadmapEventStatus)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1">
+        <select value={status} onChange={(e) => { setStatusTouched(true); setStatus(e.target.value as RoadmapEventStatus); }} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1">
           <option value="planned">Planned</option>
           <option value="done">Done</option>
         </select>

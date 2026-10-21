@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'crypto';
 import { parseMarketExtractionRaw, computeExtractionSignature, type MarketDocRef } from './market-document-extract';
+import { underDefaultLocale } from '@/test/default-locale';
 
 const DOCS = new Map<number, MarketDocRef>([
   [1, { id: 'doc-pitch', name: 'Pitch deck.pdf' }],
@@ -15,6 +16,14 @@ describe('parseMarketExtractionRaw', () => {
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ section: 'sizing', documentId: 'doc-sizing', page: 4 });
     expect(items[0].structured).toMatchObject({ valueEur: 2_000_000_000, scope: 'TAM Europe', year: 2025 });
+  });
+
+  it('the title groups thousands the English way on any machine (a bare toLocaleString() printed "6 000 000 000" on a pt-PT one)', () => {
+    const raw = { market_size: [{ value: 6_000_000_000, currency: 'EUR', scope: 'global', year: 2026, document_index: 2, page: 4 }] };
+    for (const locale of ['pt-PT', 'de-DE', 'fr-FR']) {
+      const items = underDefaultLocale(locale, () => parseMarketExtractionRaw(raw, DOCS));
+      expect(items[0].title, locale).toBe('Market size: EUR 6,000,000,000 (global, 2026)');
+    }
   });
 
   it('rejects an item with no document_index — never a fact without a source document', () => {

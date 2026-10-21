@@ -181,6 +181,14 @@ export function matchesCategoryVisibility(
 // date that "now" is currently inside.
 export type EventState = 'completed' | 'planned' | 'in_progress';
 
+// 20/10/2026 — a milestone dated in the past is HISTORY ("done"), one dated ahead is a plan. The add-a-milestone form decided this once, from the date it opened
+// with (today), and kept it when the founder then typed last year's date: the milestone was saved as "planned" and the history never counted. The form now
+// follows the date until the founder picks a status themselves.
+export function defaultStatusForDate(date: string, now: Date): 'done' | 'planned' {
+  const d = new Date(date);
+  return Number.isNaN(d.getTime()) ? 'planned' : d < now ? 'done' : 'planned';
+}
+
 export function derivedEventState(
   status: 'done' | 'planned', date: string, endDate: string | null | undefined, now: Date,
 ): EventState {

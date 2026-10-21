@@ -134,7 +134,7 @@ export function parseMarketExtractionRaw(raw: unknown, docsByIndex: Map<number, 
     const year = num(item.year);
     const currency = str(item.currency) ?? 'EUR';
     out.push({
-      section: 'sizing', title: `Market size: ${currency} ${value.toLocaleString()} (${scope}${year ? `, ${year}` : ''})`,
+      section: 'sizing', title: `Market size: ${currency} ${value.toLocaleString('en-US')} (${scope}${year ? `, ${year}` : ''})`,
       detail: str(item.source_quote) ?? '', documentId: resolved.doc.id, documentName: resolved.doc.name, page: resolved.page,
       structured: {
         valueEur: currency === 'EUR' ? value : null, currency, scope, year,

@@ -9,6 +9,7 @@ import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { planAccountsAvailable } from '@/lib/plan-accounts-capability';
 import { accountModerationAvailable } from '@/lib/account-moderation-capability';
 import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
+import { orgIdsWithRoadmapHistory, roadmapContextFromHistory } from '@/lib/roadmap-history';
 import { computeVisiblePipelineSize } from '@/lib/pipeline-unlock-server';
 import { effectivePlansForOrgs } from '@/lib/effective-plan-server';
 import { describePlanOrigin } from '@/lib/effective-plan';
@@ -121,6 +122,10 @@ export async function GET() {
   const pipelineSizes = await Promise.all((orgs ?? []).map((org) => computeVisiblePipelineSize(admin, org.id, { planTier: effectiveByOrg.get(org.id)?.plan })));
   const pipelineByOrg = new Map((orgs ?? []).map((org, i) => [org.id, pipelineSizes[i]]));
 
+  // 20/10/2026 — the roadmap's history is part of the completeness score for a company that has existed for a year, so this column asks the same question the
+  // Settings bar asks of every org: one read of the milestones marked done. null (the table cannot be read) leaves the roadmap out of every score.
+  const historyOrgIds = await orgIdsWithRoadmapHistory(admin);
+
   const result = (orgs ?? []).map((org) => {
     const userIds = userIdsByOrg.get(org.id) ?? [];
     // Prompt 887 §1 — the most recent of any member's auth sign-in AND any
@@ -144,7 +149,7 @@ export async function GET() {
       interactionsThisWeek > 0 && daysSinceLogin < 14 ? 'active' : daysSinceLogin < 30 ? 'quiet' : 'inactive';
 
     const people = peopleByOrg.get(org.id) ?? [];
-    const { pct: completenessPct } = calcCompanyCompleteness(org as unknown as Org, people);
+    const { pct: completenessPct } = calcCompanyCompleteness(org as unknown as Org, people, roadmapContextFromHistory(historyOrgIds ? historyOrgIds.has(org.id as string) : null));
     const pipeline = pipelineByOrg.get(org.id);
     const matchDealStatus: 'complete' | 'incomplete' | 'not_started' =
       !matchDealCompleteByOrg.has(org.id) ? 'not_started' : matchDealCompleteByOrg.get(org.id) ? 'complete' : 'incomplete';
