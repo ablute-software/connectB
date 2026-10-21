@@ -89,17 +89,24 @@ export function shouldLogOpen(req: Request): boolean {
 // browser ever sees is this app's own route. Every check (grant, NDA, vault
 // freeze, malware flag) must already have passed before this is called —
 // this function only moves bytes, it never decides who may have them.
+export interface StreamFailure { stage: 'sign' | 'fetch' | 'upstream' | 'body'; response: number; upstreamStatus?: number; message?: string }
+
 export async function streamStorageObject(opts: {
   admin: SupabaseClient;
   storagePath: string;
   filename: string;
   req: Request;
+  /**
+   * Told the REAL reason when the object cannot be served (the response itself only ever says "unavailable", on purpose): which step failed and what Storage said. Prompt 918 (Adenda 2, A) —
+   * an expired address answered 400 for hours and the only trace was "502 unavailable". The caller logs it; nothing of it reaches the browser.
+   */
+  onFailure?: (failure: StreamFailure) => void;
 }): Promise<Response> {
-  const { admin, storagePath, filename, req } = opts;
+  const { admin, storagePath, filename, req, onFailure } = opts;
 
   const { data: signed, error } = await admin.storage.from('data-room')
     .createSignedUrl(storagePath, INTERNAL_SIGNED_URL_TTL_SECONDS);
-  if (error || !signed?.signedUrl) return refusalResponse(404);
+  if (error || !signed?.signedUrl) { onFailure?.({ stage: 'sign', response: 404, message: error?.message ?? 'no signed address returned' }); return refusalResponse(404); }
 
   const range = req.headers.get('range');
   let upstream: globalThis.Response;
@@ -108,11 +115,17 @@ export async function streamStorageObject(opts: {
       headers: range ? { Range: range } : undefined,
       cache: 'no-store',
     });
-  } catch {
+  } catch (e) {
+    onFailure?.({ stage: 'fetch', response: 502, message: e instanceof Error ? e.message : String(e) });
     return refusalResponse(502);
   }
-  if (!upstream.ok && upstream.status !== 206) return refusalResponse(502);
-  if (!upstream.body) return refusalResponse(502);
+  if (!upstream.ok && upstream.status !== 206) {
+    // Storage's own words (`InvalidJWT`, `NoSuchKey`…), a few characters of them; never sent on.
+    const said = await upstream.text().catch(() => '');
+    onFailure?.({ stage: 'upstream', response: 502, upstreamStatus: upstream.status, message: said.slice(0, 300) });
+    return refusalResponse(502);
+  }
+  if (!upstream.body) { onFailure?.({ stage: 'body', response: 502, upstreamStatus: upstream.status, message: 'empty body' }); return refusalResponse(502); }
 
   const { contentType, inline } = resolveContentType(filename);
 

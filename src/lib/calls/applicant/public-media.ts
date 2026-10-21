@@ -3,6 +3,7 @@
 import { NextResponse } from 'next/server';
 import { streamStorageObject } from '@/lib/document-proxy';
 import type { MediaKind } from '../media-limits';
+import { logMediaFailure } from '../media-log';
 import { resolvePublicCall, serviceClient } from './link';
 
 export async function publicMedia(req: Request, token: string, kind: MediaKind): Promise<Response> {
@@ -12,5 +13,5 @@ export async function publicMedia(req: Request, token: string, kind: MediaKind):
   if (!found) return NextResponse.json({ ok: false }, { status: 404 });
   const path = kind === 'cover' ? found.call.coverPath : found.call.logoPath;
   if (!path) return NextResponse.json({ ok: false }, { status: 404 });
-  return streamStorageObject({ admin, storagePath: path, filename: `${kind}.${path.split('.').pop() ?? 'png'}`, req });
+  return streamStorageObject({ admin, storagePath: path, filename: `${kind}.${path.split('.').pop() ?? 'png'}`, req, onFailure: logMediaFailure({ where: 'public', kind, callId: found.call.id, path }) });
 }

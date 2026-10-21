@@ -14,7 +14,8 @@
 //      404, never 403: its existence is not revealed.
 import 'server-only';
 import { NextResponse } from 'next/server';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { callsAdminClient } from './admin-client';
 import { authEnabled, serverClient } from '@/lib/supabase-server';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 import { resolveIncubatorMember } from '@/lib/incubator-access-core';
@@ -74,7 +75,7 @@ export async function authCalls(): Promise<CallsGate<CallsAuth>> {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return { error: NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 }) };
   if (!callsAllowedFor(user.email)) return { error: notFound() };
-  const admin = createClient(url, service, { auth: { persistSession: false } });
+  const admin = callsAdminClient(url, service);
   const promoters = await listPromoters(admin, sb, user.id);
   if (promoters.length === 0) return { error: NextResponse.json({ ok: false, error: 'Calls are for investors and ecosystem organisations.' }, { status: 403 }) };
   return { admin, userId: user.id, email: user.email ?? null, promoters };

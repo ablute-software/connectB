@@ -6,7 +6,8 @@
 //   - the call has a form (a call without one is a 404: there is nothing to apply to).
 // The status is brought up to date (scheduled -> open -> closed) the same way the entity side does, because crons run once a day.
 import 'server-only';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { callsAdminClient } from '../admin-client';
 import { callsMode } from '../mode';
 import { loadCallByToken, loadFields } from '../store';
 import { syncStatus } from '../state';
@@ -16,7 +17,7 @@ export function serviceClient(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return null;
-  return createClient(url, service, { auth: { persistSession: false } });
+  return callsAdminClient(url, service);
 }
 
 export const validTokenShape = (token: string): boolean => token.length >= 16 && token.length <= 64 && /^[A-Za-z0-9_-]+$/.test(token);

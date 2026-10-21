@@ -9,6 +9,7 @@ import { authCall } from '@/lib/calls/access';
 import { MEDIA_BUCKET, checkMedia, isMediaKind, type MediaKind } from '@/lib/calls/branding';
 import { streamStorageObject } from '@/lib/document-proxy';
 import { saveLogoToProfile } from '@/lib/calls/branding-profile';
+import { logMediaFailure } from '@/lib/calls/media-log';
 import { logCallEvent, setCallMedia } from '@/lib/calls/store';
 import { buildCallState } from '@/lib/calls/state';
 
@@ -24,7 +25,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   if (!kind) return NextResponse.json({ ok: false, error: 'Unknown image.' }, { status: 400 });
   const path = kind === 'cover' ? auth.call.coverPath : auth.call.logoPath;
   if (!path) return NextResponse.json({ ok: false }, { status: 404 });
-  return streamStorageObject({ admin: auth.admin, storagePath: path, filename: `${kind}.${path.split('.').pop() ?? 'png'}`, req });
+  return streamStorageObject({ admin: auth.admin, storagePath: path, filename: `${kind}.${path.split('.').pop() ?? 'png'}`, req, onFailure: logMediaFailure({ where: 'editor', kind, callId: auth.call.id, path }) });
 }
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
