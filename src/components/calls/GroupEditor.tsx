@@ -5,8 +5,11 @@
 import { FILE_FORMAT_KEYS, MAX_FILE_MB_CEILING, MAX_FILES_CEILING, MAX_GROUP_ENTRIES, MAX_GROUP_SUBFIELDS, SIMPLE_KINDS, URL_HINTS, URL_HINT_LABELS, FIELD_KIND_LABELS, isChoiceKind, DEFAULT_MAX_FILE_MB,
   type FieldValidations, type GroupConfig, type SimpleKind, type SubField } from '@/lib/calls/types';
 import { FILE_FORMATS, fileFormatsOf, maxFilesOf, newOptionIdLocal, newSubField } from '@/lib/calls/field-config';
+import { AutoTextarea } from './AutoTextarea';
 
-const INPUT = 'block w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm disabled:bg-gray-50 disabled:text-gray-500';
+// `w-full` AND `min-w-0`: a field fills the panel and may shrink below its natural width. (It used to be combined with `w-40` on a select — Tailwind emits `w-full` last, so it won, and the
+// select took the whole row and squeezed the question's text box to a 20 px square; Prompt 917 Adenda 2 A.)
+const INPUT = 'block w-full min-w-0 rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm disabled:bg-gray-50 disabled:text-gray-500';
 const LABEL = 'block text-[11px] font-semibold uppercase tracking-wide text-gray-500';
 
 type Validations = Omit<FieldValidations, 'group'>;
@@ -33,7 +36,7 @@ export function FileConfigEditor({ value, disabled, idPrefix, onChange }: { valu
         </div>
         <p className="mt-1 text-[11px] text-gray-400">The format is checked on the file itself, not on its name. ZIP files are never accepted: for several files use “Allow several files”.</p>
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
         <div>
           <label className={LABEL} htmlFor={`${idPrefix}-mb`}>Max size per file (MB)</label>
           <input id={`${idPrefix}-mb`} type="number" min={1} max={MAX_FILE_MB_CEILING} autoComplete="off" className={INPUT} disabled={disabled} value={value.maxFileMb ?? DEFAULT_MAX_FILE_MB}
@@ -84,18 +87,23 @@ function SubFieldEditor({ sub, index, total, disabled, onChange, onRemove, onMov
     onChange({ ...sub, options: labels.map((label, i) => ({ id: sub.options[i]?.id ?? newOptionIdLocal(), label })) });
   };
   return (
-    <li className="rounded-lg border border-gray-200 bg-gray-50 p-2.5" data-testid="group-subfield">
-      <div className="flex items-center gap-1.5">
-        <span className="w-5 text-center text-xs text-gray-400">{index + 1}</span>
-        <input aria-label="Question" autoComplete="off" className={INPUT} value={sub.label} disabled={disabled} maxLength={300} onChange={(e) => onChange({ ...sub, label: e.target.value })} />
-        <select aria-label="Type" className={`${INPUT} w-40 shrink-0`} value={sub.kind} disabled={disabled} onChange={(e) => setKind(e.target.value as SimpleKind)}>
+    <li className="min-w-0 rounded-lg border border-gray-200 bg-gray-50 p-2.5" data-testid="group-subfield">
+      {/* The corner: the number and the three buttons, INSIDE the card. The text of the question has its own full-width line under it. */}
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Question {index + 1}</span>
+        <span className="flex shrink-0 items-center">
+          <button type="button" aria-label="Move up" disabled={disabled || index === 0} onClick={() => onMove(-1)} className="rounded px-1.5 text-gray-500 hover:text-[#0E7490] disabled:opacity-30">↑</button>
+          <button type="button" aria-label="Move down" disabled={disabled || index === total - 1} onClick={() => onMove(1)} className="rounded px-1.5 text-gray-500 hover:text-[#0E7490] disabled:opacity-30">↓</button>
+          <button type="button" aria-label="Remove question" disabled={disabled || total <= 1} onClick={onRemove} className="rounded px-1.5 text-gray-400 hover:text-[#B00000] disabled:opacity-30">✕</button>
+        </span>
+      </div>
+      <AutoTextarea ariaLabel="Question" testId="subfield-label" className={`mt-1 ${INPUT}`} value={sub.label} disabled={disabled} maxLength={300} placeholder="The question" onChange={(label) => onChange({ ...sub, label })} />
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+        <select aria-label="Type" className={`${INPUT} !w-auto max-w-full`} value={sub.kind} disabled={disabled} onChange={(e) => setKind(e.target.value as SimpleKind)}>
           {SIMPLE_KINDS.map((k) => <option key={k} value={k}>{FIELD_KIND_LABELS[k]}</option>)}
         </select>
-        <button type="button" aria-label="Move up" disabled={disabled || index === 0} onClick={() => onMove(-1)} className="rounded px-1.5 text-gray-500 hover:text-[#0E7490] disabled:opacity-30">↑</button>
-        <button type="button" aria-label="Move down" disabled={disabled || index === total - 1} onClick={() => onMove(1)} className="rounded px-1.5 text-gray-500 hover:text-[#0E7490] disabled:opacity-30">↓</button>
-        <button type="button" aria-label="Remove question" disabled={disabled || total <= 1} onClick={onRemove} className="rounded px-1.5 text-gray-400 hover:text-[#B00000] disabled:opacity-30">✕</button>
+        <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={sub.required} disabled={disabled} onChange={(e) => onChange({ ...sub, required: e.target.checked })} /> Required in every entry</label>
       </div>
-      <label className="mt-1.5 flex items-center gap-2 text-xs"><input type="checkbox" checked={sub.required} disabled={disabled} onChange={(e) => onChange({ ...sub, required: e.target.checked })} /> Required in every entry</label>
       {isChoiceKind(sub.kind) && (
         <div className="mt-1.5">
           <label className={LABEL}>Options (one per line)</label>
@@ -121,7 +129,7 @@ export function GroupEditor({ value, disabled, onChange }: { value: GroupConfig;
   const setSub = (i: number, s: SubField) => set({ subFields: value.subFields.map((x, j) => (j === i ? s : x)) });
   const move = (i: number, d: -1 | 1) => { const j = i + d; if (j < 0 || j >= value.subFields.length) return; const next = [...value.subFields]; [next[i], next[j]] = [next[j], next[i]]; set({ subFields: next }); };
   return (
-    <div className="space-y-3" data-testid="group-config">
+    <div className="min-w-0 space-y-3" data-testid="group-config">
       <p className="rounded bg-gray-50 px-2 py-1.5 text-xs text-gray-500">A repeatable group asks the same questions again and again: “Add another”. In version 1 a group cannot contain another group, and display conditions cannot depend on a question inside a group.</p>
       <div className="grid grid-cols-3 gap-2">
         <div className="col-span-3">

@@ -8,6 +8,7 @@ import { createPortal } from 'react-dom';
 import { ImportFormDialog, type ImportOutcome } from './ImportFormDialog';
 import { ImportStatusPill } from './ImportStatusPill';
 import { FileConfigEditor, GroupEditor, UrlConfigEditor } from './GroupEditor';
+import { AutoTextarea } from './AutoTextarea';
 import type { ImportStatus } from '@/lib/calls/ai-import/screen-state';
 import type { ImportMode } from '@/lib/calls/form-import';
 import { orderFields } from '@/lib/calls/form-logic';
@@ -22,7 +23,7 @@ import {
 const KIND_ICON: Record<FieldKind, string> = {
   short_text: 'Aa', long_text: '¶', number: '#', date: '📅', yes_no: '✓✗', single_choice: '◉', multiple_choice: '☑', file: '📄', url: '🔗', email: '@', group: '▦',
 };
-const INPUT = 'block w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm disabled:bg-gray-50 disabled:text-gray-500';
+const INPUT = 'block w-full min-w-0 rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm disabled:bg-gray-50 disabled:text-gray-500';
 const LABEL = 'block text-[11px] font-semibold uppercase tracking-wide text-gray-500';
 
 function conditionText(f: FormField, all: FormField[]): string | null {
@@ -228,7 +229,7 @@ export function FormTab({ callId, fields, disabled, lockedReason, onChange, onIm
   );
 }
 
-function FieldPanel({ field, ordered, disabled, onChange, onReplace, onDelete }: {
+export function FieldPanel({ field, ordered, disabled, onChange, onReplace, onDelete }: {
   field: FormField; ordered: FormField[]; disabled: boolean;
   onChange: (patch: Partial<FormField>) => void; onReplace: (f: FormField) => void; onDelete: () => void;
 }) {
@@ -239,7 +240,8 @@ function FieldPanel({ field, ordered, disabled, onChange, onReplace, onDelete }:
   const operators: ConditionOperator[] = optionControl ? ['equals', 'not_equals', 'is_answered', 'is_empty'] : ['is_answered', 'is_empty'];
 
   return (
-    <div className="space-y-4 rounded-lg border border-gray-200 bg-white p-4" data-testid="field-panel">
+    // `data-field-panel`: nothing inside may be wider than the panel (globals.css) — fields shrink or wrap, long texts break, never a sideways scroll (Prompt 917, Adenda 2, A).
+    <div className="min-w-0 space-y-4 rounded-lg border border-gray-200 bg-white p-4" data-testid="field-panel" data-field-panel>
       <div>
         <label className={LABEL} htmlFor="fp-kind">Type</label>
         <select id="fp-kind" className={INPUT} value={field.kind} disabled={disabled} onChange={(e) => onReplace(changeKind(field, e.target.value as FieldKind))}>
@@ -265,9 +267,9 @@ function FieldPanel({ field, ordered, disabled, onChange, onReplace, onDelete }:
           <span className={LABEL}>Options</span>
           <ul className="mt-1 space-y-1.5">
             {field.options.map((o) => (
-              <li key={o.id} className="flex items-center gap-1.5">
-                <input aria-label="Option text" autoComplete="off" className={INPUT} value={o.label} disabled={disabled} maxLength={300} onChange={(e) => onReplace(renameOption(field, o.id, e.target.value))} />
-                <button type="button" aria-label="Remove option" disabled={disabled} onClick={() => onReplace(removeOption(field, o.id))} className="rounded px-1.5 text-gray-400 hover:text-[#B00000] disabled:opacity-30">✕</button>
+              <li key={o.id} className="flex min-w-0 items-start gap-1.5">
+                <AutoTextarea ariaLabel="Option text" testId="option-text" className={INPUT} value={o.label} disabled={disabled} maxLength={300} onChange={(label) => onReplace(renameOption(field, o.id, label))} />
+                <button type="button" aria-label="Remove option" disabled={disabled} onClick={() => onReplace(removeOption(field, o.id))} className="shrink-0 rounded px-1.5 py-1.5 text-gray-400 hover:text-[#B00000] disabled:opacity-30">✕</button>
               </li>
             ))}
           </ul>
@@ -277,7 +279,7 @@ function FieldPanel({ field, ordered, disabled, onChange, onReplace, onDelete }:
       )}
 
       {(field.kind === 'short_text' || field.kind === 'long_text') && (
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
           <div>
             <label className={LABEL} htmlFor="fp-maxlen">Max characters</label>
             <input id="fp-maxlen" type="number" min={1} autoComplete="off" className={INPUT} disabled={disabled} value={field.validations.maxLength ?? ''}
@@ -309,7 +311,7 @@ function FieldPanel({ field, ordered, disabled, onChange, onReplace, onDelete }:
       {field.kind === 'file' && (
         <div className="space-y-2">
           <FileConfigEditor value={field.validations} disabled={disabled} idPrefix="fp" onChange={(v) => onChange({ validations: v })} />
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
             <div>
               <label className={LABEL} htmlFor="fp-age">Valid for (months)</label>
               <input id="fp-age" type="number" min={1} autoComplete="off" className={INPUT} disabled={disabled} placeholder="no limit" value={field.maxAgeMonths ?? ''}
