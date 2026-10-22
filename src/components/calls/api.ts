@@ -17,6 +17,9 @@ export interface CallListItem extends Call {
   importRun?: { id: string; status: 'reading' | 'proposed' } | null;
 }
 
+/** Prompt 918 (Adenda 2, C): a deleted call in the "Deleted calls" list — restorable until `purgeAfter`. */
+export interface DeletedCallItem { id: string; name: string; deletedAt: string | null; purgeAfter: string | null; daysLeft: number; canRestore: boolean; createdAt: string; timezone: string }
+
 export interface CallEvent { id: number; event: string; actor_user_id: string | null; detail: Record<string, unknown>; created_at: string }
 
 export interface CallState {
@@ -54,7 +57,7 @@ const send = (method: string, data?: unknown): RequestInit => ({ method, body: d
 
 export const callsApi = {
   access: () => call<{ promoters: PromoterInfo[] }>('/api/calls/access'),
-  list: (kind: PromoterKind) => call<{ promoter: PromoterInfo; calls: CallListItem[] }>(`/api/calls?kind=${kind}`),
+  list: (kind: PromoterKind) => call<{ promoter: PromoterInfo; calls: CallListItem[]; deleted?: DeletedCallItem[] }>(`/api/calls?kind=${kind}`),
   create: (kind: PromoterKind, name?: string) => call<{ call: Call }>('/api/calls', send('POST', { kind, name })),
   get: (id: string) => call<CallState>(`/api/calls/${id}`),
   patchGeneral: (id: string, baseVersion: number, patch: Record<string, unknown>) => call<CallState>(`/api/calls/${id}`, send('PATCH', { baseVersion, ...patch })),
@@ -118,5 +121,8 @@ export const callsApi = {
     call<Record<string, never>>(`/api/calls/${id}/source-documents/${docId}`, send('PATCH', { publicToApplicants })),
   deleteSourceDocument: (id: string, docId: string) => call<Record<string, never>>(`/api/calls/${id}/source-documents/${docId}`, { method: 'DELETE' }),
   /** Delete a call nobody applied to (the server decides). */
-  remove: (id: string) => call<{ deleted: boolean; name: string }>(`/api/calls/${id}/action`, send('POST', { action: 'delete' })),
+  /** Delete (Prompt 918, Adenda 2, C): the person has typed the call's name; the call goes to "Deleted calls" for 30 days. */
+  remove: (id: string, confirmName: string) => call<{ deleted: boolean; name: string; purgeAfter: string; notified: number }>(`/api/calls/${id}/action`, send('POST', { action: 'delete', confirmName })),
+  deleteImpact: (id: string) => call<{ name: string; isOpen: boolean; submitted: number; drafts: number; files: number }>(`/api/calls/${id}/delete-impact`),
+  restore: (id: string) => call<{ restored: boolean; name: string; status: string }>(`/api/calls/${id}/restore`, send('POST', {})),
 };

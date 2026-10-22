@@ -271,6 +271,8 @@ O administrador descreve o requisito, a plataforma apresenta a interpretação q
 
 **Estados:** Draft → Validated → Scheduled/Open → Closed → (fases de avaliação) → Results published → Archived.
 
+**Apagar e arquivar** **[Decisão]** (Nuno, Prompt 918, Adenda 2, 20/10/2026 — **substitui** "depois de abrir, só se arquiva"): uma call **apaga-se em qualquer estado**, por quem tem "Configure call". A pessoa vê **o que vai** (candidaturas submetidas, candidatos com rascunho, ficheiros — só números) e **escreve o nome da call**. Uma call **aberta fecha-se de imediato** e o link passa a dizer **"This call is no longer available"**. A call vai para **"Deleted calls"** e **restaura-se durante 30 dias** (por quem tem a mesma permissão; uma call que estava aberta volta *fechada*); ao fim dos 30 dias **apaga-se de vez** — a call, as candidaturas, os rascunhos, as submissões e os ficheiros no Storage (nunca um documento do Vault da startup) — e fica **só um registo mínimo**: id e nome da call, quem apagou, quando e as contagens, **sem dados de candidatos**. **Os candidatos com rascunho ou submissão são avisados** (email e na app): "«Entidade» has cancelled the call «Título». Your application will be deleted on «data».", e até essa data **leem o que submeteram e descarregam os ficheiros** na sua área ("My applications", marcada Cancelled); nada se pode guardar nem submeter numa call apagada. A regra é a mesma no servidor e no ecrã: **o botão de apagar nunca está desligado por um estado**, e nenhuma frase manda fazer algo que não resolve. **Arquivar continua**, para esconder uma call sem a apagar (uma call aberta tem de fechar primeiro; uma arquivada também se apaga).
+
 **Antes de confirmar, a pré-visualização mostra:**
 
 - o formulário;

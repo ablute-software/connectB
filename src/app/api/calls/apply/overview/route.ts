@@ -59,7 +59,7 @@ export const GET = withActingOrg(async function GET(req: Request) {
   const facts: CallFacts[] = calls.map((c) => ({
     id: c.id, token: c.linkToken, name: c.name, promoter: promoters.get(c.promoterId)?.name ?? 'An organisation', status: c.status, opensAt: c.opensAt, closesAt: c.closesAt, timezone: c.timezone,
     description: c.description, visibility: c.visibility, promoterIsTest: promoters.get(c.promoterId)?.isTest === true, hasForm: withForm.has(c.id), allowMultiple: c.allowMultiple,
-    logoUrl: branding.get(c.id)?.logoUrl ?? null,
+    logoUrl: branding.get(c.id)?.logoUrl ?? null, deletedAt: c.deletedAt ?? null, purgeAfter: c.purgeAfter ?? null,
   }));
   const appFacts: ApplicationFacts[] = appRows.map((a) => ({
     id: a.id as string, callId: a.call_id as string, status: a.status as ApplicationFacts['status'], reference: (a.reference as string | null) ?? null,

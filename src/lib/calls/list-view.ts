@@ -1,7 +1,7 @@
 // Prompt 909 — what the list of an organisation's calls offers on each card, and which cards it shows. Pure, so the
-// rules (delete only before opening and with nobody applied; archive anything that is not open; archived hidden
+// rules (delete in any state, with a confirmation and 30 days to restore; archive anything that is not open; archived hidden
 // unless asked) are tested without a browser. The server re-checks every one of them.
-import { deleteProblem } from './lifecycle';
+import { canDeleteCall } from './lifecycle';
 import type { CallStatus } from './types';
 
 export interface ListCall { status: CallStatus; effectiveStatus: CallStatus; applicationsTotal: number }
@@ -14,7 +14,7 @@ export function callMenu(c: ListCall, canConfigure: boolean): CallMenu {
   return {
     duplicate: true,
     archive: c.status !== 'archived' && c.effectiveStatus !== 'open',
-    delete: deleteProblem(c.effectiveStatus, c.applicationsTotal) === null,
+    delete: canDeleteCall(),
   };
 }
 
@@ -25,5 +25,4 @@ export function visibleCalls<T extends { effectiveStatus: CallStatus }>(calls: T
   return showArchived ? calls : calls.filter((c) => c.effectiveStatus !== 'archived');
 }
 
-export const DELETE_CONFIRM = 'This permanently deletes the call, its phases and its form. The link stops working.';
 export const ARCHIVE_CONFIRM = 'Archive this call? It leaves your lists (use “Show archived” to see it) and its applications are kept.';

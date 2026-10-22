@@ -106,6 +106,8 @@ export function FileQuestion({ field, entryId, applicationId, orgId, files, disa
               <div className="flex items-center justify-between gap-3">
                 <span className="min-w-0 truncate"><b className="text-gray-900">{file.fileName}</b> <span className="text-xs text-gray-500">· {sizeText(file.size)} · {file.source === 'vault' ? `from your Vault (version ${file.versionNumber ?? 1})` : 'uploaded'}</span></span>
                 {!disabled && <button type="button" onClick={() => void remove(file)} disabled={!!busy} className="shrink-0 text-xs text-[#B00000] hover:underline">Remove</button>}
+                {/* A copy that can no longer be changed (submitted, or the call closed): the applicant can always take their own file with them (Prompt 918, Adenda 2, C). */}
+                {disabled && <a href={`/api/calls/apply/applications/${applicationId}/files/${file.id}/download`} download data-testid="download-file" className="inline-flex min-h-[44px] shrink-0 items-center text-xs font-semibold text-[#0E7490] hover:underline">Download</a>}
               </div>
               {file.newer && !disabled && (
                 <p className="mt-1.5 text-xs text-amber-800" data-testid="newer-version">

@@ -5,8 +5,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { PromoterKind } from '@/lib/calls/types';
 import { formatInZone } from '@/lib/calls/tz';
-import { callsApi, type CallListItem, type PromoterInfo } from './api';
-import { ARCHIVE_CONFIRM, DELETE_CONFIRM, callMenu, hasMenu, visibleCalls } from '@/lib/calls/list-view';
+import { callsApi, type CallListItem, type DeletedCallItem, type PromoterInfo } from './api';
+import { ARCHIVE_CONFIRM, callMenu, hasMenu, visibleCalls } from '@/lib/calls/list-view';
+import { deletedLine } from '@/lib/calls/deletion';
+import { DeleteCallDialog } from './DeleteCallDialog';
 import { StatusBadge } from './StatusBadge';
 import { ImportNotices } from './ImportNotices';
 import { ImportStatusPill } from './ImportStatusPill';
@@ -19,11 +21,16 @@ export function CallsList({ kind, onOpen }: { kind: PromoterKind; onOpen: (id: s
   const [busy, setBusy] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [picking, setPicking] = useState(false);
+  // Prompt 918 (Adenda 2, C): the call being deleted (the dialog is open), the deleted calls of this organisation, and whether that list is shown.
+  const [deleting, setDeleting] = useState<{ id: string; name: string } | null>(null);
+  const [deleted, setDeleted] = useState<DeletedCallItem[]>([]);
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [notice, setNotice] = useState('');
 
   const load = useCallback(async () => {
     const res = await callsApi.list(kind);
     if (!res.ok) { setError(res.body.error ?? 'Could not load your calls.'); setCalls([]); return; }
-    setError(''); setPromoter(res.body.promoter); setCalls(res.body.calls);
+    setError(''); setPromoter(res.body.promoter); setCalls(res.body.calls); setDeleted(res.body.deleted ?? []);
   }, [kind]);
   useEffect(() => { void load(); }, [load]);
 
@@ -59,12 +66,13 @@ export function CallsList({ kind, onOpen }: { kind: PromoterKind; onOpen: (id: s
     if (!res.ok) { setError(res.body.error ?? 'Could not archive the call.'); return; }
     await load();
   }
-  async function remove(id: string) {
-    if (!window.confirm(DELETE_CONFIRM)) return;
-    setBusy(id); setError('');
-    const res = await callsApi.remove(id);
+  /** Restore a deleted call (within its 30 days): it comes back as it was — a call that was open comes back closed. */
+  async function restore(id: string) {
+    setBusy(id); setError(''); setNotice('');
+    const res = await callsApi.restore(id);
     setBusy(null);
-    if (!res.ok) { setError(res.body.error ?? 'Could not delete the call.'); return; }
+    if (!res.ok) { setError(res.body.error ?? 'Could not restore the call.'); await load(); return; }
+    setNotice(`“${res.body.name}” is back in your calls${res.body.status === 'closed' ? ' (closed — use “Reopen and extend” to take applications again)' : ''}.`);
     await load();
   }
 
@@ -116,6 +124,29 @@ export function CallsList({ kind, onOpen }: { kind: PromoterKind; onOpen: (id: s
         </div>
       )}
       {error && <p role="alert" className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{error}</p>}
+      {notice && <p role="status" className="mb-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-900" data-testid="calls-notice">{notice}</p>}
+      {deleted.length > 0 && (
+        <label className="mb-3 flex items-center gap-2 text-xs text-gray-600">
+          <input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} data-testid="show-deleted" />
+          Deleted calls ({deleted.length})
+        </label>
+      )}
+      {showDeleted && deleted.length > 0 && (
+        <section className="mb-5 rounded-lg border border-red-100 bg-red-50/40 p-4" aria-label="Deleted calls" data-testid="deleted-calls">
+          <h2 className="text-sm font-semibold text-gray-900">Deleted calls</h2>
+          <p className="mt-0.5 text-[11px] text-gray-500">A deleted call can be restored for 30 days. After that it is removed for good, with its applications and files.</p>
+          <ul className="mt-3 divide-y divide-red-100">
+            {deleted.map((d) => (
+              <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-2" data-testid="deleted-call">
+                <span className="min-w-0"><b className="block truncate text-sm text-gray-900">{d.name}</b><span className="text-xs text-gray-500" data-testid="deleted-line">{deletedLine(d.purgeAfter)}{d.deletedAt ? ` · deleted ${formatInZone(d.deletedAt, d.timezone)}` : ''}</span></span>
+                {d.canRestore
+                  ? <button type="button" onClick={() => void restore(d.id)} disabled={busy === d.id} data-testid="restore-call" className="min-h-[44px] rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-50 disabled:opacity-40">{busy === d.id ? 'Restoring…' : 'Restore'}</button>
+                  : <span className="text-[11px] text-gray-400">Only someone who can configure the call can restore it.</span>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {archivedCount > 0 || showArchived ? (
         <label className="mb-3 flex items-center gap-2 text-xs text-gray-600">
           <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} data-testid="show-archived" />
@@ -168,7 +199,7 @@ export function CallsList({ kind, onOpen }: { kind: PromoterKind; onOpen: (id: s
                         <button type="button" onClick={() => void archive(c.id)} disabled={busy === c.id} className="block w-full px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-40" data-testid="archive-call-menu">Archive call</button>
                       )}
                       {callMenu(c, c.canConfigure).delete && (
-                        <button type="button" onClick={() => void remove(c.id)} disabled={busy === c.id} className="block w-full px-3 py-1.5 text-left text-xs text-[#B00000] hover:bg-red-50 disabled:opacity-40" data-testid="delete-call-menu">Delete call</button>
+                        <button type="button" onClick={(e) => { setNotice(''); setDeleting({ id: c.id, name: c.name }); (e.currentTarget.closest('details') as HTMLDetailsElement | null)?.removeAttribute('open'); }} disabled={busy === c.id} className="block w-full px-3 py-1.5 text-left text-xs text-[#B00000] hover:bg-red-50 disabled:opacity-40" data-testid="delete-call-menu">Delete call</button>
                       )}
                     </div>
                   </details>
@@ -178,6 +209,7 @@ export function CallsList({ kind, onOpen }: { kind: PromoterKind; onOpen: (id: s
           ))}
         </ul>
       )}
+      {deleting && <DeleteCallDialog callId={deleting.id} name={deleting.name} onClose={() => setDeleting(null)} onDeleted={(r) => { setDeleting(null); setNotice(`“${r.name}” was deleted. You can restore it from “Deleted calls” for 30 days.`); void load().then(() => setShowDeleted(true)); }} />}
     </div>
   );
 }

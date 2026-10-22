@@ -3,7 +3,8 @@
 // anything; only its owners/admins create.
 import { NextResponse, type NextRequest } from 'next/server';
 import { authCalls, configurableCallIds, pickPromoter } from '@/lib/calls/access';
-import { createCall, listPromoterCalls, loadCall } from '@/lib/calls/store';
+import { createCall, listDeletedCalls, listPromoterCalls, loadCall } from '@/lib/calls/store';
+import { daysLeft } from '@/lib/calls/deletion';
 import { bootstrapTeam } from '@/lib/calls/team-store';
 import { effectiveStatus } from '@/lib/calls/lifecycle';
 import { syncStatus } from '@/lib/calls/state';
@@ -23,9 +24,13 @@ export async function GET(req: NextRequest) {
   }));
   // Per call: may this person configure it (the menu offers Duplicate, Archive and Delete only then)?
   const configurable = await configurableCallIds(auth.admin, promoter, auth.userId, calls);
+  // Prompt 918 (Adenda 2, C): the deleted calls, apart — each with the days left to restore it and whether this person may.
+  const deleted = await listDeletedCalls(auth.admin, promoter.kind, promoter.id);
+  const canRestore = await configurableCallIds(auth.admin, promoter, auth.userId, deleted);
   return NextResponse.json({
     ok: true, promoter: { kind: promoter.kind, id: promoter.id, name: promoter.name, canManage: promoter.canManage },
     calls: calls.map((c) => ({ ...c, canConfigure: configurable.has(c.id) })),
+    deleted: deleted.map((c) => ({ id: c.id, name: c.name, deletedAt: c.deletedAt ?? null, purgeAfter: c.purgeAfter ?? null, daysLeft: daysLeft(c.purgeAfter, now), canRestore: canRestore.has(c.id), createdAt: c.createdAt, timezone: c.timezone })),
   });
 }
 

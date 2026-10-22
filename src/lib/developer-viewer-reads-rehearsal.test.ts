@@ -84,10 +84,12 @@ describe(MIGRATION_FILE, () => {
     expect(body).not.toMatch(/\b(grant|alter\s+table|create\s+table|create\s+(or\s+replace\s+)?function|create\s+trigger|insert\s+into|update\s+public|delete\s+from)\b/i);
   });
 
-  it('is the newest migration there is on this branch, so it applies after everything it builds on', () => {
+  it('is in the migrations folder, and no migration that sorts before it is a copy of it (it applies after everything it builds on; later migrations may follow — this used to pin it as "the newest", which broke the day another migration landed)', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const names = (require('node:fs') as typeof import('node:fs')).readdirSync(path.join(root, 'supabase/migrations')).filter((n) => n.endsWith('.sql')).sort();
-    expect(names[names.length - 1]).toBe(path.basename(MIGRATION_FILE));
+    const here = path.basename(MIGRATION_FILE);
+    expect(names).toContain(here);
+    expect(names.filter((n) => n.includes('developer_viewer_reads_more_tables'))).toEqual([here]);
   });
 });
 

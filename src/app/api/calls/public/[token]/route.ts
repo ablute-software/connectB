@@ -1,9 +1,10 @@
 // Prompt 905 / 907 (I1) — what the link of a published call shows to ANYONE, signed in or not: the call's header (who promotes
 // it, its name, the deadline with its time zone, the summary, the regulation PDF if the team made one public) and the
 // state it is in for an applicant. Public on purpose (a candidate has no account yet), so it reveals nothing beyond the call's own
-// header, and nothing at all while CALLS_MODE is "off", for a call that is not published, for an archived one, or for one with no form.
+// header, and nothing at all while CALLS_MODE is "off", for a call that is not published, for an archived one, or for one with no form. A deleted call answers 410.
 import { NextResponse } from 'next/server';
-import { promoterName } from '@/lib/calls/store';
+import { isDeletedLink, promoterName } from '@/lib/calls/store';
+import { callsMode } from '@/lib/calls/mode';
 import { brandingOf } from '@/lib/calls/branding';
 import { resolvePublicCall, serviceClient } from '@/lib/calls/applicant/link';
 import { applicantPhase, phaseSentence } from '@/lib/calls/applicant/phase';
@@ -15,7 +16,11 @@ export async function GET(_req: Request, { params }: { params: { token: string }
   const admin = serviceClient();
   if (!admin) return NextResponse.json({ ok: false }, { status: 404 });
   const found = await resolvePublicCall(admin, params.token);
-  if (!found) return NextResponse.json({ ok: false }, { status: 404 });
+  if (!found) {
+    // A call that was DELETED (Prompt 918, Adenda 2, C) says so — "This call is no longer available" — rather than looking like a wrong link: its owner closed it on purpose.
+    if (callsMode() !== 'off' && (await isDeletedLink(admin, params.token))) return NextResponse.json({ ok: false, gone: true }, { status: 410 });
+    return NextResponse.json({ ok: false }, { status: 404 });
+  }
   const { call, fields } = found;
 
   // The regulation: only a PDF of kind "regulation" that the team marked "show to applicants".

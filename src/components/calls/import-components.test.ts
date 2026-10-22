@@ -69,29 +69,34 @@ describe('Import form from another call', () => {
 
 describe('Delete and archive, at the bottom of General', () => {
   const zone = (over: Partial<Parameters<typeof CallDangerZone>[0]> = {}) => renderToStaticMarkup(createElement(CallDangerZone, {
-    actions: { canDelete: true, canArchive: true }, status: 'draft', applicationsTotal: 0, canManage: true, busy: false, onDelete: () => {}, onArchive: () => {}, ...over,
+    callId: 'c1', name: 'Seed Call', actions: { canDelete: true, canArchive: true }, status: 'draft', canManage: true, busy: false, onDeleted: () => {}, onArchive: () => {}, ...over,
   }));
-  it('both offered on a draft nobody applied to', () => {
+  it('both offered on a draft; delete says where the call goes and for how long (Prompt 918 Adenda 2 C)', () => {
     const out = zone();
     expect(out).toContain('Delete call'); expect(out).toContain('Archive call');
     expect(isDisabled(out, 'delete-call')).toBe(false);
     expect(isDisabled(out, 'archive-call')).toBe(false);
+    expect(out).toContain('Moves the call to “Deleted calls”; you can restore it for 30 days, then it is removed for good.');
   });
-  it('with applications: delete is disabled and says to archive instead', () => {
-    const out = zone({ actions: { canDelete: false, canArchive: true }, status: 'closed', applicationsTotal: 4 });
-    expect(isDisabled(out, 'delete-call')).toBe(true);
-    expect(isDisabled(out, 'archive-call')).toBe(false);
-    expect(out).toContain('has opened, so it cannot be deleted. Archive it instead.');                 // no sentence from the server in this fixture: the fallback never says "has applications" for a call that opened
+  it('a call with applications, or one that has opened or closed, can be deleted too — there is no sentence sending the person to do something else', () => {
+    for (const status of ['open', 'closed', 'scheduled']) {
+      const out = zone({ status, actions: { canDelete: true, canArchive: status !== 'open' } });
+      expect(isDisabled(out, 'delete-call'), status).toBe(false);
+      expect(out).not.toContain('cannot be deleted');
+      expect(out).not.toContain('Archive it instead');
+    }
   });
-  it('an open call must be closed before it is archived', () => {
-    const out = zone({ actions: { canDelete: false, canArchive: false }, status: 'open' });
+  it('an open call must be closed before it is ARCHIVED (that rule stays); deleting it is still offered', () => {
+    const out = zone({ actions: { canDelete: true, canArchive: false }, status: 'open' });
     expect(isDisabled(out, 'archive-call')).toBe(true);
-    expect(isDisabled(out, 'delete-call')).toBe(true);
+    expect(isDisabled(out, 'delete-call')).toBe(false);
     expect(out).toContain('Close the call before archiving it.');
   });
-  it('nothing for a person who cannot configure the call; a note for an archived one', () => {
+  it('nothing for a person who cannot configure the call; an archived call keeps its note and can still be deleted', () => {
     expect(zone({ canManage: false })).toBe('');
-    expect(zone({ status: 'archived' })).toContain('This call is archived.');
+    const archived = zone({ status: 'archived' });
+    expect(archived).toContain('This call is archived.');
+    expect(archived).toContain('data-testid="delete-call"');
   });
 });
 

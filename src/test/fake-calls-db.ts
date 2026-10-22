@@ -184,10 +184,64 @@ function deleteCallIfEmpty(db: CallsDb, callId: string, actor: string, promoterN
 
 const nowOf = (db: CallsDb) => db.nowMs ?? Date.now();
 
+const DAY = 86_400_000;
+const countsOf = (db: CallsDb, callId: string) => {
+  const apps = db.tables.call_applications.filter((a) => a.call_id === callId);
+  return { submitted: apps.filter((a) => a.status === 'submitted' || a.status === 'withdrawn').length, drafts: apps.filter((a) => a.status === 'draft').length, files: db.tables.call_application_files.filter((f) => f.call_id === callId).length };
+};
+const auditRow = (db: CallsDb, c: Row, name: string, event: string, extra: Row) => db.tables.call_deletions.push({
+  id: uuid(db), call_id: c.id, call_name: c.name, promoter_kind: c.promoter_kind, promoter_id: c.catalog_entity_id ?? c.incubator_id, promoter_name: name, status_at_deletion: c.status,
+  deleted_by: c.deleted_by ?? null, deleted_at: new Date(nowOf(db)).toISOString(), event, ...extra,
+});
+
+/** soft_delete_call(), modelled (migration 20261021110000): marks the call deleted, closes it if it was open, writes the record that survives. */
+function softDeleteCall(db: CallsDb, callId: string, actor: string, promoterName: string) {
+  const c = db.tables.calls.find((r) => r.id === callId);
+  if (!c) return { ok: false, reason: 'not_found' };
+  if (c.deleted_at) return { ok: false, reason: 'already_deleted' };
+  const counts = countsOf(db, callId);
+  const now = new Date(nowOf(db)).toISOString();
+  const closedIt = c.status === 'open';
+  const before = c.status as string;
+  const purgeAfter = new Date(nowOf(db) + 30 * DAY).toISOString();
+  Object.assign(c, { deleted_at: now, deleted_by: actor, delete_purge_after: purgeAfter, updated_at: now, ...(closedIt ? { status: 'closed', closed_at: now } : {}) });
+  auditRow(db, { ...c, status: before }, promoterName, 'soft_deleted', { counts, actor, deleted_by: actor });
+  return { ok: true, call_name: c.name, status_before: before, ...counts, purge_after: purgeAfter, closed_it: closedIt };
+}
+
+/** restore_call(), modelled: only inside the 30 days; the call returns as it was. */
+function restoreCall(db: CallsDb, callId: string, actor: string, promoterName: string) {
+  const c = db.tables.calls.find((r) => r.id === callId);
+  if (!c) return { ok: false, reason: 'not_found' };
+  if (!c.deleted_at) return { ok: false, reason: 'not_deleted' };
+  if (Date.parse(c.delete_purge_after as string) <= nowOf(db)) return { ok: false, reason: 'expired' };
+  auditRow(db, c, promoterName, 'restored', { actor });
+  Object.assign(c, { deleted_at: null, deleted_by: null, delete_purge_after: null, updated_at: new Date(nowOf(db)).toISOString() });
+  return { ok: true, call_name: c.name, status: c.status };
+}
+
+/** purge_deleted_call(), modelled: after the 30 days; everything of the call goes (the append-only guard on submissions is lifted for it), the record stays. */
+function purgeDeletedCall(db: CallsDb, callId: string, promoterName: string) {
+  const c = db.tables.calls.find((r) => r.id === callId);
+  if (!c) return { ok: false, reason: 'not_found' };
+  if (!c.deleted_at) return { ok: false, reason: 'not_deleted' };
+  if (Date.parse(c.delete_purge_after as string) > nowOf(db)) return { ok: false, reason: 'too_early' };
+  const counts = countsOf(db, callId);
+  auditRow(db, c, promoterName, 'purged', { counts });
+  const appIds = new Set(db.tables.call_applications.filter((a) => a.call_id === callId).map((a) => a.id));
+  db.tables.call_application_submissions = db.tables.call_application_submissions.filter((r) => !appIds.has(r.application_id));
+  for (const t of ['call_phases', 'call_form_fields', 'call_config_snapshots', 'call_events', 'call_team_members', 'call_declared_conflicts', 'call_source_documents', 'call_import_runs', 'call_import_corrections',
+    'call_applications', 'call_application_files', 'call_notices', 'call_link_access']) {
+    if (db.tables[t]) db.tables[t] = db.tables[t].filter((r) => r.call_id !== callId);
+  }
+  db.tables.calls.splice(db.tables.calls.indexOf(c), 1);
+  return { ok: true, call_name: c.name, ...counts };
+}
+
 /** call_accepting(), modelled (migration 20261014100000): open or scheduled, opened, and not past its deadline, on the server's clock. */
 function callAccepting(db: CallsDb, callId: string): boolean {
   const c = db.tables.calls.find((r) => r.id === callId);
-  if (!c || !['open', 'scheduled'].includes(c.status as string)) return false;
+  if (!c || c.deleted_at || !['open', 'scheduled'].includes(c.status as string)) return false;
   if (!c.opens_at || Date.parse(c.opens_at as string) > nowOf(db)) return false;
   return !c.closes_at || Date.parse(c.closes_at as string) > nowOf(db);
 }
@@ -244,6 +298,9 @@ export function fakeCallsAdmin(db: CallsDb, storage: FakeStorage = { objects: ne
       if (name === 'call_accepting') return { data: callAccepting(db, args.p_call as string), error: null };
       if (name === 'call_open_application') { try { return { data: openApplication(db, args), error: null }; } catch (e) { return { data: null, error: { message: (e as Error).message, code: (e as { code?: string }).code } }; } }
       if (name === 'call_submit_application') return { data: submitApplication(db, args), error: null };
+      if (name === 'soft_delete_call') return { data: softDeleteCall(db, args.p_call as string, args.p_actor as string, args.p_promoter_name as string), error: null };
+      if (name === 'restore_call') return { data: restoreCall(db, args.p_call as string, args.p_actor as string, args.p_promoter_name as string), error: null };
+      if (name === 'purge_deleted_call') return { data: purgeDeletedCall(db, args.p_call as string, args.p_promoter_name as string), error: null };
       if (name === 'delete_call_if_empty') return { data: deleteCallIfEmpty(db, args.p_call as string, args.p_actor as string, args.p_promoter_name as string), error: null };
       return { data: null, error: { message: `unknown rpc ${name}` } };
     },

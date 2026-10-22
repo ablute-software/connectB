@@ -19,14 +19,28 @@ export async function logCallEvent(
   await admin.from('call_events').insert({ call_id: callId, event, actor_user_id: actor, detail });
 }
 
-export async function loadCall(admin: SupabaseClient, id: string): Promise<Call | null> {
+/**
+ * A call by id. A DELETED call (Prompt 918, Adenda 2, C) does not exist for anybody — the editor, the link, the applicants' area, the cron — unless the caller says so:
+ * only the "Deleted calls" screen, the restore, the purge and the read of an application of a cancelled call do.
+ */
+export async function loadCall(admin: SupabaseClient, id: string, opts: { includeDeleted?: boolean } = {}): Promise<Call | null> {
   const { data } = await admin.from('calls').select('*').eq('id', id).maybeSingle();
-  return data ? rowToCall(data as Row) : null;
+  if (!data) return null;
+  if ((data as Row).deleted_at && !opts.includeDeleted) return null;
+  return rowToCall(data as Row);
 }
 
-export async function loadCallByToken(admin: SupabaseClient, token: string): Promise<Call | null> {
+export async function loadCallByToken(admin: SupabaseClient, token: string, opts: { includeDeleted?: boolean } = {}): Promise<Call | null> {
   const { data } = await admin.from('calls').select('*').eq('link_token', token).maybeSingle();
-  return data ? rowToCall(data as Row) : null;
+  if (!data) return null;
+  if ((data as Row).deleted_at && !opts.includeDeleted) return null;
+  return rowToCall(data as Row);
+}
+
+/** Is this link the one of a call that was deleted? (The link then says "This call is no longer available" rather than "not found".) */
+export async function isDeletedLink(admin: SupabaseClient, token: string): Promise<boolean> {
+  const call = await loadCallByToken(admin, token, { includeDeleted: true });
+  return !!call?.deletedAt;
 }
 
 export async function loadPhases(admin: SupabaseClient, callId: string): Promise<CallPhase[]> {
@@ -72,6 +86,39 @@ export async function countApplications(admin: SupabaseClient, callId: string): 
   return { submitted: n('submitted'), inProgress: n('draft'), withdrawn: n('withdrawn'), total: rows.length };
 }
 
+/** What deleting a call would remove: the numbers only (never who). Drafts are applicants who started and have not submitted. */
+export async function deletionImpact(admin: SupabaseClient, callId: string): Promise<{ submitted: number; drafts: number; files: number }> {
+  const [counts, { data: files }] = await Promise.all([countApplications(admin, callId), admin.from('call_application_files').select('id').eq('call_id', callId)]);
+  return { submitted: counts.submitted + counts.withdrawn, drafts: counts.inProgress, files: ((files ?? []) as Row[]).length };
+}
+
+export interface SoftDeleted { ok: true; submitted: number; drafts: number; files: number; purgeAfter: string; closedIt: boolean; statusBefore: string }
+/**
+ * Delete a call (Prompt 918, Adenda 2, C): marked deleted, closed if it was open, purged in 30 days. One transaction in SQL under a row lock (soft_delete_call), which also writes the
+ * record that survives. Nothing is removed yet: it can be restored until `purgeAfter`.
+ */
+export async function softDeleteCall(admin: SupabaseClient, call: Call, actor: string, promoterDisplayName: string): Promise<SoftDeleted | { ok: false; reason: string }> {
+  const { data, error } = await admin.rpc('soft_delete_call', { p_call: call.id, p_actor: actor, p_promoter_name: promoterDisplayName });
+  if (error || !data) return { ok: false, reason: 'error' };
+  if (data.ok !== true) return { ok: false, reason: String(data.reason ?? 'error') };
+  return { ok: true, submitted: Number(data.submitted ?? 0), drafts: Number(data.drafts ?? 0), files: Number(data.files ?? 0), purgeAfter: String(data.purge_after), closedIt: data.closed_it === true, statusBefore: String(data.status_before ?? '') };
+}
+
+/** Bring a deleted call back, as it was (a call that was open comes back closed). Refused when the 30 days are over. */
+export async function restoreCall(admin: SupabaseClient, callId: string, actor: string, promoterDisplayName: string): Promise<{ ok: true; status: string } | { ok: false; reason: string }> {
+  const { data, error } = await admin.rpc('restore_call', { p_call: callId, p_actor: actor, p_promoter_name: promoterDisplayName });
+  if (error || !data) return { ok: false, reason: 'error' };
+  return data.ok === true ? { ok: true, status: String(data.status ?? '') } : { ok: false, reason: String(data.reason ?? 'error') };
+}
+
+/** The organisation's deleted calls, newest deletion first. */
+export async function listDeletedCalls(admin: SupabaseClient, kind: PromoterKind, promoterId: string): Promise<Call[]> {
+  const col = kind === 'incubator' ? 'incubator_id' : 'catalog_entity_id';
+  const { data } = await admin.from('calls').select('*').eq(col, promoterId);
+  return ((data ?? []) as Row[]).filter((r) => r.deleted_at).map(rowToCall)
+    .sort((a, b) => String(b.deletedAt ?? '').localeCompare(String(a.deletedAt ?? '')));
+}
+
 /**
  * Delete a call that nobody applied to, with the record of who deleted what and when (it survives the call). One
  * transaction in SQL under a row lock, so a late application cannot slip in between the check and the delete.
@@ -87,7 +134,7 @@ export async function deleteCallIfEmpty(
 export async function listPromoterCalls(admin: SupabaseClient, kind: PromoterKind, promoterId: string): Promise<CallCard[]> {
   const col = kind === 'incubator' ? 'incubator_id' : 'catalog_entity_id';
   const { data } = await admin.from('calls').select('*').eq(col, promoterId).order('created_at', { ascending: false });
-  const calls = ((data ?? []) as Row[]).map(rowToCall);
+  const calls = ((data ?? []) as Row[]).filter((r) => !r.deleted_at).map(rowToCall);   // a deleted call is not in the list (it is in "Deleted calls")
   if (calls.length === 0) return [];
   const ids = calls.map((c) => c.id);
   const [{ data: apps }, { data: fields }, { data: phases }, { data: runs }] = await Promise.all([

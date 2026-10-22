@@ -2,24 +2,24 @@
 // back-office filter. Pure, no browser.
 import { describe, expect, it } from 'vitest';
 import { callMenu, hasMenu, visibleCalls } from './list-view';
-import { archiveCall, availableActions, deleteProblem } from './lifecycle';
+import { archiveCall, availableActions, canDeleteCall } from './lifecycle';
 import { filterCallRows, type BackofficeCallRow } from './backoffice-view';
 import type { Call, CallStatus } from './types';
 
 const item = (status: CallStatus, applicationsTotal = 0, effectiveStatus: CallStatus = status) => ({ status, effectiveStatus, applicationsTotal });
 
 describe('who gets what in the menu', () => {
-  it('delete only before opening and with nobody applied; archive anything that is not open or archived; duplicate always', () => {
+  it('delete in ANY state, with or without applications (Prompt 918 Adenda 2 C); archive anything that is not open or archived; duplicate always', () => {
     expect(callMenu(item('draft'), true)).toEqual({ duplicate: true, archive: true, delete: true });
     expect(callMenu(item('validated'), true).delete).toBe(true);
     expect(callMenu(item('scheduled'), true).delete).toBe(true);
-    expect(callMenu(item('draft', 1), true)).toEqual({ duplicate: true, archive: true, delete: false });
-    expect(callMenu(item('open'), true)).toEqual({ duplicate: true, archive: false, delete: false });
-    expect(callMenu(item('closed'), true)).toEqual({ duplicate: true, archive: true, delete: false });
-    expect(callMenu(item('archived'), true)).toEqual({ duplicate: true, archive: false, delete: false });
+    expect(callMenu(item('draft', 1), true)).toEqual({ duplicate: true, archive: true, delete: true });
+    expect(callMenu(item('open'), true)).toEqual({ duplicate: true, archive: false, delete: true });       // deleting closes it
+    expect(callMenu(item('closed', 5), true)).toEqual({ duplicate: true, archive: true, delete: true });
+    expect(callMenu(item('archived'), true)).toEqual({ duplicate: true, archive: false, delete: true });
   });
-  it('a scheduled call whose time has come counts as open (it must be closed first)', () => {
-    expect(callMenu(item('scheduled', 0, 'open'), true)).toEqual({ duplicate: true, archive: false, delete: false });
+  it('a scheduled call whose time has come counts as open: it cannot be archived, but it can be deleted', () => {
+    expect(callMenu(item('scheduled', 0, 'open'), true)).toEqual({ duplicate: true, archive: false, delete: true });
   });
   it('someone who cannot configure the call gets no menu at all', () => {
     expect(hasMenu(callMenu(item('draft'), false))).toBe(false);
@@ -41,10 +41,8 @@ describe('the lifecycle rules behind it', () => {
     visibility: 'listed', limitUnit: 'project', allowMultiple: false, contentLanguage: 'en', currency: 'EUR', status, linkToken: null, configVersion: 1,
     validatedAt: null, publishedAt: null, closedAt: null, archivedAt: null, duplicatedFrom: null, createdBy: 'u', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', ...over,
   });
-  it('deleteProblem names the reason', () => {
-    expect(deleteProblem('draft', 0)).toBeNull();
-    expect(deleteProblem('open', 0)).toBe('This call has opened, so it cannot be deleted. Archive it instead.');
-    expect(deleteProblem('scheduled', 2)).toContain('2 applicants have started an application (not submitted yet)');
+  it('a call can always be deleted (by whoever may configure it): there is no state or application that refuses it', () => {
+    expect(canDeleteCall()).toBe(true);
   });
   it('archive: refused while open (and archived), allowed otherwise, with the patch', () => {
     const now = new Date('2026-10-12T10:00:00Z');
@@ -54,8 +52,8 @@ describe('the lifecycle rules behind it', () => {
   });
   it('availableActions carries canDelete and canArchive', () => {
     expect(availableActions(call('draft'), [], new Date(), 0)).toMatchObject({ canDelete: true, canArchive: true });
-    expect(availableActions(call('draft'), [], new Date(), 3)).toMatchObject({ canDelete: false, canArchive: true });
-    expect(availableActions(call('archived'), [], new Date(), 0)).toMatchObject({ canDelete: false, canArchive: false });
+    expect(availableActions(call('draft'), [], new Date(), 3)).toMatchObject({ canDelete: true, canArchive: true });
+    expect(availableActions(call('archived'), [], new Date(), 0)).toMatchObject({ canDelete: true, canArchive: false });
   });
 });
 

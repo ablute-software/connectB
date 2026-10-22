@@ -7,6 +7,7 @@
 //   My applications       In progress · Submitted · Under review · Result available. Order: in progress by the nearest deadline first, then the
 //                         submitted ones, newest first.
 //   Past applications     calls that ended with no submission (an unfinished draft goes to the archive) and applications of archived calls.
+//   A call the entity DELETED (Prompt 918, Adenda 2, C) is never advertised; the applications on it stay in "My applications", marked cancelled, until the day they go with it.
 import { effectiveStatus } from '../lifecycle';
 import { appearsInOpenCalls } from '../visibility';
 import type { CallStatus, CallVisibility } from '../types';
@@ -19,6 +20,8 @@ export interface CallFacts {
   description: string | null; visibility: CallVisibility; promoterIsTest: boolean; hasForm: boolean; allowMultiple: boolean;
   /** The entity's logo (Prompt 918, Adenda 1 C), shown small next to the name of the entity. */
   logoUrl?: string | null;
+  /** Prompt 918 (Adenda 2, C): set while the call is deleted — the applicants' applications stay readable until `purgeAfter`. */
+  deletedAt?: string | null; purgeAfter?: string | null;
 }
 export interface ApplicationFacts { id: string; callId: string; status: 'draft' | 'submitted' | 'withdrawn'; reference: string | null; updatedAt: string; submittedAt: string | null }
 
@@ -29,6 +32,8 @@ export interface OpenCallCard {
 export interface ApplicationItem {
   applicationId: string; callId: string; token: string | null; name: string; promoter: string; reference: string | null; stage: ApplicationStage;
   closesAt: string | null; timezone: string; submittedAt: string | null; logoUrl: string | null;
+  /** Set when the entity deleted the call: the day the application goes with it. A submitted one can still be read and its files downloaded until then. */
+  cancelledPurgeAfter?: string | null; applicationStatus?: 'draft' | 'submitted';
 }
 export interface PastItem {
   applicationId: string | null; callId: string; token: string | null; name: string; promoter: string; reference: string | null;
@@ -76,6 +81,7 @@ export function buildOverview(input: {
   // Open calls: listed and open (to this viewer), plus the link-only ones this startup reached, as long as there is something to do there.
   const open: OpenCallCard[] = [];
   for (const c of input.calls) {
+    if (c.deletedAt) continue;                                      // a deleted call is not advertised, whatever its state was
     if (!c.token || !c.hasForm) continue;
     const status = eff(c);
     const accepting = status === 'open';
@@ -103,6 +109,11 @@ export function buildOverview(input: {
     if (!c || a.status === 'withdrawn') continue;
     const status = eff(c);
     const base = { callId: c.id, token: c.token, name: c.name, promoter: c.promoter, reference: a.reference, closesAt: c.closesAt, timezone: c.timezone };
+    if (c.deletedAt) {
+      // Cancelled by the entity: kept in "My applications" until it is removed, so the applicant can still read and download what they submitted.
+      mine.push({ ...base, applicationId: a.id, stage: stageOf(a, status), submittedAt: a.submittedAt, logoUrl: c.logoUrl ?? null, cancelledPurgeAfter: c.purgeAfter ?? null, applicationStatus: a.status as 'draft' | 'submitted' });
+      continue;
+    }
     if (status === 'archived') { past.push({ ...base, applicationId: a.id, reason: 'archived' }); continue; }
     if (a.status === 'draft' && status !== 'open') { past.push({ ...base, applicationId: a.id, reason: 'closed_without_submission' }); continue; }
     mine.push({ ...base, applicationId: a.id, stage: stageOf(a, status), submittedAt: a.submittedAt, logoUrl: c.logoUrl ?? null });

@@ -4,7 +4,7 @@
 // until they are seen. Pure drawing: what is listed, in what order and with which button is decided in src/lib/calls/applicant/overview.ts.
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { formatInZone } from '@/lib/calls/tz';
+import { formatDayInZone, formatInZone } from '@/lib/calls/tz';
 import { richTextToPlain } from '@/lib/rich-text';
 import { STAGE_LABELS, type CardAction, type Overview } from '@/lib/calls/applicant/overview';
 import { CallNotices } from './CallNotices';
@@ -89,11 +89,24 @@ export function ApplicantCalls() {
                   <EntityLogo url={a.logoUrl} name={a.promoter} size={32} />
                   <span className="min-w-0 flex-1">
                     <b className="block truncate text-sm text-gray-900">{a.name}</b>
-                    <span className="text-xs text-gray-500">{a.promoter} · {a.reference ?? '—'} · {a.stage === 'in_progress' ? `deadline ${formatInZone(a.closesAt, a.timezone)}` : a.submittedAt ? `submitted ${formatInZone(a.submittedAt, a.timezone)}` : ''}</span>
+                    {a.cancelledPurgeAfter !== undefined ? (
+                      <span className="block text-xs text-[#B00000]" data-testid="cancelled-note">{a.promoter} cancelled this call. {a.applicationStatus === 'submitted' ? 'Your application' : 'Your draft'} will be deleted on {formatDayInZone(a.cancelledPurgeAfter, a.timezone)}.{a.applicationStatus === 'submitted' ? ' Until then you can read it and download your files.' : ''}</span>
+                    ) : (
+                      <span className="text-xs text-gray-500">{a.promoter} · {a.reference ?? '—'} · {a.stage === 'in_progress' ? `deadline ${formatInZone(a.closesAt, a.timezone)}` : a.submittedAt ? `submitted ${formatInZone(a.submittedAt, a.timezone)}` : ''}</span>
+                    )}
                   </span>
                   <span className="flex shrink-0 items-center gap-3">
-                    <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${a.stage === 'in_progress' ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'}`} data-testid="stage">{STAGE_LABELS[a.stage]}</span>
-                    {a.token && <Link href={`/call/${a.token}`} className="text-xs font-semibold text-[#0E7490] hover:underline">{a.stage === 'in_progress' ? 'Continue' : 'View'}</Link>}
+                    {a.cancelledPurgeAfter !== undefined ? (
+                      <>
+                        <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-[11px] font-semibold text-red-900" data-testid="stage">Cancelled</span>
+                        {a.applicationStatus === 'submitted' && <Link href={`/calls/cancelled/${a.applicationId}`} data-testid="view-cancelled" className="inline-flex min-h-[44px] items-center text-xs font-semibold text-[#0E7490] hover:underline">View</Link>}
+                      </>
+                    ) : (
+                      <>
+                        <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${a.stage === 'in_progress' ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'}`} data-testid="stage">{STAGE_LABELS[a.stage]}</span>
+                        {a.token && <Link href={`/call/${a.token}`} className="text-xs font-semibold text-[#0E7490] hover:underline">{a.stage === 'in_progress' ? 'Continue' : 'View'}</Link>}
+                      </>
+                    )}
                   </span>
                 </li>
               ))}

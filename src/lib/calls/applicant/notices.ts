@@ -3,7 +3,8 @@
 // also what stops a reminder going out twice).
 //   - submission received            -> the applicant, right after submitting;
 //   - draft not submitted, 48 h left -> the applicant, once per deadline (an extension earns a new reminder before the new deadline);
-//   - deadline extended              -> whoever has a draft not yet submitted — the entity never learns who they are.
+//   - deadline extended              -> whoever has a draft not yet submitted — the entity never learns who they are;
+//   - call cancelled (deleted)       -> whoever has a draft or a submission on it: the call is gone in 30 days and so are their applications (Prompt 918, Adenda 2, C).
 // The Reply-To of a call's emails is the call's own "Contact email for applicants" when it has one; otherwise there is none (platform emails
 // say "replies are not read" in the footer, src/lib/email-footer.ts).
 import 'server-only';
@@ -11,18 +12,19 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { APP_URL } from '@/lib/brand';
 import { sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 import { callLink } from '../link';
-import { formatInZone } from '../tz';
+import { formatDayInZone, formatInZone } from '../tz';
 import { rowToCall } from '../mappers';
 import { brandingOf } from '../branding';
 import { promoterName } from '../store';
+import { cancelledNoticeText } from '../deletion';
 import type { Call } from '../types';
 import type { ApplicationRow } from './store';
 
 /** What an applicant is told. */
 export type ApplicantNoticeKind = 'submission_received' | 'draft_reminder' | 'deadline_extended';
 /** Every kind of notice in call_notices: the applicant's three, and (Prompt 909, Adenda 2b) the two that tell the team an import has ended. */
-export type NoticeKind = ApplicantNoticeKind | 'import_ready' | 'import_failed';
-export const APPLICANT_NOTICE_KINDS: ApplicantNoticeKind[] = ['submission_received', 'draft_reminder', 'deadline_extended'];
+export type NoticeKind = ApplicantNoticeKind | 'call_cancelled' | 'import_ready' | 'import_failed';
+export const APPLICANT_NOTICE_KINDS: NoticeKind[] = ['submission_received', 'draft_reminder', 'deadline_extended', 'call_cancelled'];
 export const IMPORT_NOTICE_KINDS: NoticeKind[] = ['import_ready', 'import_failed'];
 
 export interface NoticeContent { title: string; body: string; ctaLabel: string }
@@ -79,9 +81,9 @@ export function emailLinkFor(call: Pick<Call, 'linkToken'>, base: string = APP_U
 }
 
 /** Send the email of a notice and record the outcome on its row. Never throws: a failed email must not undo the event it reports. */
-export async function emailNotice(admin: SupabaseClient, noticeId: string | null, to: string, call: Pick<Call, 'contactEmail' | 'linkToken'> & Partial<Call>, content: NoticeContent): Promise<boolean> {
+export async function emailNotice(admin: SupabaseClient, noticeId: string | null, to: string, call: Pick<Call, 'contactEmail' | 'linkToken'> & Partial<Call>, content: NoticeContent, opts: { url?: string } = {}): Promise<boolean> {
   try {
-    const url = emailLinkFor(call);
+    const url = opts.url ?? emailLinkFor(call);
     const brandHtml = await brandLine(admin, call);
     const res = await sendTransactionalEmail({
       to, subject: content.title,
@@ -157,7 +159,7 @@ export async function notifyDeadlineExtended(admin: SupabaseClient, call: Call):
 export async function sendDraftReminders(admin: SupabaseClient, now: Date = new Date(), opts: { userId?: string } = {}): Promise<{ calls: number; reminded: number }> {
   const from = now.toISOString();
   const to = new Date(now.getTime() + REMINDER_HOURS * HOUR).toISOString();
-  const { data: calls } = await admin.from('calls').select('*').eq('status', 'open').gt('closes_at', from).lte('closes_at', to);
+  const { data: calls } = await admin.from('calls').select('*').eq('status', 'open').is('deleted_at', null).gt('closes_at', from).lte('closes_at', to);
   let reminded = 0;
   const list = (calls ?? []) as Row[];
   for (const r of list) {
@@ -189,4 +191,30 @@ export async function notifySubmissionReceived(admin: SupabaseClient, call: Call
   if (!created) return;
   const to = await emailOf(admin, userId);
   if (to) await emailNotice(admin, id, to, call, content);
+}
+
+/**
+ * The call was deleted (Prompt 918, Adenda 2, C): whoever has a draft or a submission on it is told — in the app and by email — that «Entity» cancelled «Title» and that their application will be
+ * deleted on the day the 30 days end. Until then they can read what they submitted and download their files in Calls → My applications. The entity is never told who they are. Once per person
+ * and call (a restored call that is deleted again is a new event: the key carries the day it goes). Returns how many were told.
+ */
+export async function notifyCallCancelled(admin: SupabaseClient, call: Call, purgeAfter: string, entityName: string): Promise<number> {
+  const { data } = await admin.from('call_applications').select('id, applicant_user_id, status').eq('call_id', call.id).in('status', ['draft', 'submitted']);
+  const purgeDay = formatDayInZone(purgeAfter, call.timezone);
+  const text = cancelledNoticeText(entityName, call.name, purgeDay);
+  const content: NoticeContent = { title: text.title, body: text.body, ctaLabel: 'View my applications' };
+  const url = `${emailLinkFor({ linkToken: null })}/calls`;
+  let n = 0;
+  const seen = new Set<string>();
+  for (const a of (data ?? []) as Row[]) {
+    const userId = a.applicant_user_id as string;
+    if (seen.has(userId)) continue;                                   // one notice per person, however many applications they have
+    seen.add(userId);
+    const { created, id } = await createNotice(admin, { userId, callId: call.id, applicationId: a.id as string, kind: 'call_cancelled', dedupeKey: `cancelled:${call.id}:${purgeAfter}:${userId}`, content, linkPath: '/calls' });
+    if (!created) continue;
+    n++;
+    const to = await emailOf(admin, userId);
+    if (to) await emailNotice(admin, id, to, call, content, { url });
+  }
+  return n;
 }

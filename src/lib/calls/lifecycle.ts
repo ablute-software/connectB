@@ -192,25 +192,12 @@ export function closeEarly(call: Call, now: Date = new Date()): Transition {
 export interface ApplicationCounts { submitted: number; inProgress: number; withdrawn: number; total: number }
 
 /**
- * Delete (Prompt 909, I1; the messages, Prompt 918 Adenda 1 A): only before the call opens, and only if nobody has applied in any state: after that there is applicants' data in it.
- * Same rules as delete_call_if_empty() in SQL, which has the last word under a row lock. null = may be deleted.
- *
- * The sentence says the TRUE reason, in the order it applies: the call has opened; else it has submitted applications (a withdrawn one was submitted); else only drafts —
- * applicants who started and have not submitted, which the entity never sees in Applications, so the number is said and nothing else. A bare number counts as drafts.
+ * Delete (Prompt 918, Adenda 2, C — it replaces "after it opens, only archive", Prompts 909 and 918 Adenda 1): a call can be deleted in ANY state, by whoever may "Configure call".
+ * Deleting is not instant — the call goes to "Deleted calls" for 30 days (see deletion.ts) — so there is nothing left to refuse by state or by applications: what protects the
+ * applicants' data is the confirmation (the summary and the name typed), the notice they get, and the 30 days. A call that is already deleted is not reachable by the editor at all.
+ * The screen and the server share this answer, so a disabled "Delete call" can never be explained by a sentence that is not true.
  */
-export function deleteProblem(status: CallStatus, apps: ApplicationCounts | number): string | null {
-  const c: ApplicationCounts = typeof apps === 'number' ? { submitted: 0, inProgress: apps, withdrawn: 0, total: apps } : apps;
-  if (status !== 'draft' && status !== 'validated' && status !== 'scheduled') return 'This call has opened, so it cannot be deleted. Archive it instead.';
-  const submitted = c.submitted + c.withdrawn;
-  if (submitted > 0) {
-    return `This call has ${submitted} submitted application${submitted === 1 ? '' : 's'}, so it cannot be deleted: there is applicants’ data in it. Archive it instead.`;
-  }
-  if (c.inProgress > 0 || c.total > 0) {
-    const n = c.inProgress > 0 ? c.inProgress : c.total;
-    return `${n} applicant${n === 1 ? ' has' : 's have'} started an application (not submitted yet). To protect their data, the call cannot be deleted. Archive it instead.`;
-  }
-  return null;
-}
+export const canDeleteCall = (): boolean => true;
 
 /** Archive: for calls with applications, or already open or closed. An open call must be closed first. */
 export function archiveCall(call: Call, actor: string, now: Date = new Date()): Transition {
@@ -225,11 +212,9 @@ export function archiveCall(call: Call, actor: string, now: Date = new Date()): 
 /** Which actions the editor offers for this state. */
 export function availableActions(call: Call, issues: ReadinessIssue[], now: Date = new Date(), applications: ApplicationCounts | number = 0, ctx: { closedEarly?: boolean } = {}) {
   const status = effectiveStatus(call, now);
-  const problem = deleteProblem(status, applications);
+  void applications;
   return {
-    canDelete: problem === null,
-    /** The sentence the screen shows when it cannot be deleted: the very one the server answers with. */
-    deleteProblem: problem,
+    canDelete: canDeleteCall(),
     canArchive: call.status !== 'archived' && status !== 'open',
     status,
     canEditForm: isConfigEditable(call.status),

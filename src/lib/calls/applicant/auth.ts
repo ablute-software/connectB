@@ -48,8 +48,11 @@ export async function authApplication(req: Request, applicationId: string): Prom
   if (me.error) return me;
   const app = /^[0-9a-f-]{36}$/i.test(applicationId) ? await loadApplication(me.admin, applicationId) : null;
   if (!app || app.orgId !== me.orgId) return { error: notFound() };
-  const call = await loadCall(me.admin, app.callId);
+  // A DELETED call (Prompt 918, Adenda 2, C) is still readable here — for the 30 days the applicant can look at what they submitted and download their files — but nothing can be started,
+  // saved, uploaded or submitted on it: every request that is not a read answers 410.
+  const call = await loadCall(me.admin, app.callId, { includeDeleted: true });
   if (!call) return { error: notFound() };
+  if (call.deletedAt && req.method !== 'GET') return { error: NextResponse.json({ ok: false, code: 'call_deleted', error: 'This call is no longer available.' }, { status: 410 }) };
   const [fields, promoter] = await Promise.all([loadFields(me.admin, call.id), promoterName(me.admin, call.promoterKind, call.promoterId)]);
   return { ...me, call, fields, app, promoter };
 }

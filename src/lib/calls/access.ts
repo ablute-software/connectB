@@ -106,10 +106,11 @@ const forbid = (what: string) => ({ error: NextResponse.json({ ok: false, error:
  * `need: 'configure'`) they must have "Configure call" in it; to edit the team (`need: 'team'`), "Manage team &
  * permissions". The returned promoter carries the answers for THIS call (canManage, canManageTeam).
  */
-export async function authCall(callId: string, opts: { write?: boolean; need?: 'configure' | 'team' | 'view_applications' } = {}): Promise<CallsGate<CallAuth>> {
+export async function authCall(callId: string, opts: { write?: boolean; need?: 'configure' | 'team' | 'view_applications'; includeDeleted?: boolean } = {}): Promise<CallsGate<CallAuth>> {
   const auth = await authCalls();
   if (auth.error) return auth;
-  const call = await loadCall(auth.admin, callId);
+  // A deleted call is not reachable (404) unless the route is the one that lists or restores deleted calls.
+  const call = await loadCall(auth.admin, callId, { includeDeleted: opts.includeDeleted });
   const promoter = call ? auth.promoters.find((p) => p.kind === call.promoterKind && p.id === call.promoterId) : undefined;
   if (!call || !promoter) return { error: notFound() };
 
