@@ -482,3 +482,8 @@ body.investor-pipeline-dragging a, body.investor-pipeline-dragging button { curs
 .rich-text > :first-child { margin-top: 0; }
 .rich-text > :last-child { margin-bottom: 0; }
 .rich-edit:empty::before { content: attr(data-placeholder); color: #9ca3af; pointer-events: none; }
+
+/* Prompt 917 (Adenda 2, A) — the form editor's settings panel: NOTHING inside it may be wider than the panel. Fields shrink or move to the next line, long words break, and the panel never
+   scrolls sideways (the group's sub-question box used to end up a 20 px square with its buttons outside the card). The same rule holds on a phone, where the panel is a full screen. */
+[data-field-panel], [data-field-panel] * { min-width: 0; max-width: 100%; box-sizing: border-box; }
+[data-field-panel] { overflow-wrap: anywhere; }

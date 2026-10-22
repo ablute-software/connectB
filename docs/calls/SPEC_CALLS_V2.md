@@ -180,6 +180,8 @@ Tipos de campo:
 
 **Onde vale:** o editor do formulário da entidade, a pré-visualização e o modo de teste (§8), o preenchimento pelo candidato (rascunho automático, pré-preenchimento sem sobrepor o editado, obrigatórios e condições também no servidor), a versão submetida (imutável: os ficheiros de cada entrada ficam congelados com a sua extensão, e o formulário como estava, com a configuração do grupo, fica no retrato da submissão) e a tab Submissions (só de leitura). Duplicar uma call e importar o formulário de outra copiam os tipos novos e as suas definições.
 
+**O painel de edição de uma pergunta nunca passa a sua largura** **[Decisão]** (Prompt 917, Adenda 2, A, 22/10/2026): em todo o editor do formulário — o painel da pergunta, as sub-perguntas de um grupo, as opções de escolha, as condições e os ficheiros — os campos encolhem ou passam à linha de baixo, os textos longos quebram linha e nunca há scroll horizontal. Em cada sub-pergunta de um grupo o texto da pergunta tem uma linha própria, com a largura toda; o tipo e "Required in every entry" ficam por baixo, e ↑ ↓ ✕ no canto do cartão. Um teste visual num browser real (1280, 1024, 768 e 375 px) falha se algum elemento do painel for mais largo do que ele.
+
 ### 6.2. Condições de apresentação
 
 Exemplo: "Data de constituição" só aparece se "A empresa está constituída?" = Sim.
