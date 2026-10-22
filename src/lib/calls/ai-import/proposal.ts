@@ -9,10 +9,11 @@
 // Pure and client-safe: the review screen uses the same types and the same conversion.
 import { newFieldId, newOptionId } from '../form-builder';
 import { parseGroupConfig, parseSimpleValidations } from '../field-config';
+import { newTableColumnId, newTableRowId, parseTableConfig } from '../table';
 import { isValidTimeZone, wallToUtcIso } from '../tz';
 import { normalizeDescription } from '../../rich-text';
 import {
-  AI_FIELD_KINDS, DEFAULT_MAX_FILE_MB, YES_NO_OPTIONS, isChoiceKind, type FieldKind, type FieldValidations, type FormField, type GroupConfig, type LimitUnit, type SimpleKind,
+  AI_FIELD_KINDS, DEFAULT_MAX_FILE_MB, YES_NO_OPTIONS, isChoiceKind, type FieldKind, type FieldValidations, type FormField, type GroupConfig, type LimitUnit, type SimpleKind, type TableConfig,
 } from '../types';
 
 export const MAX_PROPOSED_FIELDS = 150;
@@ -39,6 +40,8 @@ export interface ProposalFieldItem {
   validations?: Omit<FieldValidations, 'group'>;
   /** A repeatable group (kind "group"): the entry, its questions, cards or table, its fixed rows. */
   group?: GroupConfig | null;
+  /** A table with headers (kind "table", Prompt 917 Adenda 2): the criteria as rows, the things compared as columns. */
+  table?: TableConfig | null;
   /** Shown only when an EARLIER yes/no question of this proposal is answered so ("4.4 = Yes" -> the amount). `tmpId` is that question's. */
   condition?: { tmpId: string; value: 'yes' | 'no' } | null;
   /** The number the document gives the question ("2.10.1"): what a correction, a warning or a repeated question is matched by. */
@@ -117,6 +120,20 @@ export function sanitizePhases(raw: unknown): ProposalPhaseItem[] {
   return out;
 }
 
+/** The configuration of a table as the model wrote it (snake_case, headers as plain strings) or as the review screen sends it back (camelCase, headers with ids). */
+function tableRaw(raw: unknown): unknown {
+  const t = obj(raw);
+  const headers = (list: unknown, prefix: 'r' | 'c') => arr(list).map((h) => {
+    if (typeof h === 'string') return { id: prefix === 'r' ? newTableRowId() : newTableColumnId(), label: h };
+    const o = obj(h); return { id: o.id, label: o.label };
+  });
+  const rule = (r: unknown) => { const o = obj(r); return { allowed: o.allowed === true, max: o.max, defaultName: o.defaultName ?? o.default_name }; };
+  return {
+    cornerTitle: t.cornerTitle ?? t.corner_title, rows: headers(t.rows, 'r'), columns: headers(t.columns, 'c'), cellKind: t.cellKind ?? t.cell_kind, rowKinds: t.rowKinds ?? t.row_kinds ?? {},
+    addColumns: rule(t.addColumns ?? t.add_columns), addRows: rule(t.addRows ?? t.add_rows), required: t.required,
+  };
+}
+
 /** The configuration of a group as the model wrote it (snake_case, options as plain strings) or as the review screen sends it back (camelCase). */
 function groupRaw(raw: unknown): unknown {
   const g = obj(raw);
@@ -163,10 +180,16 @@ export function sanitizeFieldItems(raw: unknown, opts: { paged: boolean; source?
       if (g.ok) group = g.config;
       else { attention.push({ kind: 'not_covered', what: `“${label}”`, why: `It looks like a repeatable group but could not be read as one (${g.error}), so it was imported as a short text question.` }); kind = 'short_text'; }
     }
+    let table: TableConfig | null = null;
+    if (kind === 'table') {
+      const t = parseTableConfig(tableRaw(o.table));
+      if (t.ok) table = t.config;
+      else { attention.push({ kind: 'not_covered', what: `“${label}”`, why: `It looks like a table but could not be read as one (${t.error}), so it was imported as a short text question.` }); kind = 'short_text'; }
+    }
     // What a kind is configured with: only what applies to it survives (the same reading the editor's own saves go through).
     const v = obj(o.validations);
     let validations: ProposalFieldItem['validations'];
-    if (kind !== 'group') {
+    if (kind !== 'group' && kind !== 'table') {
       const parsed = parseSimpleValidations(kind as SimpleKind, {
         ...v, fileFormats: v.fileFormats ?? o.file_formats ?? o.fileFormats, maxFiles: v.maxFiles ?? o.max_files ?? o.maxFiles, maxFileMb: v.maxFileMb ?? o.max_file_mb ?? o.maxFileMb,
         urlHint: v.urlHint ?? o.url_hint ?? o.urlHint, currency: v.currency ?? o.currency, maxLength: v.maxLength ?? o.max_length ?? o.maxLength, maxWords: v.maxWords ?? o.max_words ?? o.maxWords,
@@ -185,7 +208,7 @@ export function sanitizeFieldItems(raw: unknown, opts: { paged: boolean; source?
       tmpId, page, kind, label, instruction: clean(o.instruction, 1000), required: o.required === true, options,
       expectedType: kind === 'file' ? clean(o.expected_document_type ?? o.expectedType, 200) : null,
       maxAgeMonths: kind === 'file' && Number.isInteger(age) && age > 0 && age <= 600 ? age : null,
-      ...(validations ? { validations } : {}), ...(group ? { group } : {}),
+      ...(validations ? { validations } : {}), ...(group ? { group } : {}), ...(table ? { table } : {}),
       number: clean(o.number, 40), ...(src ? { source: src } : {}),
     });
   };
@@ -273,6 +296,7 @@ export function fieldItemsToFormFields(items: ProposalFieldItem[], afterPage: nu
     const position = perPage.get(page) ?? 0; perPage.set(page, position + 1);
     const validations: FieldValidations = it.kind === 'group'
       ? { group: JSON.parse(JSON.stringify(it.group ?? { entryLabel: 'Entry', min: 0, max: 10, display: 'cards', presetRows: [], subFields: [] })) as GroupConfig }
+      : it.kind === 'table' && it.table ? { table: JSON.parse(JSON.stringify(it.table)) as TableConfig }
       : it.kind === 'file' ? { maxFileMb: DEFAULT_MAX_FILE_MB, ...(it.validations ?? {}) } : { ...(it.validations ?? {}) };
     const c = it.condition;
     const controllerAt = c ? order.get(c.tmpId) : undefined;

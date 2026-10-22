@@ -8,6 +8,7 @@ import {
   type FormField, type PlatformMappingKey, type SimpleKind,
 } from './types';
 import { defaultGroupConfig, parseGroupConfig, parseSimpleValidations } from './field-config';
+import { defaultTableConfig, parseTableConfig } from './table';
 
 // --- Ids ------------------------------------------------------------------------------------------------------------
 
@@ -30,7 +31,7 @@ export function newField(kind: FieldKind, page = 1, position = 0): FormField {
     id: newFieldId(), page, position, kind, label: kind === 'file' ? UNTITLED_DOCUMENT : UNTITLED, instruction: null, required: false,
     options: kind === 'yes_no' ? YES_NO_OPTIONS.map((o) => ({ ...o }))
       : isChoiceKind(kind) ? [{ id: newOptionId(), label: 'Option 1' }, { id: newOptionId(), label: 'Option 2' }] : [],
-    validations: kind === 'file' ? { maxFileMb: DEFAULT_MAX_FILE_MB } : kind === 'group' ? { group: defaultGroupConfig() } : {},
+    validations: kind === 'file' ? { maxFileMb: DEFAULT_MAX_FILE_MB } : kind === 'group' ? { group: defaultGroupConfig() } : kind === 'table' ? { table: defaultTableConfig() } : {},
     condition: null, platformMapping: null, expectedType: null, maxAgeMonths: null,
   };
 }
@@ -233,6 +234,10 @@ export function parseFieldsPayload(input: unknown): ParsedFields {
       const g = parseGroupConfig((raw.validations as Record<string, unknown> | undefined)?.group);
       if (!g.ok) return { ok: false, error: `“${str(raw.label, 80) || UNTITLED}”: ${g.error}` };
       validations = { group: g.config };
+    } else if (kind === 'table') {
+      const t = parseTableConfig((raw.validations as Record<string, unknown> | undefined)?.table);
+      if (!t.ok) return { ok: false, error: `“${str(raw.label, 80) || UNTITLED}”: ${t.error}` };
+      validations = { table: t.config };
     } else validations = parseSimpleValidations(kind as SimpleKind, raw.validations);
 
     let platformMapping: PlatformMappingKey | null = null;
@@ -271,6 +276,7 @@ export function parseFieldsPayload(input: unknown): ParsedFields {
     }
     // v1: a condition cannot depend on a group (nor on anything inside one: the sub-questions are not questions of the form).
     if (controller.kind === 'group') return { ok: false, error: `“${f.label}” cannot depend on a repeatable group.` };
+    if (controller.kind === 'table') return { ok: false, error: `“${f.label}” cannot depend on a table.` };
     // A value is optional while the condition is being built; when present it must be one of the controller's options.
     if ((c.operator === 'equals' || c.operator === 'not_equals') && c.value && !controller.options.some((o) => o.id === c.value)) {
       return { ok: false, error: `“${f.label}”: the condition's value is not one of “${controller.label}”'s options.` };

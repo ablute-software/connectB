@@ -10,6 +10,7 @@
 // a File question may hold several files; a repeatable group is a list of entries, each coerced question by question with the very same rules —
 // and when the entity pre-defined the rows, the text of their first columns is the entity's, whatever the browser sent.
 import { isRealDate, sanitizeNumberInput } from '../form-logic';
+import { coerceTable, tableOf } from '../table';
 import { MAX_URL_LENGTH, groupOf, groupStarted, maxFilesOf, mimeOfName, newEntryId, presetEntriesFor, subFieldAsField } from '../field-config';
 import { MAX_NUMBER_DIGITS, type Answers, type AnswerValue, type FileValue, type FormField, type GroupEntry, type SimpleAnswer } from '../types';
 
@@ -103,7 +104,9 @@ export function sanitizeAnswers(fields: FormField[], raw: unknown, files: FileRe
   const out: Answers = {};
   for (const f of fields) {
     if (!Object.prototype.hasOwnProperty.call(input, f.id)) continue;
-    const value = f.kind === 'group' ? coerceGroup(f, input[f.id], files) : coerce(f, input[f.id], files);
+    // A table keeps ONLY what the applicant may author (their own columns and rows, within the entity's limits, and the cells): the entity's headers are never read from the request (coerceTable).
+    const tableCfg = tableOf(f);
+    const value = f.kind === 'group' ? coerceGroup(f, input[f.id], files) : tableCfg ? coerceTable(tableCfg, input[f.id]) : coerce(f, input[f.id], files);
     if (value !== undefined) out[f.id] = value;
   }
   if (JSON.stringify(out).length > MAX_ANSWERS_BYTES) throw new Error('These answers are too large.');

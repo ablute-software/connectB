@@ -201,7 +201,8 @@ export function ApplicationForm({ initial, initialPage, onSubmitted }: {
       <div className="space-y-5">
         {current.fields.map((f) => {
           const v = answers[f.id];
-          const err = canEdit && isAnswered(v) ? validateAnswer(f, v) : null; // only what was typed; "required" is checked at submission
+          // only what was typed; "required" is checked at submission. A table shows its problems cell by cell, so it has no message of its own under the whole question.
+          const err = canEdit && f.kind !== 'table' && isAnswered(v) ? validateAnswer(f, v) : null;
           return (
             <FieldInput key={f.id} field={f} value={v} error={err ?? undefined} currency={initial.call.currency} disabled={!canEdit} onChange={(nv) => change(f.id, nv)}
               fileControl={f.kind === 'file' ? (

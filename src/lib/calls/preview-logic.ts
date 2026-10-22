@@ -10,6 +10,7 @@ import { groupIssues, validateAnswer, visibleFields, visiblePages, validatePage 
 import { orderFields } from './form-logic';
 import { MAX_NUMBER_DIGITS, URL_HINT_LABELS, platformMappingLabel, type Answers, type FormField } from './types';
 import { fileFormatsOf, formatsText, groupMin, groupOf, maxFileMbOf, maxFilesOf } from './field-config';
+import { tableIssues, tableOf } from './table';
 
 // --- What is written under a field ------------------------------------------------------------------------------------
 
@@ -44,6 +45,16 @@ export function validationHints(field: FormField): string[] {
       if (field.validations.urlHint) out.push(`Expected: a ${URL_HINT_LABELS[field.validations.urlHint].toLowerCase()}`);
       break;
     case 'email': out.push('A valid email address'); break;
+    case 'table': {
+      const t = tableOf(field);
+      if (t) {
+        out.push(`${t.rows.length > 0 ? `${t.rows.length} row${t.rows.length === 1 ? '' : 's'} × ` : ''}${t.columns.length} column${t.columns.length === 1 ? '' : 's'}`);
+        if (t.addColumns.allowed) out.push(`You can add columns (up to ${t.addColumns.max} in all)`);
+        if (t.addRows.allowed) out.push(`You can add rows (up to ${t.addRows.max} in all)`);
+        if (t.required !== 'none') out.push(t.required === 'all' ? 'Every cell is required' : 'The first column is required');
+      }
+      break;
+    }
     case 'group': {
       const g = groupOf(field);
       if (g) {
@@ -116,7 +127,9 @@ export function finalCheck(fields: FormField[], answers: Answers, previouslyVisi
   for (const f of visibleFields(fields, answers)) {
     const problems = f.kind === 'group'
       ? groupIssues(f, answers[f.id])
-      : (() => { const message = validateAnswer(f, answers[f.id]); return message ? [{ key: f.id, message }] : []; })();
+      : f.kind === 'table'
+        ? tableIssues(f, answers[f.id])                  // one item per cell that is missing or wrong, "Row — Column: …"
+        : (() => { const message = validateAnswer(f, answers[f.id]); return message ? [{ key: f.id, message }] : []; })();
     if (problems.length === 0) continue;
     const controller = previouslyVisible && !previouslyVisible.has(f.id) && f.condition ? byId.get(f.condition.fieldId) : undefined;
     const newBecause = controller ? { label: controller.label, pageNumber: pages.indexOf(controller.page) + 1 } : undefined;

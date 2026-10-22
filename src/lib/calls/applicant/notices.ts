@@ -4,7 +4,8 @@
 //   - submission received            -> the applicant, right after submitting;
 //   - draft not submitted, 48 h left -> the applicant, once per deadline (an extension earns a new reminder before the new deadline);
 //   - deadline extended              -> whoever has a draft not yet submitted — the entity never learns who they are;
-//   - call cancelled (deleted)       -> whoever has a draft or a submission on it: the call is gone in 30 days and so are their applications (Prompt 918, Adenda 2, C).
+//   - call cancelled (deleted)       -> whoever has a draft or a submission on it: the call is gone in 30 days and so are their applications (Prompt 918, Adenda 2, C);
+//   - a question changed             -> a draft whose answer could not be carried over to the new shape of the question (Prompt 917, Adenda 2, B4: a group became a table).
 // The Reply-To of a call's emails is the call's own "Contact email for applicants" when it has one; otherwise there is none (platform emails
 // say "replies are not read" in the footer, src/lib/email-footer.ts).
 import 'server-only';
@@ -23,8 +24,8 @@ import type { ApplicationRow } from './store';
 /** What an applicant is told. */
 export type ApplicantNoticeKind = 'submission_received' | 'draft_reminder' | 'deadline_extended';
 /** Every kind of notice in call_notices: the applicant's three, and (Prompt 909, Adenda 2b) the two that tell the team an import has ended. */
-export type NoticeKind = ApplicantNoticeKind | 'call_cancelled' | 'import_ready' | 'import_failed';
-export const APPLICANT_NOTICE_KINDS: NoticeKind[] = ['submission_received', 'draft_reminder', 'deadline_extended', 'call_cancelled'];
+export type NoticeKind = ApplicantNoticeKind | 'call_cancelled' | 'form_changed' | 'import_ready' | 'import_failed';
+export const APPLICANT_NOTICE_KINDS: NoticeKind[] = ['submission_received', 'draft_reminder', 'deadline_extended', 'call_cancelled', 'form_changed'];
 export const IMPORT_NOTICE_KINDS: NoticeKind[] = ['import_ready', 'import_failed'];
 
 export interface NoticeContent { title: string; body: string; ctaLabel: string }
@@ -217,4 +218,21 @@ export async function notifyCallCancelled(admin: SupabaseClient, call: Call, pur
     if (to) await emailNotice(admin, id, to, call, content, { url });
   }
   return n;
+}
+
+/**
+ * A question of an open call changed shape and this draft's answer to it could not be carried over (a repeatable group became a table and what was typed did not fit): the applicant is told which
+ * question, in the app and by email, so that nothing is lost in silence. Once per person and question.
+ */
+export async function notifyFormChanged(admin: SupabaseClient, call: Call, userId: string, applicationId: string, questionLabel: string): Promise<boolean> {
+  const content: NoticeContent = {
+    title: `A question of “${call.name}” changed`,
+    body: `“${questionLabel}” in “${call.name}” is now a table, and what you had written there could not be carried over. Please open your application and fill it in again; the rest of your answers are untouched.`,
+    ctaLabel: 'Continue your application',
+  };
+  const { created, id } = await createNotice(admin, { userId, callId: call.id, applicationId, kind: 'form_changed', dedupeKey: `form_changed:${applicationId}:${questionLabel}`, content, linkPath: call.linkToken ? `/call/${call.linkToken}?start=1` : '/calls' });
+  if (!created) return false;
+  const to = await emailOf(admin, userId);
+  if (to) await emailNotice(admin, id, to, call, content);
+  return true;
 }

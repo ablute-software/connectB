@@ -6,7 +6,9 @@ import { useEffect, useState } from 'react';
 import { formatInZone } from '@/lib/calls/tz';
 import { formatNumberDisplay, visiblePages } from '@/lib/calls/form-logic';
 import { entriesOf, fileValues, groupOf, isHttpUrl, presetEntriesFor, subFieldAsField } from '@/lib/calls/field-config';
+import { isTableAnswered, tableSummary } from '@/lib/calls/table';
 import type { Answers, AnswerValue, FormField, SimpleAnswer } from '@/lib/calls/types';
+import { TableInput } from './TableInput';
 
 interface Item { applicationId: string; reference: string | null; startup: string; submittedAt: string }
 interface Detail {
@@ -19,6 +21,7 @@ const sizeText = (b: number) => (b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed
 /** An answer as text, for reading (option labels, not ids). Pure; the tests read it. */
 export function answerText(field: FormField, value: AnswerValue, currency: string): string {
   if (value == null || value === '') return '—';
+  if (field.kind === 'table') return isTableAnswered(value) ? tableSummary(field, value) : '—';
   if (field.kind === 'group') { const n = entriesOf(value).length; const g = groupOf(field); return n === 0 ? '—' : `${n} ${(g?.entryLabel ?? 'entry').toLowerCase()}${n === 1 ? '' : ' entries'}`; }
   if (Array.isArray(value)) {
     if (field.kind === 'file') return fileValues(value).map((f) => f.fileName).join(', ') || '—';
@@ -57,6 +60,8 @@ export function AnswerView({ field, value, docs, currency }: { field: FormField;
     // Only an http(s) link becomes a link; anything else is shown as plain text. It opens in a new tab, without the opener or the referrer.
     return isHttpUrl(url) ? <a href={url} target="_blank" rel="noopener noreferrer" className="break-all font-medium text-[#0E7490] hover:underline" data-testid="answer-link">{url}</a> : <span className="break-all">{url}</span>;
   }
+  // A table: the whole grid, read-only, with the applicant's own columns and rows marked "added by applicant" and "Expand table" for a big one (Prompt 917, Adenda 2, B3).
+  if (field.kind === 'table') return isTableAnswered(value as AnswerValue) ? <TableInput field={field} value={value as AnswerValue} currency={currency} disabled markAdded onChange={() => {}} /> : <>—</>;
   if (field.kind === 'group') {
     const g = groupOf(field);
     // Nothing answered stays "—"; once there is an answer, the rows the entity fixed are shown with their first columns, even for an answer stored before they were kept.

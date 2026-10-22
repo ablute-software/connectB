@@ -294,7 +294,7 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
             </>
           )}
           {nav.step === 'phases' && <PhasesTab phases={phases} disabled={readOnly} onChange={editPhases} />}
-          {nav.step === 'form' && <FormTab callId={callId} fields={fields} disabled={readOnly} lockedReason={reason} onChange={editFields} onImport={importForm} onImportDocuments={() => { setImportRunId(null); setImportDocs(true); }} importStatus={importStatus} onReview={reviewProposal} selectId={jump?.target} />}
+          {nav.step === 'form' && <FormTab callId={callId} fields={fields} disabled={readOnly} lockedReason={reason} canConvert={server.canManage && call.status !== 'archived'} onConverted={(s) => adopt(s, true)} onChange={editFields} onImport={importForm} onImportDocuments={() => { setImportRunId(null); setImportDocs(true); }} importStatus={importStatus} onReview={reviewProposal} selectId={jump?.target} />}
           {nav.step === 'eligibility' && <ComingNext testId="eligibility-soon" title="Eligibility rules" text="Coming next. Here you will say who is eligible, rule by rule, tied to the questions and documents of your form." />}
           {nav.step === 'team' && <TeamTab callId={callId} />}
           {nav.step === 'grid' && <ComingNext testId="grid-soon" title="Evaluation grid" text="Coming in the next stage. The grid the evaluators will use is set up here." />}

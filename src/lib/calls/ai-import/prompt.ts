@@ -29,7 +29,9 @@ export const PROPOSE_SYSTEM_PROMPT = [
   '  4. Several files of the same kind: a repeatable group that holds a file, or a file with max_files — never a ZIP. CVs belong in the group of the team.',
   '  5. A yes/no with a value ("Yes or no. How much?"): TWO questions, the yes/no and the amount, the second with condition {depends_on_number, value: "yes"}.',
   '  6. Structured data per person or per row (name, age, role…): ONE repeatable group (kind "group") with its sub_fields, min and max.',
-  '  7. A TEMPLATE TABLE: a group with display "table", its columns as sub_fields and, when the document gives the rows, preset_rows (the text of the first columns).',
+  '  7. A TABLE WITH HEADERS (a model table: the criteria down the first column, the things compared — competitors, years — along the first row): kind "table" with its rows (the criteria)',
+  '     and columns, cell_kind (short_text, long_text, number, percent or amount), add_columns {allowed, max, default_name} when the document says the applicant may add more ("Competitor #…").',
+  '     A group with display "table" is only for a LIST of entries that each answer the same questions (team members), never for a comparison grid.',
   '  8. A LINK (a video, a website): kind "url", with url_hint "video" or "website".',
   '  9. REQUIRED or OPTIONAL: a question is required unless the document says it is not. Set required to false when the text says "if applicable", "if available", "if any",',
   '     "if you consider it useful/relevant", "other documents you consider relevant", "optional", "you may include" (in Portuguese: "se aplicável", "se disponíveis", "caso tenha",',
@@ -104,6 +106,19 @@ const FIELD_ITEM = {
     url_hint: { type: 'string', enum: [...URL_HINTS], description: 'For url questions: video or website.' },
     currency: { type: 'boolean', description: 'For number questions in money.' },
     condition: { type: 'object', description: 'Shown only if an EARLIER yes/no question has this answer.', properties: { depends_on_number: { type: 'string' }, value: { type: 'string', enum: ['yes', 'no'] } }, required: ['depends_on_number', 'value'] },
+    table: {
+      type: 'object', description: 'For kind "table": a grid with headers.',
+      properties: {
+        corner_title: { type: 'string' },
+        rows: { type: 'array', items: { type: 'string' }, description: 'The criteria: the first column.' },
+        columns: { type: 'array', items: { type: 'string' }, description: 'The things compared: the first row (at least one).' },
+        cell_kind: { type: 'string', enum: ['short_text', 'long_text', 'number', 'percent', 'amount'] },
+        add_columns: { type: 'object', properties: { allowed: { type: 'boolean' }, max: { type: 'integer' }, default_name: { type: 'string', description: 'e.g. "Competitor #".' } } },
+        add_rows: { type: 'object', properties: { allowed: { type: 'boolean' }, max: { type: 'integer' }, default_name: { type: 'string' } } },
+        required: { type: 'string', enum: ['none', 'all', 'first_column'] },
+      },
+      required: ['columns'],
+    },
     group: {
       type: 'object', description: 'For kind "group": a repeatable group.',
       properties: {

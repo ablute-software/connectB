@@ -221,7 +221,7 @@ export const newSubField = (kind: SimpleKind = 'short_text'): SubField => ({
 });
 
 /** The kinds that have an editable configuration of their own beyond label and required. */
-export const hasOwnConfig = (k: FieldKind): boolean => k === 'file' || k === 'url' || k === 'group';
+export const hasOwnConfig = (k: FieldKind): boolean => k === 'file' || k === 'url' || k === 'group' || k === 'table';
 
 // --- Putting a file into the answers, and taking it out --------------------------------------------------------------------------------------
 

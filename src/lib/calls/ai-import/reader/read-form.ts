@@ -423,7 +423,7 @@ export function readForm(docs: ReaderDoc[]): ReaderResult {
   const nameLine = furniture.find((l) => !generic.test(fold(l).trim()) && l.length <= 80);
   const general: ProposalGeneral = nameLine ? { name: nameLine } : {};
 
-  // template tables with numbered columns ("Competitor #1, #2, …") the reader CAN read: a repeatable group shown as a table; any other structure stays unresolved
+  // template tables with numbered columns ("Competitor #1, #2, …") the reader CAN read: a Table (criteria as rows, competitors as columns); any other structure stays unresolved
   const tableSolved = new Set<number>();
   blocks.forEach((b, bi) => {
     const t = readTemplateTable(b);
@@ -433,9 +433,9 @@ export function readForm(docs: ReaderDoc[]): ReaderResult {
     const idxs = an ? fields.map((f, i) => (f.number === an || f.number?.startsWith(`${an}.`) || f.number?.startsWith(`${an}/`) ? i : -1)).filter((i) => i >= 0) : [];
     const at = idxs.length ? Math.max(...idxs) + 1 : fields.length;
     const page = fields[Math.max(0, at - 1)]?.page ?? 1;
-    fields.splice(at, 0, { tmpId: nextId(), page, kind: 'group', label: t.title, instruction: t.instruction ? shorten(t.instruction, 600) : null, required: false, options: [], expectedType: null, maxAgeMonths: null, group: t.group, number: null, source: 'internal' });
+    fields.splice(at, 0, { tmpId: nextId(), page, kind: 'table', label: t.title, instruction: t.instruction ? shorten(t.instruction, 600) : null, required: false, options: [], expectedType: null, maxAgeMonths: null, table: t.table, number: null, source: 'internal' });
     questions++; clearTypes++;
-    attention.push({ kind: 'done', what: `Template table “${t.title}”`, why: `It became a repeatable group shown as a table. ${t.note}` });
+    attention.push({ kind: 'done', what: `Template table “${t.title}”`, why: `Competitive analysis table: criteria as rows, competitors as columns; applicants can add columns. ${t.note}` });
   });
   // structures that were not read
   const unresolved: UnresolvedBlock[] = blocks.filter((_, bi) => !tableSolved.has(bi)).map((b) => ({ ...b, text: b.text.slice(0, 2000) }));
