@@ -3,32 +3,33 @@
 // on the status the caller saw (two clicks cannot both succeed), records the event, and returns the new state.
 import { NextResponse } from 'next/server';
 import { authCall } from '@/lib/calls/access';
-import { notifyDeadlineExtended } from '@/lib/calls/applicant/notices';
-import { archiveCall, closeEarly, confirmCall, deleteProblem, editConfiguration, extendDeadline, publishCall, readiness, reopenCall, type Transition } from '@/lib/calls/lifecycle';
-import { countApplications, deleteCallIfEmpty, generateLinkToken, loadFields, loadPhases, logCallEvent, snapshotConfig, transitionCall, wasClosedEarly } from '@/lib/calls/store';
+import { notifyCallCancelled, notifyDeadlineExtended } from '@/lib/calls/applicant/notices';
+import { CONFIRM_NAME_ERROR, nameMatches } from '@/lib/calls/deletion';
+import { archiveCall, closeEarly, confirmCall, editConfiguration, extendDeadline, publishCall, readiness, reopenCall, type Transition } from '@/lib/calls/lifecycle';
+import { generateLinkToken, loadFields, loadPhases, logCallEvent, snapshotConfig, softDeleteCall, transitionCall, wasClosedEarly } from '@/lib/calls/store';
 import { buildCallState, syncStatus } from '@/lib/calls/state';
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const auth = await authCall(params.id, { write: true });
   if (auth.error) return auth.error;
-  const body = await req.json().catch(() => ({})) as { action?: string; closesAt?: string; confirmEarly?: boolean };
+  const body = await req.json().catch(() => ({})) as { action?: string; closesAt?: string; confirmEarly?: boolean; confirmName?: string };
   const now = new Date();
   // Look at the call as it is NOW (a scheduled call may have opened since the editor loaded).
   const call = await syncStatus(auth.admin, auth.call, now);
 
-  // Delete (Prompt 909): the call and everything of it go, a record of who/what/when stays. Not a state change.
+  // Delete (Prompt 918, Adenda 2, C): in ANY state, by whoever may "Configure call" (authCall above), after the person typed the call's name. An open call is closed at once; the call
+  // goes to "Deleted calls" for 30 days (restore_call) and is removed for good after that (the cron). Applicants with a draft or a submission are told. Not a state change.
   if (body.action === 'delete') {
-    const apps = await countApplications(auth.admin, call.id);
-    const problem = deleteProblem(call.status, apps);
-    if (problem) return NextResponse.json({ ok: false, error: problem }, { status: 409 });
-    const res = await deleteCallIfEmpty(auth.admin, call, auth.userId, auth.promoter.name);
+    if (!nameMatches(String(body.confirmName ?? ''), call.name)) return NextResponse.json({ ok: false, code: 'confirm_name', error: CONFIRM_NAME_ERROR }, { status: 409 });
+    const res = await softDeleteCall(auth.admin, call, auth.userId, auth.promoter.name);
     if (!res.ok) {
-      const error = res.reason === 'not_found' ? 'This call no longer exists.'
-        : res.reason === 'has_applications' ? (deleteProblem('draft', await countApplications(auth.admin, call.id)) ?? 'Someone has applied in the meantime, so the call cannot be deleted. Archive it instead.')
-        : res.reason === 'status' ? deleteProblem('open', apps)! : 'The call could not be deleted. Please try again.';
-      return NextResponse.json({ ok: false, error }, { status: 409 });
+      const error = res.reason === 'not_found' || res.reason === 'already_deleted' ? 'This call no longer exists.' : 'The call could not be deleted. Please try again.';
+      return NextResponse.json({ ok: false, error }, { status: res.reason === 'error' ? 500 : 409 });
     }
-    return NextResponse.json({ ok: true, deleted: true, name: call.name });
+    await logCallEvent(auth.admin, call.id, 'call_deleted', auth.userId, { status: res.statusBefore, closed: res.closedIt, submitted: res.submitted, drafts: res.drafts, files: res.files });
+    const notified = await notifyCallCancelled(auth.admin, call, res.purgeAfter, auth.promoter.name).catch((e) => { console.error('[calls] cancellation notices failed:', (e as Error).message); return 0; });
+    if (notified > 0) await logCallEvent(auth.admin, call.id, 'call_cancelled_notified', null, { applicants: notified });
+    return NextResponse.json({ ok: true, deleted: true, name: call.name, purgeAfter: res.purgeAfter, notified });
   }
 
   let transition: Transition;

@@ -23,7 +23,7 @@ export async function GET() {
 
   const { data: callRows, error } = await admin.from('calls').select('*').order('created_at', { ascending: false }).limit(1000);
   if (error) return NextResponse.json({ ok: false, error: 'Calls are not available yet.' }, { status: 200 });
-  const calls = ((callRows ?? []) as Row[]).map((r) => ({ call: rowToCall(r), validatedBy: (r.validated_by as string | null) ?? null }));
+  const calls = ((callRows ?? []) as Row[]).filter((r) => !r.deleted_at).map((r) => ({ call: rowToCall(r), validatedBy: (r.validated_by as string | null) ?? null }));
   if (calls.length === 0) return NextResponse.json({ ok: true, rows: [] });
 
   const callIds = calls.map((c) => c.call.id);

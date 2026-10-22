@@ -184,6 +184,8 @@ export interface Call {
   contactEmail?: string | null;
   /** Prompt 918 (Adenda 1, C): the cover image and a logo uploaded for this call (paths in the private bucket), and when each was set. */
   coverPath?: string | null; coverUpdatedAt?: string | null; logoPath?: string | null; logoUpdatedAt?: string | null;
+  /** Prompt 918 (Adenda 2, C): set while the call is deleted — it can be restored until `purgeAfter` (30 days), then it is removed for good. */
+  deletedAt?: string | null; deletedBy?: string | null; purgeAfter?: string | null;
   duplicatedFrom: string | null;
   createdBy: string;
   createdAt: string;

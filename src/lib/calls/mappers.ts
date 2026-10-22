@@ -23,6 +23,7 @@ export function rowToCall(r: Row): Call {
     configVersion: Number(r.config_version ?? 1), validatedAt: s(r.validated_at), publishedAt: s(r.published_at), closedAt: s(r.closed_at), archivedAt: s(r.archived_at),
     contactEmail: s(r.contact_email),
     coverPath: s(r.cover_path), coverUpdatedAt: s(r.cover_updated_at), logoPath: s(r.logo_path), logoUpdatedAt: s(r.logo_updated_at),
+    deletedAt: s(r.deleted_at), deletedBy: s(r.deleted_by), purgeAfter: s(r.delete_purge_after),
     duplicatedFrom: s(r.duplicated_from), createdBy: r.created_by as string, createdAt: r.created_at as string, updatedAt: r.updated_at as string,
   };
 }

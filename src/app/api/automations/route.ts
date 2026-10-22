@@ -33,6 +33,7 @@ import { computeAndStoreOverviewSnapshot } from '@/lib/metrics-snapshot';
 import { recheckPendingMalwareScans, retroscanNotScannedDocuments, recheckPendingScansGeneric, recheckMatchdealPhotoScans } from '@/lib/upload-security';
 import { runInterestReminderSweep, type InterestReminderSweepResult } from '@/lib/interest-reminder-sweep';
 import { sendDraftReminders } from '@/lib/calls/applicant/notices';
+import { purgeDeletedCalls, type PurgeResult } from '@/lib/calls/purge';
 import {
   malwareScanAvailable, investorVerificationScanAvailable, ndaScanAvailable,
   matchdealPhotoScanAvailable, supportAttachmentScanAvailable, companyMediaScanAvailable,
@@ -199,6 +200,13 @@ export async function GET() {
   } catch (e) {
     console.error('[automations] call draft-reminder sweep failed:', e);
   }
+  // Prompt 918 (Adenda 2, C) — the calls whose 30 days after deletion are over are removed for good (their files first). Same daily tick, no extra cron.
+  let callPurge: PurgeResult | null = null;
+  try {
+    callPurge = await purgeDeletedCalls(admin, new Date());
+  } catch (e) {
+    console.error('[automations] deleted-calls purge failed:', e);
+  }
   let interestReminderSweep: InterestReminderSweepResult | null = null;
   try {
     interestReminderSweep = await runInterestReminderSweep(admin, new Date());
@@ -290,6 +298,7 @@ export async function GET() {
     secondaryMalwareScanSweep,
     interestReminderSweep,
     callDraftReminders,
+    callPurge,
     reconciliationSweep,
     investorNotifyDigestSweep,
   });

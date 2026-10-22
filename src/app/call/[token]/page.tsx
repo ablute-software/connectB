@@ -14,10 +14,12 @@ import { LogoLockup } from '@/components/Logo';
 import { EmailCodeSignup } from '@/components/auth/EmailCodeSignup';
 import { CallIntro, CallMiniHeader, ctaLabel, type PublicCallInfo } from '@/components/calls/applicant/CallHeader';
 import { ApplicationArea, type CallSession } from '@/components/calls/applicant/ApplicationArea';
+import { GONE_MESSAGE } from '@/lib/calls/deletion';
 
 export default function CallLinkPage() {
   const { token } = useParams<{ token: string }>();
   const [call, setCall] = useState<PublicCallInfo | null | undefined>(undefined);
+  const [gone, setGone] = useState(false);                                  // the call was deleted: "This call is no longer available"
   const [session, setSession] = useState<CallSession | undefined>(undefined);
   // Prompt 918 (Adenda 1, C): the page opens on the call's presentation; "Start application" goes on to registration or to the form. `?start=1` skips it (a link back from an email).
   const [stage, setStage] = useState<'intro' | 'apply'>('intro');
@@ -34,6 +36,7 @@ export default function CallLinkPage() {
   useEffect(() => {
     fetch(`/api/calls/public/${encodeURIComponent(token)}`, { cache: 'no-store' }).then(async (r) => {
       const d = await r.json().catch(() => null);
+      setGone(r.status === 410 && d?.gone === true);
       setCall(r.ok && d?.ok ? (d as PublicCallInfo) : null);
       if (r.ok && d?.ok) void loadSession();
     }).catch(() => setCall(null));
@@ -57,6 +60,11 @@ export default function CallLinkPage() {
         <div className="mb-5 text-[#0E7490]"><LogoLockup size={26} accentClassName="text-[#2a7f8e]" /></div>
         {call === undefined ? (
           <p className="text-sm text-gray-400">Loading…</p>
+        ) : call === null && gone ? (
+          <div data-testid="call-gone">
+            <h1 className="text-lg font-semibold text-gray-900">{GONE_MESSAGE}</h1>
+            <p className="mt-2 text-sm text-gray-500">The organisation that ran this call has taken it down. If you applied to it, your applications are in <Link href="/calls" className="font-semibold text-[#0E7490] hover:underline">Calls → My applications</Link> for a while longer.</p>
+          </div>
         ) : call === null ? (
           <>
             <h1 className="text-lg font-semibold text-gray-900">This link is not available</h1>

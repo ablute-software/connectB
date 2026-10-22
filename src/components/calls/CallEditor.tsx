@@ -229,16 +229,11 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
     return { ok: true, summary: `Imported ${imported} field${imported === 1 ? '' : 's'} from “${from}”.${warnings.length ? ` ${warnings.join(' ')}` : ''}` };
   }
 
-  /** Delete (the server refuses it when anybody applied or the call opened) — then back to the list. */
-  async function removeCall() {
-    setBusy(true); setActionError('');
-    try {
-      if (timer.current) clearTimeout(timer.current);
-      const res = await callsApi.remove(callId);
-      if (!res.ok) { setActionError(res.body.error ?? 'The call could not be deleted.'); return; }
-      dirty.current = { general: false, phases: false, form: false };
-      onBack();
-    } finally { setBusy(false); }
+  /** The call was deleted (Prompt 918, Adenda 2, C: the dialog asked for its name and the server did it) — nothing left to save; back to the list. */
+  function afterDeleted() {
+    if (timer.current) clearTimeout(timer.current);
+    dirty.current = { general: false, phases: false, form: false };
+    onBack();
   }
 
   if (loadError) {
@@ -293,8 +288,8 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
                 onState={(s) => adopt(s, false)} onChange={editGeneral} />
               <ContactEmailField callId={callId} initial={call.contactEmail ?? null} canConfigure={server.canManage} />
               <SourceDocumentsPanel callId={callId} canConfigure={server.canManage} locked={readOnly} reloadKey={docsReload} onImport={() => { setImportRunId(null); setImportDocs(true); }} importStatus={importStatus} onReview={reviewProposal} />
-              <CallDangerZone actions={server.actions} status={server.effectiveStatus} applicationsTotal={server.applications.total}
-                canManage={server.canManage} busy={busy} onDelete={() => void removeCall()} onArchive={() => void act('archive')} />
+              <CallDangerZone callId={callId} name={call.name} actions={server.actions} status={server.effectiveStatus}
+                canManage={server.canManage} busy={busy} onDeleted={afterDeleted} onArchive={() => void act('archive')} />
               {actionError && <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{actionError}</p>}
             </>
           )}
