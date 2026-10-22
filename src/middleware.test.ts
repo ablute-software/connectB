@@ -7,7 +7,7 @@
 // This drives the real middleware, not a copy of its PUBLIC list — the bug
 // was precisely that the list and the route's expectations disagreed, so a
 // test asserting against a duplicated list would have passed throughout.
-import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 
 // The middleware always calls supabase.auth.getUser(); stub the client so
 // the test never touches the network. `user: null` IS the case under test —
@@ -106,5 +106,62 @@ describe('middleware — unauthenticated API access', () => {
     const res = await middleware(get('/api/plan-credits'));
     expect(res.status).not.toBe(307);
     expect(res.headers.get('location')).toBeNull();
+  });
+});
+
+// 22/10/2026 — the bug of Prompts 538 and 749 once more, for the one caller that has no session by definition: the platform's own cron. vercel.json calls GET /api/automations daily;
+// the route was not on PUBLIC, so every call was answered 307 → /login and the daily tick (monthly delivery, reminders, purge of deleted calls, digests, re-scans) never ran on its own.
+// The path is not made public — anyone could then run it. What passes is exactly one request: that path, with the header Vercel adds when the project has CRON_SECRET.
+describe('middleware — the platform cron may call the daily tick, and nobody else without a session', () => {
+  const SECRET = 'f3a9c1d5e7b2468a0c9d1e3f5a7b9c0d2e4f6a8b0c1d3e5f7a9b1c3d5e7f9a0b';
+  const call = (path: string, authorization?: string, method = 'GET') =>
+    new NextRequest(new URL(path, 'https://www.sherlockdeal.com'), { method, headers: authorization === undefined ? {} : { authorization } });
+  afterEach(() => { delete process.env.CRON_SECRET; });
+
+  it('lets Vercel\'s cron through: GET /api/automations with «Authorization: Bearer <CRON_SECRET>»', async () => {
+    process.env.CRON_SECRET = SECRET;
+    const res = await middleware(call('/api/automations', `Bearer ${SECRET}`));
+    expect(res.status).not.toBe(307);
+    expect(res.headers.get('location')).toBeNull();
+  });
+
+  it('the path is NOT public by itself: without the header it is sent to /login (this is exactly what the cron used to get)', async () => {
+    process.env.CRON_SECRET = SECRET;
+    const res = await middleware(call('/api/automations'));
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('/login');
+    expect(res.headers.get('location')).toContain('next=%2Fapi%2Fautomations');
+  });
+
+  it.each([
+    ['a wrong secret', 'Bearer 0000000000000000000000000000000000000000000000000000000000000000'],
+    ['the secret without «Bearer»', SECRET],
+    ['a lower-case scheme', `bearer ${SECRET}`],
+    ['the secret with something appended', `Bearer ${SECRET}x`],
+  ])('%s is still sent to /login', async (_label, header) => {
+    process.env.CRON_SECRET = SECRET;
+    const res = await middleware(call('/api/automations', header));
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('/login');
+  });
+
+  it('FAILS CLOSED when the variable is not set — or is too short to be a secret — whatever the header says', async () => {
+    delete process.env.CRON_SECRET;
+    for (const header of ['Bearer undefined', 'Bearer ', 'Bearer', `Bearer ${SECRET}`]) {
+      const res = await middleware(call('/api/automations', header));
+      expect(res.status, header).toBe(307);
+    }
+    process.env.CRON_SECRET = 'short';
+    const res = await middleware(call('/api/automations', 'Bearer short'));
+    expect(res.status).toBe(307);
+  });
+
+  it('the secret opens THAT path only — not another API route, not the back office, not a sub-path, not a page', async () => {
+    process.env.CRON_SECRET = SECRET;
+    for (const path of ['/api/automations/x', '/api/pipeline-unlock', '/api/backoffice/metrics/overview', '/api/org/update', '/pipeline', '/backoffice']) {
+      const res = await middleware(call(path, `Bearer ${SECRET}`));
+      expect(res.status, path).toBe(307);
+      expect(res.headers.get('location'), path).toContain('/login');
+    }
   });
 });
