@@ -2,12 +2,14 @@
 //   not signed in            -> the registration box (and "Already have an account? Sign in");
 //   signed in, no startup    -> the startup step (name and country) before the form — e.g. an account that is only an investor's;
 //   signed in with a startup -> the application (a draft to continue, a submitted one to look at, or a new one to start).
+//   signed in and on the call's team -> `onTeam: true`, and the page says "You are on this call's team, so you cannot apply to it.";
 // It NEVER says whether an email has an account (it only talks about the person who is signed in). Public path on purpose: a person
 // who is not signed in gets `authenticated: false`, not a redirect to the login page.
 import { NextResponse } from 'next/server';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveActingOrg, withActingOrg } from '@/lib/acting-org';
 import { resolvePublicCall, serviceClient } from '@/lib/calls/applicant/link';
+import { isOnCallTeam } from '@/lib/calls/team-store';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +24,8 @@ export const GET = withActingOrg(async function GET(req: Request, { params }: { 
   if (!user) return NextResponse.json({ ok: true, authenticated: false, hasStartup: false });
 
   const acting = await resolveActingOrg(req, user, sb);
+  // On the call's team: never "Applying as…" — the page says so instead (Prompt 918, Adenda 3). Whatever else the person is (a startup member, a founder), and whatever the call's state.
+  if (await isOnCallTeam(admin, found.call.id, user.id)) return NextResponse.json({ ok: true, authenticated: true, hasStartup: !!acting.orgId, onTeam: true, email: user.email ?? null });
   if (!acting.orgId) return NextResponse.json({ ok: true, authenticated: true, hasStartup: false, email: user.email ?? null });
 
   const { data: org } = await admin.from('orgs').select('name').eq('id', acting.orgId).maybeSingle();

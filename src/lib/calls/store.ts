@@ -6,6 +6,7 @@ import 'server-only';
 import { randomBytes } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fieldToRow, rowToCall, rowToField, rowToPhase } from './mappers';
+import { CLOSE_REASON_EVENTS, closeReasonFrom, type CloseReason } from './closing';
 import type { Call, CallPhase, FormField, PromoterKind } from './types';
 import { newFieldId } from './form-builder';
 
@@ -60,11 +61,18 @@ export async function loadEvents(admin: SupabaseClient, callId: string, limit = 
   return (data ?? []) as { id: number; event: string; actor_user_id: string | null; detail: Record<string, unknown>; created_at: string }[];
 }
 
-/** Did the call close early ("Close early", a decision of the team) rather than by its deadline? Read from the history: the latest time it closed. */
+/**
+ * WHY the call is closed, read from its history (Prompt 918, Adenda 3): by its deadline, early on purpose, or deleted and restored. The one place that decides it (closing.ts): the "Reopen and extend"
+ * box says it, and whether reopening asks for a confirmation follows from it.
+ */
+export async function loadCloseReason(admin: SupabaseClient, callId: string): Promise<CloseReason> {
+  const { data } = await admin.from('call_events').select('id, event, detail').eq('call_id', callId).in('event', [...CLOSE_REASON_EVENTS]).order('id', { ascending: false }).limit(6);
+  return closeReasonFrom(((data ?? []) as { id: number; event: string; detail: Record<string, unknown> | null }[]));
+}
+
+/** Did the call close early ("Close early", a decision of the team) rather than by its deadline or by being deleted and restored? */
 export async function wasClosedEarly(admin: SupabaseClient, callId: string): Promise<boolean> {
-  const { data } = await admin.from('call_events').select('detail').eq('call_id', callId).eq('event', 'call_closed').order('id', { ascending: false }).limit(1);
-  const d = ((data ?? [])[0] as { detail?: Record<string, unknown> } | undefined)?.detail;
-  return d?.early === true;
+  return (await loadCloseReason(admin, callId)) === 'early';
 }
 
 export async function promoterName(admin: SupabaseClient, kind: PromoterKind, id: string): Promise<string> {

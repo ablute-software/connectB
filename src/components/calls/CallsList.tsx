@@ -8,6 +8,7 @@ import { formatInZone } from '@/lib/calls/tz';
 import { callsApi, type CallListItem, type DeletedCallItem, type PromoterInfo } from './api';
 import { ARCHIVE_CONFIRM, callMenu, hasMenu, visibleCalls } from '@/lib/calls/list-view';
 import { deletedLine } from '@/lib/calls/deletion';
+import { closingLine } from '@/lib/calls/closing';
 import { DeleteCallDialog } from './DeleteCallDialog';
 import { StatusBadge } from './StatusBadge';
 import { ImportNotices } from './ImportNotices';
@@ -179,13 +180,13 @@ export function CallsList({ kind, onOpen }: { kind: PromoterKind; onOpen: (id: s
               )}
               <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
                 <dt className="text-gray-400">Opens</dt><dd className="text-gray-700">{formatInZone(c.opensAt, c.timezone)}</dd>
-                <dt className="text-gray-400">Closes</dt><dd className="text-gray-700">{formatInZone(c.closesAt, c.timezone)}</dd>
+                {(() => { const l = closingLine(c, c.effectiveStatus === 'closed' || c.effectiveStatus === 'archived', formatInZone); return <><dt className="text-gray-400">{l.label}</dt><dd className="text-gray-700" data-testid="card-closing">{l.value}</dd></>; })()}
               </dl>
               <p className="mt-3 text-xs text-gray-500">
                 <b className="text-gray-800">{c.applications}</b> application{c.applications === 1 ? '' : 's'} · {c.fields} field{c.fields === 1 ? '' : 's'} · {c.phases} phase{c.phases === 1 ? '' : 's'}
               </p>
               <div className="mt-4 flex items-center gap-3 border-t border-gray-100 pt-3 text-xs">
-                <button type="button" onClick={() => onOpen(c.id)} className="font-semibold text-[#0E7490] hover:underline">{canManage ? 'Open' : 'View'}</button>
+                <button type="button" onClick={() => onOpen(c.id)} className="font-semibold text-[#0E7490] hover:underline" data-testid="card-manage">{canManage ? 'Manage' : 'View'}</button>
                 {hasMenu(callMenu(c, c.canConfigure)) && (
                   <details className="relative ml-auto" data-testid="call-menu">
                     <summary aria-label={`More actions for ${c.name}`} className="cursor-pointer list-none rounded px-2 py-0.5 text-base leading-none text-gray-500 hover:bg-gray-100">⋯</summary>

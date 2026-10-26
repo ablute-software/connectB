@@ -14,10 +14,13 @@ import { callsMode } from '../mode';
 import { loadCall, loadFields, promoterName } from '../store';
 import type { Call, FormField } from '../types';
 import { loadApplication, type ApplicationRow } from './store';
+import { isOnCallTeam } from '../team-store';
+import { ON_CALL_TEAM_CODE, ON_CALL_TEAM_MESSAGE } from './team-rule';
 import { resolvePublicCall, serviceClient } from './link';
 
 export type Gate<T> = ({ error?: undefined } & T) | { error: NextResponse };
 const notFound = () => NextResponse.json({ ok: false }, { status: 404 });
+const onTeam = () => NextResponse.json({ ok: false, code: ON_CALL_TEAM_CODE, error: ON_CALL_TEAM_MESSAGE }, { status: 403 });
 
 interface Who { admin: SupabaseClient; userId: string; email: string | null; emailConfirmed: boolean; orgId: string }
 
@@ -39,6 +42,8 @@ export async function authApplicantByToken(req: Request, token: string): Promise
   if (me.error) return me;
   const found = await resolvePublicCall(me.admin, token);
   if (!found) return { error: notFound() };
+  // Whoever is on this call's team does not apply to it (Prompt 918, Adenda 3) — open or closed, startup or not.
+  if (await isOnCallTeam(me.admin, found.call.id, me.userId)) return { error: onTeam() };
   return { ...me, call: found.call, fields: found.fields };
 }
 
@@ -53,6 +58,8 @@ export async function authApplication(req: Request, applicationId: string): Prom
   const call = await loadCall(me.admin, app.callId, { includeDeleted: true });
   if (!call) return { error: notFound() };
   if (call.deletedAt && req.method !== 'GET') return { error: NextResponse.json({ ok: false, code: 'call_deleted', error: 'This call is no longer available.' }, { status: 410 }) };
+  // Nothing is saved, attached or submitted by someone on the call's team (reading what is already there stays possible).
+  if (req.method !== 'GET' && (await isOnCallTeam(me.admin, call.id, me.userId))) return { error: onTeam() };
   const [fields, promoter] = await Promise.all([loadFields(me.admin, call.id), promoterName(me.admin, call.promoterKind, call.promoterId)]);
   return { ...me, call, fields, app, promoter };
 }

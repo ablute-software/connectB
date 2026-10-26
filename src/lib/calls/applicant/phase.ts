@@ -5,6 +5,7 @@
 // A call with no form answers 404 (decided by the route, which counts the fields); an archived call too (Prompt 909).
 import { effectiveStatus } from '../lifecycle';
 import { formatDayInZone } from '../tz';
+import { closedBeforeDeadline } from '../closing';
 import type { Call } from '../types';
 
 export type ApplicantPhase = 'open' | 'scheduled' | 'closed';
@@ -17,9 +18,10 @@ export function applicantPhase(call: Pick<Call, 'status' | 'opensAt' | 'closesAt
 }
 
 /** The sentence under the header while the call cannot receive applications; null while it can. */
-export function phaseSentence(call: Pick<Call, 'status' | 'opensAt' | 'closesAt' | 'timezone'>, now: Date = new Date()): string | null {
+export function phaseSentence(call: Pick<Call, 'status' | 'opensAt' | 'closesAt' | 'timezone'> & { closedAt?: string | null }, now: Date = new Date()): string | null {
   const phase = applicantPhase(call, now);
   if (phase === 'open') return null;
   if (phase === 'scheduled') return `Opens on ${formatDayInZone(call.opensAt, call.timezone)}`;
-  return `Applications closed on ${formatDayInZone(call.closesAt, call.timezone)}`;
+  // A call closed BEFORE its deadline (early, or taken down and restored) says the day it really closed — "closed on 31 Dec" would be a date still to come (Prompt 918, Adenda 3).
+  return `Applications closed on ${formatDayInZone(closedBeforeDeadline(call) ? call.closedAt : call.closesAt, call.timezone)}`;
 }

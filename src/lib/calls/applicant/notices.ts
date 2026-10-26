@@ -4,7 +4,8 @@
 //   - submission received            -> the applicant, right after submitting;
 //   - draft not submitted, 48 h left -> the applicant, once per deadline (an extension earns a new reminder before the new deadline);
 //   - deadline extended              -> whoever has a draft not yet submitted — the entity never learns who they are;
-//   - call cancelled (deleted)       -> whoever has a draft or a submission on it: the call is gone in 30 days and so are their applications (Prompt 918, Adenda 2, C).
+//   - call cancelled (deleted)       -> whoever has a draft or a submission on it: the call is gone in 30 days and so are their applications (Prompt 918, Adenda 2, C);
+//   - call restored                  -> exactly the people who were told it was cancelled: "«Entity» restored the call «Title». Your application is available again." (Adenda 3).
 // The Reply-To of a call's emails is the call's own "Contact email for applicants" when it has one; otherwise there is none (platform emails
 // say "replies are not read" in the footer, src/lib/email-footer.ts).
 import 'server-only';
@@ -16,15 +17,15 @@ import { formatDayInZone, formatInZone } from '../tz';
 import { rowToCall } from '../mappers';
 import { brandingOf } from '../branding';
 import { promoterName } from '../store';
-import { cancelledNoticeText } from '../deletion';
+import { cancelledNoticeText, restoredNoticeText } from '../deletion';
 import type { Call } from '../types';
 import type { ApplicationRow } from './store';
 
 /** What an applicant is told. */
 export type ApplicantNoticeKind = 'submission_received' | 'draft_reminder' | 'deadline_extended';
 /** Every kind of notice in call_notices: the applicant's three, and (Prompt 909, Adenda 2b) the two that tell the team an import has ended. */
-export type NoticeKind = ApplicantNoticeKind | 'call_cancelled' | 'import_ready' | 'import_failed';
-export const APPLICANT_NOTICE_KINDS: NoticeKind[] = ['submission_received', 'draft_reminder', 'deadline_extended', 'call_cancelled'];
+export type NoticeKind = ApplicantNoticeKind | 'call_cancelled' | 'call_restored' | 'import_ready' | 'import_failed';
+export const APPLICANT_NOTICE_KINDS: NoticeKind[] = ['submission_received', 'draft_reminder', 'deadline_extended', 'call_cancelled', 'call_restored'];
 export const IMPORT_NOTICE_KINDS: NoticeKind[] = ['import_ready', 'import_failed'];
 
 export interface NoticeContent { title: string; body: string; ctaLabel: string }
@@ -216,5 +217,29 @@ export async function notifyCallCancelled(admin: SupabaseClient, call: Call, pur
     const to = await emailOf(admin, userId);
     if (to) await emailNotice(admin, id, to, call, content, { url });
   }
+  return n;
+}
+
+/**
+ * The call was RESTORED (Prompt 918, Adenda 3): the people who were told it was cancelled are told it is back — in the app and by email — and their old "cancelled" notice is put away (marked seen), so
+ * nobody is left looking at a cancellation that no longer stands. Only those who received the cancellation: nobody hears about a call they never knew had been deleted. Returns how many were told.
+ */
+export async function notifyCallRestored(admin: SupabaseClient, call: Call, entityName: string, deletedAt: string | null): Promise<number> {
+  const { data } = await admin.from('call_notices').select('user_id, application_id').eq('call_id', call.id).eq('kind', 'call_cancelled');
+  const told = new Map<string, string | null>();
+  for (const r of (data ?? []) as Row[]) if (!told.has(r.user_id as string)) told.set(r.user_id as string, (r.application_id as string | null) ?? null);
+  const text = restoredNoticeText(entityName, call.name);
+  const content: NoticeContent = { title: text.title, body: text.body, ctaLabel: 'View my applications' };
+  const url = `${emailLinkFor({ linkToken: null })}/calls`;
+  let n = 0;
+  for (const [userId, applicationId] of told) {
+    const { created, id } = await createNotice(admin, { userId, callId: call.id, applicationId, kind: 'call_restored', dedupeKey: `restored:${call.id}:${deletedAt ?? 'x'}:${userId}`, content, linkPath: '/calls' });
+    if (!created) continue;
+    n++;
+    const to = await emailOf(admin, userId);
+    if (to) await emailNotice(admin, id, to, call, content, { url });
+  }
+  // The cancellation no longer stands: put its notices away.
+  if (told.size > 0) await admin.from('call_notices').update({ seen_at: new Date().toISOString() }).eq('call_id', call.id).eq('kind', 'call_cancelled').is('seen_at', null);
   return n;
 }

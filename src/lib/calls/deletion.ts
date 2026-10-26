@@ -52,6 +52,11 @@ export function cancelledNoticeText(entity: string, title: string, purgeDay: str
   };
 }
 
+/** The notice the same applicants get when the call is restored (Prompt 918, Adenda 3). */
+export function restoredNoticeText(entity: string, title: string): { title: string; body: string } {
+  return { title: `${entity} restored the call ${title}`, body: `${entity} restored the call ${title}. Your application is available again.` };
+}
+
 /** The sentence under a deleted call in the "Deleted calls" list. */
 export function deletedLine(purgeAfter: string | null | undefined, now: Date = new Date()): string {
   const n = daysLeft(purgeAfter, now);
