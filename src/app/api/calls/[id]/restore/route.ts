@@ -2,6 +2,7 @@
 // closed it; reopening is a decision of its own: "Reopen and extend"). Its applications, drafts and files were never touched. After the 30 days it is gone for good and this answers 409.
 import { NextResponse } from 'next/server';
 import { authCall } from '@/lib/calls/access';
+import { notifyCallRestored } from '@/lib/calls/applicant/notices';
 import { logCallEvent, restoreCall } from '@/lib/calls/store';
 
 export const dynamic = 'force-dynamic';
@@ -16,5 +17,8 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
     return NextResponse.json({ ok: false, error }, { status: res.reason === 'error' ? 500 : 409 });
   }
   await logCallEvent(auth.admin, auth.call.id, 'call_restored', auth.userId, { status: res.status });
-  return NextResponse.json({ ok: true, restored: true, name: auth.call.name, status: res.status });
+  // The applicants who were told it was cancelled are told it is back (Prompt 918, Adenda 3); a failed email never undoes the restore.
+  const notified = await notifyCallRestored(auth.admin, auth.call, auth.promoter.name, auth.call.deletedAt ?? null).catch((e) => { console.error('[calls] restore notices failed:', (e as Error).message); return 0; });
+  if (notified > 0) await logCallEvent(auth.admin, auth.call.id, 'call_restored_notified', null, { applicants: notified });
+  return NextResponse.json({ ok: true, restored: true, name: auth.call.name, status: res.status, notified });
 }

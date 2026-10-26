@@ -9,6 +9,7 @@
 import { formatInZone } from '@/lib/calls/tz';
 import { RichText } from '@/components/RichText';
 import { CoverBand, EntityLogo, LogoTile } from './Pictures';
+import { TeamNotice } from './TeamNotice';
 
 export { EntityLogo };
 
@@ -19,6 +20,8 @@ export interface PublicCallInfo {
   eligibility: string[]; regulation: { fileName: string; url: string } | null;
   /** The cover image and the entity's logo (Prompt 918, Adenda 1 C): addresses on this platform, or — for a profile logo — an https address. Null when there is none. */
   coverUrl?: string | null; logoUrl?: string | null;
+  /** Prompt 918 (Adenda 3): the day the call closed when that was BEFORE its deadline (closed early, or deleted and restored) — shown instead of a deadline that is still to come. */
+  closedAt?: string | null; closedDay?: string | null;
 }
 
 export function CallHeader({ call, showPromoter = true }: { call: PublicCallInfo; showPromoter?: boolean }) {
@@ -28,7 +31,11 @@ export function CallHeader({ call, showPromoter = true }: { call: PublicCallInfo
       <h1 className={`${showPromoter ? 'mt-1' : ''} text-xl font-bold text-gray-900 sm:text-2xl`} data-testid="call-name">{call.name}</h1>
       <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
         <dt className="text-gray-400">Opens</dt><dd className="text-gray-800">{formatInZone(call.opensAt, call.timezone)}</dd>
-        <dt className="text-gray-400">Deadline</dt><dd className="font-medium text-gray-900" data-testid="call-deadline">{formatInZone(call.closesAt, call.timezone)}</dd>
+        {call.closedAt ? (
+          <><dt className="text-gray-400">Closed</dt><dd className="font-medium text-gray-900" data-testid="call-closed-on">{call.closedDay ?? formatInZone(call.closedAt, call.timezone)}</dd></>
+        ) : (
+          <><dt className="text-gray-400">Deadline</dt><dd className="font-medium text-gray-900" data-testid="call-deadline">{formatInZone(call.closesAt, call.timezone)}</dd></>
+        )}
       </dl>
       {call.description && <RichText value={call.description} className="mt-4 text-sm text-gray-600" testId="call-summary" />}
       {call.eligibility.length > 0 && (
@@ -56,7 +63,7 @@ export function CallHeader({ call, showPromoter = true }: { call: PublicCallInfo
  * The entry page's card: the cover (lower on a phone), the logo over its edge with the entity's name under it, the call's information, and the button — which stays in view at the bottom of a
  * phone's screen. `cta` is null while there is nothing to start (a closed call with no application).
  */
-export function CallIntro({ call, cta, onStart }: { call: PublicCallInfo; cta: string | null; onStart: () => void }) {
+export function CallIntro({ call, cta, onStart, teamNotice = false }: { call: PublicCallInfo; cta: string | null; onStart: () => void; teamNotice?: boolean }) {
   return (
     <section data-testid="call-intro">
       <CoverBand url={call.coverUrl} />
@@ -67,7 +74,10 @@ export function CallIntro({ call, cta, onStart }: { call: PublicCallInfo; cta: s
         <p className="mt-2 text-xs font-medium uppercase tracking-wide text-gray-500" data-testid="call-promoter">{call.promoter}</p>
         <div className="mt-1"><CallHeader call={call} showPromoter={false} /></div>
       </div>
-      {!cta && (
+      {teamNotice && (
+        <div className="px-5 pb-6 pt-2 sm:px-8"><TeamNotice /></div>
+      )}
+      {!cta && !teamNotice && (
         <div className="px-5 pb-6 pt-2 sm:px-8">
           <button type="button" onClick={onStart} data-testid="intro-signin" className="min-h-[44px] text-sm font-medium text-[#0E7490] hover:underline">Already applied? Sign in to see your application</button>
         </div>

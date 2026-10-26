@@ -9,6 +9,7 @@
 // editor is read-only and says why.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Call, FormField } from '@/lib/calls/types';
+import { formatInZone } from '@/lib/calls/tz';
 import { MAIN_TABS, navQuery, parseLinkQuery, resolveNav, stepStates, type MainTab, type Nav, type StepKey } from '@/lib/calls/editor-nav';
 import { callsApi, type CallState } from './api';
 import { ComingNext, SetupShell } from './SetupShell';
@@ -48,6 +49,7 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
   const [save, setSave] = useState<{ state: SaveState; message?: string }>({ state: 'idle' });
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [actionNotice, setActionNotice] = useState('');
   // Prompt 909 (I4): the import from documents dialog (opened from Form, from General, or when a call is created from documents).
   const [importDocs, setImportDocs] = useState(startImport);
   // The proposal the dialog opens ON (from "Review" / the pill); null = the upload form.
@@ -84,6 +86,7 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
     const res = await callsApi.get(callId);
     if (!res.ok) { setLoadError(res.status === 404 ? 'This call does not exist, or you do not have access to it.' : res.body.error ?? 'Could not load the call.'); return; }
     dirty.current = { general: false, phases: false, form: false }; generalPatch.current = {};
+    failed.current = false;               // what failed to save is gone with the reload: nothing is left to be fixed (this flag used to outlive it and refuse every action afterwards, in silence)
     setSave({ state: 'idle' }); setActionError('');
     adopt(res.body, true);
   }, [callId, adopt]);
@@ -186,14 +189,20 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
   }, [jump]);
 
   async function act(action: LifecycleAction, extra: { closesAt?: string; confirmEarly?: boolean } = {}) {
-    setBusy(true); setActionError('');
+    setBusy(true); setActionError(''); setActionNotice('');
     try {
       if (timer.current) clearTimeout(timer.current);
       await flush(); // never confirm over unsaved edits
-      if (failed.current) { setActionError('Fix the save error first, then try again.'); return; }
+      // Confirming, publishing and editing the configuration are ABOUT what is saved: they wait for a clean save. Reopening, extending, closing and archiving are not — they never touch the
+      // form, so a save that failed earlier (typically a locked field of a call that already opened) must not hold them back (Prompt 918, Adenda 3: "Reopen and extend" did nothing, in silence).
+      const aboutTheForm = action === 'confirm' || action === 'publish' || action === 'edit';
+      const unsaved = dirty.current.general || dirty.current.phases || dirty.current.form;
+      if (failed.current && !unsaved) failed.current = false;
+      if (failed.current && aboutTheForm) { setActionError('Fix the save error first, then try again.'); return; }
       const res = await callsApi.act(callId, action, extra);
       if (!res.ok) { setActionError(res.body.error ?? 'Something went wrong. Please try again.'); if (res.body.code === 'conflict') void load(); return; }
       adopt(res.body, true);
+      if (action === 'reopen') setActionNotice(`The call is open again${res.body.call.closesAt ? ` until ${formatInZone(res.body.call.closesAt, res.body.call.timezone)}` : ''}. Applicants who had not submitted can submit; what was submitted is untouched.`);
       if (action === 'confirm' || action === 'publish') goStep('review');
     } finally { setBusy(false); }
   }
@@ -301,7 +310,7 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
           {nav.step === 'review' && (
             <PreviewTab
               call={call} effectiveStatus={server.effectiveStatus} phases={server.phases} fields={fields} issues={server.issues} summary={server.summary}
-              actions={server.actions} canManage={server.canManage} busy={busy} error={actionError}
+              actions={server.actions} canManage={server.canManage} busy={busy} error={actionError} notice={actionNotice} closedReason={server.closedReason ?? null}
               origin={typeof window !== 'undefined' ? window.location.origin : ''}
               onJump={goStep} onAction={(a, extra) => void act(a, extra)}
             />

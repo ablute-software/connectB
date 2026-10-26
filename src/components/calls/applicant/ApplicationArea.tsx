@@ -9,11 +9,14 @@ import type { ApplicationState } from '@/lib/calls/applicant/store';
 import type { PublicCallInfo } from './CallHeader';
 import { ApplicationForm } from './ApplicationForm';
 import { ReadOnlyNotice } from './ReadOnlyNotice';
+import { TeamNotice } from './TeamNotice';
 
 export interface CallSession {
   authenticated: boolean;
   hasStartup: boolean;
   readOnly?: boolean;
+  /** Prompt 918 (Adenda 3): the person is on this call's team — they never apply to it. */
+  onTeam?: boolean;
   email?: string | null;
   startupName?: string | null;
   application?: { id: string; status: 'draft' | 'submitted'; reference: string | null; lastPage: number | null } | null;
@@ -57,6 +60,7 @@ export function ApplicationArea({ token, call, session, onChanged }: { token: st
     void open(false);
   }, [call.phase, session.application, open, view]);
 
+  if (session.onTeam) return <TeamNotice />;
   // A Developer Viewer session: read-only is right, but never a dead end (Prompt 918, Adenda 2, B).
   if (session.readOnly) return <ReadOnlyNotice email={session.email} startupName={session.startupName} onLeft={() => window.location.reload()} />;
 

@@ -5,6 +5,7 @@
 import { NextResponse } from 'next/server';
 import { isDeletedLink, promoterName } from '@/lib/calls/store';
 import { callsMode } from '@/lib/calls/mode';
+import { closedBeforeDeadline } from '@/lib/calls/closing';
 import { brandingOf } from '@/lib/calls/branding';
 import { resolvePublicCall, serviceClient } from '@/lib/calls/applicant/link';
 import { applicantPhase, phaseSentence } from '@/lib/calls/applicant/phase';
@@ -39,6 +40,9 @@ export async function GET(_req: Request, { params }: { params: { token: string }
     message: phaseSentence(call),
     opensDay: formatDayInZone(call.opensAt, call.timezone),
     closesDay: formatDayInZone(call.closesAt, call.timezone),
+    // When it really closed, if that was before its deadline (Prompt 918, Adenda 3): the entry page shows it instead of a deadline still to come.
+    closedAt: phase === 'closed' && closedBeforeDeadline(call) ? call.closedAt : null,
+    closedDay: phase === 'closed' && closedBeforeDeadline(call) ? formatDayInZone(call.closedAt, call.timezone) : null,
     // Eligibility rules are configured in a later stage (Etapa 2): there is nothing to put in sentences yet.
     eligibility: [] as string[],
     // The entry page (Prompt 918, Adenda 1 C): a cover (or none), and the entity's logo — uploaded for the call, else the entity's own profile logo.

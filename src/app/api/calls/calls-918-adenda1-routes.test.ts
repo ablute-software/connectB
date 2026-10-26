@@ -204,7 +204,14 @@ describe('the logo', () => {
     expect(db.tables.matchdeal_profiles[0].entity_logo_url ?? null).toBeNull();
     const confirmed = await upload('logo', PNG('b'), 'logo.png', { saveToProfile: 'true' });
     expect(confirmed.body.profile).toBe('saved');
-    expect(String(db.tables.matchdeal_profiles[0].entity_logo_url)).toMatch(/^https:\/\/storage\.test\/signed\/calls\//);
+    // The profile keeps its OWN copy, outside the call's folder (Prompt 918, Adenda 3): replacing or removing the call's logo, or deleting the call, never leaves the profile with an address to nothing.
+    const kept = String(db.tables.matchdeal_profiles[0].entity_logo_url);
+    expect(kept).toMatch(/^https:\/\/storage\.test\/signed\/entity-logos\/[0-9a-f-]{36}\/logo-[0-9a-f]{12}\.png/);
+    const ownPath = decodeURIComponent(kept.replace('https://storage.test/signed/', '').replace(/\?.*$/, ''));
+    expect(storage.objects.has(ownPath)).toBe(true);
+    await mediaDelete(new NextRequest(`http://localhost/api/calls/${CALL}/media?kind=logo`, { method: 'DELETE' }), params(CALL));
+    expect(storage.objects.has(ownPath)).toBe(true);                                         // the call's own file is gone; the profile's copy stays
+    await upload('logo', PNG('b'), 'logo.png');
     expect(events('call_logo_saved_to_profile')).toHaveLength(1);
     const keep = db.tables.matchdeal_profiles[0].entity_logo_url;
     const again = await upload('logo', PNG('c'), 'logo.png', { saveToProfile: 'true' });
