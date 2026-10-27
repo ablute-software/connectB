@@ -10234,6 +10234,28 @@ Relatório em `docs/calls/PROMPT_917_I2_ADENDA1_PARTE_B.md`. Migração `2026101
 
 **Limites.** O teste usa o markup estático do painel (sem a altura que o `AutoTextarea` calcula no browser depois de carregar); a altura não afeta a largura, que é o que se mede. Em ecrãs de toque o resto do editor mantém as regras da Adenda 1 do 918.
 
+## Pequenas correções pedidas pelo Nuno a 27/10/2026 (branch `claude/918-small-fixes`)
+
+**"Close early" sem o diálogo do browser.** Pedia confirmação com `window.confirm`; um browser a que se mandou calar os diálogos responde "não" em silêncio (a mesma falha do "Reopen"). Passou a ser uma caixa na página: "Close the call now? …" com "Yes, close the call" e "Cancel" (`close-confirm`).
+
+**O email ao reabrir diz que foi reaberta.** `noticeContent('deadline_extended', …, { reopened: true })`: título "“X” was reopened", corpo "The call “X” was reopened until «data». Your draft … is saved: you can continue it and submit it until then." Uma call **aberta** cujo prazo se prolonga continua a dizer "extended". O tipo do aviso continua `deadline_extended` (a restrição da base não muda); só as palavras. Teste de rota nos dois sentidos.
+
+**"Set a new password" sem "Auth session missing!".** `isSessionMissing` (em `auth-errors.ts`) reconhece o erro do Supabase (`AuthSessionMissingError` ou o texto) e a página mostra "This link has expired or was opened in a different browser. Request a new link." com o botão "Request a new link" (→ `/forgot-password`). **Só a mensagem**: qualquer outro erro continua a ir por `authErrorText`, e o resto da recuperação não foi tocado.
+
+**O ficheiro do ledger no `verify:migration-order`.** Não "falta" por erro: `supabase/migrations-ledger.json` é um **despejo manual** da tabela `supabase_migrations.schema_migrations` (a consulta está no cabeçalho de `scripts/check-migration-order.mjs`) que **nunca foi commitado**; sem ele, a verificação B (ordem do ficheiro contra a ordem aplicada) **salta-se e diz que saltou** — a verificação A (prefixos de 14 dígitos) corre sempre e passa. Gerá-lo exige ler a base de produção, e esta sessão não tem esse acesso (o conector do Supabase aponta para outro projeto). Por decidir: gerá-lo e commitá-lo (fica desatualizado a cada migração) ou gerá-lo antes de cada fecho; a consulta dá o ficheiro em segundos.
+
+**O endereço morto do logo da "ablute_ — Internal QA" — NÃO feito.** É uma linha na base de produção (`matchdeal_profiles.entity_logo_url` do perfil do membro `alexandrameira@ablute.pt` nessa entidade de teste) e esta sessão não consegue lá escrever (o conector do Supabase deixou de apontar para o projeto da Sherlock; sem `.env.local`). Está por fazer, não feito. A forma segura, para correr no SQL editor do Supabase (põe o logo a vazio; as páginas mostram as iniciais; um novo upload com confirmação volta a guardar uma cópia própria):
+
+```sql
+update matchdeal_profiles set entity_logo_url = null
+where entity_logo_url is not null
+  and membership_id in (
+    select m.id from matchdeal_investor_members m
+    join catalog_entities e on e.id = m.catalog_entity_id
+    join auth.users u on u.id = m.user_id
+    where e.name = 'ablute_ — Internal QA' and u.email = 'alexandrameira@ablute.pt');
+```
+
 ## Prompt 917, Adenda 2 (B) — o tipo "Table": tabela com cabeçalhos de linha e de coluna, colunas e linhas do candidato, "Expand table" e "Convert to Table" (27/10/2026, branch `claude/917-adenda2-table`)
 
 **O tipo.** `FIELD_KINDS` ganha `table` (aditivo). A configuração (`TableConfig`) tem: título do canto; **linhas** (os critérios, 1.ª coluna — podem faltar: então só numeradas) e **colunas** (1.ª linha), cada uma com **id estável**; tipo das células (`short_text`, `long_text`, `number`, `percent`, `amount`) para a tabela e, opcionalmente, **um por linha**; regras de **o que o candidato pode acrescentar** (colunas e/ou linhas: permitido, máximo **contando as da entidade**, nome por omissão com `#`); e **o que é obrigatório** (`none` / `all` = todas as células das colunas da entidade / `first_column`). **A resposta** guarda só o que o candidato pode escrever: as colunas e linhas **que ele acrescentou** (`{ id, name, addedBy: 'applicant' }`) e as células **por id de linha e id de coluna, nunca por posição** — apagar uma coluna não baralha as outras. Tudo o que é puro (ler a configuração, coagir, validar, o resumo, a conversão) está em `src/lib/calls/table.ts`.
