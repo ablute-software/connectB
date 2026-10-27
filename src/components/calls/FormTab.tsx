@@ -7,8 +7,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ImportFormDialog, type ImportOutcome } from './ImportFormDialog';
 import { ImportStatusPill } from './ImportStatusPill';
-import { FileConfigEditor, GroupEditor, UrlConfigEditor } from './GroupEditor';
+import { FileConfigEditor, GroupEditor, UrlConfigEditor, type ConvertAction } from './GroupEditor';
+import { callsApi, type CallState } from './api';
 import { AutoTextarea } from './AutoTextarea';
+import { TableEditor } from './TableEditor';
 import type { ImportStatus } from '@/lib/calls/ai-import/screen-state';
 import type { ImportMode } from '@/lib/calls/form-import';
 import { orderFields } from '@/lib/calls/form-logic';
@@ -21,7 +23,7 @@ import {
 } from '@/lib/calls/types';
 
 const KIND_ICON: Record<FieldKind, string> = {
-  short_text: 'Aa', long_text: '¶', number: '#', date: '📅', yes_no: '✓✗', single_choice: '◉', multiple_choice: '☑', file: '📄', url: '🔗', email: '@', group: '▦',
+  short_text: 'Aa', long_text: '¶', number: '#', date: '📅', yes_no: '✓✗', single_choice: '◉', multiple_choice: '☑', file: '📄', url: '🔗', email: '@', group: '▦', table: '▤',
 };
 const INPUT = 'block w-full min-w-0 rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm disabled:bg-gray-50 disabled:text-gray-500';
 const LABEL = 'block text-[11px] font-semibold uppercase tracking-wide text-gray-500';
@@ -49,7 +51,11 @@ function useWide(): boolean {
   return wide;
 }
 
-export function FormTab({ callId, fields, disabled, lockedReason, onChange, onImport, onImportDocuments, importStatus = null, onReview, selectId, selectKey = 0 }: {
+export function FormTab({ callId, fields, disabled, lockedReason, onChange, onImport, onImportDocuments, importStatus = null, onReview, selectId, selectKey = 0, canConvert = false, onConverted }: {
+  /** "Convert to Table" on a group (Prompt 917, Adenda 2, B4): allowed to whoever may configure the call, even where the form is otherwise locked (an open call). */
+  canConvert?: boolean;
+  /** The server's answer after a conversion: the call as it is now (the editor takes the new fields from it). */
+  onConverted?: (state: CallState) => void;
   /** A question to open on arrival ("What is missing" → the question). */
   selectId?: string; selectKey?: number;
   /** The pill "Proposal ready to review" opens that proposal's review. */
@@ -103,6 +109,16 @@ export function FormTab({ callId, fields, disabled, lockedReason, onChange, onIm
     onChange(res.fields);
   }
   const update = (id: string, patch: Partial<FormField>) => onChange(fields.map((f) => (f.id === id ? { ...f, ...patch } : f)));
+  const convertFor = (f: FormField): ConvertAction => ({
+    field: f, allowed: canConvert,
+    run: async (confirm) => {
+      const r = await callsApi.convertToTable(callId, f.id, confirm);
+      if (!r.ok) return { ok: false, code: r.body.code, error: r.body.error ?? 'It could not be converted.' };
+      onConverted?.(r.body);
+      const c = r.body.converted;
+      return { ok: true, message: `Converted. ${c.summary}${c.drafts > 0 ? ` ${c.migrated} of ${c.drafts} unfinished application${c.drafts === 1 ? '' : 's'} carried over${c.told > 0 ? `; ${c.told} told that the question changed` : ''}.` : ''}` };
+    },
+  });
 
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,1fr)_360px]" data-testid="form-tab">
@@ -206,7 +222,7 @@ export function FormTab({ callId, fields, disabled, lockedReason, onChange, onIm
         <aside className="lg:sticky lg:top-4 lg:self-start" aria-label="Field settings">
           {selected ? (
             <FieldPanel
-              field={selected} ordered={ordered} disabled={disabled}
+              field={selected} ordered={ordered} disabled={disabled} convert={convertFor(selected)}
               onChange={(patch) => update(selected.id, patch)} onReplace={(f) => onChange(fields.map((x) => (x.id === f.id ? f : x)))}
               onDelete={() => { onChange(deleteField(fields, selected.id)); setSelectedId(null); }}
             />
@@ -223,7 +239,7 @@ export function FormTab({ callId, fields, disabled, lockedReason, onChange, onIm
           </div>
           <div className="mx-auto max-w-xl p-4 pb-24">
             <FieldPanel
-              field={selected} ordered={ordered} disabled={disabled}
+              field={selected} ordered={ordered} disabled={disabled} convert={convertFor(selected)}
               onChange={(patch) => update(selected.id, patch)} onReplace={(f) => onChange(fields.map((x) => (x.id === f.id ? f : x)))}
               onDelete={() => { onChange(deleteField(fields, selected.id)); setSelectedId(null); }}
             />
@@ -236,12 +252,12 @@ export function FormTab({ callId, fields, disabled, lockedReason, onChange, onIm
   );
 }
 
-export function FieldPanel({ field, ordered, disabled, onChange, onReplace, onDelete }: {
-  field: FormField; ordered: FormField[]; disabled: boolean;
+export function FieldPanel({ field, ordered, disabled, onChange, onReplace, onDelete, convert }: {
+  field: FormField; ordered: FormField[]; disabled: boolean; convert?: ConvertAction;
   onChange: (patch: Partial<FormField>) => void; onReplace: (f: FormField) => void; onDelete: () => void;
 }) {
   // A group cannot be what a condition depends on (version 1), and nothing inside a group is a question of the form.
-  const earlier = ordered.slice(0, ordered.findIndex((x) => x.id === field.id)).filter((x) => x.kind !== 'group');
+  const earlier = ordered.slice(0, ordered.findIndex((x) => x.id === field.id)).filter((x) => x.kind !== 'group' && x.kind !== 'table');
   const controller = field.condition ? earlier.find((x) => x.id === field.condition!.fieldId) : null;
   const optionControl = controller ? isChoiceKind(controller.kind) || controller.kind === 'yes_no' : false;
   const operators: ConditionOperator[] = optionControl ? ['equals', 'not_equals', 'is_answered', 'is_empty'] : ['is_answered', 'is_empty'];
@@ -256,7 +272,7 @@ export function FieldPanel({ field, ordered, disabled, onChange, onReplace, onDe
         </select>
       </div>
       <div>
-        <label className={LABEL} htmlFor="fp-label">{field.kind === 'file' ? 'Document name' : field.kind === 'group' ? 'Title of the group' : 'Question'}</label>
+        <label className={LABEL} htmlFor="fp-label">{field.kind === 'file' ? 'Document name' : field.kind === 'group' ? 'Title of the group' : field.kind === 'table' ? 'Title of the table' : 'Question'}</label>
         <textarea id="fp-label" rows={2} autoComplete="off" className={INPUT} value={field.label} disabled={disabled} maxLength={500} onChange={(e) => onChange({ label: e.target.value })} />
       </div>
       <div>
@@ -313,7 +329,10 @@ export function FieldPanel({ field, ordered, disabled, onChange, onReplace, onDe
       {field.kind === 'url' && <UrlConfigEditor value={field.validations} disabled={disabled} onChange={(v) => onChange({ validations: v })} />}
       {field.kind === 'email' && <p className="rounded bg-gray-50 px-2 py-1.5 text-xs text-gray-500">The format of the address is checked. Most useful inside a repeatable group (the email of each team member).</p>}
       {field.kind === 'group' && field.validations.group && (
-        <GroupEditor value={field.validations.group} disabled={disabled} onChange={(g) => onChange({ validations: { ...field.validations, group: g } })} />
+        <GroupEditor value={field.validations.group} disabled={disabled} convert={convert} onChange={(g) => onChange({ validations: { ...field.validations, group: g } })} />
+      )}
+      {field.kind === 'table' && field.validations.table && (
+        <TableEditor value={field.validations.table} disabled={disabled} onChange={(t) => onChange({ validations: { ...field.validations, table: t } })} />
       )}
       {field.kind === 'file' && (
         <div className="space-y-2">

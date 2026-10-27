@@ -76,6 +76,9 @@ export const callsApi = {
       `/api/calls/${id}/import-form${previewId ? `?preview=${encodeURIComponent(previewId)}` : ''}`),
   importForm: (id: string, body: { sourceCallId: string; mode: ImportMode; baseVersion: number; confirmReplace?: boolean }) =>
     call<CallState & { import: { imported: number; mode: ImportMode; from: string; warnings: string[] } }>(`/api/calls/${id}/import-form`, send('POST', body)),
+  /** Prompt 917 (Adenda 2, B4): turn a repeatable group shown as a table into a Table (transposed), drafts migrated; `confirm` once the entity has been told about submitted applications. */
+  convertToTable: (id: string, fieldId: string, confirm = false) =>
+    call<CallState & { converted: { label: string; summary: string; drafts: number; migrated: number; told: number; submitted: number } }>(`/api/calls/${id}/form/convert-to-table`, send('POST', { fieldId, confirm })),
   /** Prompt 909 (I3): the team of a call, and one change at a time (the server answers with the whole picture). */
   team: (id: string) => call<TeamPayload>(`/api/calls/${id}/team`),
   teamAction: (id: string, body: Record<string, unknown>) => call<TeamPayload>(`/api/calls/${id}/team`, send('POST', body)),

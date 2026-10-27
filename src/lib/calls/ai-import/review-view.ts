@@ -26,6 +26,12 @@ export function configLines(f: ProposalFieldItem): string[] {
   }
   if (f.kind === 'url') out.push(f.validations?.urlHint ? `A link to a ${URL_HINT_LABELS[f.validations.urlHint].toLowerCase()}` : 'A link (https://)');
   if (f.kind === 'number' && f.validations?.currency) out.push('Shown with the call’s currency');
+  if (f.kind === 'table' && f.table) {
+    const t = f.table;
+    out.push(`Table: ${t.rows.length} row${t.rows.length === 1 ? '' : 's'} (${t.rows.slice(0, 3).map((r) => r.label || '#').join(', ')}${t.rows.length > 3 ? '…' : ''}) × ${t.columns.length} column${t.columns.length === 1 ? '' : 's'} (${t.columns.map((c) => c.label).join(', ')})`);
+    if (t.addColumns.allowed) out.push(`Applicants can add columns, up to ${t.addColumns.max} in all`);
+    if (t.addRows.allowed) out.push(`Applicants can add rows, up to ${t.addRows.max} in all`);
+  }
   if (f.kind === 'group' && f.group) {
     const g = f.group;
     out.push(`Repeatable group “${g.entryLabel}”: ${g.subFields.length} question${g.subFields.length === 1 ? '' : 's'} (${g.subFields.map((s) => s.label).join(', ')})`);

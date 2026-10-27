@@ -62,6 +62,12 @@ export function readiness(call: Call, phases: CallPhase[], fields: FormField[], 
     // Prompt 917: a repeatable group's own questions are held to the same standard as the questions of the form.
     const group = f.kind === 'group' ? f.validations.group : null;
     if (f.kind === 'group' && (!group || group.subFields.length === 0)) issues.push({ tab: 'form', message: `“${f.label}” (a group) needs at least one question.`, target: f.id });
+    // Prompt 917 (Adenda 2): a table must be fillable — a column with a name, and a row (or the applicant allowed to add rows) — and have no header left empty where it needs one.
+    if (f.kind === 'table') {
+      const t = f.validations.table;
+      if (!t || t.columns.length === 0 || t.columns.some((c) => !c.label.trim())) issues.push({ tab: 'form', message: `“${f.label}” (a table) needs at least one column, each with a name.`, target: f.id });
+      else if (t.rows.length === 0 && !t.addRows.allowed) issues.push({ tab: 'form', message: `“${f.label}” (a table) needs at least one row.`, target: f.id });
+    }
     for (const s of group?.subFields ?? []) {
       if (!s.label.trim() || s.label === UNTITLED) issues.push({ tab: 'form', message: `A question in the group “${f.label}” still has no text.`, target: f.id });
       if (isChoiceKind(s.kind) && s.options.filter((o) => o.label.trim()).length < 2) issues.push({ tab: 'form', message: `“${s.label}” (in “${f.label}”) needs at least two options.`, target: f.id });

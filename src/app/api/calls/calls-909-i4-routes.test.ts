@@ -664,7 +664,9 @@ describe.skipIf(!fs.existsSync(REAL_PDF))('the real INNOV-ID form, end to end (i
     expect(out.body.applied.fields).toBe(accepted.length);
     const saved = fieldsOf(target.id);
     expect(saved).toHaveLength(accepted.length);
-    expect(saved.filter((f) => f.kind === 'group')).toHaveLength(2);
+    // the INNOV-ID form has one repeatable list and one comparison table: since Prompt 917 (Adenda 2) the comparison is a Table, not a second group
+    expect(saved.filter((f) => f.kind === 'group')).toHaveLength(1);
+    expect(saved.filter((f) => f.kind === 'table')).toHaveLength(1);
     // the 16/10 bug: a file saved with no age limit became "1 month" (Number(null) clamped up to 1). None of the 7 files states a deadline: none is stored.
     const filesSaved = saved.filter((f) => f.kind === 'file');
     expect(filesSaved).toHaveLength(7);

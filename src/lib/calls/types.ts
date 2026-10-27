@@ -5,7 +5,7 @@
 // Prompt 917 (I1): url, email and group are new. The first eight are the original kinds; a group is the only kind that holds other questions.
 
 export const FIELD_KINDS = [
-  'short_text', 'long_text', 'number', 'date', 'yes_no', 'single_choice', 'multiple_choice', 'file', 'url', 'email', 'group',
+  'short_text', 'long_text', 'number', 'date', 'yes_no', 'single_choice', 'multiple_choice', 'file', 'url', 'email', 'group', 'table',
 ] as const;
 export type FieldKind = (typeof FIELD_KINDS)[number];
 /** What the import may propose (Prompt 917, I2): every kind, the new ones included — each with its own rules in the prompt and in the sanitiser. */
@@ -28,6 +28,7 @@ export const FIELD_KIND_LABELS: Record<FieldKind, string> = {
   url: 'Link (URL)',
   email: 'Email',
   group: 'Repeatable group',
+  table: 'Table',
 };
 
 export const CHOICE_KINDS: readonly FieldKind[] = ['single_choice', 'multiple_choice'];
@@ -87,6 +88,8 @@ export interface FieldValidations {
   urlHint?: UrlHint;
   /** Group: the repeatable entries and the questions in each. */
   group?: GroupConfig;
+  /** Table (Prompt 917, Adenda 2, B): the headers of its rows and columns, the type of the cells, what the applicant may add, what is required. */
+  table?: TableConfig;
 }
 
 /** A question inside a group. Its id is a UUID (a file in a group is registered under it). No conditions inside groups in v1. */
@@ -111,6 +114,39 @@ export interface GroupConfig {
   subFields: SubField[];
   /** Table with the rows set by the entity: for each row, the text of its first columns (read-only for the applicant). Empty = the applicant adds the rows. */
   presetRows: string[][];
+}
+
+// --- Table (Prompt 917, Adenda 2, B) ----------------------------------------------------------------------------------------------------------
+// A grid with HEADERS: the entity sets the criteria down the first column (the rows) and the things compared along the first row (the columns); the applicant fills in the cells and — if the entity
+// allows — adds columns (one more competitor) or rows (one more criterion), and removes only what they added. Unlike a repeatable group (a list of entries that each answer the same questions: team
+// members), every cell here is addressed by BOTH its row and its column, by stable ids — never by position, so removing a column never shifts the others.
+export const TABLE_CELL_KINDS = ['short_text', 'long_text', 'number', 'percent', 'amount'] as const;
+export type TableCellKind = (typeof TABLE_CELL_KINDS)[number];
+export const TABLE_CELL_KIND_LABELS: Record<TableCellKind, string> = { short_text: 'Short text', long_text: 'Long text', number: 'Number', percent: 'Percentage (%)', amount: 'Amount (currency)' };
+export const MAX_TABLE_ROWS = 50;
+export const MAX_TABLE_COLUMNS = 20;
+export const MAX_TABLE_HEADER = 200;
+export const MAX_TABLE_CELL_SHORT = 500;
+export const MAX_TABLE_CELL_LONG = 5000;
+export interface TableHeader { id: string; label: string }
+/** What the applicant may add: how many in all (the entity's own included) and what a new one is called until they rename it ("Competitor #" gives "Competitor #3"). */
+export interface TableAddRule { allowed: boolean; max: number; defaultName: string }
+/** Which cells must be filled: none, every cell of the entity's columns, or only the first of them (e.g. the applicant's own company). */
+export type TableRequired = 'none' | 'all' | 'first_column';
+export interface TableConfig {
+  /** The text in the top-left corner ("Relevant criteria"). Optional. */
+  cornerTitle: string;
+  /** The entity's rows (the first column). A header with no text is shown as its number. */
+  rows: TableHeader[];
+  /** The entity's columns (the first row). */
+  columns: TableHeader[];
+  /** The type of every cell, unless a row says otherwise. */
+  cellKind: TableCellKind;
+  /** A row of its own type ("Market share (%)" is a percentage), by row id. */
+  rowKinds: Record<string, TableCellKind>;
+  addColumns: TableAddRule;
+  addRows: TableAddRule;
+  required: TableRequired;
 }
 
 export interface FormField {
@@ -206,5 +242,9 @@ export interface FileValue { fileName: string; size: number; mime?: string; file
 /** What a question inside a group holds (no group in a group). */
 export type SimpleAnswer = string | string[] | FileValue | FileValue[] | null | undefined;
 export interface GroupEntry { id: string; values: Record<string, SimpleAnswer> }
-export type AnswerValue = SimpleAnswer | GroupEntry[];
+/** A column or a row the APPLICANT added to a table: its own id, the name they gave it (they may rename it) and who added it. */
+export interface TableExtra { id: string; name: string; addedBy: 'applicant' }
+/** A table's answer: the columns and rows the applicant added, and the cells, `cells[rowId][columnId]`. The entity's own headers are never in the answer — they come from the configuration. */
+export interface TableAnswer { columns: TableExtra[]; rows: TableExtra[]; cells: Record<string, Record<string, string>> }
+export type AnswerValue = SimpleAnswer | GroupEntry[] | TableAnswer;
 export type Answers = Record<string, AnswerValue>;

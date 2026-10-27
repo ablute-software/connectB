@@ -6,6 +6,7 @@ import { formatNumberDisplay, sanitizeNumberInput } from '@/lib/calls/form-logic
 import { acceptAttr, fileFormatsOf, fileValues, formatsText, maxFileMbOf, maxFilesOf } from '@/lib/calls/field-config';
 import { URL_HINT_LABELS, platformMappingLabel, type AnswerValue, type FormField, type SimpleAnswer, type SubField } from '@/lib/calls/types';
 import { GroupInput } from './GroupInput';
+import { TableInput } from './TableInput';
 
 const BASE = 'block w-full rounded-lg border px-3 py-2 text-sm disabled:bg-gray-50';
 
@@ -46,6 +47,9 @@ export function FieldInput({ field, value, error, currency, disabled, onChange, 
       break;
     case 'group':
       control = <GroupInput field={field} value={value} currency={currency} disabled={disabled} showAllErrors={showAllErrors} onChange={onChange} fileControlFor={fileControlFor} />;
+      break;
+    case 'table':
+      control = <TableInput field={field} value={value} currency={currency} disabled={disabled} showAllErrors={showAllErrors} onChange={onChange} />;
       break;
     case 'long_text':
       control = (

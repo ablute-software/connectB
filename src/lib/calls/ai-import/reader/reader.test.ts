@@ -126,13 +126,20 @@ describe('what it solves, and says it did', () => {
 
 describe('a template table with numbered columns', () => {
   const block = { title: 'Exemplo - template Competitive Detailed Analysis', text: `Exemplo - template Competitive Detailed Analysis\nCaso considerar útil, poderá utilizar o template infra.\nRelevant Criteria Your solution/\ncompany Competitor #1 Competitor #2 Competitor #...\nProducts\n& Services\nBusiness Model\nTarget\nMarket (size in\n€, identifying\nmarkets)\nMarket Share (%)\nCompetitive\nadvantage\n...` };
-  it('becomes a group shown as a table: the companies are the fixed rows, the criteria the columns', () => {
+  it('becomes a TABLE (Prompt 917 Adenda 2): the criteria are the rows, the companies the columns, and applicants can add columns', () => {
     const t = readTemplateTable(block)!;
     expect(t.title).toBe('Competitive Detailed Analysis');
-    expect(t.group.display).toBe('table');
-    expect(t.group.presetRows).toEqual([['Your solution/company'], ['Competitor #1'], ['Competitor #2']]);
-    expect(t.group.subFields.map((s) => s.label)).toEqual(['Company', 'Products & Services', 'Business Model', 'Target Market (size in €, identifying markets)', 'Market Share (%)', 'Competitive advantage']);
-    expect([t.group.min, t.group.max]).toEqual([3, 3]);
+    expect(t.table.cornerTitle).toBe('Relevant Criteria');
+    expect(t.table.columns.map((c) => c.label)).toEqual(['Your solution/company', 'Competitor #1', 'Competitor #2']);
+    expect(t.table.rows.map((r) => r.label)).toEqual(['Products & Services', 'Business Model', 'Target Market (size in €, identifying markets)', 'Market Share (%)', 'Competitive advantage']);
+    expect(t.table.cellKind).toBe('long_text');
+    // "Market Share (%)" is a percentage row; nothing else is
+    const share = t.table.rows.find((r) => r.label === 'Market Share (%)')!;
+    expect(t.table.rowKinds).toEqual({ [share.id]: 'percent' });
+    expect(t.table.addColumns).toEqual({ allowed: true, max: 6, defaultName: 'Competitor #' });
+    expect(t.table.addRows.allowed).toBe(false);
+    expect(t.table.required).toBe('none');
+    expect(t.note).toContain('applicants can add more');
   });
   it('a block that is not that shape stays unresolved, with the place it follows', () => {
     expect(readTemplateTable({ title: 'Quadro de custos', text: 'Quadro de custos\nitem valor\nalgo 10' })).toBeNull();
@@ -232,9 +239,10 @@ describe.skipIf(!fs.existsSync(REAL))('the real INNOV-ID form (the PDF the Nuno 
     expect(by(r, '6.6').validations).toMatchObject({ maxFiles: 10 });
     expect(by(r, '6.7').kind).toBe('file');
     const table = r.fields[r.fields.length - 1];
-    expect(table).toMatchObject({ kind: 'group', label: 'Competitive Detailed Analysis' });
-    expect(table.group?.presetRows).toHaveLength(3);
-    expect(table.group?.subFields).toHaveLength(6);
+    expect(table).toMatchObject({ kind: 'table', label: 'Competitive Detailed Analysis' });
+    expect(table.table?.columns).toHaveLength(3);
+    expect(table.table?.rows).toHaveLength(5);
+    expect(r.attention.some((a) => a.why.includes('Competitive analysis table: criteria as rows, competitors as columns; applicants can add columns.'))).toBe(true);
     // nothing is said twice: one warning per question number
     const nums = r.attention.map((a) => a.what.match(/^\d+(?:\.\d+)*/)?.[0]).filter(Boolean);
     expect(new Set(nums).size).toBe(nums.length);
@@ -252,7 +260,8 @@ describe.skipIf(!fs.existsSync(REAL))('the real INNOV-ID form (the PDF the Nuno 
     const parsed = parseFieldsPayload(formFields);
     expect(parsed.ok, parsed.ok ? '' : parsed.error).toBe(true);
     if (parsed.ok) {
-      expect(parsed.fields.filter((f) => f.kind === 'group')).toHaveLength(2);
+      expect(parsed.fields.filter((f) => f.kind === 'group')).toHaveLength(1);                   // the team members: a list of entries
+      expect(parsed.fields.filter((f) => f.kind === 'table')).toHaveLength(1);                   // the competitive analysis: a Table (criteria as rows, competitors as columns)
       expect(parsed.fields.filter((f) => f.condition).length).toBeGreaterThanOrEqual(9);
     }
   });

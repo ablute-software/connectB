@@ -6,6 +6,7 @@ import {
   FILE_FORMATS, MAX_URL_LENGTH, entriesOf, fileFormatsOf, fileValues, formatOfName, formatsText, groupMin, groupOf, groupStarted, isEmail, isFileValue, isGroupEntry, isHttpUrl,
   maxFileMbOf, maxFilesOf, presetEntriesFor, subFieldAsField,
 } from './field-config';
+import { isTableAnswer, isTableAnswered, tableIssues } from './table';
 
 export const orderFields = (fields: FormField[]): FormField[] =>
   [...fields].sort((a, b) => a.page - b.page || a.position - b.position);
@@ -15,6 +16,8 @@ export const orderFields = (fields: FormField[]): FormField[] =>
 export function isAnswered(value: AnswerValue): value is Exclude<AnswerValue, null | undefined> {
   if (value == null) return false;
   if (typeof value === 'string') return value.trim() !== '';
+  // A table is answered when a CELL holds something; a column or row the applicant added and left empty is not an answer (Prompt 917, Adenda 2).
+  if (isTableAnswer(value)) return isTableAnswered(value);
   if (Array.isArray(value)) {
     if (value.length === 0) return false;
     // A group is answered when at least one of its entries holds something; a list of options or of files, when it is not empty.
@@ -163,6 +166,7 @@ function validateGroup(field: FormField, value: AnswerValue): string | null {
 /** null = fine. Only meaningful for a SHOWN field; an empty optional answer is always fine. */
 export function validateAnswer(field: FormField, value: AnswerValue): string | null {
   if (field.kind === 'group') return validateGroup(field, value);
+  if (field.kind === 'table') return tableIssues(field, value)[0]?.message ?? null;
   if (!isAnswered(value)) return field.required ? 'This answer is required.' : null;
   switch (field.kind) {
     case 'short_text':

@@ -94,6 +94,35 @@ describe.skipIf(!CHROME)('the panel edits the selected question by id (real brow
     await page.close();
   }, 120_000);
 
+  it('the table editor: build the competitive-analysis table from the panel — rows and columns one per line, a type for one row, what applicants may add, what is required', async () => {
+    const start = [{ ...newField('table', 1, 0), id: 'q-t', label: 'Competitive analysis' }] as FormField[];
+    const { page, errors } = await open(start);
+    await page.locator('[data-testid="field-card"]').first().click();
+    await page.locator('#tbl-rows').fill('Products & Services\nBusiness Model\nMarket Share (%)');
+    await page.locator('#tbl-cols').fill('Your solution/company\nCompetitor #1\nCompetitor #2');
+    await page.locator('#tbl-corner').fill('Relevant Criteria');
+    await page.locator('[data-testid="row-kinds"] summary').click();
+    await page.locator('select[aria-label="Type of Market Share (%)"]').selectOption('percent');
+    await page.locator('[data-testid="allow-columns"]').check();
+    await page.locator('[data-testid="required-first_column"]').check();
+    type Cfg = { rows: { id: string; label: string }[]; columns: { label: string }[]; rowKinds: Record<string, string>; cornerTitle: string; addColumns: { allowed: boolean }; required: string };
+    const read = () => page.evaluate(() => (window as unknown as { __fields: { validations: { table: unknown } }[] }).__fields[0].validations.table) as Promise<Cfg>;
+    const table = await read();
+    expect(table.rows.map((r) => r.label)).toEqual(['Products & Services', 'Business Model', 'Market Share (%)']);
+    expect(table.columns.map((c) => c.label)).toEqual(['Your solution/company', 'Competitor #1', 'Competitor #2']);
+    expect(table).toMatchObject({ cornerTitle: 'Relevant Criteria', addColumns: { allowed: true }, required: 'first_column' });
+    expect(table.rowKinds).toEqual({ [table.rows[2].id]: 'percent' });
+    // the preview, in the panel, is drawn as cards (it has to fit) with the criteria as fields
+    expect(await page.locator('[data-testid="table-preview"] [data-testid="table-card"]').count()).toBe(3);
+    // renaming a row keeps its id, and so its type
+    await page.locator('#tbl-rows').fill('Products & Services\nBusiness Model\nMarket Share, per market (%)');
+    const after = await read();
+    expect(after.rows[2].id).toBe(table.rows[2].id);
+    expect(after.rowKinds[after.rows[2].id]).toBe('percent');
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 120_000);
+
   it('a group\'s sub-question: editing the 2nd changes only the 2nd, whatever else was selected before', async () => {
     const { page, labels } = await open(questions(), 'q-1');
     await page.locator('[data-testid="field-card"]').nth(5).click();

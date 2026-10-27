@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { newField } from '@/lib/calls/form-builder';
 import { newSubField } from '@/lib/calls/field-config';
 import type { FormField } from '@/lib/calls/types';
+import { defaultTableConfig } from '@/lib/calls/table';
 import { FieldPanel } from './FormTab';
 
 const CHROME = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/chromium']
@@ -32,11 +33,19 @@ function fixtures(): { name: string; field: FormField; ordered: FormField[] }[] 
   choice.label = 'Eight long options';
   choice.options = Array.from({ length: 8 }, (_, i) => ({ id: `x${i}`, label: `${i + 1}. ${LONG}` }));
   const conditional = { ...newField('short_text', 1, 3), label: 'Tell us more', condition: { fieldId: lead.id, operator: 'equals' as const, value: 'o1' } };
-  const ordered = [lead, group, choice, conditional];
+  // Prompt 917 (Adenda 2, B1): the table's editor — long header names, a per-row type, the add rules and the preview — must fit the panel as well.
+  const table = newField('table', 1, 4);
+  table.label = 'Competitive analysis: tell us how you compare with every competitor you have identified in your market, criterion by criterion';
+  table.validations = { table: { ...defaultTableConfig(), cornerTitle: 'Relevant criteria, as the entity names them in the regulation of the call',
+    rows: [{ id: 'r_prod', label: 'Products & Services, with every product line described in one sentence and a link' }, { id: 'r_biz', label: 'Business Model' }, { id: 'r_share', label: 'Market Share (%) in each market ' + LONG }],
+    columns: [{ id: 'c_you', label: 'Your solution/company' }, { id: 'c_1', label: 'Competitor #1 ' + LONG }, { id: 'c_2', label: 'Competitor #2' }],
+    rowKinds: { r_share: 'percent' }, addColumns: { allowed: true, max: 6, defaultName: 'Competitor #' }, addRows: { allowed: true, max: 8, defaultName: 'Criterion #' }, required: 'all' } };
+  const ordered = [lead, group, choice, conditional, table];
   return [
     { name: 'a group with three sub-questions of different types', field: group, ordered },
     { name: 'a choice with eight long options', field: choice, ordered },
     { name: 'a question with a condition on a long-titled question', field: conditional, ordered },
+    { name: 'a table with long headers, a per-row type, add rules and its preview', field: table, ordered },
   ];
 }
 
