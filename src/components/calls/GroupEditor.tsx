@@ -165,7 +165,8 @@ function ConvertToTable({ action }: { action: ConvertAction }) {
 export function GroupEditor({ value, disabled, onChange, convert }: { value: GroupConfig; disabled?: boolean; onChange: (g: GroupConfig) => void; convert?: ConvertAction }) {
   const set = (patch: Partial<GroupConfig>) => onChange({ ...value, ...patch });
   const preset = value.presetRows.length > 0;
-  const setSub = (i: number, s: SubField) => set({ subFields: value.subFields.map((x, j) => (j === i ? s : x)) });
+  // Always by the sub-question's own id, never by its place in the list (Prompt 917, 27/10/2026).
+  const setSub = (id: string, s: SubField) => set({ subFields: value.subFields.map((x) => (x.id === id ? s : x)) });
   const move = (i: number, d: -1 | 1) => { const j = i + d; if (j < 0 || j >= value.subFields.length) return; const next = [...value.subFields]; [next[i], next[j]] = [next[j], next[i]]; set({ subFields: next }); };
   return (
     <div className="min-w-0 space-y-3" data-testid="group-config">
@@ -212,8 +213,8 @@ export function GroupEditor({ value, disabled, onChange, convert }: { value: Gro
         <span className={LABEL}>Questions in each entry</span>
         <ul className="mt-1 space-y-2">
           {value.subFields.map((s, i) => (
-            <SubFieldEditor key={s.id} sub={s} index={i} total={value.subFields.length} disabled={disabled} onChange={(n) => setSub(i, n)}
-              onRemove={() => set({ subFields: value.subFields.filter((_, j) => j !== i) })} onMove={(d) => move(i, d)} />
+            <SubFieldEditor key={s.id} sub={s} index={i} total={value.subFields.length} disabled={disabled} onChange={(n) => setSub(s.id, n)}
+              onRemove={() => set({ subFields: value.subFields.filter((x) => x.id !== s.id) })} onMove={(d) => move(i, d)} />
           ))}
         </ul>
         <button type="button" disabled={disabled || value.subFields.length >= MAX_GROUP_SUBFIELDS} onClick={() => set({ subFields: [...value.subFields, newSubField('short_text')] })}

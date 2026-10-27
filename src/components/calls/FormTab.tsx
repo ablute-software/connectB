@@ -3,7 +3,7 @@
 // from a menu of types, drag to reorder (or use the arrows), edit in the side panel. Pages are split and merged by
 // hand, or proposed by "Suggest pages" (by subject, about five per page, no AI). Display conditions only point at
 // EARLIER questions; links to platform data are explicit and shown with an icon.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ImportFormDialog, type ImportOutcome } from './ImportFormDialog';
 import { ImportStatusPill } from './ImportStatusPill';
@@ -51,13 +51,13 @@ function useWide(): boolean {
   return wide;
 }
 
-export function FormTab({ callId, fields, disabled, lockedReason, onChange, onImport, onImportDocuments, importStatus = null, onReview, selectId, canConvert = false, onConverted }: {
+export function FormTab({ callId, fields, disabled, lockedReason, onChange, onImport, onImportDocuments, importStatus = null, onReview, selectId, selectKey = 0, canConvert = false, onConverted }: {
   /** "Convert to Table" on a group (Prompt 917, Adenda 2, B4): allowed to whoever may configure the call, even where the form is otherwise locked (an open call). */
   canConvert?: boolean;
   /** The server's answer after a conversion: the call as it is now (the editor takes the new fields from it). */
   onConverted?: (state: CallState) => void;
   /** A question to open on arrival ("What is missing" → the question). */
-  selectId?: string;
+  selectId?: string; selectKey?: number;
   /** The pill "Proposal ready to review" opens that proposal's review. */
   onReview?: () => void;
   /** A reading in progress, or a proposal waiting for review, shown next to the Import button (Adenda 2b). */
@@ -78,7 +78,14 @@ export function FormTab({ callId, fields, disabled, lockedReason, onChange, onIm
   const [notice, setNotice] = useState('');
   const selected = ordered.find((f) => f.id === selectedId) ?? null;
   const wide = useWide();
-  useEffect(() => { if (selectId && fields.some((f) => f.id === selectId)) setSelectedId(selectId); }, [selectId, fields]);
+  // "What is missing" → this question: selected ONCE per jump. It used to run again on every change of `fields`, i.e. on every keystroke, and put the selection back on the jump's target — so after
+  // such a jump, typing in any other question's panel moved the panel to the target (usually the first question) after the first character and the rest of the text went there (Prompt 917, 27/10/2026).
+  const fieldsNow = useRef(fields); fieldsNow.current = fields;
+  const jumped = useRef<number | null>(null);
+  useEffect(() => {
+    if (!selectId || jumped.current === selectKey || !fieldsNow.current.some((f) => f.id === selectId)) return;
+    jumped.current = selectKey; setSelectedId(selectId);
+  }, [selectId, selectKey]);
   const pages = [...new Set(ordered.map((f) => f.page))];
 
   function add(kind: FieldKind) {

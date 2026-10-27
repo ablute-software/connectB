@@ -13,6 +13,7 @@ import { VIEWER_ORG_COOKIE, VIEWER_READ_ONLY_CODE, VIEWER_READ_ONLY_MESSAGE } fr
 import { viewerWriteVerdict } from '@/lib/viewer-write-gate';
 import { isLiveFounderOrg } from '@/lib/founder-hat';
 import { PUBLIC_SITE_PATHS } from '@/lib/public-site-routes';
+import { isCronTickRequest } from '@/lib/cron-auth';
 
 // Prompt 904 Part B: '/api/auth-code' (register / resend / verify / status) is public because its
 // callers have no session yet; each route answers 404 unless AUTH_CODE_MODE allows the email.
@@ -102,6 +103,11 @@ export async function middleware(req: NextRequest) {
   if (!url || !anon) return NextResponse.next();
 
   const { pathname } = req.nextUrl;
+  // 22/10/2026 — the platform's own cron. vercel.json calls GET /api/automations once a day and a cron call has no session, so for as long as this gate sent it to /login (307) the
+  // daily job never ran on its own: it ran only when somebody opened the route by hand with a session (see cron-auth.ts for the evidence). The path is NOT made public — anyone could
+  // then run the tick — it lets through exactly one request: that path, carrying `Authorization: Bearer <CRON_SECRET>`, which Vercel adds to every cron call when the project has the
+  // variable. Without the variable (or with a short one) nothing is let through: the gate below is exactly what it was.
+  if (isCronTickRequest(pathname, req.headers.get('authorization'), process.env.CRON_SECRET)) return NextResponse.next();
   const isPublic = PUBLIC.some((p) => pathname === p || pathname.startsWith(p + '/'));
 
   let res = NextResponse.next({ request: req });

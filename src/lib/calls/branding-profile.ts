@@ -10,7 +10,12 @@ const TEN_YEARS = 10 * 365 * 24 * 60 * 60;
 export async function saveLogoToProfile(admin: SupabaseClient, call: Call, userId: string, path: string): Promise<'saved' | 'already_has_one' | 'not_possible'> {
   const existing = await profileLogos(admin, [call]);
   if (existing.has(`${call.promoterKind}:${call.promoterId}`)) return 'already_has_one';
-  const { data: signed } = await admin.storage.from(MEDIA_BUCKET).createSignedUrl(path, TEN_YEARS, { download: false });
+  // The profile gets a copy of its OWN, outside the call's folder: the file the call holds is replaced when its logo is changed and removed with the call (30 days after it is deleted), and an address
+  // to it would then lead nowhere (Prompt 918, Adenda 3: the logo kept on 20/10 pointed at a file removed five seconds later).
+  const own = `entity-logos/${call.promoterId}/${path.split('/').pop() ?? 'logo.png'}`;
+  const copied = await admin.storage.from(MEDIA_BUCKET).copy(path, own);
+  if (copied.error && !/already exists/i.test(copied.error.message)) return 'not_possible';
+  const { data: signed } = await admin.storage.from(MEDIA_BUCKET).createSignedUrl(own, TEN_YEARS, { download: false });
   const url = signed?.signedUrl;
   if (!url) return 'not_possible';
   if (call.promoterKind === 'incubator') {

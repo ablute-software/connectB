@@ -71,6 +71,12 @@ export async function loadCallTeam(admin: SupabaseClient, callId: string): Promi
   return ((data ?? []) as Row[]).map(toMember);
 }
 
+/** Is this person on the team of this call? (Whoever is does not apply to it: applicant/team-rule.ts.) */
+export async function isOnCallTeam(admin: SupabaseClient, callId: string, userId: string): Promise<boolean> {
+  const { data } = await admin.from('call_team_members').select('id').eq('call_id', callId).eq('user_id', userId).limit(1);
+  return ((data ?? []) as unknown[]).length > 0;
+}
+
 /** Every call that has somebody in this category, with its whole team: to check that changing the category leaves each one an administrator. */
 export async function teamsUsingCategory(admin: SupabaseClient, categoryId: string): Promise<Map<string, TeamMember[]>> {
   const { data } = await admin.from('call_team_members').select('call_id').eq('category_id', categoryId);

@@ -8,6 +8,7 @@ import type { TeamPayload } from '@/lib/calls/team-payload';
 import type { Proposal, ProposalFieldItem, ProposalGeneral, ProposalPhaseItem } from '@/lib/calls/ai-import/proposal';
 import type { SourceKind } from '@/lib/calls/ai-import/limits';
 import { NETWORK_MESSAGE, importFailure } from '@/lib/calls/ai-import/client-errors';
+import type { CloseReason } from '@/lib/calls/closing';
 
 export interface PromoterInfo { kind: PromoterKind; id: string; name: string; canManage: boolean }
 
@@ -37,6 +38,8 @@ export interface CallState {
   branding?: { coverUrl: string | null; logoUrl: string | null; logoSource: 'call' | 'profile' | null; profileLogoUrl: string | null };
   summary: CallSummary;
   actions: ReturnType<typeof availableActions>;
+  /** Prompt 918 (Adenda 3): why the call is closed — by its deadline, early on purpose, or deleted and restored; null while it is not closed. */
+  closedReason?: CloseReason | null;
   applications: { submitted: number; total: number };
   events: CallEvent[];
 }

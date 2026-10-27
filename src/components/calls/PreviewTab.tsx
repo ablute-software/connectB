@@ -14,6 +14,7 @@ import { FormPreview } from './FormPreview';
 import { FormTest } from './FormTest';
 import { StatusBadge } from './StatusBadge';
 import type { CallStatus } from '@/lib/calls/types';
+import { closeReasonSentence, closingLine, type CloseReason } from '@/lib/calls/closing';
 
 
 export type LifecycleAction = 'confirm' | 'edit' | 'publish' | 'extend' | 'reopen' | 'close' | 'archive';
@@ -22,7 +23,11 @@ export type LifecycleAction = 'confirm' | 'edit' | 'publish' | 'extend' | 'reope
 // so existing imports keep working.
 export { callLink };
 
-export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summary, actions, canManage, busy, error, origin, onJump, onAction }: {
+export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summary, actions, canManage, busy, error, notice = '', closedReason = null, origin, onJump, onAction }: {
+  /** What just worked, said where the person is looking ("The call is open again until …"). */
+  notice?: string;
+  /** Why the call is closed (by its deadline, early, or deleted and restored): the "Reopen and extend" box says it. */
+  closedReason?: CloseReason | null;
   call: Call; effectiveStatus: CallStatus; phases: CallPhase[]; fields: FormField[]; issues: ReadinessIssue[]; summary: CallSummary;
   actions: ReturnType<typeof availableActions>; canManage: boolean; busy: boolean; error: string; origin: string;
   /** Takes the person to the step — and to the field — that the problem is about. */
@@ -34,6 +39,8 @@ export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summ
   // "Reopen and extend" (a closed call): the new deadline, and — when the call was closed early on purpose — the person's explicit confirmation.
   const [reopenWall, setReopenWall] = useState('');
   const [earlyOk, setEarlyOk] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const reason: CloseReason = closedReason ?? (actions.reopenNeedsConfirm ? 'early' : 'deadline');
   const link = call.linkToken ? callLink(origin, call.linkToken) : null;
   const lang = CONTENT_LANGUAGES.find((l) => l.code === call.contentLanguage)?.label ?? call.contentLanguage;
   const closesWall = utcToWall(call.closesAt, call.timezone);
@@ -42,6 +49,9 @@ export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summ
   const reopenIso = reopenWall ? wallToUtcIso(reopenWall, call.timezone) : null;
   const reopenInFuture = !!reopenIso && Date.parse(reopenIso) > Date.now();
   const reopenOk = reopenInFuture && (!actions.reopenNeedsConfirm || earlyOk);
+
+  // "Closed on 22 Oct 2026 (early)" for a call that closed before its deadline — "Closes 31 Dec" would be a date still to come (Prompt 918, Adenda 3).
+  const closing = closingLine(call, effectiveStatus === 'closed' || effectiveStatus === 'archived', formatInZone);
 
   const linkInput = useRef<HTMLInputElement>(null);
   const [copyHint, setCopyHint] = useState('');
@@ -91,7 +101,7 @@ export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summ
           <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs" data-testid="summary">
             {row('Name', call.name || '—')}
             {row('Opens', formatInZone(call.opensAt, call.timezone))}
-            {row('Closes', formatInZone(call.closesAt, call.timezone))}
+            {row(closing.label, closing.value)}
             {row('Listing', call.visibility === 'listed' ? 'Listed in Open calls' : 'Closed — link only')}
             {row('Limit', `${call.limitUnit === 'legal_entity' ? 'Per legal entity' : 'Per project'}${call.allowMultiple ? ', several allowed' : ', one only'}`)}
             {row('Language', `${lang} · ${call.currency}`)}
@@ -119,6 +129,7 @@ export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summ
         {canManage && (
           <section className="space-y-3 rounded-lg border border-gray-200 bg-white p-4" aria-label="Status actions" data-testid="lifecycle">
             <h3 className="text-sm font-semibold text-gray-900">Validate and publish</h3>
+            {notice && <p role="status" className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900" data-testid="action-notice">{notice}</p>}
             {call.status === 'draft' && (
               <>
                 <button type="button" disabled={busy || !actions.canConfirm} onClick={() => onAction('confirm')} data-testid="confirm"
@@ -153,10 +164,10 @@ export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summ
             {actions.canReopen && (
               <div className="rounded-lg bg-gray-50 p-3" data-testid="reopen">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Reopen and extend</p>
-                <p className="mt-1 text-[11px] text-gray-500">{effectiveStatus === 'archived' ? 'This call is archived (it had closed). Reopening takes it out of the archive. ' : ''}{actions.reopenNeedsConfirm ? 'This call was closed early, on purpose.' : 'This call closed at its deadline.'} Reopen it with a new deadline and applicants can submit again.</p>
+                <p className="mt-1 text-[11px] text-gray-500" data-testid="reopen-reason">{effectiveStatus === 'archived' ? 'This call is archived (it had closed). Reopening takes it out of the archive. ' : ''}{closeReasonSentence(reason)} Reopen it with a new deadline and applicants can submit again.</p>
                 <label className="mt-2 block text-[11px] font-semibold uppercase tracking-wide text-gray-500" htmlFor="reopen-to">New deadline</label>
                 <input id="reopen-to" type="datetime-local" autoComplete="off" className="mt-1 block w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm" value={reopenWall} data-testid="reopen-date"
-                  onChange={(e) => setReopenWall(e.target.value)} />
+                  onChange={(e) => { setReopenWall(e.target.value); setConfirming(false); }} />
                 {reopenWall && !reopenInFuture && <p className="mt-1 text-[11px] text-[#B00000]" data-testid="reopen-past">The new deadline must be in the future.</p>}
                 {reopenInFuture && (
                   <p className="mt-2 text-xs text-gray-700" data-testid="reopen-sentence">Applicants who had not submitted will be able to submit until «{formatInZone(reopenIso!, call.timezone)}». Submitted applications are not affected.</p>
@@ -165,16 +176,34 @@ export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summ
                   <label className="mt-2 flex items-start gap-2 text-xs text-gray-700"><input type="checkbox" className="mt-0.5" checked={earlyOk} onChange={(e) => setEarlyOk(e.target.checked)} data-testid="reopen-early-ok" />
                     <span>I closed this call early on purpose and I want to reopen it.</span></label>
                 )}
-                <button type="button" disabled={busy || !reopenOk} data-testid="reopen-button"
-                  onClick={() => { if (window.confirm(`Reopen the call until ${formatInZone(reopenIso!, call.timezone)}? Applicants who had not submitted will be able to submit. Submitted applications are not affected.`)) onAction('reopen', { closesAt: reopenIso!, confirmEarly: earlyOk }); }}
-                  className="mt-2 rounded-lg border border-[#0E7490] px-3 py-1.5 text-sm font-medium text-[#0E7490] hover:bg-[#E8F4F8] disabled:opacity-40">Reopen and extend</button>
+                {/* The confirmation is IN the page, not a browser pop-up: a pop-up the browser has been told to suppress answers "no" without a word, and the click then does nothing. */}
+                {!confirming ? (
+                  <button type="button" disabled={busy || !reopenOk} data-testid="reopen-button" onClick={() => setConfirming(true)}
+                    className="mt-2 rounded-lg border border-[#0E7490] px-3 py-1.5 text-sm font-medium text-[#0E7490] hover:bg-[#E8F4F8] disabled:opacity-40">Reopen and extend</button>
+                ) : (
+                  <div className="mt-2 rounded-lg border border-[#0E7490] bg-white p-2.5" role="group" aria-label="Confirm reopening" data-testid="reopen-confirm">
+                    <p className="text-xs text-gray-800">Reopen the call until <b>{formatInZone(reopenIso!, call.timezone)}</b>? Applicants who had not submitted will be able to submit. Submitted applications are not affected.</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button type="button" disabled={busy} data-testid="reopen-confirm-yes" onClick={() => { setConfirming(false); onAction('reopen', { closesAt: reopenIso!, confirmEarly: earlyOk }); }}
+                        className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">{busy ? 'Reopening…' : 'Yes, reopen the call'}</button>
+                      <button type="button" disabled={busy} data-testid="reopen-confirm-no" onClick={() => setConfirming(false)} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
+                    </div>
+                  </div>
+                )}
+                {/* Why the button is off, and what went wrong, right next to it. */}
+                {!confirming && !reopenOk && !busy && (
+                  <p className="mt-1.5 text-[11px] text-gray-500" data-testid="reopen-why">
+                    {!reopenWall ? 'Choose the new deadline to reopen the call.' : !reopenInFuture ? 'The new deadline must be in the future.' : 'Tick the box above to confirm that you want to reopen it.'}
+                  </p>
+                )}
+                {error && <p role="alert" className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]" data-testid="reopen-error">{error}</p>}
               </div>
             )}
             {actions.canClose && (
               <button type="button" disabled={busy} onClick={() => { if (window.confirm('Close the call now? Nobody will be able to submit a new application. What has already come in is kept.')) onAction('close'); }}
                 data-testid="close-early" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-[#B00000] hover:bg-gray-50 disabled:opacity-40">Close early</button>
             )}
-            {error && <p role="alert" className="text-xs text-[#B00000]" data-testid="action-error">{error}</p>}
+            {error && !actions.canReopen && <p role="alert" className="text-xs text-[#B00000]" data-testid="action-error">{error}</p>}
           </section>
         )}
 
