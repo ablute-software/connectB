@@ -67,6 +67,8 @@ export function TableInput({ field, value, currency, disabled, showAllErrors, va
   const cfg = tableOf(field);
   const narrow = useNarrow();
   const [expanded, setExpanded] = useState(false);
+  // The header whose removal is waiting for a yes: asked IN the page, not with the browser's own dialog (one the browser was told to suppress answers "no" without a word).
+  const [pending, setPending] = useState<string | null>(null);
   const answer = tableAnswerOf(value);
   const cols = useMemo(() => (cfg ? tableColumns(cfg, value) : []), [cfg, value]);
   const rows = useMemo(() => (cfg ? tableRows(cfg, value) : []), [cfg, value]);
@@ -110,8 +112,9 @@ export function TableInput({ field, value, currency, disabled, showAllErrors, va
   const filled = (kind: 'columns' | 'rows', id: string): boolean => (kind === 'columns'
     ? Object.values(answer.cells).some((row) => (row[id] ?? '').trim() !== '')
     : Object.values(answer.cells[id] ?? {}).some((v) => v.trim() !== ''));
-  const remove = (kind: 'columns' | 'rows', h: TableHeaderView) => {
-    if (filled(kind, h.id) && !window.confirm(`Remove “${h.label}” and what you wrote in it?`)) return;
+  const remove = (kind: 'columns' | 'rows', h: TableHeaderView, confirmed = false) => {
+    if (filled(kind, h.id) && !confirmed) { setPending(`${kind}:${h.id}`); return; }
+    setPending(null);
     const cells: Record<string, Record<string, string>> = {};
     for (const [r, row] of Object.entries(answer.cells)) {
       if (kind === 'rows' && r === h.id) continue;
@@ -123,6 +126,7 @@ export function TableInput({ field, value, currency, disabled, showAllErrors, va
 
   /** A header: the entity's is plain text; the applicant's own can be renamed and removed (and says it was added by them once the copy is read-only). */
   const header = (kind: 'columns' | 'rows', h: TableHeaderView) => (
+    <span className="block min-w-0">
     <span className="flex min-w-0 items-start gap-1">
       {h.own && !disabled ? (
         <>
@@ -132,6 +136,16 @@ export function TableInput({ field, value, currency, disabled, showAllErrors, va
       ) : (
         <span className="min-w-0 [overflow-wrap:anywhere]">{h.label}{h.own && mark && <span className="ml-1.5 rounded bg-gray-100 px-1 py-0.5 text-[10px] font-medium text-gray-500" data-testid="added-by-applicant">added by applicant</span>}</span>
       )}
+    </span>
+    {pending === `${kind}:${h.id}` && (
+      <span className="mt-1 block rounded border border-[#0E7490] bg-white p-1.5 text-[11px] font-normal text-gray-800" role="group" aria-label="Confirm the removal" data-testid="remove-confirm">
+        Remove “{h.label}” and what you wrote in it?
+        <span className="mt-1 flex gap-2">
+          <button type="button" className="rounded bg-[#0E7490] px-2 py-1 font-semibold text-white" data-testid="remove-confirm-yes" onClick={() => remove(kind, h, true)}>Remove</button>
+          <button type="button" className="rounded border border-gray-300 px-2 py-1 text-gray-700" data-testid="remove-confirm-no" onClick={() => setPending(null)}>Keep</button>
+        </span>
+      </span>
+    )}
     </span>
   );
 

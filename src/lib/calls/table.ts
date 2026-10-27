@@ -9,13 +9,22 @@ import {
   type AnswerValue, type FormField, type GroupConfig, type GroupEntry, type SimpleAnswer, type TableAddRule, type TableAnswer, type TableCellKind, type TableConfig, type TableExtra, type TableHeader, type TableRequired,
 } from './types';
 
-const newId = (): string => globalThis.crypto.randomUUID();
+// randomUUID exists only in a secure context (https, localhost): an editor opened over plain http on a LAN address, or a bare test page, has getRandomValues only.
+const newId = (): string => {
+  const c = globalThis.crypto;
+  if (typeof c?.randomUUID === 'function') return c.randomUUID();
+  const b = new Uint8Array(16);
+  if (c?.getRandomValues) c.getRandomValues(b); else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+  return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+};
 const shortId = (prefix: string): string => `${prefix}_${newId().replace(/-/g, '').slice(0, 10)}`;
 export const newTableRowId = (): string => shortId('r');
 export const newTableColumnId = (): string => shortId('c');
 /** What the applicant's own rows and columns are called in the data: never confusable with an entity id. */
 export const newTableExtraId = (): string => shortId('x');
-const ID_OK = /^[A-Za-z0-9_-]{4,64}$/;
+const ID_OK = /^[A-Za-z0-9_-]{1,64}$/;
+/** The applicant's own ids are minted by the browser as x_ + 10 characters: shorter ones are not ours. */
+const EXTRA_ID_OK = /^[A-Za-z0-9_-]{4,64}$/;
 
 const clampInt = (v: unknown, min: number, max: number): number | undefined => {
   if (v === null || v === undefined || typeof v === 'boolean' || (typeof v === 'string' && v.trim() === '')) return undefined;
@@ -176,7 +185,7 @@ export function coerceTable(cfg: TableConfig, raw: unknown): TableAnswer | undef
     const out: TableExtra[] = [];
     for (const e of list as Record<string, unknown>[]) {
       if (out.length >= room) break;
-      if (!e || typeof e !== 'object' || typeof e.id !== 'string' || !ID_OK.test(e.id) || ownIds.has(e.id) || taken.has(e.id)) continue;
+      if (!e || typeof e !== 'object' || typeof e.id !== 'string' || !EXTRA_ID_OK.test(e.id) || ownIds.has(e.id) || taken.has(e.id)) continue;
       taken.add(e.id);
       out.push({ id: e.id, name: text(e.name, MAX_TABLE_HEADER) || rule.defaultName.replace('#', String(out.length + 1)), addedBy: 'applicant' });
     }

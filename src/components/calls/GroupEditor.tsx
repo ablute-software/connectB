@@ -137,15 +137,13 @@ function ConvertToTable({ action }: { action: ConvertAction }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [problem, setProblem] = useState('');
-  async function go() {
-    if (!plan.ok) return;
-    if (!window.confirm(`Convert this group into a Table?\n\n${plan.summary}\n\nUnfinished applications are carried over. This cannot be undone.`)) return;
-    setBusy(true); setProblem(''); setMessage('');
-    let r = await action.run(false);
-    if (!r.ok && r.code === 'needs_confirm') {
-      if (window.confirm(r.error)) r = await action.run(true); else { setBusy(false); return; }
-    }
+  // The questions are asked IN the page, not with the browser's own dialog: one the browser was told to suppress answers "no" without a word, and the button then seems to do nothing.
+  const [asking, setAsking] = useState<{ text: string; confirmed: boolean } | null>(null);
+  async function run(confirmed: boolean) {
+    setAsking(null); setBusy(true); setProblem(''); setMessage('');
+    const r = await action.run(confirmed);
     setBusy(false);
+    if (!r.ok && r.code === 'needs_confirm') { setAsking({ text: r.error, confirmed: true }); return; }
     if (r.ok) setMessage(r.message); else setProblem(r.error);
   }
   return (
@@ -153,8 +151,17 @@ function ConvertToTable({ action }: { action: ConvertAction }) {
       <p className="text-xs font-semibold text-[#0E7490]">This is a comparison table</p>
       <p className="mt-0.5 text-xs text-gray-700">A <b>Table</b> suits it better: the criteria down the first column, the companies along the first row, and applicants can add columns (more competitors).{plan.ok ? ` ${plan.summary}` : ''}</p>
       {!plan.ok && <p className="mt-1 text-xs text-gray-600" data-testid="convert-reason">{plan.reason}</p>}
-      <button type="button" disabled={!plan.ok || !action.allowed || busy} onClick={() => void go()} data-testid="convert-button"
+      <button type="button" disabled={!plan.ok || !action.allowed || busy} onClick={() => plan.ok && setAsking({ text: `Convert this group into a Table? ${plan.summary} Unfinished applications are carried over. This cannot be undone.`, confirmed: false })} data-testid="convert-button"
         className="mt-2 min-h-[44px] w-full rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40 sm:w-auto">{busy ? 'Converting…' : 'Convert to Table'}</button>
+      {asking && (
+        <div className="mt-2 rounded-lg border border-[#0E7490] bg-white p-2.5" role="group" aria-label="Confirm the conversion" data-testid="convert-confirm">
+          <p className="text-xs text-gray-800">{asking.text}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button type="button" disabled={busy} onClick={() => void run(asking.confirmed)} data-testid="convert-confirm-yes" className="min-h-[44px] rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">{asking.confirmed ? 'Yes, convert anyway' : 'Yes, convert it'}</button>
+            <button type="button" disabled={busy} onClick={() => setAsking(null)} data-testid="convert-confirm-no" className="min-h-[44px] rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
+          </div>
+        </div>
+      )}
       {message && <p role="status" className="mt-1.5 text-xs text-emerald-900" data-testid="convert-done">{message}</p>}
       {problem && <p role="alert" className="mt-1.5 text-xs text-[#B00000]" data-testid="convert-error">{problem}</p>}
     </div>

@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import { newTableColumnId, newTableRowId } from '@/lib/calls/table';
 import { MAX_TABLE_COLUMNS, MAX_TABLE_ROWS, TABLE_CELL_KINDS, TABLE_CELL_KIND_LABELS, type AnswerValue, type FormField, type TableAddRule, type TableCellKind, type TableConfig, type TableHeader, type TableRequired } from '@/lib/calls/types';
+import { AutoTextarea } from './AutoTextarea';
 import { TableInput } from './TableInput';
 
 const INPUT = 'block w-full min-w-0 rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm disabled:bg-gray-50 disabled:text-gray-500';
@@ -49,8 +50,8 @@ function AddRuleEditor({ title, noun, value, own, ceiling, disabled, onChange }:
           </div>
           <div>
             <label className={LABEL} htmlFor={`add-${noun}-name`}>New one is called</label>
-            <input id={`add-${noun}-name`} autoComplete="off" className={INPUT} disabled={disabled} value={value.defaultName} maxLength={60} placeholder={noun === 'columns' ? 'Competitor #' : 'Criterion #'}
-              onChange={(e) => onChange({ ...value, defaultName: e.target.value })} />
+            <AutoTextarea id={`add-${noun}-name`} className={INPUT} disabled={disabled} value={value.defaultName} maxLength={60} placeholder={noun === 'columns' ? 'Competitor #' : 'Criterion #'}
+              onChange={(defaultName) => onChange({ ...value, defaultName })} />
           </div>
           <p className="col-span-2 -mt-0.5 text-[11px] text-gray-400">The maximum counts your own {noun} too. “#” becomes the next number (“{value.defaultName.includes('#') ? value.defaultName.replace('#', String(own + 1)) : `${value.defaultName || 'New'} 2`}”); the applicant can rename what they add.</p>
         </div>
@@ -94,7 +95,7 @@ export function TableEditor({ value, disabled, onChange }: { value: TableConfig;
 
       <div>
         <label className={LABEL} htmlFor="tbl-corner">Corner title (optional)</label>
-        <input id="tbl-corner" autoComplete="off" className={INPUT} disabled={disabled} value={value.cornerTitle} maxLength={100} placeholder="Relevant criteria" onChange={(e) => set({ cornerTitle: e.target.value })} />
+        <AutoTextarea id="tbl-corner" className={INPUT} disabled={disabled} value={value.cornerTitle} maxLength={100} placeholder="Relevant criteria" onChange={(cornerTitle) => set({ cornerTitle })} />
       </div>
 
       <div>
