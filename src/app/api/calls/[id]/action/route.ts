@@ -60,7 +60,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   // Prompt 907 (I5): an extension notifies, by email and in-app, whoever has a draft not yet submitted — without the entity knowing who.
   // Reopening is an extension for whoever had not submitted: the same notice, the same email.
   if (body.action === 'extend' || body.action === 'reopen') {
-    const notified = await notifyDeadlineExtended(auth.admin, updated).catch((e) => { console.error('[calls] deadline notices failed:', (e as Error).message); return 0; });
+    const notified = await notifyDeadlineExtended(auth.admin, updated, { reopened: body.action === 'reopen' }).catch((e) => { console.error('[calls] deadline notices failed:', (e as Error).message); return 0; });
     if (notified > 0) await logCallEvent(auth.admin, updated.id, 'deadline_extension_notified', null, { applicants: notified });
   }
   return NextResponse.json(await buildCallState(auth.admin, updated, auth.promoter, now));

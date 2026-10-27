@@ -95,3 +95,27 @@ describe('clipForLog', () => {
     expect(clipForLog(undefined)).toBeNull();
   });
 });
+
+// Prompt 918 (27/10/2026) — "Set a new password" with no session shows a sentence about the LINK, not Supabase's "Auth session missing!".
+describe('a missing session (the recovery link expired or was opened in another browser)', () => {
+  it('is recognised however it arrives, and says what happened and what to do', async () => {
+    const { isSessionMissing, LINK_EXPIRED_TEXT } = await import('./auth-errors');
+    const AuthSessionMissing = Object.assign(new Error('Auth session missing!'), { name: 'AuthSessionMissingError', status: 400 });
+    expect(isSessionMissing(AuthSessionMissing)).toBe(true);
+    expect(isSessionMissing({ message: 'Auth session missing!' })).toBe(true);
+    expect(isSessionMissing('auth session missing')).toBe(true);
+    expect(isSessionMissing(new Error('Password should be at least 8 characters'))).toBe(false);
+    expect(isSessionMissing(null)).toBe(false);
+    expect(LINK_EXPIRED_TEXT).toBe('This link has expired or was opened in a different browser. Request a new link.');
+    expect(LINK_EXPIRED_TEXT).not.toMatch(/session missing/i);
+  });
+  it('the page shows that sentence with a button to ask for another link, and leaves every other error as it was', async () => {
+    const fs = await import('node:fs');
+    const src = fs.readFileSync(`${process.cwd()}/src/app/reset-password/page.tsx`, 'utf8');
+    expect(src).toContain('isSessionMissing(error)');
+    expect(src).toContain('setMsg(LINK_EXPIRED_TEXT)');
+    expect(src).toContain('href="/forgot-password"');
+    expect(src).toContain('Request a new link');
+    expect(src).toContain('setMsg(authErrorText(error, { serverText: error.message }))');          // everything else: unchanged
+  });
+});

@@ -282,3 +282,25 @@ describe('6 — whoever is on the call\'s team does not apply to it', () => {
     expect(c.body.onTeam).toBeUndefined();
   });
 });
+
+describe('the notice when a closed call is reopened says so (27/10/2026)', () => {
+  it('"The call … was reopened until …" in the app and in the email; an extension of an open call keeps saying "extended"', async () => {
+    const { id } = await newCall(); publish(id, { closes_at: iso(-DAY) });
+    application(id, 'draft', 'u1');
+    emails.length = 0;
+    expect((await act(id, { action: 'reopen', closesAt: iso(20 * DAY) })).status).toBe(200);
+    const n = notices('u1', 'deadline_extended');
+    expect(n).toHaveLength(1);
+    expect(n[0].title).toBe('“INNOV-ID” was reopened');
+    expect(n[0].body).toMatch(/^The call “INNOV-ID” was reopened until .+Your draft/);
+    expect(n[0].body).not.toMatch(/extended|New deadline/);
+    expect(emails).toHaveLength(1);
+    expect(`${emails[0].subject} ${emails[0].text}`).toMatch(/reopened/);
+    expect(`${emails[0].subject} ${emails[0].text}`).not.toMatch(/extended/);
+    // now open again: moving the deadline is an extension, with the old words
+    expect((await act(id, { action: 'extend', closesAt: iso(40 * DAY) })).status).toBe(200);
+    const all = notices('u1', 'deadline_extended');
+    expect(all).toHaveLength(2);
+    expect(all[1].body).toMatch(/was extended/);
+  });
+});

@@ -29,6 +29,15 @@ export const WRONG_CODE_TEXT = "That code didn't work. Check it and try again, o
 export const EXPIRED_CODE_TEXT = 'That code has expired or was already used. Please ask for a new one.';
 export const NETWORK_TEXT = 'We could not reach the server. Check your connection and try again.';
 export const GENERIC_TEXT = 'Something went wrong. Please try again.';
+/** "Set a new password" reached with no session: the link expired, or was opened in another browser than the one that asked for it (Prompt 918, 27/10/2026). */
+export const LINK_EXPIRED_TEXT = 'This link has expired or was opened in a different browser. Request a new link.';
+
+/** Supabase's own "there is no session" error (`AuthSessionMissingError`, "Auth session missing!"), however it reached us. */
+export function isSessionMissing(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return typeof err === 'string' && /auth session missing/i.test(err);
+  const o = err as Record<string, unknown>;
+  return o.name === 'AuthSessionMissingError' || /auth session missing/i.test(String(o.message ?? ''));
+}
 
 const SEND_FAILED_CODES = new Set(['unexpected_failure', 'send_failed', 'smtp_failed', 'email_send_failed']);
 const RATE_LIMIT_CODES = new Set(['over_request_rate_limit', 'over_email_send_rate_limit', 'over_sms_send_rate_limit', 'rate_limited', 'too_early', 'hourly_cap', 'ip_limited', 'too_many_requests']);

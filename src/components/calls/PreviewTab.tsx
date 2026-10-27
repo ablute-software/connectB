@@ -40,6 +40,7 @@ export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summ
   const [reopenWall, setReopenWall] = useState('');
   const [earlyOk, setEarlyOk] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [closeAsk, setCloseAsk] = useState(false);
   const reason: CloseReason = closedReason ?? (actions.reopenNeedsConfirm ? 'early' : 'deadline');
   const link = call.linkToken ? callLink(origin, call.linkToken) : null;
   const lang = CONTENT_LANGUAGES.find((l) => l.code === call.contentLanguage)?.label ?? call.contentLanguage;
@@ -200,8 +201,20 @@ export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summ
               </div>
             )}
             {actions.canClose && (
-              <button type="button" disabled={busy} onClick={() => { if (window.confirm('Close the call now? Nobody will be able to submit a new application. What has already come in is kept.')) onAction('close'); }}
-                data-testid="close-early" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-[#B00000] hover:bg-gray-50 disabled:opacity-40">Close early</button>
+              // Asked IN the page, like the reopening: a browser told to suppress its dialogs answers "no" without a word and the button seems dead.
+              closeAsk ? (
+                <div className="rounded-lg border border-[#B00000] bg-white p-2.5" role="group" aria-label="Confirm closing the call" data-testid="close-confirm">
+                  <p className="text-xs text-gray-800">Close the call now? Nobody will be able to submit a new application. What has already come in is kept.</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button type="button" disabled={busy} data-testid="close-confirm-yes" onClick={() => { setCloseAsk(false); onAction('close'); }}
+                      className="min-h-[44px] rounded-lg bg-[#B00000] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#8f0000] disabled:opacity-40">{busy ? 'Closing…' : 'Yes, close the call'}</button>
+                    <button type="button" disabled={busy} data-testid="close-confirm-no" onClick={() => setCloseAsk(false)} className="min-h-[44px] rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" disabled={busy} onClick={() => setCloseAsk(true)}
+                  data-testid="close-early" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-[#B00000] hover:bg-gray-50 disabled:opacity-40">Close early</button>
+              )
             )}
             {error && !actions.canReopen && <p role="alert" className="text-xs text-[#B00000]" data-testid="action-error">{error}</p>}
           </section>

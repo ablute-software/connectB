@@ -109,3 +109,14 @@ describe('the entry page for a call closed before its deadline, and for a member
     expect(h).not.toContain('data-testid="intro-signin"');
   });
 });
+
+describe('"Close early" asks in the page too (27/10/2026)', () => {
+  it('no browser dialog: a box with "Yes, close the call" and "Cancel", asked after the click', async () => {
+    const src = await read('src/components/calls/PreviewTab.tsx');
+    expect(src).not.toMatch(/window\.confirm/);
+    expect(src).toContain('data-testid="close-confirm"');
+    expect(src).toContain('data-testid="close-confirm-yes"');
+    expect(src).toContain('data-testid="close-confirm-no"');
+    expect(src).toContain('Close the call now? Nobody will be able to submit a new application. What has already come in is kept.');
+  });
+});

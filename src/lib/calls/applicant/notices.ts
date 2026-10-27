@@ -34,7 +34,7 @@ export interface NoticeContent { title: string; body: string; ctaLabel: string }
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 
 /** The words of each notice, in one place (pure: the tests read them). */
-export function noticeContent(kind: ApplicantNoticeKind, call: Pick<Call, 'name' | 'closesAt' | 'timezone'>, app: { reference: string | null }): NoticeContent {
+export function noticeContent(kind: ApplicantNoticeKind, call: Pick<Call, 'name' | 'closesAt' | 'timezone'>, app: { reference: string | null }, opts: { reopened?: boolean } = {}): NoticeContent {
   const deadline = formatInZone(call.closesAt, call.timezone);
   switch (kind) {
     case 'submission_received':
@@ -50,6 +50,14 @@ export function noticeContent(kind: ApplicantNoticeKind, call: Pick<Call, 'name'
         ctaLabel: 'Continue your application',
       };
     case 'deadline_extended':
+      // A call that had CLOSED and was reopened says so: "extended" would tell people a deadline moved when in fact it had passed (Prompt 918, 27/10/2026).
+      if (opts.reopened) {
+        return {
+          title: `“${call.name}” was reopened`,
+          body: `The call “${call.name}” was reopened until ${deadline}. Your draft${app.reference ? ` (${app.reference})` : ''} is saved: you can continue it and submit it until then.`,
+          ctaLabel: 'Continue your application',
+        };
+      }
       return {
         title: `New deadline — ${call.name}`,
         body: `The deadline of “${call.name}” was extended. Applications now close on ${deadline}. Your draft${app.reference ? ` (${app.reference})` : ''} is saved: you can continue it and submit it until then.`,
@@ -134,12 +142,12 @@ export const REMINDER_HOURS = 48;
  * The deadline was extended FOR EVERYONE: whoever has a draft that is not submitted is told — the organisation that runs the call never learns
  * who they are (it only extended the deadline). Once per person and deadline. Returns how many were notified.
  */
-export async function notifyDeadlineExtended(admin: SupabaseClient, call: Call): Promise<number> {
+export async function notifyDeadlineExtended(admin: SupabaseClient, call: Call, opts: { reopened?: boolean } = {}): Promise<number> {
   const { data } = await admin.from('call_applications').select('id, applicant_user_id, reference').eq('call_id', call.id).eq('status', 'draft');
   let n = 0;
   for (const a of (data ?? []) as Row[]) {
     const app = { reference: (a.reference as string | null) ?? null };
-    const content = noticeContent('deadline_extended', call, app);
+    const content = noticeContent('deadline_extended', call, app, { reopened: opts.reopened });
     const { created, id } = await createNotice(admin, {
       userId: a.applicant_user_id as string, callId: call.id, applicationId: a.id as string, kind: 'deadline_extended',
       dedupeKey: `extended:${a.id}:${call.closesAt}`, content, linkPath: call.linkToken ? `/call/${call.linkToken}` : '/',
