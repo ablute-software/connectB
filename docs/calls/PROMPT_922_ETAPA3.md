@@ -7,7 +7,7 @@
 | I1 | A grelha de avaliação | `37175740` |
 | I2 | Distribuição, conflitos de interesse, lembretes | `13a98998` |
 | I3 | O avaliador avalia (My evaluations, ecrã, avaliação cega) | `a8422c1d` |
-| I4 | Consolidação, decisão, exportação, fechar avaliação | ver o fim deste relatório |
+| I4 | Consolidação, decisão, exportação, fechar avaliação | `c57ac3ac` |
 
 Migrações (todas aditivas, com ensaio numa transação desfeita antes de aplicar, ledger actualizado): `20261027170000_calls_evaluation` (11 tabelas, todas com RLS e sem acesso para anon/authenticated), `20261028120000_calls_eval_score_nullable`.
 
