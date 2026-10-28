@@ -10,6 +10,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { analyzeAuthentic, analyzeRight, analyzeValid, SCANNED_REASON, type DocText } from './doc-analysis';
 import type { DocRecipe } from './doc-recipe';
 import { evaluateObjective, isDocKind, ruleSentence, type EligibilityRule, type Outcome, type RuleResult } from './eligibility';
+import { syncApplication } from './eval-assign-store';
 import { loadRecipes, loadRules } from './eligibility-store';
 import { extractDocument } from './ai-import/extract';
 import { isFieldVisible } from './form-logic';
@@ -115,6 +116,8 @@ export async function saveEvaluation(admin: SupabaseClient, input: {
     source: input.source ?? 'engine', rule_results: input.evaluation.results, overrides: input.overrides ?? {}, reason: input.evaluation.reason, is_current: true, created_by: input.actor ?? null,
   });
   if (ins.error) throw new Error(`Could not save the result: ${ins.error.message}`);
+  // Prompt 922 (I2): the only way into evaluation is a Fit result — whoever just became Fit is distributed (if the mode allows), whoever stopped being Fit is withdrawn. Never throws.
+  await syncApplication(admin, input.call, input.applicationId);
 }
 
 // --- The queue ---------------------------------------------------------------------------------------------------------------------------------------------

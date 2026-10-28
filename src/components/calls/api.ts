@@ -2,6 +2,7 @@
 // a response by hand. Every call returns {ok, status, body}; nothing throws on a refusal.
 import type { EligibilityView } from '@/lib/calls/eligibility-view';
 import type { GridView } from '@/lib/calls/eval-grid-view';
+import type { DistributionMode, DistributionView } from '@/lib/calls/eval-assign-store';
 import type { GridProposal } from '@/lib/calls/eval-grid-reader';
 import type { Criterion } from '@/lib/calls/eval-grid';
 import type { CallStatus, PromoterKind } from '@/lib/calls/types';
@@ -64,6 +65,15 @@ async function call<T>(url: string, init?: RequestInit): Promise<ApiResult<T>> {
 
 const send = (method: string, data?: unknown): RequestInit => ({ method, body: data === undefined ? undefined : JSON.stringify(data) });
 
+/** What "Redistribute" would change, shown before anything is applied (the server writes nothing for it). */
+export interface DistributionPreview {
+  manual: boolean; warning: string | null; loads: Record<string, number>; newConflicts: number;
+  remove: { applicationId: string; reference: string; userId: string; evaluator: string; why: string }[];
+  add: { applicationId: string; reference: string; userId: string; evaluator: string }[];
+  keptWithConflict: { applicationId: string; reference: string; userId: string; evaluator: string }[];
+  shortfalls: { applicationId: string; reference: string; wanted: number; got: number }[];
+}
+
 export const callsApi = {
   access: () => call<{ promoters: PromoterInfo[] }>('/api/calls/access'),
   list: (kind: PromoterKind) => call<{ promoter: PromoterInfo; calls: CallListItem[]; deleted?: DeletedCallItem[] }>(`/api/calls?kind=${kind}`),
@@ -105,6 +115,12 @@ export const callsApi = {
   evalTemplates: (id: string) => call<{ templates: { id: string; name: string; criteria: number; createdAt: string }[] }>(`/api/calls/${id}/eval-grid/templates`),
   saveEvalTemplate: (id: string, name: string) => call<{ id: string; templates: { id: string; name: string; criteria: number; createdAt: string }[] }>(`/api/calls/${id}/eval-grid/templates`, send('POST', { name })),
   copyEvalTemplate: (id: string, templateId: string) => call<{ name: string; criteria: Criterion[] }>(`/api/calls/${id}/eval-grid/templates/${templateId}`, send('POST')),
+  /** Prompt 922 (I2): the distribution of the applications among the evaluators (the administrator's screen) and every move on it. */
+  distribution: (id: string) => call<DistributionView>(`/api/calls/${id}/distribution`),
+  distributionMode: (id: string, mode: DistributionMode) => call<DistributionView>(`/api/calls/${id}/distribution`, send('POST', { action: 'mode', mode })),
+  distributionPreview: (id: string) => call<DistributionPreview>(`/api/calls/${id}/distribution`, send('POST', { action: 'preview' })),
+  distributionRedistribute: (id: string) => call<DistributionView & { added: number; removed: number }>(`/api/calls/${id}/distribution`, send('POST', { action: 'redistribute' })),
+  distributionMove: (id: string, action: 'assign' | 'unassign', applicationId: string, userId: string) => call<DistributionView>(`/api/calls/${id}/distribution`, send('POST', { action, applicationId, userId })),
   /** Prompt 909 (I3): the team of a call, and one change at a time (the server answers with the whole picture). */
   team: (id: string) => call<TeamPayload>(`/api/calls/${id}/team`),
   teamAction: (id: string, body: Record<string, unknown>) => call<TeamPayload>(`/api/calls/${id}/team`, send('POST', body)),

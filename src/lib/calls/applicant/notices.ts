@@ -25,9 +25,11 @@ import type { ApplicationRow } from './store';
 /** What an applicant is told. */
 export type ApplicantNoticeKind = 'submission_received' | 'draft_reminder' | 'deadline_extended';
 /** Every kind of notice in call_notices: the applicant's three, and (Prompt 909, Adenda 2b) the two that tell the team an import has ended. */
-export type NoticeKind = ApplicantNoticeKind | 'call_cancelled' | 'call_restored' | 'form_changed' | 'import_ready' | 'import_failed';
+export type NoticeKind = ApplicantNoticeKind | 'call_cancelled' | 'call_restored' | 'form_changed' | 'import_ready' | 'import_failed' | 'eval_assigned' | 'eval_reminder';
 export const APPLICANT_NOTICE_KINDS: NoticeKind[] = ['submission_received', 'draft_reminder', 'deadline_extended', 'call_cancelled', 'call_restored', 'form_changed'];
 export const IMPORT_NOTICE_KINDS: NoticeKind[] = ['import_ready', 'import_failed'];
+/** Prompt 922 (I2): what an EVALUATOR is told — applications assigned to them, and the reminders before the deadline of the evaluation. Never shown to an applicant. */
+export const EVALUATOR_NOTICE_KINDS: NoticeKind[] = ['eval_assigned', 'eval_reminder'];
 
 export interface NoticeContent { title: string; body: string; ctaLabel: string }
 

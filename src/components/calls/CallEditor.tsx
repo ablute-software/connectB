@@ -23,6 +23,7 @@ import { SaveStatus, type SaveState } from './SaveStatus';
 import { StatusBadge } from './StatusBadge';
 import { CallDangerZone } from './CallDangerZone';
 import { TeamTab } from './TeamTab';
+import { DistributionPanel } from './DistributionPanel';
 import { SubmissionsTab } from './SubmissionsTab';
 import { ContactEmailField } from './ContactEmailField';
 import { ImportFromDocuments, type ApplyOutcome } from './ImportFromDocuments';
@@ -308,7 +309,12 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
           {nav.step === 'form' && <FormTab callId={callId} fields={fields} disabled={readOnly} lockedReason={reason} canConvert={server.canManage && call.status !== 'archived'} onConverted={(s) => adopt(s, true)} onChange={editFields} onImport={importForm} onImportDocuments={() => { setImportRunId(null); setImportDocs(true); }} importStatus={importStatus} onReview={reviewProposal} selectId={jump?.target} selectKey={jump?.n} />}
           {nav.step === 'eligibility' && <EligibilityStep callId={callId} call={call} disabled={!server.canManage} canManage={server.canManage}
             onRulesChanged={(n) => setServer((s) => (s ? { ...s, eligibilityRules: n } : s))} onState={(s) => adopt(s, true)} />}
-          {nav.step === 'team' && <TeamTab callId={callId} />}
+          {nav.step === 'team' && (
+            <div className="min-w-0 space-y-4">
+              <TeamTab callId={callId} />
+              <DistributionPanel callId={callId} canManage={server.canManage} />
+            </div>
+          )}
           {nav.step === 'grid' && <EvalGridStep callId={callId} canManage={server.canManage} onCriteriaChanged={(n) => setServer((s) => (s ? { ...s, evalCriteria: n } : s))} />}
           {nav.step === 'review' && (
             <PreviewTab
