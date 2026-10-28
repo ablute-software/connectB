@@ -24,7 +24,7 @@ export const PERMISSIONS: readonly PermissionInfo[] = [
   { key: 'evaluate_assigned', label: 'Evaluate assigned applications', enforced: true, hint: 'Open and score the applications assigned to the person. The server checks it on every request.' },
   { key: 'correct_eligibility', label: 'Correct eligibility & document validity', enforced: true, hint: 'Overrule an automatic eligibility or document decision, with a reason (Applications). Without it, a person can still flag an application for validation.' },
   { key: 'view_colleagues_evaluations', label: 'View colleagues’ evaluations after completing own', enforced: true, hint: 'Only after the person has finished their own evaluation. Never the private notes.' },
-  { key: 'final_decision', label: 'Final decision & selection overrides', enforced: false, hint: 'Decide the final outcome and override the selection.' },
+  { key: 'final_decision', label: 'Final decision & selection overrides', enforced: true, hint: 'Decide Advance, Reject or Waitlist for each application, close the evaluation and export the board.' },
   { key: 'publish_results', label: 'Publish results', enforced: false, hint: 'Make the results visible to applicants.' },
   { key: 'handle_contestations', label: 'Handle contestations', enforced: false, hint: 'Answer an applicant’s contestation.' },
 ];

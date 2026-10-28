@@ -4,6 +4,7 @@ import type { EligibilityView } from '@/lib/calls/eligibility-view';
 import type { GridView } from '@/lib/calls/eval-grid-view';
 import type { DistributionMode, DistributionView } from '@/lib/calls/eval-assign-store';
 import type { EvaluationPayload, MineCall } from '@/lib/calls/eval-store';
+import type { Board } from '@/lib/calls/eval-board-store';
 import type { Draft } from '@/lib/calls/eval-draft';
 import type { GridProposal } from '@/lib/calls/eval-grid-reader';
 import type { Criterion } from '@/lib/calls/eval-grid';
@@ -123,6 +124,9 @@ export const callsApi = {
   submitEvaluation: (id: string, applicationId: string, revision: number) => call<{ gradePercent: number | null; submittedAt: string }>(`/api/calls/${id}/evaluations/${applicationId}/submit`, send('POST', { revision })),
   reopenEvaluation: (id: string, applicationId: string, evaluatorUserId: string, reason: string) => call<object>(`/api/calls/${id}/evaluations/${applicationId}/reopen`, send('POST', { evaluatorUserId, reason })),
   declareConflict: (id: string, applicationId: string, note: string) => call<object>(`/api/calls/${id}/evaluations/${applicationId}/conflict`, send('POST', { note })),
+  /** Prompt 922 (I4): the board of the evaluation (ranking, flags, decisions) and what an administrator does on it. */
+  evaluationBoard: (id: string) => call<Board & { canDecide: boolean }>(`/api/calls/${id}/evaluation-board`),
+  evaluationBoardAct: (id: string, body: { action: 'decide'; applicationId: string; decision: string | null; note?: string } | { action: 'close' } | { action: 'reopen' }) => call<Board & { canDecide: boolean }>(`/api/calls/${id}/evaluation-board`, send('POST', body)),
   myEvaluations: () => call<{ calls: MineCall[]; remaining: number }>('/api/calls/my-evaluations'),
   /** Prompt 922 (I2): the distribution of the applications among the evaluators (the administrator's screen) and every move on it. */
   distribution: (id: string) => call<DistributionView>(`/api/calls/${id}/distribution`),
