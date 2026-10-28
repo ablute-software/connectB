@@ -11,6 +11,7 @@ import { withActingOrg } from '@/lib/acting-org';
 import { authApplication } from '@/lib/calls/applicant/auth';
 import { fileReadable, findSubmissionByKey, freezeFile, loadFiles } from '@/lib/calls/applicant/store';
 import { sanitizeAnswers } from '@/lib/calls/applicant/answers';
+import { processApplicationNow } from '@/lib/calls/eligibility-engine';
 import { filesInSubmission, formSnapshot, frozenPath, planSubmission, unreadableFileIssues } from '@/lib/calls/applicant/submit';
 import { notifySubmissionReceived } from '@/lib/calls/applicant/notices';
 
@@ -77,5 +78,7 @@ export const POST = withActingOrg(async function POST(req: Request, { params }: 
   }
   // The receipt (email and in-app notice) goes out once, only for a submission that was just created, never for a repeat of the same request.
   if (res.already !== true) await notifySubmissionReceived(a.admin, a.call, a.app, a.userId).catch((e) => console.error('[calls] submission notice failed:', (e as Error).message));
+  // Prompt 918 (I3): the task was written with the submission (a trigger); give it a first, bounded go so the result is usually there when the entity looks. A failure never touches the submission.
+  if (res.already !== true) await processApplicationNow(a.admin, a.app.id).catch((e) => console.error('[calls] eligibility first run failed:', (e as Error).message));
   return NextResponse.json({ ok: true, already: res.already === true, submittedAt: res.submitted_at, reference: a.app.reference });
 });

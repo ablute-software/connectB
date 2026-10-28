@@ -25,6 +25,12 @@ export function callsDb(): CallsDb {
     'orgs', 'org_members', 'documents', 'document_versions', 'call_link_access', 'call_application_files', 'call_notices',
     // Prompt 917 (Adenda 1, Part B)
     'call_import_corrections',
+    // Prompt 918 (I2)
+    'call_eligibility_rules', 'call_eligibility_recipes', 'call_eligibility_dismissed',
+    // Prompt 918 (I3)
+    'call_processing_tasks', 'call_application_eligibility', 'call_eligibility_corrections',
+    // Prompt 922
+    'call_eval_settings', 'call_eval_criteria', 'call_eval_templates', 'call_eval_import_runs', 'call_eval_assignments', 'call_eval_conflicts', 'call_evaluations', 'call_eval_scores', 'call_eval_reopenings', 'call_eval_decisions', 'call_eval_reminders',
   ];
   return { tables: Object.fromEntries(names.map((n) => [n, []])), users: new Map(), clock: Date.UTC(2026, 9, 9, 12, 0, 0), seq: 0 };
 }
@@ -37,12 +43,24 @@ class Violation extends Error { code: string; constructor(m: string, code = '235
 const DEFAULTS: Record<string, (db: CallsDb) => Row> = {
   calls: () => ({
     description: null, opens_at: null, closes_at: null, timezone: 'Europe/Lisbon', visibility: 'listed', limit_unit: 'project',
-    allow_multiple: false, content_language: 'en', currency: 'EUR', status: 'draft', link_token: null, config_version: 1,
+    allow_multiple: false, content_language: 'en', currency: 'EUR', status: 'draft', link_token: null, config_version: 1, eligibility_version: 1, eligibility_rev: 0, eval_grid_version: 1, eval_grid_rev: 0, evaluation_closed_at: null, evaluation_closed_by: null,
     validated_at: null, validated_by: null, published_at: null, closed_at: null, archived_at: null, archived_by: null, duplicated_from: null, catalog_entity_id: null, incubator_id: null,
   }),
   call_team_categories: () => ({ permissions: {}, catalog_entity_id: null, incubator_id: null }),
   call_team_members: () => ({ permission_overrides: {} }),
   call_declared_conflicts: () => ({ note: null }),
+  call_eligibility_rules: () => ({ version: 1, params: {}, note: null, position: 0 }),
+  call_eligibility_recipes: () => ({ version: 1, source_text: '' }),
+  call_eval_criteria: () => ({ version: 1, position: 0, section: null, guidance: '', format: 'scale', levels: [], comment_required: false, min_score: null }),
+  call_eval_import_runs: () => ({ status: 'proposed', corrections: [], applied_at: null }),
+  call_eval_assignments: () => ({ source: 'auto', status: 'assigned', reason: null, assigned_by: null, removed_at: null }),
+  call_eval_conflicts: () => ({ application_id: null, note: null, declared_by: null }),
+  call_evaluations: () => ({ status: 'in_progress', overall_comment: '', private_note: '', grade_percent: null, revision: 0, reopened_count: 0, submitted_at: null, submission_id: null }),
+  call_eval_scores: () => ({ comment: '' }),
+  call_eval_decisions: () => ({ note: null, is_current: true }),
+  call_processing_tasks: () => ({ kind: 'eligibility', rules_version: 1, status: 'queued', attempts: 0, max_attempts: 5, run_after: new Date().toISOString(), locked_at: null, last_error: null, started_at: null, finished_at: null }),
+  call_application_eligibility: () => ({ source: 'engine', rule_results: [], overrides: {}, reason: null, is_current: true, created_by: null }),
+  call_eligibility_corrections: () => ({ submission_id: null, rule_id: null, rule_kind: null, doc_type: null, rules_version: null, engine_status: null, engine_outcome: null, engine_reason: null, engine_evidence: null, is_call_exception: false }),
   call_source_documents: () => ({ kind: 'other', pages: null, public_to_applicants: false }),
   call_link_access: () => ({}),
   call_application_files: () => ({ sha256: null, document_id: null, version_id: null, version_number: null, revoked_at: null, frozen_path: null, frozen_at: null }),
@@ -95,7 +113,7 @@ function builder(db: CallsDb, table: string): any {
   const sorts: { col: string; asc: boolean }[] = [];
   let max = Infinity;
 
-  const exec = (): { data: Row[]; error: { code?: string; message: string } | null } => {
+  const exec = (): { data: Row[]; error: { code?: string; message: string } | null; count?: number } => {
     try {
       const rows = db.tables[table];
       if (!rows) return { data: [], error: { message: `relation "${table}" does not exist`, code: '42P01' } };
@@ -134,7 +152,7 @@ function builder(db: CallsDb, table: string): any {
         matched = [...matched].sort((a, b) => (s.asc ? 1 : -1) * (typeof a[s.col] === 'number' && typeof b[s.col] === 'number'
           ? (a[s.col] as number) - (b[s.col] as number) : String(a[s.col] ?? '').localeCompare(String(b[s.col] ?? ''))));
       }
-      return { data: matched.slice(0, max), error: null };
+      return { data: matched.slice(0, max), error: null, count: matched.length };
     } catch (e) {
       const err = e as { code?: string; message: string };
       return { data: [], error: { code: err.code, message: err.message } };
@@ -284,9 +302,21 @@ function submitApplication(db: CallsDb, a: Record<string, unknown>) {
   const at = new Date(nowOf(db)).toISOString();
   const s: Row = { id: uuid(db), application_id: app.id, version: 1, answers: a.p_answers, documents: a.p_documents ?? [], form_snapshot: a.p_form_snapshot, submitted_by: a.p_user, submitted_at: at, idempotency_key: a.p_key };
   subs.push(s);
+  // trg_call_submission_enqueue (migration 20261027160000): the task is written in the same transaction as the submission, for the version of the rules in force.
+  db.tables.call_processing_tasks.push({ ...(DEFAULTS.call_processing_tasks(db)), id: uuid(db), call_id: app.call_id, application_id: app.id, submission_id: s.id, kind: 'eligibility', rules_version: call.eligibility_version ?? 1, created_at: new Date(nowOf(db)).toISOString() });
   Object.assign(app, { status: 'submitted', current_submission_id: s.id, submitted_at: at, updated_at: at });
   db.tables.call_events.push({ id: ++db.seq, call_id: app.call_id, application_id: app.id, event: 'application_submitted', actor_user_id: a.p_user, detail: { reference: app.reference, version: 1 }, created_at: tick(db) });
   return { ok: true, already: false, submission_id: s.id, version: 1, submitted_at: at };
+}
+
+/** claim_call_tasks(), modelled: queued tasks whose time has come, and those stuck in Processing for longer than p_stale_minutes, oldest first; they become Processing and count an attempt. */
+function claimTasks(db: CallsDb, limit: number, staleMinutes: number): Row[] {
+  const now = nowOf(db);
+  const picked = db.tables.call_processing_tasks
+    .filter((t) => (t.status === 'queued' && Date.parse(String(t.run_after)) <= now) || (t.status === 'processing' && t.locked_at && Date.parse(String(t.locked_at)) < now - staleMinutes * 60_000))
+    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))).slice(0, Math.max(limit, 0));
+  for (const t of picked) Object.assign(t, { status: 'processing', locked_at: new Date(now).toISOString(), started_at: t.started_at ?? new Date(now).toISOString(), attempts: Number(t.attempts) + 1 });
+  return picked;
 }
 
 export interface FakeStorage { objects: Map<string, { bytes: Uint8Array; contentType?: string }> }
@@ -295,6 +325,7 @@ export function fakeCallsAdmin(db: CallsDb, storage: FakeStorage = { objects: ne
   return {
     from: (t: string) => builder(db, t),
     rpc: async (name: string, args: Record<string, unknown>) => {
+      if (name === 'claim_call_tasks') return { data: claimTasks(db, Number(args.p_limit), Number(args.p_stale_minutes ?? 10)), error: null };
       if (name === 'call_accepting') return { data: callAccepting(db, args.p_call as string), error: null };
       if (name === 'call_open_application') { try { return { data: openApplication(db, args), error: null }; } catch (e) { return { data: null, error: { message: (e as Error).message, code: (e as { code?: string }).code } }; } }
       if (name === 'call_submit_application') return { data: submitApplication(db, args), error: null };

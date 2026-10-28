@@ -38,7 +38,7 @@ describe('the steps of Setup', () => {
     expect(h).toContain('Review &amp; publish');
     expect(h).toContain('1 to fix');            // General (no closing date) and Review
     expect(h).toContain('Complete');
-    expect(h).toContain('Coming next');
+    expect(h).not.toContain('Coming next');     // Eligibility rules is a real step now (Prompt 918, I2)
     expect(h).toContain('Not started');         // Team
     expect(h).toContain('⚠'); expect(h).toContain('✓'); expect(h).toContain('○');
   });

@@ -52,7 +52,7 @@ describe.skipIf(!CHROME)('the panel edits the selected question by id (real brow
     const { chromium } = await import('playwright');
     browser = await chromium.launch({ executablePath: CHROME, headless: true, args: ['--no-sandbox'] });
   }, 240_000);
-  afterAll(async () => { await browser?.close(); });
+  afterAll(async () => { await browser?.close(); }, 60_000);
 
   async function open(initial: FormField[], jumpTo?: string) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });

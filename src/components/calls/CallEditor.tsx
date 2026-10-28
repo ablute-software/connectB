@@ -16,6 +16,8 @@ import { ComingNext, SetupShell } from './SetupShell';
 import { GeneralTab, type GeneralPatch } from './GeneralTab';
 import { PhasesTab, type PhaseDraft } from './PhasesTab';
 import { FormTab } from './FormTab';
+import { EligibilityStep } from './EligibilityStep';
+import { EvalGridStep } from './EvalGridStep';
 import { PreviewTab, type LifecycleAction } from './PreviewTab';
 import { SaveStatus, type SaveState } from './SaveStatus';
 import { StatusBadge } from './StatusBadge';
@@ -290,7 +292,7 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
 
       {nav.main === 'setup' && (
         <SetupShell step={nav.step} onStep={(s) => goStep(s)}
-          states={stepStates({ call, phases: server.phases, fields, issues: server.issues, teamMembers: server.teamMembers ?? 0 })}>
+          states={stepStates({ call, phases: server.phases, fields, issues: server.issues, teamMembers: server.teamMembers ?? 0, eligibilityRules: server.eligibilityRules ?? 0, evalCriteria: server.evalCriteria ?? 0 })}>
           {nav.step === 'general' && (
             <>
               <GeneralTab call={call} promoterName={server.promoterName} disabled={readOnly} presentationDisabled={!server.canManage || call.status === 'archived'} branding={server.branding}
@@ -304,9 +306,10 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
           )}
           {nav.step === 'phases' && <PhasesTab phases={phases} disabled={readOnly} onChange={editPhases} />}
           {nav.step === 'form' && <FormTab callId={callId} fields={fields} disabled={readOnly} lockedReason={reason} canConvert={server.canManage && call.status !== 'archived'} onConverted={(s) => adopt(s, true)} onChange={editFields} onImport={importForm} onImportDocuments={() => { setImportRunId(null); setImportDocs(true); }} importStatus={importStatus} onReview={reviewProposal} selectId={jump?.target} selectKey={jump?.n} />}
-          {nav.step === 'eligibility' && <ComingNext testId="eligibility-soon" title="Eligibility rules" text="Coming next. Here you will say who is eligible, rule by rule, tied to the questions and documents of your form." />}
+          {nav.step === 'eligibility' && <EligibilityStep callId={callId} call={call} disabled={!server.canManage} canManage={server.canManage}
+            onRulesChanged={(n) => setServer((s) => (s ? { ...s, eligibilityRules: n } : s))} onState={(s) => adopt(s, true)} />}
           {nav.step === 'team' && <TeamTab callId={callId} />}
-          {nav.step === 'grid' && <ComingNext testId="grid-soon" title="Evaluation grid" text="Coming in the next stage. The grid the evaluators will use is set up here." />}
+          {nav.step === 'grid' && <EvalGridStep callId={callId} canManage={server.canManage} onCriteriaChanged={(n) => setServer((s) => (s ? { ...s, evalCriteria: n } : s))} />}
           {nav.step === 'review' && (
             <PreviewTab
               call={call} effectiveStatus={server.effectiveStatus} phases={server.phases} fields={fields} issues={server.issues} summary={server.summary}

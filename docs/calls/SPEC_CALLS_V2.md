@@ -253,6 +253,22 @@ Antes de submeter, uma nova versão no Vault pode atualizar o rascunho, com avis
 
 O administrador descreve o requisito, a plataforma apresenta a interpretação que vai aplicar, e o administrador confirma ou clarifica. Se as clarificações se contradizerem, pede-se resolução em vez de escolher uma. Na v1, todas as candidaturas sujeitas a regras abertas vão para To validate, para decisão humana.
 
+### 7.4.1. Como está feito na Setup (Prompt 918, I2) **[Decisão]**
+
+- O passo "Eligibility rules" da Setup: cada regra liga-se a **uma pergunta ou documento** do formulário e diz-se numa **frase com a fronteira** ("Quem indicar exatamente 500 000 € é elegível"). Os nove tipos da §7.2.
+- **Sugestões da importação** ("Suggested rules"): a entidade aceita (cria a regra), edita ou descarta; **nada vira regra sem um clique**.
+- **Receitas dos documentos sem trabalho para o admin:** ao gravar a regra a plataforma prepara sozinha a receita (tipo, outros nomes, expressões, emissor, o que ler, comparações, idade, código e portal) **só a partir do texto que a entidade escreveu**; ninguém a confirma; fica visível, só de leitura, em "How we check this document". Quando não reconhece o documento, diz que uma pessoa valida cada um. A receita é **por call, por pergunta e por versão**: nunca se partilha entre calls; duplicar a call copia-a como cópia nova.
+- **Regras abertas:** vão sempre para To validate; a plataforma propõe uma **pergunta fechada** (Yes/No) em vez delas.
+- **Congelamento:** as regras ficam bloqueadas quando a call é confirmada e **congeladas quando abre**; uma alteração depois cria uma **versão nova**, pede confirmação (quantas candidaturas serão reavaliadas), regista o antes e o depois, e as avaliações antigas ficam com a versão em que foram feitas.
+
+### 7.4.2. O motor interno e a fila (Prompt 918, I3) **[Decisão]**
+
+- **Fila persistente (§16):** a submissão e a tarefa gravam-se **na mesma transação** (um *trigger*): nunca existe uma candidatura sem tarefa. Estados Queued / Processing / Done / Technical failure; repetição com espera crescente; tarefa presa recuperada; uma falha técnica **nunca** vira incumprimento — não se grava resultado e a pessoa pode repetir a verificação.
+- **Motor sem IA externa:** regras objetivas por função pura; documentos lidos com o leitor interno (PDF com texto, Word, Excel) e comparados com a **receita**. **Só falha** com uma razão clara e objetiva (número fora do limite, documento de **outro** tipo, mais velho que o limite, validade passada, NIF impresso diferente do declarado); **qualquer dúvida é To validate** (nome da empresa diferente pode ser o nome comercial; PDF digitalizado sem OCR; documento não reconhecido; autenticidade). Cada resultado dá a razão em palavras simples e, nos documentos, a evidência (ficheiro, página e citação).
+- **Correção humana:** com "Correct eligibility & document validity" (aplicada no servidor): corrigir uma regra (recalcula as restantes: não passa a Fit com outra regra a falhar), reclassificar a candidatura, repetir uma falha técnica; sempre com justificação. Quem só vê as candidaturas tem "Flag possible ineligibility" (manda para To validate). **Cada correção fica como exemplo** e o backoffice mostra a taxa de acerto por tipo de regra e de documento; uma exceção de uma call não conta como erro do motor.
+- **Duplicados (§15):** "Possible duplicate" entre candidaturas da mesma call (nome normalizado, website, domínio de email não genérico, a mesma pessoa em duas organizações, NIF). Nunca bloqueia.
+- **Limites da v1:** sem OCR; a assinatura digital é detetada mas **não validada** criptograficamente; os documentos fora do dicionário de receitas vão sempre a uma pessoa.
+
 ### 7.5. Subtabs de elegibilidade
 
 | Subtab | Conteúdo |

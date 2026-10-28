@@ -20,6 +20,7 @@
 // monthly catalog job, no day-of-month gate: a Pioneer redemption's
 // benefit_ends_at can fall on any day, and runPioneerExpiryJob is cheap and
 // idempotent (skips orgs already badged), so it just runs every tick.
+import { processQueue } from '@/lib/calls/eligibility-engine';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { monthlyDeliveryDue } from '@/lib/catalog-monthly-delivery';
@@ -207,6 +208,13 @@ export async function GET() {
   } catch (e) {
     console.error('[automations] deleted-calls purge failed:', e);
   }
+  // Prompt 918 (I3) — the eligibility queue: whatever nobody got around to (a task waiting for its back-off, one stuck in Processing) is taken forward. Same daily tick, no extra cron.
+  let eligibilityQueue: { claimed: number; done: number; requeued: number; technicalFailures: number } | null = null;
+  try {
+    eligibilityQueue = await processQueue(admin, { limit: 40 });
+  } catch (e) {
+    console.error('[automations] eligibility queue failed:', e);
+  }
   let interestReminderSweep: InterestReminderSweepResult | null = null;
   try {
     interestReminderSweep = await runInterestReminderSweep(admin, new Date());
@@ -299,6 +307,7 @@ export async function GET() {
     interestReminderSweep,
     callDraftReminders,
     callPurge,
+    eligibilityQueue,
     reconciliationSweep,
     investorNotifyDigestSweep,
   });

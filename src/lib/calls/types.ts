@@ -222,6 +222,10 @@ export interface Call {
   coverPath?: string | null; coverUpdatedAt?: string | null; logoPath?: string | null; logoUpdatedAt?: string | null;
   /** Prompt 918 (Adenda 2, C): set while the call is deleted — it can be restored until `purgeAfter` (30 days), then it is removed for good. */
   deletedAt?: string | null; deletedBy?: string | null; purgeAfter?: string | null;
+  /** Prompt 918 (I2): the version of the eligibility rules in force (a change after the call opens makes a new one) and the revision counter of the step. */
+  eligibilityVersion?: number; eligibilityRev?: number;
+  /** Prompt 922 (Etapa 3): the version of the evaluation grid in force and the step's revision counter; when evaluation was closed ("Close evaluation"). */
+  evalGridVersion?: number; evalGridRev?: number; evaluationClosedAt?: string | null; evaluationClosedBy?: string | null;
   duplicatedFrom: string | null;
   createdBy: string;
   createdAt: string;

@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { BackofficeCallsTable } from '@/components/backoffice/BackofficeCallsPanel';
 import { ImportCorrectionsPanel } from '@/components/backoffice/ImportCorrectionsPanel';
+import { EligibilityAccuracyPanel } from '@/components/backoffice/EligibilityAccuracyPanel';
 import type { BackofficeCallRow } from '@/lib/calls/backoffice-view';
 
 export default function BackofficeCallsPage() {
@@ -26,6 +27,7 @@ export default function BackofficeCallsPage() {
         </p>
       </div>
       <ImportCorrectionsPanel />
+      <EligibilityAccuracyPanel />
       {error && <p role="alert" className="text-xs text-[#B00000]">{error}</p>}
       {rows === null ? <p className="text-xs text-gray-400">Loading…</p> : (
         <BackofficeCallsTable rows={rows} origin={typeof window !== 'undefined' ? window.location.origin : ''} />

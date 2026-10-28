@@ -22,7 +22,7 @@ export const PERMISSIONS: readonly PermissionInfo[] = [
   { key: 'manage_team', label: 'Manage team & permissions', enforced: true, hint: 'Edit the Team tab.' },
   { key: 'view_all_applications', label: 'View all applications', enforced: true, hint: 'Open the list of submitted applications and read each one. Off: only the applications assigned to the person (assignment arrives with distribution).' },
   { key: 'evaluate_assigned', label: 'Evaluate assigned applications', enforced: false, hint: 'Score the applications assigned to the person.' },
-  { key: 'correct_eligibility', label: 'Correct eligibility & document validity', enforced: false, hint: 'Overrule an automatic eligibility or document decision.' },
+  { key: 'correct_eligibility', label: 'Correct eligibility & document validity', enforced: true, hint: 'Overrule an automatic eligibility or document decision, with a reason (Applications). Without it, a person can still flag an application for validation.' },
   { key: 'view_colleagues_evaluations', label: 'View colleagues’ evaluations after completing own', enforced: false, hint: 'Only after the person has finished their own evaluation.' },
   { key: 'final_decision', label: 'Final decision & selection overrides', enforced: false, hint: 'Decide the final outcome and override the selection.' },
   { key: 'publish_results', label: 'Publish results', enforced: false, hint: 'Make the results visible to applicants.' },

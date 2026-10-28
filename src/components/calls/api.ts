@@ -1,5 +1,9 @@
 // Prompt 905 — the browser side of /api/calls: small typed wrappers, so the editor never builds a URL or reads
 // a response by hand. Every call returns {ok, status, body}; nothing throws on a refusal.
+import type { EligibilityView } from '@/lib/calls/eligibility-view';
+import type { GridView } from '@/lib/calls/eval-grid-view';
+import type { GridProposal } from '@/lib/calls/eval-grid-reader';
+import type { Criterion } from '@/lib/calls/eval-grid';
 import type { CallStatus, PromoterKind } from '@/lib/calls/types';
 import type { Call, CallPhase, FormField } from '@/lib/calls/types';
 import type { CallSummary, ReadinessIssue, availableActions } from '@/lib/calls/lifecycle';
@@ -34,6 +38,8 @@ export interface CallState {
   fields: FormField[];
   issues: ReadinessIssue[];
   teamMembers?: number;
+  eligibilityRules?: number;
+  evalCriteria?: number;
   /** Prompt 918 (Adenda 1, C): the cover and logo the page will show, where the logo comes from, and the entity's own profile logo (if any). */
   branding?: { coverUrl: string | null; logoUrl: string | null; logoSource: 'call' | 'profile' | null; profileLogoUrl: string | null };
   summary: CallSummary;
@@ -79,6 +85,26 @@ export const callsApi = {
   /** Prompt 917 (Adenda 2, B4): turn a repeatable group shown as a table into a Table (transposed), drafts migrated; `confirm` once the entity has been told about submitted applications. */
   convertToTable: (id: string, fieldId: string, confirm = false) =>
     call<CallState & { converted: { label: string; summary: string; drafts: number; migrated: number; told: number; submitted: number } }>(`/api/calls/${id}/form/convert-to-table`, send('POST', { fieldId, confirm })),
+  /** Prompt 918 (I2): the eligibility rules of a call (with their sentences, recipes and the import's suggestions), replacing them, discarding a suggestion, and turning an open requirement into a closed question. */
+  eligibility: (id: string) => call<EligibilityView & { canManage: boolean }>(`/api/calls/${id}/eligibility`),
+  saveEligibility: (id: string, baseRev: number, rules: unknown[], confirm = false) => call<EligibilityView & { unchanged?: boolean; submitted?: number; nextVersion?: number }>(`/api/calls/${id}/eligibility`, send('PUT', { baseRev, rules, confirm })),
+  dismissSuggestion: (id: string, text: string) => call<Record<string, never>>(`/api/calls/${id}/eligibility/suggestion`, send('POST', { text })),
+  closeOpenRule: (id: string, ruleId: string) => call<CallState & { added: { id: string; label: string } }>(`/api/calls/${id}/eligibility/close-question`, send('POST', { ruleId })),
+  /** Prompt 922 (I1): the evaluation grid (criteria, weights, settings), read from a document by the platform's own reader, and the templates of the organisation. */
+  evalGrid: (id: string) => call<GridView & { canManage: boolean }>(`/api/calls/${id}/eval-grid`),
+  saveEvalGrid: (id: string, baseRev: number, criteria: unknown[], settings: unknown, confirm = false, importRunId: string | null = null) =>
+    call<GridView & { unchanged?: boolean; nextVersion?: number }>(`/api/calls/${id}/eval-grid`, send('PUT', { baseRev, criteria, settings, confirm, ...(importRunId ? { importRunId } : {}) })),
+  importEvalGrid: async (id: string, file: File) => {
+    try {
+      const form = new FormData(); form.append('file', file);
+      const res = await fetch(`/api/calls/${id}/eval-grid/import`, { method: 'POST', body: form });
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; runId: string; fileName: string; notice: string; proposal: GridProposal; criteria: unknown[] };
+      return { ok: res.ok && body.ok !== false, status: res.status, body };
+    } catch { return { ok: false, status: 0, body: { error: 'We could not reach the server. Check your connection and try again.', runId: '', fileName: '', notice: '', proposal: { criteria: [], scaleGuess: null, notes: [] } as GridProposal, criteria: [] as unknown[] } }; }
+  },
+  evalTemplates: (id: string) => call<{ templates: { id: string; name: string; criteria: number; createdAt: string }[] }>(`/api/calls/${id}/eval-grid/templates`),
+  saveEvalTemplate: (id: string, name: string) => call<{ id: string; templates: { id: string; name: string; criteria: number; createdAt: string }[] }>(`/api/calls/${id}/eval-grid/templates`, send('POST', { name })),
+  copyEvalTemplate: (id: string, templateId: string) => call<{ name: string; criteria: Criterion[] }>(`/api/calls/${id}/eval-grid/templates/${templateId}`, send('POST')),
   /** Prompt 909 (I3): the team of a call, and one change at a time (the server answers with the whole picture). */
   team: (id: string) => call<TeamPayload>(`/api/calls/${id}/team`),
   teamAction: (id: string, body: Record<string, unknown>) => call<TeamPayload>(`/api/calls/${id}/team`, send('POST', body)),
