@@ -25,7 +25,7 @@ import {
   type RegistrationExtras, type RegistrationProfile,
 } from './policy';
 import { checkPassword } from '@/lib/password-policy';
-import { SEND_FAILED_TEXT, describeAuthError } from '@/lib/auth-errors';
+import { EMAIL_INCOMPLETE_TEXT, SEND_FAILED_TEXT, describeAuthError } from '@/lib/auth-errors';
 
 /** What the failure log records (Prompt 911, B.2). */
 export type AuthFailureAction = 'signup' | 'resend_code' | 'signup_already_registered';
@@ -100,7 +100,7 @@ export async function requestCode(
     const problem = registrationProblem(input.email, input.profile, input.password ?? '', input.strict ?? true);
     if (problem) return { status: 400, body: { ok: false, code: 'invalid_input', error: problem } };
   } else if (!isValidEmailShape(input.email)) {
-    return { status: 400, body: { ok: false, code: 'invalid_input', error: 'Please enter a valid email address.' } };
+    return { status: 400, body: { ok: false, code: 'invalid_input', error: EMAIL_INCOMPLETE_TEXT } };
   }
 
   const startedAt = ports.now();
@@ -179,7 +179,7 @@ export async function verifyRegistrationCode(
   ports: AuthCodePorts,
   input: { email: string; code: string; password: string; profile: RegistrationProfile; ip: string; strict?: boolean },
 ): Promise<VerifyResult> {
-  if (!isValidEmailShape(input.email)) return { status: 400, body: { ok: false, code: 'invalid_input', error: 'Please enter a valid email address.' } };
+  if (!isValidEmailShape(input.email)) return { status: 400, body: { ok: false, code: 'invalid_input', error: EMAIL_INCOMPLETE_TEXT } };
   if (!isValidCode(input.code)) return { status: 400, body: { ok: false, code: 'invalid_input', error: 'The code has 6 digits.' } };
   if (!checkPassword(input.password).valid) return { status: 400, body: { ok: false, code: 'invalid_input', error: 'That password does not meet the requirements.' } };
   const profile = profileProblem(input.profile, input.strict ?? true);

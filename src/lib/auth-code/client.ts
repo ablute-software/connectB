@@ -71,7 +71,7 @@ export async function verifyRegistrationCodeRequest(input: {
 }
 
 /** Tell the registry that the browser was refused an email by Supabase directly (the link-only fallback, password recovery). */
-export async function reportAuthEmailFailure(input: { email: string; action: 'signup' | 'recover' | 'invite_signup' | 'login'; error: unknown }): Promise<void> {
+export async function reportAuthEmailFailure(input: { email: string; action: 'signup' | 'recover' | 'invite_signup' | 'login'; error: unknown; ref?: string }): Promise<void> {
   try {
     const e = (input.error && typeof input.error === 'object' ? input.error : {}) as Record<string, unknown>;
     await fetch('/api/auth-failures/report', {
@@ -80,7 +80,7 @@ export async function reportAuthEmailFailure(input: { email: string; action: 'si
         email: input.email, action: input.action,
         status: typeof e.status === 'number' ? e.status : null,
         code: typeof e.code === 'string' ? e.code : typeof e.error_code === 'string' ? e.error_code : null,
-        message: typeof e.message === 'string' ? e.message : typeof input.error === 'string' ? input.error : null,
+        message: `${input.ref ? `[ref ${input.ref}] ` : ''}${typeof e.message === 'string' ? e.message : typeof input.error === 'string' ? input.error : ''}`.trim() || null,
       }),
     });
   } catch { /* reporting must never get in the way of the message the person is about to read */ }

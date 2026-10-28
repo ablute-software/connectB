@@ -19,7 +19,9 @@ export interface SeatsData {
   free?: number;
   ownMemberId?: string;
   members?: { id: string; email: string | null; name: string | null; role: string | null; since: string | null }[];
-  invites?: { id: string; email: string; createdAt: string }[];
+  // Prompt 923 (B.3) — what happened to each invitation: Open, Accepted, or "Couldn't be accepted" (with the reason; the invitation stays open).
+  invites?: { id: string; email: string; createdAt: string; state?: 'open' | 'accepted' | 'failed'; label?: string; reason?: string | null }[];
+  acceptedInvites?: { id: string; email: string; acceptedAt: string | null }[];
   /** Prompt 904 decision 3 — domain-matched claimants waiting for this administrator. */
   pendingClaims?: { id: string; email: string; createdAt: string }[];
 }
@@ -32,7 +34,7 @@ function day(iso: string | null): string {
 
 export function SeatsPanelView({
   data, busy, error, notice, inviteEmail, code,
-  onInviteEmail, onInvite, onCancelInvite, onRemove, onCode, onRedeem, onApproveClaim, onDeclineClaim,
+  onInviteEmail, onInvite, onCancelInvite, onResendInvite, onRemove, onCode, onRedeem, onApproveClaim, onDeclineClaim,
 }: {
   data: SeatsData | null;
   busy: boolean;
@@ -43,6 +45,7 @@ export function SeatsPanelView({
   onInviteEmail: (v: string) => void;
   onInvite: () => void;
   onCancelInvite: (id: string) => void;
+  onResendInvite?: (id: string) => void;
   onRemove: (id: string) => void;
   onCode: (v: string) => void;
   onRedeem: () => void;
@@ -98,13 +101,24 @@ export function SeatsPanelView({
               </li>
             ))}
             {(data.invites ?? []).map((i) => (
-              <li key={i.id} className="flex items-center justify-between gap-2 py-1.5 text-sm text-gray-500">
-                <div className="min-w-0">
-                  <span>{i.email}</span>
-                  <span className="ml-2 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">seat reserved</span>
+              <li key={i.id} className="py-1.5 text-sm text-gray-500" data-testid="seat-invite">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <span className="[overflow-wrap:anywhere]">{i.email}</span>
+                    <span className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] ${i.state === 'failed' ? 'bg-red-50 text-[#8a0000]' : 'bg-amber-50 text-amber-700'}`} data-testid="seat-invite-state">{i.label ?? 'Open'}</span>
+                  </div>
+                  <span className="flex shrink-0 items-center gap-3">
+                    {onResendInvite && <button type="button" onClick={() => onResendInvite(i.id)} disabled={busy} data-testid="seat-invite-resend" className="text-xs text-[#0E7490] hover:underline disabled:opacity-40">Send the link again</button>}
+                    <button type="button" onClick={() => onCancelInvite(i.id)} disabled={busy} className="text-xs text-gray-400 hover:text-[#B00000] disabled:opacity-40">Cancel</button>
+                  </span>
                 </div>
-                <button type="button" onClick={() => onCancelInvite(i.id)} disabled={busy}
-                  className="shrink-0 text-xs text-gray-400 hover:text-[#B00000] disabled:opacity-40">Cancel</button>
+                {i.state === 'failed' && i.reason && <p className="mt-0.5 text-xs text-[#8a0000] [overflow-wrap:anywhere]" data-testid="seat-invite-reason">{i.reason} The invitation is still open.</p>}
+              </li>
+            ))}
+            {(data.acceptedInvites ?? []).map((i) => (
+              <li key={i.id} className="flex items-center justify-between gap-2 py-1.5 text-sm text-gray-500" data-testid="seat-invite-accepted">
+                <div className="min-w-0"><span className="[overflow-wrap:anywhere]">{i.email}</span><span className="ml-2 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-800">Accepted</span></div>
+                <span className="shrink-0 text-[11px] text-gray-400">{day(i.acceptedAt)}</span>
               </li>
             ))}
           </ul>
@@ -119,7 +133,7 @@ export function SeatsPanelView({
             </button>
           </div>
           <p className="mt-1.5 text-[11px] text-gray-400">
-            They sign up (or sign in) with that email, search for your firm and claim its profile — it is approved automatically.
+            They get an email with the invitation link: they confirm that address with a 6-digit code, tell us their name and role, and they are in. If someone cannot join, you will see why here and the invitation stays open.
           </p>
           {notice && <p role="status" className="mt-2 text-xs text-emerald-700">{notice}</p>}
           {error && <p role="alert" className="mt-2 text-xs text-[#B00000]" data-testid="seat-error">{error}</p>}
@@ -190,6 +204,7 @@ export function SeatsPanel({ onData, onChange }: { onData?: (d: SeatsData | null
       onInviteEmail={(v) => { setInviteEmail(v); setError(''); }}
       onInvite={async () => { if (await post('/api/portal/seats/invite', { email: inviteEmail }, 'Seat reserved.')) setInviteEmail(''); }}
       onCancelInvite={(id) => void post('/api/portal/seats/invite/cancel', { inviteId: id }, 'Reservation cancelled.')}
+      onResendInvite={(id) => void post('/api/portal/seats/invite/resend', { inviteId: id }, 'We sent the invitation link again.')}
       onRemove={(id) => void post('/api/portal/seats/remove', { memberId: id }, 'Seat removed.')}
       onCode={(v) => { setCode(v); setError(''); }}
       onRedeem={async () => { if (await post('/api/portal/seats/redeem', { code }, 'Plan activated.')) setCode(''); }}

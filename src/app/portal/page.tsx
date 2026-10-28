@@ -30,6 +30,8 @@ import { fmtRoundEur } from '@/lib/format-money';
 import { portalFooterSuffix, portalStageLabel } from '@/lib/portal-footer';
 import { LogoutButton } from '@/components/workspace-shell/LogoutButton';
 import { InvestorSignInForm } from '@/components/auth/InvestorSignInForm';
+import { NoDataRoomAccess } from '@/components/portal/NoDataRoomAccess';
+import type { Area } from '@/lib/areas';
 import { InvestorWorkspaceShell, type Tab } from '@/components/investor-workspace/InvestorWorkspaceShell';
 import { InteractionLogDrawer } from '@/components/investor-workspace/InteractionLogDrawer';
 import { RoundUpdatesFeed } from '@/components/investor-workspace/RoundUpdatesFeed';
@@ -459,6 +461,15 @@ function PortalPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionEmail]);
 
+  // Prompt 923 (A) — which areas this person can open (/api/me). The investor workspace below is for somebody who has a data room OR is a member of an investor firm: a firm member with no data room used to see "No active access"
+  // here, a dead end, instead of their own firm's workspace. `null` = not known yet.
+  const [areas, setAreas] = useState<Area[] | null>(null);
+  useEffect(() => {
+    if (!authEnabled || !sessionEmail) return;
+    fetch('/api/me').then((r) => r.json()).then((me) => setAreas(Array.isArray(me?.areas) ? me.areas : [])).catch(() => setAreas([]));
+  }, [sessionEmail]);
+  const isFirmMember = (areas ?? []).includes('investor');
+
   const activePendingConfirmation = (real?.pendingConfirmation ?? []).filter((p) => !dismissedGrantIds.includes(p.grantId));
 
   async function confirmIdentity(grantId: string) {
@@ -550,7 +561,7 @@ function PortalPageInner() {
   // every pre-auth/pending/no-access state above) to the sidebar shell.
   // Demo mode keeps the old flat layout unchanged (no sidebar concept
   // there yet) — only the real-auth + real-access path gets it.
-  if (authEnabled && signedIn && hasAccess && !loading && activePendingConfirmation.length === 0) {
+  if (authEnabled && signedIn && (hasAccess || isFirmMember) && !loading && activePendingConfirmation.length === 0) {
     const startupCard = (
       <div className="space-y-4">
         {authEnabled && real?.orgId && <RoundUpdatesFeed orgId={real.orgId} />}
@@ -755,23 +766,8 @@ function PortalPageInner() {
             );
           })()
         ) : !hasAccess ? (
-          // Deliberately generic — identical wording whether this email has
-          // no grant, an expired grant, or was never invited. Never reveals
-          // which emails do or don't have access.
-          <div className="mt-16 text-center text-sm text-gray-500">
-            No active access for this account. If you believe this is an error, contact {senderEmail ?? 'the founder'}.
-            {/* Prompt 515 — this branch was a dead end: a live Supabase
-                session with nowhere to go and no way out but clearing
-                cookies by hand. Same fix InvestorWorkspaceShell already
-                carries for the has-access case (BUG-01). Only here: the
-                sign-in branches above have no session to end yet, and
-                "Is this you?" has its own exit. */}
-            {authEnabled && (
-              <div className="mt-4 flex justify-center">
-                <LogoutButton />
-              </div>
-            )}
-          </div>
+          // Prompt 923 (A.3) — never a dead end: it says what this area is and offers every other area the person has (and, for somebody with none, the old generic sentence).
+          areas === null ? <LoadingState /> : <NoDataRoomAccess areas={areas} senderEmail={senderEmail} showLogout={authEnabled} />
         ) : (
           <div className="space-y-4">
             {/* Prompt 336 — @ablute.pt and nunomarujo@gmail.com are real

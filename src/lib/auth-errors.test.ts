@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CONTACT_PATH, CONTACT_PHRASE, EXPIRED_CODE_TEXT, GENERIC_TEXT, NETWORK_TEXT, RATE_LIMITED_TEXT, SEND_FAILED_TEXT, WRONG_CODE_TEXT,
-  authErrorText, clipForLog, describeAuthError,
+  authErrorText, clipForLog, describeAuthError, EMAIL_INCOMPLETE_TEXT, NEW_CODE_NOTE, emailProblem, newReference, rateLimitedText,
 } from './auth-errors';
 
 // What supabase-js hands back when the Auth SMTP refuses (12/10/2026): an AuthApiError-shaped object.
@@ -76,7 +76,8 @@ describe('the sentences (spec B.1)', () => {
   });
 
   it('a specific sentence a screen already has (a wrong password, say) is kept, not replaced by the generic one', () => {
-    expect(authErrorText({ status: 400, code: 'invalid_credentials', message: 'Invalid login credentials' }, { serverText: 'Invalid login credentials' })).toBe('Invalid login credentials');
+    expect(authErrorText({ status: 400, code: 'invalid_credentials', message: 'Invalid login credentials' }, { serverText: 'Invalid login credentials' })).toBe("That email and password don't match. Check them and try again.");
+    expect(authErrorText({ status: 400, message: 'Password should be at least 8 characters.' }, { serverText: 'Password should be at least 8 characters.' })).toBe('Password should be at least 8 characters.');
   });
 
   it('a network failure says so', () => {
@@ -117,5 +118,38 @@ describe('a missing session (the recovery link expired or was opened in another 
     expect(src).toContain('href="/forgot-password"');
     expect(src).toContain('Request a new link');
     expect(src).toContain('setMsg(authErrorText(error, { serverText: error.message }))');          // everything else: unchanged
+  });
+});
+
+// Prompt 923 (C) — the messages of the email code, in the person's own words: the wait is counted, an expired or replaced code says what to do, an address that can never work is refused before a code is asked for,
+// and a failure nobody can fix carries a reference that is also written to the server's log.
+describe('Prompt 923 (C): the messages of the code', () => {
+  it('429 over_email_send_rate_limit: "For security, wait N seconds before asking for a new code." with N read from the provider\'s own sentence', () => {
+    const err = { status: 429, code: 'over_email_send_rate_limit', message: 'For security purposes, you can only request this after 219 seconds.' };
+    expect(describeAuthError(err)).toMatchObject({ kind: 'rate_limited', retryAfterSeconds: 219, text: 'For security, wait 219 seconds before asking for a new code.' });
+    expect(rateLimitedText(1)).toBe('For security, wait 1 second before asking for a new code.');
+    expect(describeAuthError({ status: 429, retryAfterSeconds: 42 }).text).toBe('For security, wait 42 seconds before asking for a new code.');
+    expect(describeAuthError({ status: 429, code: 'over_email_send_rate_limit' }).kind).toBe('rate_limited');                  // no number given: the old sentence, still a rate limit
+  });
+  it('403 otp_expired: "This code has expired or was replaced by a newer one…"', () => {
+    expect(describeAuthError({ status: 403, code: 'otp_expired', message: 'Email link is invalid or has expired' })).toMatchObject({ kind: 'expired_code', text: 'This code has expired or was replaced by a newer one. Use the latest code we sent, or request a new one.' });
+    expect(NEW_CODE_NOTE).toContain('replaces the previous one');
+  });
+  it('an email that cannot be an address: "Check the email address — it looks incomplete." — on the client BEFORE sending and for the provider\'s 500 "Invalid recipient address"', () => {
+    for (const bad of ['sherlockdeal.com+aval1@gmail.c', 'nobody', 'a@b', '', '  ', 'two words@x.com', 'a@@b.com', null, undefined, 42]) expect(emailProblem(bad), String(bad)).toBe(EMAIL_INCOMPLETE_TEXT);
+    for (const good of ['ana@ablute.pt', ' Ana.Meira+test@Gmail.com ', 'a@b.co']) expect(emailProblem(good), good).toBeNull();
+    expect(describeAuthError({ status: 500, code: 'unexpected_failure', message: 'failed to send email: Invalid recipient address' })).toMatchObject({ kind: 'invalid_email', text: EMAIL_INCOMPLETE_TEXT });
+    expect(describeAuthError({ status: 400, code: 'email_address_invalid', message: 'Email address "x@y.c" is invalid' }).kind).toBe('invalid_email');
+  });
+  it('anything else: "Something went wrong. Try again in a minute." with a reference, never the raw body', () => {
+    const ref = newReference();
+    expect(ref).toMatch(/^[A-HJ-NP-Z2-9]{6}$/);
+    expect(newReference()).not.toBe(ref);
+    expect(describeAuthError({ status: 418, message: 'I am a teapot with raw provider text' }, { ref })).toMatchObject({ kind: 'generic', text: `Something went wrong. Try again in a minute. (ref ${ref})`, ref });
+    expect(describeAuthError({ status: 418, message: 'raw provider text' }, { ref }).text).not.toContain('raw provider text');
+  });
+  it('the server route refuses an incomplete address with the same sentence (400), before any code is spent', async () => {
+    const { registrationProblem } = await import('./auth-code/policy');
+    expect(registrationProblem('x@gmail.c', { fullName: 'Ana', startup: 'Acme', country: 'PT', role: 'CEO' }, 'Abcdef1!xyz')).toBe(EMAIL_INCOMPLETE_TEXT);
   });
 });

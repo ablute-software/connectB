@@ -12,13 +12,14 @@ import { AuthShell } from '@/components/auth/AuthShell';
 import { AccountNotice } from '@/components/auth/AccountNotice';
 import { InvestorSignInForm } from '@/components/auth/InvestorSignInForm';
 import { PasswordInput } from '@/components/auth/PasswordInput';
-import { authErrorText } from '@/lib/auth-errors';
+import { describeAuthError, newReference } from '@/lib/auth-errors';
 import { AuthMessage } from '@/components/auth/AuthMessage';
 
 function LoginInner() {
   const sp = useSearchParams();
   const investorMode = sp.get('as') === 'investor';
-  const next = sp.get('next') ?? (investorMode ? '/portal' : '/pipeline');
+  // Prompt 923 (A): without a deep link the person goes to /go, which sends them to the right area for what they are (the one they chose here, the one they used last, or the first they have) — never a fixed /portal or /pipeline.
+  const next = sp.get('next') ?? (investorMode ? '/go?as=investor' : '/go?as=founder');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [msg, setMsg] = useState('');
@@ -48,7 +49,7 @@ function LoginInner() {
     try {
       const sb = browserClient();
       const { error } = await sb.auth.signInWithPassword({ email, password });
-      if (error) { setMsg(authErrorText(error, { serverText: error.message })); return; }
+      if (error) { setMsg(describeAuthError(error, { ref: newReference() }).text); return; }
       window.location.href = next;
     } finally { setBusy(false); }
   }

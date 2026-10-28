@@ -4,8 +4,7 @@ import { NextResponse } from 'next/server';
 import { authSeatAdmin } from '@/lib/investor-firm-seats-guard';
 import { inviteToSeat } from '@/lib/investor-firm-seats';
 import { makeSeatStore } from '@/lib/investor-firm-seats-store';
-import { sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
-import { APP_URL, BRAND_NAME } from '@/lib/brand';
+import { sendSeatInviteEmail } from '@/lib/seat-invites-store';
 
 export async function POST(req: Request) {
   const auth = await authSeatAdmin();
@@ -16,19 +15,11 @@ export async function POST(req: Request) {
   const result = await inviteToSeat(makeSeatStore(admin), { entityId: ctx.entityId, email: body.email ?? '', actor: ctx.userId });
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: result.status });
 
-  // Best-effort: the seat is reserved whether or not the email goes out.
-  const { data: entity } = await admin.from('catalog_entities').select('name').eq('id', ctx.entityId).maybeSingle();
-  const firm = (entity?.name as string | undefined) ?? 'your firm';
-  const sent = await sendTransactionalEmail({
-    to: (body.email ?? '').trim().toLowerCase(),
-    subject: `${firm} reserved a seat for you on ${BRAND_NAME}`,
-    html: transactionalTemplate({
-      heading: `You have a seat at ${firm}`,
-      body: `${firm} reserved a seat for you on ${BRAND_NAME}. Sign up (or sign in) with this email address, search for ${firm} and claim its profile — it will be approved automatically.`,
-      ctaLabel: 'Get started', ctaUrl: `${APP_URL}/login`,
-      footer: 'If you were not expecting this, you can ignore this email.',
-    }),
-    context: { kind: 'other' },
-  }).catch(() => ({ sent: false }));
-  return NextResponse.json({ ok: true, emailSent: !!sent.sent });
+  // Best-effort: the seat is reserved whether or not the email goes out. Prompt 923 (B): the email carries the invitation's OWN link (/invite/seat/<token>), which opens an investor registration tied to it — it used to
+  // point to /login and tell the person to claim the profile, which opened the FOUNDER registration for somebody new (28/10/2026).
+  const email = (body.email ?? '').trim().toLowerCase();
+  const { data: row } = await admin.from('investor_firm_seat_invites').select('token').eq('catalog_entity_id', ctx.entityId).eq('email', email).eq('status', 'open').maybeSingle();
+  const token = (row as { token?: string } | null)?.token;
+  const emailSent = token ? await sendSeatInviteEmail(admin, { entityId: ctx.entityId, email, token }) : false;
+  return NextResponse.json({ ok: true, emailSent });
 }

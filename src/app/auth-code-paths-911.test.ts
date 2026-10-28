@@ -114,7 +114,9 @@ describe('passwordless login emails are reported to the failure registry too (fo
   }
   it('every signInWithOtp caller in a page or component reports its refusal', () => {
     const callers = walk('src').filter((f) => /\.signInWithOtp\(/.test(read(f))).map(norm).sort();
-    expect(callers).toEqual(['src/app/guest/[token]/page.tsx', 'src/app/pair/page.tsx', 'src/components/auth/InvestorSignInForm.tsx']);
+    // Prompt 923: the seat invitation's "Send me a code" is a SERVER route (the address is the invitation's own, never the browser's); it writes its failures to the same registry itself.
+    expect(callers).toEqual(['src/app/api/invite/seat/[token]/code/route.ts', 'src/app/guest/[token]/page.tsx', 'src/app/pair/page.tsx', 'src/components/auth/InvestorSignInForm.tsx']);
+    expect(read('src/app/api/invite/seat/[token]/code/route.ts')).toMatch(/recordAuthEmailFailure\(/);
   }, 30_000);
 });
 

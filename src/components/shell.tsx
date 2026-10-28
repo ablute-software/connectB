@@ -15,6 +15,7 @@ import { W1Badge } from '@/components/onboarding/W1Badge';
 import { DeveloperViewerFrame } from '@/components/DeveloperViewerFrame';
 import { OrphanAccountRepair } from '@/components/OrphanAccountRepair';
 import { HatSwitcher, type Hats } from '@/components/incubator/HatSwitcher';
+import type { Area } from '@/lib/areas';
 import { PENDING_MEMBER_INVITE_PATH, goesToPendingMemberInvite } from '@/lib/landing-redirect';
 import { ReminderPopup } from '@/components/ReminderPopup';
 import { InvestorInterestPopup } from '@/components/InvestorInterestPopup';
@@ -62,6 +63,8 @@ type Me = {
   viewer?: { orgId: string; orgName: string | null } | null;
   // Prompt I-01 §B.4 — every workspace this account can open.
   hats?: Hats;
+  // Prompt 923 (A) — the areas this account can open, for the menu's selector.
+  areas?: Area[];
   // Prompt I-01c §A.3 — landing signals for an account with no home yet.
   pendingIncubatorMemberInvite?: boolean;
   signupIntent?: string | null;
@@ -314,7 +317,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 own), driven by helpOpen/setHelpOpen. */}
             <HelpSupportWidget source="founder_app" open={helpOpen} onOpenChange={setHelpOpen} />
             {/* Prompt I-01 §B.4 — links to this account's other workspaces. */}
-            {me?.hats && <HatSwitcher current="founder" hats={me.hats} />}
+            {(me?.areas || me?.hats) && <HatSwitcher current="founder" areas={me.areas} hats={me.hats} />}
             {showBackofficeSwitcher && (
               <>
                 <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-gray-300">Platform</div>

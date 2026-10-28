@@ -11,9 +11,10 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Fraunces, Inter } from 'next/font/google';
-import { serverClient, authEnabled, resolveRole } from '@/lib/supabase-server';
-import { landingDestination } from '@/lib/landing-redirect';
-import { hasPendingIncubatorMemberInvite } from '@/lib/incubator-pending-server';
+import { cookies } from 'next/headers';
+import { serverClient, authEnabled } from '@/lib/supabase-server';
+import { LAST_AREA_COOKIE, parseArea } from '@/lib/areas';
+import { resolveAreaDestination } from '@/lib/areas-server';
 import { BRAND_NAME, APP_URL } from '@/lib/brand';
 import { LogoLockup } from '@/components/Logo';
 import { LandingEffects } from '@/components/landing/LandingEffects';
@@ -168,16 +169,9 @@ export default async function LandingPage() {
     const sb = await serverClient();
     const { data: { user } } = await sb.auth.getUser();
     if (user) {
-      const role = await resolveRole(user.id, user.email, sb, user.email_confirmed_at);
-      // Prompt 515 — a null destination means this session has no home of
-      // its own (role 'none'): it stays on the public landing instead of
-      // being pushed into the founder app. See landing-redirect.ts.
-      // Prompt I-01c §A.3 — a pending ecosystem-team invite outranks the
-      // public page for an account with no home yet.
-      const dest = landingDestination(role, {
-        pendingIncubatorMemberInvite: role === 'none' ? await hasPendingIncubatorMemberInvite(user) : false,
-        signupIntent: (user.user_metadata?.signup_intent as string | undefined) ?? null,
-      });
+      // Prompt 923 (A) — one rule for where a signed-in visitor goes (src/lib/areas.ts): the area they chose, the one they used last, or the first they have. An account with no area still gets what it always got
+      // (a pending claim, a pending ecosystem invitation, or this public page: path null).
+      const { path: dest } = await resolveAreaDestination(user, sb, { intent: null, last: parseArea(cookies().get(LAST_AREA_COOKIE)?.value) });
       if (dest) redirect(dest);
     }
   }

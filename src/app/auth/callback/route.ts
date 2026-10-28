@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   const { searchParams, origin } = new URL(req.url);
   const code = searchParams.get('code');
   const supabaseError = searchParams.get('error') || searchParams.get('error_description');
-  const next = searchParams.get('next') ?? '/pipeline';
+  const next = searchParams.get('next') ?? '/go';
 
   function failed() {
     const url = new URL(next, origin);

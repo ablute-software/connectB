@@ -4,6 +4,7 @@
 // what a valid input is.
 import { checkPassword } from '@/lib/password-policy';
 import { safeRedirectPath } from '@/lib/auth-redirect';
+import { EMAIL_INCOMPLETE_TEXT } from '@/lib/auth-errors';
 
 export const CODE_LENGTH = 6;
 /** Wrong guesses allowed per code. The sixth is refused: a new code is required. */
@@ -81,7 +82,7 @@ export function profileProblem(p: RegistrationProfile, strict = true): string | 
 }
 
 export function registrationProblem(email: string, p: RegistrationProfile, password: string, strict = true): string | null {
-  if (!isValidEmailShape(email)) return 'Please enter a valid email address.';
+  if (!isValidEmailShape(email)) return EMAIL_INCOMPLETE_TEXT;
   const profile = profileProblem(p, strict);
   if (profile) return profile;
   if (!checkPassword(password).valid) return 'That password does not meet the requirements.';

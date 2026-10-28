@@ -20,6 +20,7 @@
 // never reference `process.env.DEV_VERIFY_IDENTITY` at all, so there is no
 // code path — not even a set env var — through which they could leak it.
 import type { Role } from './supabase';
+import type { Area } from './areas';
 import type { Hats, OrgMemberRole } from './supabase-server';
 import type { Entitlements, PlanTier } from './plans';
 import type { PlanOrigin } from './effective-plan';
@@ -91,6 +92,8 @@ export interface AuthenticatedMeResponse {
   role: Role;
   // Prompt I-01 §B.4 — every workspace this account can open (hat switcher).
   hats: Hats;
+  // Prompt 923 (A) — the areas this account can open (founder / ecosystem / investor / data rooms), for the menu's selector and for /portal's "you have nothing here" page.
+  areas: Area[];
   // Prompt I-01c §A.3 — landing signals for an account with no home yet.
   pendingIncubatorMemberInvite?: boolean;
   signupIntent?: string | null;

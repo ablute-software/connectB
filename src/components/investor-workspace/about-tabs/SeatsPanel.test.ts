@@ -21,7 +21,7 @@ const ADMIN: SeatsData = {
     { id: 'm1', email: 'ana@firm.com', name: 'Ana', role: 'admin', since: '2026-10-09T09:00:00.000Z' },
     { id: 'm2', email: 'bob@firm.com', name: null, role: 'member', since: '2026-10-10T09:00:00.000Z' },
   ],
-  invites: [{ id: 'i1', email: 'guest@external.com', createdAt: '2026-10-11T09:00:00.000Z' }],
+  invites: [{ id: 'i1', email: 'guest@external.com', createdAt: '2026-10-11T09:00:00.000Z', state: 'open', label: 'Open', reason: null }],
 };
 
 describe('administrator view', () => {
@@ -32,7 +32,7 @@ describe('administrator view', () => {
     expect(html).toContain('since 2026-10-09');
     expect(html).toContain('since 2026-10-10');
     expect(html).toContain('guest@external.com');
-    expect(html).toContain('seat reserved');
+    expect(html).toContain('data-testid="seat-invite-state">Open<');
   });
 
   it('lets the administrator remove OTHERS but not their own seat', () => {
@@ -104,5 +104,29 @@ describe('C5 — the removed member notice', () => {
 
   it('has no plans button when already on the plans screen', () => {
     expect(renderToStaticMarkup(createElement(RemovedFromFirmNotice, { firmName: 'X' }))).not.toContain('See plans');
+  });
+});
+
+// Prompt 923 (B.3) — what the administrator sees for each invitation: Open, Accepted, or "Couldn't be accepted" with the reason (the invitation stays open and can be sent again or cancelled).
+describe('Prompt 923: the state of each invitation', () => {
+  it('an invitation that could not be accepted says so, with the reason and that it is still open; it can be sent again', () => {
+    const html = renderToStaticMarkup(createElement(SeatsPanelView, {
+      data: { ...ADMIN, invites: [{ id: 'i2', email: 'old@other.com', createdAt: '2026-10-11T09:00:00.000Z', state: 'failed', label: "Couldn't be accepted", reason: 'This firm has no free seat right now.' }] },
+      busy: false, error: '', notice: '', inviteEmail: '', code: '', onInviteEmail: noop, onInvite: noop, onCancelInvite: noop, onResendInvite: noop, onRemove: noop, onCode: noop, onRedeem: noop, onApproveClaim: noop, onDeclineClaim: noop,
+    }));
+    expect(html.replace(/&#x27;/g, "'")).toContain("Couldn't be accepted");
+    expect(html).toContain('This firm has no free seat right now.');
+    expect(html).toContain('The invitation is still open.');
+    expect(html).toContain('Send the link again');
+  });
+
+  it('the accepted invitations are listed with their day, and have no cancel button', () => {
+    const html = renderToStaticMarkup(createElement(SeatsPanelView, {
+      data: { ...ADMIN, invites: [], acceptedInvites: [{ id: 'a1', email: 'done@firm.com', acceptedAt: '2026-10-28T10:00:00.000Z' }] },
+      busy: false, error: '', notice: '', inviteEmail: '', code: '', onInviteEmail: noop, onInvite: noop, onCancelInvite: noop, onRemove: noop, onCode: noop, onRedeem: noop, onApproveClaim: noop, onDeclineClaim: noop,
+    }));
+    expect(html).toContain('data-testid="seat-invite-accepted"');
+    expect(html).toContain('done@firm.com');
+    expect(html).toContain('2026-10-28');
   });
 });
