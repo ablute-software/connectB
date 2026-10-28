@@ -108,7 +108,7 @@ describe.skipIf(!CHROME)('the seat-invitation page and the code form (real brows
     expect(await page.locator('[data-testid="seat-invite-code"]').inputValue()).toBe('123456');
     await page.locator('[data-testid="seat-invite-verify"]').click();
     await page.waitForSelector('[data-testid="seat-invite-profile"]');
-    expect((await sbCalls()).filter((c) => c.fn === 'verifyOtp').length).toBe(2);
+    expect((await sbCalls()).filter((c) => c.fn === 'verifyOtp').length).toBe(3);                // the wrong code is tried as "email" and as "signup"; the right one works at once
     expect(await page.locator('[data-testid="seat-invite-join"]').isDisabled()).toBe(true);
     await page.screenshot({ path: path.join(SHOTS, 'invite-3-profile-1280.png'), fullPage: true });
     await page.locator('[data-testid="seat-invite-name"]').fill('Aval Two');

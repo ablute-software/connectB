@@ -97,7 +97,11 @@ export default function SeatInvitePage({ params }: { params: { token: string } }
     if (!invite) return;
     setBusy(true); setMsg('');
     try {
-      const { error } = await browserClient().auth.verifyOtp({ email: invite.email, token: sanitizeCodeInput(code), type: 'email' });
+      const sb = browserClient();
+      const digits = sanitizeCodeInput(code);
+      let { error } = await sb.auth.verifyOtp({ email: invite.email, token: digits, type: 'email' });
+      // A person with no account yet is created by the provider with a SIGN-UP code, which some configurations only accept as type "signup": try it before saying the code is wrong. The first answer is the one shown.
+      if (error) { const again = await sb.auth.verifyOtp({ email: invite.email, token: digits, type: 'signup' }); if (!again.error) error = null; }
       if (error) { setMsg(describeAuthError(error, { ref: newReference() }).text); return; }
       await afterSession();
     } finally { setBusy(false); }
