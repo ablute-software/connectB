@@ -19,7 +19,9 @@ import { isCronTickRequest } from '@/lib/cron-auth';
 // callers have no session yet; each route answers 404 unless AUTH_CODE_MODE allows the email.
 // Prompt 905: a published call's link (/call/<token>) and the header it reads (/api/calls/public/<token>) are for
 // candidates who have no account yet. Everything else under /api/calls needs a session and answers 404 only while CALLS_MODE is explicitly "off".
-const PUBLIC = ['/call', '/api/calls/public', '/api/version', '/', '/investors', '/login', '/signup', '/auth', '/portal', '/api/me', '/api/auth-code', '/api/auth-failures', '/invite', '/api/invite', '/api/portal', '/privacy-request', '/api/gdpr', '/forgot-password', '/reset-password', '/set-password', '/api/stripe/webhook', '/contact', '/api/support', '/api/investor-access-request', '/matchdeal/pair', '/pair', '/manifest.json', '/api/plan/private-detective',
+// Prompt 923 (A): /go (the router after every sign-in) is reachable without a session on purpose — it answers a signed-out visit itself, sending the person back to the sign-in form WITH the investor side and the
+// "link failed → use the code" fall-back (an expired or pre-fetched link lands here with linkFailed=1). Behind the middleware's own redirect it would arrive at /login with neither.
+const PUBLIC = ['/call', '/api/calls/public', '/api/version', '/', '/investors', '/login', '/signup', '/auth', '/go', '/portal', '/api/me', '/api/auth-code', '/api/auth-failures', '/invite', '/api/invite', '/api/portal', '/privacy-request', '/api/gdpr', '/forgot-password', '/reset-password', '/set-password', '/api/stripe/webhook', '/contact', '/api/support', '/api/investor-access-request', '/matchdeal/pair', '/pair', '/manifest.json', '/api/plan/private-detective',
   // Prompt 341 — DL 7/2004's pre-contractual information duty: the text
   // must be reachable BEFORE anyone contracts, not gated behind login. The
   // acceptance routes (/api/terms/status, /api/terms/accept) stay OUT of

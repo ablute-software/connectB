@@ -87,6 +87,14 @@ describe('middleware — unauthenticated API access', () => {
     expect(res.headers.get('location')).toContain('/login');
   });
 
+  // Prompt 923 (A): /go answers a signed-out visit ITSELF (it sends the person back to /login keeping the investor side and the link-failed fall-back). Behind this middleware's own redirect the visit arrived at
+  // /login?next=/go with neither — the code fall-back after an expired or pre-fetched magic link was lost.
+  it('lets a signed-out visit to /go through to its own handler, query and all, instead of redirecting it to /login', async () => {
+    const res = await middleware(get('/go?as=investor&linkFailed=1'));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('location')).toBeNull();
+  });
+
   it('is an exact-path allowance, not a prefix that opens sibling routes', async () => {
     // Nothing lives under /api/provision-org today; this pins that adding
     // one later does not inherit the exemption by accident.
