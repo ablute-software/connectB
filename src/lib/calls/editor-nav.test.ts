@@ -1,6 +1,6 @@
 // Prompt 918 (I1) — the call's four tabs and the seven steps of Setup: what opens first, what the old links mean now, and the state shown for each step.
 import { describe, expect, it } from 'vitest';
-import { MAIN_TABS, STEPS, defaultMain, navQuery, neighbourStep, resolveNav, stepOfIssue, stepStates, type StepContext } from './editor-nav';
+import { MAIN_TABS, STEPS, defaultMain, mainTabsFor, navQuery, neighbourStep, resolveNav, resolveNavFor, stepOfIssue, stepStates, usableMain, type EditorAccess, type StepContext } from './editor-nav';
 import { readiness } from './lifecycle';
 import type { Call, CallPhase, FormField } from './types';
 import { newField } from './form-builder';
@@ -109,5 +109,56 @@ describe('"What is missing" leads to the step and the field', () => {
   it('every issue knows its step, and — for the ones about one field — which one', () => {
     const issues = readiness({ name: '', opensAt: null, closesAt: null, status: 'draft' } as Call, [{ id: 'ph-1', name: '' } as CallPhase], [{ ...newField('short_text', 1, 0), id: 'q-1', label: '' }], new Date('2026-10-16T12:00:00Z'));
     expect(issues.map((i) => [stepOfIssue(i), i.target])).toEqual([['general', 'name'], ['general', 'opens'], ['general', 'closes'], ['phases', 'ph-1'], ['form', 'q-1']]);
+  });
+});
+
+// Prompt 923 — Setup is only for whoever may "Configure call".
+describe('Setup is only for whoever may configure the call', () => {
+  const ADMIN: EditorAccess = { configure: true, viewApplications: true, evaluate: true };
+  const ANALYST: EditorAccess = { configure: false, viewApplications: true, evaluate: false };
+  const EVALUATOR: EditorAccess = { configure: false, viewApplications: false, evaluate: true };
+  const NOTHING: EditorAccess = { configure: false, viewApplications: false, evaluate: false };
+
+  it('the Setup tab is shown to whoever may configure, and to nobody else; the other three stay', () => {
+    expect(mainTabsFor(ADMIN).map((t) => t.key)).toEqual(['setup', 'applications', 'evaluation', 'results']);
+    for (const a of [ANALYST, EVALUATOR, NOTHING]) expect(mainTabsFor(a).map((t) => t.key)).toEqual(['applications', 'evaluation', 'results']);
+  });
+
+  it('who cannot configure opens on Applications if they may view them all, otherwise on Evaluation (their own evaluations) — whatever the state of the call', () => {
+    expect(usableMain(ANALYST)).toBe('applications');
+    expect(usableMain({ ...EVALUATOR, viewApplications: true })).toBe('applications');
+    expect(usableMain(EVALUATOR)).toBe('evaluation');
+    expect(usableMain(NOTHING)).toBe('evaluation');
+    for (const status of ['draft', 'validated', 'scheduled', 'open', 'closed', 'archived'] as const) {
+      expect(resolveNavFor({}, status, ANALYST).nav.main, status).toBe('applications');
+      expect(resolveNavFor({}, status, EVALUATOR).nav.main, status).toBe('evaluation');
+    }
+  });
+
+  it('opening a call by default carries no note (the person asked for nothing); an administrator is not touched at all', () => {
+    expect(resolveNavFor({}, 'draft', EVALUATOR)).toEqual({ nav: { main: 'evaluation', step: 'general' }, note: null });
+    expect(resolveNavFor({}, 'draft', ADMIN)).toEqual({ nav: { main: 'setup', step: 'general' }, note: null });
+    expect(resolveNavFor({ step: 'form' }, 'draft', ADMIN)).toEqual({ nav: { main: 'setup', step: 'form' }, note: null });
+  });
+
+  it('a direct link to Setup — a step, section=setup, or an old tab that now lives in Setup — goes to the usable tab, with a short note', () => {
+    const links = [{ step: 'form' }, { section: 'setup' }, { section: 'setup', step: 'team' }, { tab: 'form' }, { tab: 'preview' }, { tab: 'general' }, { tab: 'setup' }];
+    for (const q of links) {
+      expect(resolveNavFor(q, 'open', ANALYST), JSON.stringify(q)).toEqual({ nav: { main: 'applications', step: 'general' }, note: 'Setup is only for people who can configure this call, so this opened Applications instead.' });
+      expect(resolveNavFor(q, 'draft', EVALUATOR), JSON.stringify(q)).toEqual({ nav: { main: 'evaluation', step: 'general' }, note: 'Setup is only for people who can configure this call, so this opened Evaluation instead.' });
+    }
+  });
+
+  it('a link to a tab they may use is respected, with no note', () => {
+    expect(resolveNavFor({ section: 'results' }, 'open', EVALUATOR)).toEqual({ nav: { main: 'results', step: 'general' }, note: null });
+    expect(resolveNavFor({ tab: 'submissions' }, 'open', EVALUATOR)).toEqual({ nav: { main: 'evaluation', step: 'general' }, note: null });     // Applications is not theirs to view: the server would refuse it
+    expect(resolveNavFor({ tab: 'submissions' }, 'open', ANALYST)).toEqual({ nav: { main: 'applications', step: 'general' }, note: null });
+    expect(resolveNavFor({ tab: 'evaluation' }, 'open', EVALUATOR)).toEqual({ nav: { main: 'evaluation', step: 'general' }, note: null });
+  });
+
+  it('nothing the address says can open Setup for them, including nonsense', () => {
+    for (const q of [{ step: 'general' }, { section: 'setup', step: 'review' }, { tab: 'nonsense' }, { section: 'nonsense', step: 'nonsense' }, { tab: 'team' }]) {
+      for (const a of [ANALYST, EVALUATOR, NOTHING]) for (const status of ['draft', 'open'] as const) expect(resolveNavFor(q, status, a).nav.main, JSON.stringify(q)).not.toBe('setup');
+    }
   });
 });

@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Call, FormField } from '@/lib/calls/types';
 import { formatInZone } from '@/lib/calls/tz';
-import { MAIN_TABS, navQuery, parseLinkQuery, resolveNav, stepStates, type MainTab, type Nav, type StepKey } from '@/lib/calls/editor-nav';
+import { mainTabsFor, navQuery, parseLinkQuery, resolveNavFor, stepStates, type MainTab, type Nav, type StepKey } from '@/lib/calls/editor-nav';
 import { callsApi, type CallState } from './api';
 import { ComingNext, SetupShell } from './SetupShell';
 import { GeneralTab, type GeneralPatch } from './GeneralTab';
@@ -46,6 +46,8 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
   // Prompt 918 (I1): four tabs, and the steps of Setup. `nav` is decided when the call has loaded (a link may say where; otherwise a draft opens on Setup, a published call on
   // Applications). `jump` is a field to scroll to and focus once its step is on screen ("What is missing" → the field).
   const [nav, setNav] = useState<Nav | null>(null);
+  // Prompt 923: a link to Setup, opened by somebody who cannot configure the call, goes to the tab they can use and says so, in a line.
+  const [setupNote, setSetupNote] = useState<string | null>(null);
   // What the address said when the editor opened, read ONCE (the editor rewrites the address as the person moves around, and cleans it when it closes).
   const linkQuery = useRef<ReturnType<typeof parseLinkQuery> | null>(null);
   if (linkQuery.current === null && typeof window !== 'undefined') linkQuery.current = parseLinkQuery(window.location.search, callId);
@@ -155,7 +157,10 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
   const editPhases = (next: PhaseDraft[]) => { phasesRef.current = next; setPhases(next); schedule('phases'); };
   const editFields = (next: FormField[]) => { fieldsRef.current = next; setFields(next); schedule('form'); };
 
-  const goTab = (main: MainTab) => { setNav({ main, step: main === 'setup' ? nav?.step ?? 'general' : 'general' }); setJump(null); };
+  const goTab = (main: MainTab) => {
+    if (main === 'setup' && !server?.canManage) return;                // the tab is not shown to them; nothing else may open it either
+    setNav({ main, step: main === 'setup' ? nav?.step ?? 'general' : 'general' }); setJump(null); setSetupNote(null);
+  };
   function goStep(step: StepKey, target?: string) {
     setNav({ main: 'setup', step });
     setJump(target ? { target, n: Date.now() } : null);
@@ -164,7 +169,10 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
 
   // Where the call opens: what the address says (the new section/step, or an old ?tab=), else by the call's state.
   useEffect(() => {
-    if (server && !nav) setNav(resolveNav(linkQuery.current ?? {}, server.effectiveStatus));
+    if (server && !nav) {
+      const r = resolveNavFor(linkQuery.current ?? {}, server.effectiveStatus, { configure: server.canManage, viewApplications: server.canViewApplications === true, evaluate: server.canEvaluate === true });
+      setNav(r.nav); setSetupNote(r.note);
+    }
   }, [server, nav]);
   // The address follows what is shown, so a reload (or a copied link) lands in the same place; and it is cleaned when the editor closes.
   useEffect(() => {
@@ -278,7 +286,7 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
       </div>
 
       <div role="tablist" aria-label="Call" className="mb-5 flex gap-1 overflow-x-auto whitespace-nowrap border-b border-gray-200" data-testid="main-tabs">
-        {MAIN_TABS.map((t) => (
+        {mainTabsFor({ configure: server.canManage, viewApplications: server.canViewApplications === true, evaluate: server.canEvaluate === true }).map((t) => (
           <button key={t.key} type="button" role="tab" aria-selected={nav.main === t.key} data-testid={`tab-${t.key}`} onClick={() => goTab(t.key)}
             className={`-mb-px min-h-[44px] shrink-0 border-b-2 px-4 py-2 text-sm ${nav.main === t.key ? 'border-[#0E7490] font-semibold text-[#0E7490]' : 'border-transparent text-gray-600 hover:text-gray-900'}`}>
             {t.label}
@@ -286,13 +294,14 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
         ))}
       </div>
 
-      {nav.main === 'setup' && reason && <p role="status" className="mb-4 rounded-lg bg-sky-50 px-4 py-2.5 text-xs text-sky-900" data-testid="lock-reason">{reason}</p>}
+      {setupNote && nav.main !== 'setup' && <p role="status" className="mb-4 rounded-lg bg-sky-50 px-4 py-2.5 text-xs text-sky-900" data-testid="setup-restricted-note">{setupNote}</p>}
+      {nav.main === 'setup' && server.canManage && reason && <p role="status" className="mb-4 rounded-lg bg-sky-50 px-4 py-2.5 text-xs text-sky-900" data-testid="lock-reason">{reason}</p>}
 
       {nav.main === 'applications' && <SubmissionsTab callId={callId} timezone={call.timezone} currency={call.currency} />}
       {nav.main === 'evaluation' && <EvaluationTab callId={callId} />}
       {nav.main === 'results' && <ComingNext testId="results-soon" title="Results" text="Coming in the next stage. Here you will see the ranking and publish the results." />}
 
-      {nav.main === 'setup' && (
+      {nav.main === 'setup' && server.canManage && (
         <SetupShell step={nav.step} onStep={(s) => goStep(s)}
           states={stepStates({ call, phases: server.phases, fields, issues: server.issues, teamMembers: server.teamMembers ?? 0, eligibilityRules: server.eligibilityRules ?? 0, evalCriteria: server.evalCriteria ?? 0 })}>
           {nav.step === 'general' && (
