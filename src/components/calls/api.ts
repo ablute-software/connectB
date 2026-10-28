@@ -3,6 +3,8 @@
 import type { EligibilityView } from '@/lib/calls/eligibility-view';
 import type { GridView } from '@/lib/calls/eval-grid-view';
 import type { DistributionMode, DistributionView } from '@/lib/calls/eval-assign-store';
+import type { EvaluationPayload, MineCall } from '@/lib/calls/eval-store';
+import type { Draft } from '@/lib/calls/eval-draft';
 import type { GridProposal } from '@/lib/calls/eval-grid-reader';
 import type { Criterion } from '@/lib/calls/eval-grid';
 import type { CallStatus, PromoterKind } from '@/lib/calls/types';
@@ -115,6 +117,13 @@ export const callsApi = {
   evalTemplates: (id: string) => call<{ templates: { id: string; name: string; criteria: number; createdAt: string }[] }>(`/api/calls/${id}/eval-grid/templates`),
   saveEvalTemplate: (id: string, name: string) => call<{ id: string; templates: { id: string; name: string; criteria: number; createdAt: string }[] }>(`/api/calls/${id}/eval-grid/templates`, send('POST', { name })),
   copyEvalTemplate: (id: string, templateId: string) => call<{ name: string; criteria: Criterion[] }>(`/api/calls/${id}/eval-grid/templates/${templateId}`, send('POST')),
+  /** Prompt 922 (I3): the evaluator's side — one evaluation (read, autosave, submit, reopen, declare a conflict) and the list "My evaluations". */
+  evaluation: (id: string, applicationId: string) => call<EvaluationPayload>(`/api/calls/${id}/evaluations/${applicationId}`),
+  saveEvaluation: (id: string, applicationId: string, draft: Draft & { revision: number }) => call<{ revision: number; gradePercent: number | null }>(`/api/calls/${id}/evaluations/${applicationId}`, send('PUT', draft)),
+  submitEvaluation: (id: string, applicationId: string, revision: number) => call<{ gradePercent: number | null; submittedAt: string }>(`/api/calls/${id}/evaluations/${applicationId}/submit`, send('POST', { revision })),
+  reopenEvaluation: (id: string, applicationId: string, evaluatorUserId: string, reason: string) => call<object>(`/api/calls/${id}/evaluations/${applicationId}/reopen`, send('POST', { evaluatorUserId, reason })),
+  declareConflict: (id: string, applicationId: string, note: string) => call<object>(`/api/calls/${id}/evaluations/${applicationId}/conflict`, send('POST', { note })),
+  myEvaluations: () => call<{ calls: MineCall[]; remaining: number }>('/api/calls/my-evaluations'),
   /** Prompt 922 (I2): the distribution of the applications among the evaluators (the administrator's screen) and every move on it. */
   distribution: (id: string) => call<DistributionView>(`/api/calls/${id}/distribution`),
   distributionMode: (id: string, mode: DistributionMode) => call<DistributionView>(`/api/calls/${id}/distribution`, send('POST', { action: 'mode', mode })),

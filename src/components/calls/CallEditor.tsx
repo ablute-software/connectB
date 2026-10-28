@@ -24,6 +24,7 @@ import { StatusBadge } from './StatusBadge';
 import { CallDangerZone } from './CallDangerZone';
 import { TeamTab } from './TeamTab';
 import { DistributionPanel } from './DistributionPanel';
+import { EvaluationTab } from './EvaluationTab';
 import { SubmissionsTab } from './SubmissionsTab';
 import { ContactEmailField } from './ContactEmailField';
 import { ImportFromDocuments, type ApplyOutcome } from './ImportFromDocuments';
@@ -288,7 +289,7 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
       {nav.main === 'setup' && reason && <p role="status" className="mb-4 rounded-lg bg-sky-50 px-4 py-2.5 text-xs text-sky-900" data-testid="lock-reason">{reason}</p>}
 
       {nav.main === 'applications' && <SubmissionsTab callId={callId} timezone={call.timezone} currency={call.currency} />}
-      {nav.main === 'evaluation' && <ComingNext testId="evaluation-soon" title="Evaluation" text="Coming in the next stage. Here the team will evaluate the applications with the grid you set up." />}
+      {nav.main === 'evaluation' && <EvaluationTab callId={callId} />}
       {nav.main === 'results' && <ComingNext testId="results-soon" title="Results" text="Coming in the next stage. Here you will see the ranking and publish the results." />}
 
       {nav.main === 'setup' && (

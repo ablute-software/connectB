@@ -26,7 +26,7 @@ describe('the nine permissions', () => {
     expect(PERMISSIONS.map((p) => p.key)).toEqual([...PERMISSION_KEYS]);
     expect(PERMISSION_KEYS).toHaveLength(9);
     // Prompt 907 added View all applications; Prompt 918 (I3) added Correct eligibility & document validity.
-    expect(PERMISSIONS.filter((p) => p.enforced).map((p) => p.key)).toEqual(['configure_call', 'manage_team', 'view_all_applications', 'correct_eligibility']);
+    expect(PERMISSIONS.filter((p) => p.enforced).map((p) => p.key)).toEqual(['configure_call', 'manage_team', 'view_all_applications', 'evaluate_assigned', 'correct_eligibility', 'view_colleagues_evaluations']);
   });
   it('anything stored that is not a clear "true" is off; unknown keys are ignored', () => {
     expect(normalizePermissions(null)).toEqual(NO_PERMISSIONS);
