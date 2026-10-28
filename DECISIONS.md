@@ -10234,6 +10234,19 @@ Relatório em `docs/calls/PROMPT_917_I2_ADENDA1_PARTE_B.md`. Migração `2026101
 
 **Limites.** O teste usa o markup estático do painel (sem a altura que o `AutoTextarea` calcula no browser depois de carregar); a altura não afeta a largura, que é o que se mede. Em ecrãs de toque o resto do editor mantém as regras da Adenda 1 do 918.
 
+## Prompt 923 (pendente) — A pré-visualização da Tabela: desktop por omissão, seletor Desktop/Phone, "Open full preview" e um só componente (28/10/2026, branch `claude/923-table-preview`)
+
+**O defeito.** O painel do editor mostrava a Tabela só como cartões (versão de telemóvel), que não corresponde à tabela que o candidato vê num computador; e o Review & publish desenhava outra coisa (a tabela com "Expand table"). Duas pré-visualizações do mesmo campo, a dizerem coisas diferentes.
+
+**A decisão.** Um só componente, `src/components/calls/TablePreview.tsx`, usado nos dois sítios (o painel via `TableEditor`, o Review & publish via `FormPreview` → `FieldInput tablePreview`). Nada do lado do candidato mudou: `FieldInput` sem `tablePreview` continua a desenhar a `TableInput` de sempre.
+- Por omissão mostra **a tabela como no computador, reduzida para caber na largura que tem** (`fitScale`: nunca aumenta; nunca abaixo de 0,5 — abaixo disso o texto deixa de se ler, e a caixa passa a deslizar para os lados *dentro de si*, sem mexer na página).
+- Seletor **Desktop / Phone**: o Phone mostra os cartões numa moldura de 375 px. O modo é partilhado com o ecrã inteiro.
+- **"Open full preview"**, gémeo do "Expand table": ecrã inteiro (portal em `document.body`, como a regra dos overlays), tamanho natural, o mesmo seletor, "Done" ou Escape para voltar. O que se escreve vai para o mesmo `onChange`; não guarda nada (o texto diz-o).
+- Uma armadilha apanhada pelo teste em Chrome real: um `transform: scale` reduz o que se vê, não a caixa que ocupa, e o `scrollWidth` continuava a contar a caixa inteira (barra de scroll sem razão). A cópia reduzida fica numa caixa com o tamanho já reduzido.
+- `TableInput` ganhou `hideExpand` (a pré-visualização tem o seu próprio botão); a prop `variant="cards"` que o painel forçava deixa de ser usada por ele.
+
+**Testes.** `table-preview.browser.test.ts` (Chrome real, o `TableEditor` e o `FormPreview` verdadeiros): omissão em desktop sem cartões nem "Expand table" duplicado, redução para caber sem scroll da página, o piso e o scroll interno, Phone e regresso com o texto escrito mantido, ecrã inteiro (tamanho natural, editar lá muda o preview, Done e Escape), e o Review & publish com os mesmos controlos. `form-panel-selection.browser.test.ts` passou a esperar a tabela por omissão e os cartões depois de Phone.
+
 ## Prompt 923 — O login de investidor que ia parar ao data room vazio, os convites de lugar para quem já tem conta e as mensagens do código (28/10/2026, branch `claude/923-login-areas-invites`)
 
 **A — para onde se vai depois do login (a causa e a regra).** Três coisas encadeadas, lidas no código (os dados da conta `alexandrameira.ablute@gmail.com` não foram relidos na base: o conector do Supabase da sessão pedia autenticação; ficam os factos do prompt):

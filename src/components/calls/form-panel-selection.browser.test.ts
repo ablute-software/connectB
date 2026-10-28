@@ -112,7 +112,9 @@ describe.skipIf(!CHROME)('the panel edits the selected question by id (real brow
     expect(table.columns.map((c) => c.label)).toEqual(['Your solution/company', 'Competitor #1', 'Competitor #2']);
     expect(table).toMatchObject({ cornerTitle: 'Relevant Criteria', addColumns: { allowed: true }, required: 'first_column' });
     expect(table.rowKinds).toEqual({ [table.rows[2].id]: 'percent' });
-    // the preview, in the panel, is drawn as cards (it has to fit) with the criteria as fields
+    // the preview, in the panel, is the table as on a computer, reduced to fit (Prompt 923); Phone shows the cards with the criteria as fields
+    expect(await page.locator('[data-testid="table-preview"] [data-testid="table-grid"]').count()).toBe(1);
+    await page.locator('[data-testid="table-preview"] [data-testid="preview-mode-phone"]').click();
     expect(await page.locator('[data-testid="table-preview"] [data-testid="table-card"]').count()).toBe(3);
     // renaming a row keeps its id, and so its type
     await page.locator('#tbl-rows').fill('Products & Services\nBusiness Model\nMarket Share, per market (%)');

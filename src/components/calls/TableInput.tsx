@@ -56,10 +56,12 @@ function CellInput({ kind, value, label, error, disabled, currency, onChange, ex
   );
 }
 
-export function TableInput({ field, value, currency, disabled, showAllErrors, variant = 'auto', markAdded, onChange }: {
+export function TableInput({ field, value, currency, disabled, showAllErrors, variant = 'auto', hideExpand, markAdded, onChange }: {
   field: FormField; value: AnswerValue; currency: string; disabled?: boolean; showAllErrors?: boolean;
-  /** `cards` forces the phone layout (the entity's editor shows its preview that way: it must fit its panel); `table` forces the grid. */
+  /** `cards` forces the phone layout; `table` forces the grid. The entity's editor shows its preview through TablePreview, which picks one of them from its Desktop / Phone selector. */
   variant?: 'auto' | 'cards' | 'table';
+  /** Without the "Expand table" button: for a host that has its own way to open it full size (TablePreview's "Open full preview"). */
+  hideExpand?: boolean;
   /** Mark the applicant's own headers "added by applicant" — for a copy that cannot be changed (a submitted application, the Submissions tab). */
   markAdded?: boolean;
   onChange: (v: AnswerValue) => void;
@@ -217,9 +219,11 @@ export function TableInput({ field, value, currency, disabled, showAllErrors, va
 
   return (
     <div data-testid="table-input" data-display="table" className="min-w-0">
-      <div className="mb-1 flex justify-end print:hidden">
-        <button type="button" className={BTN} onClick={() => setExpanded(true)} data-testid="expand-table">Expand table</button>
-      </div>
+      {!hideExpand && (
+        <div className="mb-1 flex justify-end print:hidden">
+          <button type="button" className={BTN} onClick={() => setExpanded(true)} data-testid="expand-table">Expand table</button>
+        </div>
+      )}
       {/* The box scrolls sideways; the page never does. */}
       <div className="max-w-full overflow-x-auto rounded-lg border border-gray-200" data-testid="table-scroll">{grid(false)}</div>
       {adders}

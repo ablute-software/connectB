@@ -68,7 +68,7 @@ export function FormPreview({ fields, currency, title }: { fields: FormField[]; 
           const note = conditionNote(f, fields);
           return (
             <div key={f.id} data-testid="preview-field">
-              <FieldInput field={f} value={merged[f.id]} currency={currency} onChange={(v) => set(f.id, v)} />
+              <FieldInput field={f} value={merged[f.id]} currency={currency} tablePreview onChange={(v) => set(f.id, v)} />
               {(hints.length > 0 || (note && !applicantView)) && (
                 <p className="mt-1 text-[11px] text-gray-500" data-testid="field-hints">
                   {hints.join(' · ')}
