@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { newTableColumnId, newTableRowId } from '@/lib/calls/table';
 import { MAX_TABLE_COLUMNS, MAX_TABLE_ROWS, TABLE_CELL_KINDS, TABLE_CELL_KIND_LABELS, type AnswerValue, type FormField, type TableAddRule, type TableCellKind, type TableConfig, type TableHeader, type TableRequired } from '@/lib/calls/types';
 import { AutoTextarea } from './AutoTextarea';
-import { TableInput } from './TableInput';
+import { TablePreview } from './TablePreview';
 
 const INPUT = 'block w-full min-w-0 rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm disabled:bg-gray-50 disabled:text-gray-500';
 const LABEL = 'block text-[11px] font-semibold uppercase tracking-wide text-gray-500';
@@ -162,9 +162,9 @@ export function TableEditor({ value, disabled, onChange }: { value: TableConfig;
       <div data-testid="table-preview">
         <span className={LABEL}>Preview</span>
         <div className="mt-1 rounded-lg border border-dashed border-gray-300 p-2.5">
-          <TableInput field={previewField} value={sample} currency="EUR" variant="cards" onChange={setSample} />
+          <TablePreview field={previewField} value={sample} currency="EUR" onChange={setSample} />
         </div>
-        <p className="mt-1 text-[11px] text-gray-400">As an applicant sees it on a phone; on a larger screen it is a table with an “Expand table” button.</p>
+        <p className="mt-1 text-[11px] text-gray-400">As an applicant sees it on a computer, reduced to fit this panel; switch to Phone to see the cards, or open the full preview. It is the same preview as in Review &amp; publish. Nothing is saved.</p>
       </div>
     </div>
   );

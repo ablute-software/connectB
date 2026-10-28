@@ -76,11 +76,16 @@ describe.skipIf(!CHROME)('the form editor\'s panel never goes past its own width
           const panel = document.querySelector('[data-field-panel]') as HTMLElement;
           const box = panel.getBoundingClientRect();
           const bad: string[] = [];
+          // A box that clips or scrolls its content (overflow hidden / auto / scroll) is allowed to hold something wider than itself — that is what it is for (Prompt 923: the table preview, reduced by script to the
+          // width it has, sits in one). What is INSIDE such a box is not a leak of the panel; the box itself must still fit the panel.
+          const clips = (el: HTMLElement) => { const o = getComputedStyle(el).overflowX; return o === 'hidden' || o === 'auto' || o === 'scroll'; };
+          const insideClip = (el: HTMLElement) => { for (let a = el.parentElement; a && a !== panel; a = a.parentElement) if (clips(a)) return true; return false; };
           for (const el of [panel, ...Array.from(panel.querySelectorAll<HTMLElement>('*'))]) {
             const r = el.getBoundingClientRect();
             if (r.width === 0 && r.height === 0) continue;
+            if (insideClip(el)) continue;
             const label = `${el.tagName.toLowerCase()}${el.getAttribute('data-testid') ? `[${el.getAttribute('data-testid')}]` : ''}.${String(el.className).slice(0, 40)}`;
-            if (el.scrollWidth > el.clientWidth + 0.5 && getComputedStyle(el).display !== 'inline') bad.push(`scrollWidth ${el.scrollWidth} > clientWidth ${el.clientWidth}: ${label}`);
+            if (el.scrollWidth > el.clientWidth + 0.5 && getComputedStyle(el).display !== 'inline' && !(el !== panel && clips(el))) bad.push(`scrollWidth ${el.scrollWidth} > clientWidth ${el.clientWidth}: ${label}`);
             if (r.left < box.left - 0.5 || r.right > box.right + 0.5) bad.push(`outside the panel (${Math.round(r.left - box.left)}…${Math.round(r.right - box.right)}): ${label}`);
           }
           const sub = panel.querySelector('[data-testid="subfield-label"]') as HTMLElement | null;

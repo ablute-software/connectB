@@ -7,10 +7,11 @@ import { acceptAttr, fileFormatsOf, fileValues, formatsText, maxFileMbOf, maxFil
 import { URL_HINT_LABELS, platformMappingLabel, type AnswerValue, type FormField, type SimpleAnswer, type SubField } from '@/lib/calls/types';
 import { GroupInput } from './GroupInput';
 import { TableInput } from './TableInput';
+import { TablePreview } from './TablePreview';
 
 const BASE = 'block w-full rounded-lg border px-3 py-2 text-sm disabled:bg-gray-50';
 
-export function FieldInput({ field, value, error, currency, disabled, onChange, fileControl, fileControlFor, idSuffix, compact, showAllErrors }: {
+export function FieldInput({ field, value, error, currency, disabled, onChange, fileControl, fileControlFor, idSuffix, compact, showAllErrors, tablePreview }: {
   field: FormField; value: AnswerValue; error?: string; currency: string; disabled?: boolean; onChange: (v: AnswerValue) => void;
   /** Prompt 907: the applicant's own document control (upload / Vault), replacing the editor preview's plain file input. */
   fileControl?: React.ReactNode;
@@ -22,6 +23,8 @@ export function FieldInput({ field, value, error, currency, disabled, onChange, 
   compact?: boolean;
   /** Test mode / after a failed attempt: show every problem inside a group, not only what was typed wrong. */
   showAllErrors?: boolean;
+  /** Prompt 923: a Table question is drawn by the editor's preview (Desktop / Phone, "Open full preview") — the entity's side, never the applicant's form. */
+  tablePreview?: boolean;
 }) {
   const border = error ? 'border-[#B00000]' : 'border-gray-300';
   const id = `f-${field.id}${idSuffix ? `-${idSuffix}` : ''}`;
@@ -49,7 +52,9 @@ export function FieldInput({ field, value, error, currency, disabled, onChange, 
       control = <GroupInput field={field} value={value} currency={currency} disabled={disabled} showAllErrors={showAllErrors} onChange={onChange} fileControlFor={fileControlFor} />;
       break;
     case 'table':
-      control = <TableInput field={field} value={value} currency={currency} disabled={disabled} showAllErrors={showAllErrors} onChange={onChange} />;
+      control = tablePreview
+        ? <TablePreview field={field} value={value} currency={currency} onChange={onChange} />
+        : <TableInput field={field} value={value} currency={currency} disabled={disabled} showAllErrors={showAllErrors} onChange={onChange} />;
       break;
     case 'long_text':
       control = (
