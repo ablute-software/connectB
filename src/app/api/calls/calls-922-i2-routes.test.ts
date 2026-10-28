@@ -122,7 +122,7 @@ describe('who can evaluate and what is distributed', () => {
     expect(db.tables.call_eval_assignments.filter((a) => a.source === 'auto').length).toBe(12);
     const notices = db.tables.call_notices.filter((x) => x.kind === 'eval_assigned');
     expect(notices.map((x) => x.user_id).sort()).toEqual(['u1', 'u2', 'u3']);
-    expect(notices[0]).toMatchObject({ link_path: '/calls/evaluations' });
+    expect(notices[0]).toMatchObject({ link_path: null, kind: 'eval_assigned' });
     expect(sent.map((s) => s.to).sort()).toEqual(['u1@u1.test', 'u2@u2.test', 'u3@u3.test']);
     expect(events('eval_redistributed')).toHaveLength(1);
     // doing it again changes nothing and tells nobody again

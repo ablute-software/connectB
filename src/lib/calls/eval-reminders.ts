@@ -4,7 +4,6 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createNotice, emailNotice, type NoticeContent } from './applicant/notices';
-import { EVALUATIONS_PATH } from './eval-assign-store';
 import { evaluationReady } from './eval-grid-store';
 import { localDay } from './eligibility';
 import { formatDayInZone } from './tz';
@@ -60,10 +59,10 @@ export async function sendEvaluationReminders(admin: SupabaseClient, now: Date =
         if (rec.error) continue;                                                      // already sent (the unique row) or not recordable: never twice
         const content = reminderContent(call, kind, day, n);
         try {
-          const { created, id } = await createNotice(admin, { userId, callId: call.id, applicationId: null, kind: 'eval_reminder', dedupeKey: `eval:reminder:${call.id}:${kind}:${day}`, content, linkPath: EVALUATIONS_PATH });
+          const { created, id } = await createNotice(admin, { userId, callId: call.id, applicationId: null, kind: 'eval_reminder', dedupeKey: `eval:reminder:${call.id}:${kind}:${day}`, content, linkPath: null });
           const { data: u } = await admin.auth.admin.getUserById(userId);
           const email = u?.user?.email;
-          if (created && email) await emailNotice(admin, id, email, call, content, { url: `${(process.env.NEXT_PUBLIC_APP_URL || 'https://www.sherlockdeal.com').replace(/\/$/, '')}${EVALUATIONS_PATH}` });
+          if (created && email) await emailNotice(admin, id, email, call, content, { url: (process.env.NEXT_PUBLIC_APP_URL || 'https://www.sherlockdeal.com').replace(/\/$/, '') });
           reminded++;
         } catch (e) { console.error('[calls/eval] reminder failed:', (e as Error).message); }
       }

@@ -17,7 +17,6 @@ import type { Call } from './types';
 
 type Row = Record<string, unknown>;
 export type DistributionMode = 'auto' | 'manual' | 'mixed';
-export const EVALUATIONS_PATH = '/calls/evaluations';
 
 export interface EvaluatorInfo { userId: string; name: string | null; email: string | null }
 export interface AppInfo { applicationId: string; reference: string | null; startupOrgId: string | null; startupName: string | null; applicantUserId: string }
@@ -188,9 +187,9 @@ async function tellEvaluators(admin: SupabaseClient, call: Call, added: Pair[], 
   for (const [userId, n] of per) {
     try {
       const content = assignedContent(call, n);
-      const { created, id } = await createNotice(admin, { userId, callId: call.id, applicationId: null, kind: 'eval_assigned', dedupeKey: `eval:assigned:${call.id}:${batch}`, content, linkPath: EVALUATIONS_PATH });
+      const { created, id } = await createNotice(admin, { userId, callId: call.id, applicationId: null, kind: 'eval_assigned', dedupeKey: `eval:assigned:${call.id}:${batch}`, content, linkPath: null });
       const email = evaluators.find((e) => e.userId === userId)?.email;
-      if (created && email) await emailNotice(admin, id, email, call, content, { url: `${emailBase()}${EVALUATIONS_PATH}` });
+      if (created && email) await emailNotice(admin, id, email, call, content, { url: emailBase() });
     } catch (e) { console.error('[calls/eval] could not tell an evaluator:', (e as Error).message); }
   }
 }

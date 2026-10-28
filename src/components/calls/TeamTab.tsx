@@ -205,10 +205,6 @@ export function TeamTab({ callId }: { callId: string }) {
         )}
       </section>
 
-      <section aria-label="Distribution" className="rounded-lg border border-dashed border-gray-300 p-5 text-center" data-testid="distribution-soon">
-        <h2 className="text-sm font-semibold text-gray-500">Distribution</h2>
-        <p className="mt-1 text-xs text-gray-400">Coming in the next stage</p>
-      </section>
     </div>
   );
 }
