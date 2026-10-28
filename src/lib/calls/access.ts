@@ -35,6 +35,9 @@ export interface Promoter {
   canManage: boolean;
   /** Per call only (set by authCall): may edit the team of this call. */
   canManageTeam?: boolean;
+  /** Per call only (set by authCall): "View all applications" and "Evaluate assigned applications" — what the editor needs to open on a tab the person can use (Prompt 923). */
+  canViewApplications?: boolean;
+  canEvaluate?: boolean;
 }
 
 export const INVESTOR_MANAGE_ROLES = ['owner', 'admin'];
@@ -127,7 +130,7 @@ export async function authCall(callId: string, opts: { write?: boolean; need?: '
   if (need === 'team' && !perms.manage_team) return forbid('Manage team & permissions');
   // Prompt 907 (I4): the list of submitted applications is for whoever may "View all applications" (the administrators, and any category that has it).
   if (need === 'view_applications' && !perms.view_all_applications) return forbid('View all applications');
-  return { ...auth, call, perms, team, promoter: { ...promoter, canManage: perms.configure_call, canManageTeam: perms.manage_team } };
+  return { ...auth, call, perms, team, promoter: { ...promoter, canManage: perms.configure_call, canManageTeam: perms.manage_team, canViewApplications: perms.view_all_applications, canEvaluate: perms.evaluate_assigned } };
 }
 
 /** For the list of calls: which of them the caller may configure (one set of queries, not one per card). */

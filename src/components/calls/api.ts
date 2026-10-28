@@ -38,6 +38,9 @@ export interface CallState {
   promoterName: string;
   canManage: boolean;
   canManageTeam: boolean;
+  /** Prompt 923: "View all applications" and "Evaluate assigned applications" on this call. */
+  canViewApplications?: boolean;
+  canEvaluate?: boolean;
   phases: CallPhase[];
   fields: FormField[];
   issues: ReadinessIssue[];

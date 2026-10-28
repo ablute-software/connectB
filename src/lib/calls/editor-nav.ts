@@ -39,6 +39,38 @@ const LEGACY: Record<string, Nav> = {
   evaluation: { main: 'evaluation', step: 'general' },
 };
 
+/** What the person may do in THIS call, as far as the tabs are concerned (the server decides every request on its own). */
+export interface EditorAccess { configure: boolean; viewApplications: boolean; evaluate: boolean }
+
+/** Setup is only for whoever may "Configure call": for everybody else the tab is not there. */
+export const mainTabsFor = (a: EditorAccess) => MAIN_TABS.filter((t) => t.key !== 'setup' || a.configure);
+
+/** Where somebody who cannot configure the call opens: Applications when they may view them all, otherwise Evaluation (their own evaluations). */
+export const usableMain = (a: EditorAccess): MainTab => (a.viewApplications ? 'applications' : 'evaluation');
+
+export const SETUP_RESTRICTED_NOTE = (landing: MainTab): string => `Setup is only for people who can configure this call, so this opened ${MAIN_TABS.find((t) => t.key === landing)!.label} instead.`;
+
+/** Does the address ask for Setup on purpose (a step, section=setup, or an old tab that now lives in Setup)? A call that merely opens there by default is not a request. */
+function asksForSetup(q: { tab?: string | null; section?: string | null; step?: string | null }): boolean {
+  if (isStep(q.step) || q.section === 'setup') return true;
+  const tab = q.tab ?? null;
+  return !!tab && (tab === 'setup' || isStep(tab) || (Object.prototype.hasOwnProperty.call(LEGACY, tab) && LEGACY[tab].main === 'setup'));
+}
+
+/**
+ * resolveNav, for a person: whoever cannot configure the call never lands in Setup, whatever the address says or the call's state is. A link that asked for Setup on purpose comes with a short
+ * note saying where it went instead; a call that simply opens there by default does not (the person never asked for it).
+ */
+export function resolveNavFor(q: { tab?: string | null; section?: string | null; step?: string | null }, status: CallStatus, access: EditorAccess): { nav: Nav; note: string | null } {
+  const wanted = resolveNav(q, status);
+  if (access.configure) return { nav: wanted, note: null };
+  const landing = usableMain(access);
+  // Applications is for whoever may view them all: a call that opens there by default (published), or a link to it, would show an evaluator a screen the server refuses.
+  if (wanted.main === 'applications' && !access.viewApplications) return { nav: { main: landing, step: 'general' }, note: null };
+  if (wanted.main !== 'setup') return { nav: wanted, note: null };
+  return { nav: { main: landing, step: 'general' }, note: asksForSetup(q) ? SETUP_RESTRICTED_NOTE(landing) : null };
+}
+
 /** A call being configured opens on Setup; one that was published (open, closed, archived) opens on Applications. */
 export const defaultMain = (status: CallStatus): MainTab => (status === 'open' || status === 'closed' || status === 'archived' ? 'applications' : 'setup');
 
