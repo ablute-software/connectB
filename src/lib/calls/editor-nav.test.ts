@@ -70,10 +70,16 @@ describe('the state of each step', () => {
     expect(['general', 'phases', 'form', 'team', 'review'].map((k) => s[k as keyof typeof s].kind)).toEqual(['not_started', 'not_started', 'not_started', 'not_started', 'attention']);
     expect(s.general.label).toBe('Not started');
   });
-  it('the two later steps are marked as coming, not as work to do', () => {
+  it('eligibility rules are optional: not started without a rule, complete with one, and a broken rule is a thing to fix', () => {
     const s = stepStates(ctx(call(), [phase()], []));
-    expect(s.eligibility).toMatchObject({ kind: 'soon', label: 'Coming next' });
-    expect(s.grid).toMatchObject({ kind: 'soon', label: 'Coming in the next stage' });
+    expect(s.eligibility).toMatchObject({ kind: 'not_started', label: 'Not started' });
+    expect(stepStates({ ...ctx(call(), [phase()], []), eligibilityRules: 2 }).eligibility).toMatchObject({ kind: 'complete' });
+    expect(stepStates({ ...ctx(call(), [phase()], []), eligibilityRules: 2, issues: [{ tab: 'eligibility', message: 'The question no longer exists.' }] }).eligibility).toMatchObject({ kind: 'attention', count: 1 });
+  });
+  it('the evaluation grid (Prompt 922) is optional too: not started without a criterion, complete with some, ⚠ while the weights do not add up', () => {
+    expect(stepStates(ctx(call(), [phase()], [])).grid).toMatchObject({ kind: 'not_started', label: 'Not started' });
+    expect(stepStates({ ...ctx(call(), [phase()], []), evalCriteria: 3 }).grid).toMatchObject({ kind: 'complete' });
+    expect(stepStates({ ...ctx(call(), [phase()], []), evalCriteria: 2, issues: [{ tab: 'grid', message: 'The weights add up to 50 %.' }] }).grid).toMatchObject({ kind: 'attention', count: 1 });
   });
   it('something missing shows the NUMBER; complete shows ✓', () => {
     const c = call({ name: 'INNOV-ID', opensAt: '2026-11-01T09:00:00Z' });                // no closing date: one thing missing

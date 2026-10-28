@@ -16,6 +16,7 @@ import { CallIntro, CallMiniHeader, ctaLabel, type PublicCallInfo } from '@/comp
 import { ApplicationArea, type CallSession } from '@/components/calls/applicant/ApplicationArea';
 import { TeamNotice } from '@/components/calls/applicant/TeamNotice';
 import { GONE_MESSAGE } from '@/lib/calls/deletion';
+import { ReportProblem } from '@/components/calls/applicant/ReportProblem';
 
 export default function CallLinkPage() {
   const { token } = useParams<{ token: string }>();
@@ -55,6 +56,7 @@ export default function CallLinkPage() {
           <>
             <CallIntro call={call} cta={session?.onTeam ? null : ctaLabel(call.phase, session?.application ?? null)} teamNotice={session?.onTeam === true} onStart={() => setStage('apply')} />
             <div className="px-5 pb-5 pt-2 text-[#0E7490] sm:px-8"><LogoLockup size={18} accentClassName="text-[#2a7f8e]" /></div>
+            <div className="px-5 pb-5 sm:px-8"><ReportProblem token={token} page={`/call/${token}`} signedIn={session?.authenticated === true} /></div>
           </>
         ) : (
         <>
@@ -109,6 +111,7 @@ export default function CallLinkPage() {
             </div>
           </>
         )}
+        {call && <ReportProblem token={token} page={`/call/${token}${session?.authenticated ? '' : ' (before signing in)'}`} signedIn={session?.authenticated === true} />}
         </>
         )}
       </div>

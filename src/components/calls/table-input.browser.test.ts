@@ -47,7 +47,7 @@ describe.skipIf(!CHROME)('the applicant\'s table (real browser)', () => {
     const { chromium } = await import('playwright');
     browser = await chromium.launch({ executablePath: CHROME, headless: true, args: ['--no-sandbox'] });
   }, 240_000);
-  afterAll(async () => { await browser?.close(); });
+  afterAll(async () => { await browser?.close(); }, 60_000);
 
   async function open(width: number, cfg: TableConfig, initial: unknown = null, opts: { disabled?: boolean } = {}) {
     const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width < 700 });

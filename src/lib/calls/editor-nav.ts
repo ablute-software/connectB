@@ -75,7 +75,7 @@ const notStarted = (): StepState => ({ kind: 'not_started', count: 0, icon: '○
 const attention = (n: number): StepState => ({ kind: 'attention', count: n, icon: '⚠', label: `${n} to fix` });
 const soon = (label: string): StepState => ({ kind: 'soon', count: 0, icon: '·', label });
 
-export interface StepContext { call: Pick<Call, 'name' | 'description' | 'opensAt' | 'closesAt' | 'status'>; phases: Pick<CallPhase, 'name' | 'startsOn' | 'endsOn'>[]; fields: Pick<FormField, 'id'>[]; issues: ReadinessIssue[]; teamMembers: number }
+export interface StepContext { call: Pick<Call, 'name' | 'description' | 'opensAt' | 'closesAt' | 'status'>; phases: Pick<CallPhase, 'name' | 'startsOn' | 'endsOn'>[]; fields: Pick<FormField, 'id'>[]; eligibilityRules?: number; evalCriteria?: number; issues: ReadinessIssue[]; teamMembers: number }
 
 const untitled = (name: string) => name.trim() === '' || name.trim() === 'Untitled call';
 
@@ -104,16 +104,18 @@ export function stepStates(c: StepContext): Record<StepKey, StepState> {
     : general.kind === 'complete' && phases.kind === 'complete' && form.kind === 'complete' ? complete() : notStarted();
   return {
     general, phases, form,
-    eligibility: soon('Coming next'),
+    // Prompt 918 (I2): optional — a call with no rule has every application Fit; ✓ once there is a rule and none of them is broken.
+    eligibility: (() => { const n = issuesOf('eligibility').length; return n > 0 ? attention(n) : (c.eligibilityRules ?? 0) > 0 ? complete() : notStarted(); })(),
     // The person who created the call is on the team from the start: the step is "not started" until someone else has been added.
     team: c.teamMembers > 1 ? complete() : notStarted(),
-    grid: soon('Coming in the next stage'),
+    // Prompt 922 (I1): optional like the eligibility rules — not started without criteria, ⚠ while the weights do not add up, ✓ once they do.
+    grid: (() => { const n = issuesOf('grid').length; return n > 0 ? attention(n) : (c.evalCriteria ?? 0) > 0 ? complete() : notStarted(); })(),
     review,
   };
 }
 
 /** Which step an issue belongs to ("What is missing" leads there). The editor's old tab names map one to one. */
-export const stepOfIssue = (i: ReadinessIssue): StepKey => (i.tab === 'general' || i.tab === 'phases' || i.tab === 'form' || i.tab === 'team' ? i.tab : i.tab === 'preview' ? 'review' : 'general');
+export const stepOfIssue = (i: ReadinessIssue): StepKey => (i.tab === 'general' || i.tab === 'phases' || i.tab === 'form' || i.tab === 'eligibility' || i.tab === 'grid' || i.tab === 'team' ? i.tab : i.tab === 'preview' ? 'review' : 'general');
 
 export const stepIndex = (s: StepKey): number => STEPS.findIndex((x) => x.key === s);
 export const stepLabel = (s: StepKey): string => STEPS[stepIndex(s)].label;

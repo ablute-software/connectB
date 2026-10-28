@@ -24,6 +24,8 @@ export function rowToCall(r: Row): Call {
     contactEmail: s(r.contact_email),
     coverPath: s(r.cover_path), coverUpdatedAt: s(r.cover_updated_at), logoPath: s(r.logo_path), logoUpdatedAt: s(r.logo_updated_at),
     deletedAt: s(r.deleted_at), deletedBy: s(r.deleted_by), purgeAfter: s(r.delete_purge_after),
+    eligibilityVersion: Number(r.eligibility_version ?? 1), eligibilityRev: Number(r.eligibility_rev ?? 0),
+    evalGridVersion: Number(r.eval_grid_version ?? 1), evalGridRev: Number(r.eval_grid_rev ?? 0), evaluationClosedAt: s(r.evaluation_closed_at), evaluationClosedBy: s(r.evaluation_closed_by),
     duplicatedFrom: s(r.duplicated_from), createdBy: r.created_by as string, createdAt: r.created_at as string, updatedAt: r.updated_at as string,
   };
 }

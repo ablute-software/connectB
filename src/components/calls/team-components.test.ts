@@ -5,7 +5,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { PermissionToggles } from './PermissionToggles';
-import { ALL_PERMISSIONS, NO_PERMISSIONS } from '@/lib/calls/permissions';
+import { ALL_PERMISSIONS, NO_PERMISSIONS, PERMISSIONS } from '@/lib/calls/permissions';
 
 const render = (props: Partial<Parameters<typeof PermissionToggles>[0]> = {}) =>
   renderToStaticMarkup(createElement(PermissionToggles, { values: { ...NO_PERMISSIONS, configure_call: true }, onToggle: () => {}, disabled: false, idPrefix: 'x', ...props }));
@@ -19,9 +19,9 @@ describe('the permission switches', () => {
     expect(html).toMatch(/data-testid="x-configure_call"[^>]*checked/);
     expect(html).not.toMatch(/data-testid="x-manage_team"[^>]*checked/);
   });
-  it('six say "Used from the next stage"; the three enforced now do not (Prompt 907: View all applications opens the Submissions list)', () => {
+  it('the ones not enforced yet say "Used from the next stage"; the enforced ones do not (Prompt 907: View all applications opens the Submissions list; Prompt 918 I3: Correct eligibility)', () => {
     const html = render();
-    expect((html.match(/Used from the next stage/g) ?? []).length).toBe(6);
+    expect((html.match(/Used from the next stage/g) ?? []).length).toBe(PERMISSIONS.filter((p) => !p.enforced).length);
     const configure = html.slice(html.indexOf('Configure call'), html.indexOf('Manage team'));
     expect(configure).not.toContain('Used from the next stage');
   });

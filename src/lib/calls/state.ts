@@ -7,6 +7,8 @@ import { brandingOf, profileLogos } from './branding';
 import { countApplications, loadCloseReason, loadEvents, loadFields, loadPhases, logCallEvent, promoterName, transitionCall } from './store';
 import type { CloseReason } from './closing';
 import type { Promoter } from './access';
+import { loadRules } from './eligibility-store';
+import { loadCriteria } from './eval-grid-store';
 import type { Call } from './types';
 
 /**
@@ -34,13 +36,15 @@ export async function syncStatus(admin: SupabaseClient, call: Call, now: Date = 
 
 export async function buildCallState(admin: SupabaseClient, call: Call, promoter: Promoter, now: Date = new Date()) {
   const synced = await syncStatus(admin, call, now);
-  const [phases, fields, events, name, applications, team, closedReason] = await Promise.all([
+  const [phases, fields, events, name, applications, team, closedReason, rules, criteria] = await Promise.all([
     loadPhases(admin, synced.id), loadFields(admin, synced.id), loadEvents(admin, synced.id, 30), promoterName(admin, synced.promoterKind, synced.promoterId),
     countApplications(admin, synced.id),
     admin.from('call_team_members').select('user_id').eq('call_id', synced.id),
     effectiveStatus(synced, now) === 'closed' || synced.status === 'archived' ? loadCloseReason(admin, synced.id) : Promise.resolve(null),
+    loadRules(admin, synced.id, synced.eligibilityVersion ?? 1),
+    loadCriteria(admin, synced.id, synced.evalGridVersion ?? 1),
   ]);
-  const issues = readiness(synced, phases, fields, now);
+  const issues = readiness(synced, phases, fields, now, rules, criteria);
   // The images the General step shows (reached through the signed-in route), and whether the entity's own profile already has a logo (then an uploaded one is not offered for the profile).
   const branding = (await brandingOf(admin, [synced], 'editor')).get(synced.id)!;
   const profileLogoUrl = (await profileLogos(admin, [synced])).get(`${synced.promoterKind}:${synced.promoterId}`) ?? null;
@@ -54,6 +58,10 @@ export async function buildCallState(admin: SupabaseClient, call: Call, promoter
     phases, fields, issues,
     // How many people were put on the team (the Setup step "Team & distribution" shows ✓ once there is at least one).
     teamMembers: ((team.data ?? []) as unknown[]).length,
+    // The eligibility step's state: how many rules are in force (Prompt 918, I2). The rules themselves are read by the step.
+    eligibilityRules: rules.length,
+    // The evaluation grid's step state (Prompt 922): how many criteria are in force.
+    evalCriteria: criteria.length,
     branding: { ...branding, profileLogoUrl },
     summary: summarise(phases, fields),
     // Prompt 907: the entity sees what was SUBMITTED and a total (the delete rule needs "has anyone applied?"), never how many are still being

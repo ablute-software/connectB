@@ -1,17 +1,22 @@
 'use client';
 // Prompt 907 (I4) — "Submissions", read-only, in the editor of a call (spec §14.4, §20): the SUBMITTED applications — startup, reference, when —
 // and, for each, the version exactly as it was submitted (answers, documents, the form as it was). Drafts never appear here, not even as a count:
-// the entity sees only what was submitted. Evaluation, eligibility and distribution come in later stages.
-import { useEffect, useState } from 'react';
+// the entity sees only what was submitted. Prompt 918 (I3): each application shows its ELIGIBILITY (Fit / Not a fit / To validate, or still being checked), the list has those sub-views, and the detail
+// shows the result rule by rule with the evidence, the possible duplicates and — for whoever may — the corrections. Evaluation and distribution come in a later stage.
+import { useCallback, useEffect, useState } from 'react';
 import { formatInZone } from '@/lib/calls/tz';
 import { formatNumberDisplay, visiblePages } from '@/lib/calls/form-logic';
 import { entriesOf, fileValues, groupOf, isHttpUrl, presetEntriesFor, subFieldAsField } from '@/lib/calls/field-config';
 import { isTableAnswered, tableSummary } from '@/lib/calls/table';
 import type { Answers, AnswerValue, FormField, SimpleAnswer } from '@/lib/calls/types';
 import { TableInput } from './TableInput';
+import { ApplicationEligibility } from './ApplicationEligibility';
+import { ELIGIBILITY_LABEL, type EligibilityInfo, type EligibilityState, type EligibilityView } from '@/lib/calls/eligibility-payload';
+import { duplicateSentence, type PossibleDuplicate } from '@/lib/calls/duplicates';
 
-interface Item { applicationId: string; reference: string | null; startup: string; submittedAt: string }
+interface Item { applicationId: string; reference: string | null; startup: string; submittedAt: string; eligibility?: { state: EligibilityState; view: EligibilityView; reason: string; source: string | null }; duplicates?: number }
 interface Detail {
+  applicationId?: string; eligibility?: EligibilityInfo | null; duplicates?: PossibleDuplicate[]; canCorrect?: boolean; canFlag?: boolean;
   reference: string | null; startup: string; submittedAt: string; version: number; fields: FormField[]; answers: Answers;
   documents: { fileId: string; fieldId: string; fileName: string; size: number; source: string; versionNumber: number | null; url: string }[];
 }
@@ -95,27 +100,71 @@ export function AnswerView({ field, value, docs, currency }: { field: FormField;
   return <>{answerText(field, value as AnswerValue, currency)}</>;
 }
 
+const VIEWS: { key: EligibilityView | 'all'; label: string }[] = [
+  { key: 'all', label: 'All' }, { key: 'fit', label: 'Fit' }, { key: 'not_fit', label: 'Not a fit' }, { key: 'to_validate', label: 'To validate' }, { key: 'processing', label: 'Processing' },
+];
+const STATE_TONE: Record<EligibilityState, string> = { fit: 'bg-emerald-50 text-emerald-900', not_fit: 'bg-red-50 text-[#8a0000]', to_validate: 'bg-amber-50 text-amber-900', queued: 'bg-gray-100 text-gray-700', processing: 'bg-gray-100 text-gray-700', technical_failure: 'bg-red-50 text-[#8a0000]' };
+
+/** The applications of one sub-view. An application with no eligibility information (an old server answer) is shown in "All" only. */
+export const shown = (items: Item[], view: EligibilityView | 'all'): Item[] => (view === 'all' ? items : items.filter((s) => s.eligibility?.view === view));
+
+function SubViews({ view, counts, total, onView }: { view: EligibilityView | 'all'; counts: Record<EligibilityView, number> | null; total: number; onView: (v: EligibilityView | 'all') => void }) {
+  return (
+    <div role="tablist" aria-label="Eligibility" className="mt-3 flex gap-1 overflow-x-auto whitespace-nowrap border-b border-gray-200" data-testid="eligibility-views">
+      {VIEWS.map((v) => {
+        const n = v.key === 'all' ? total : counts?.[v.key] ?? 0;
+        return (
+          <button key={v.key} type="button" role="tab" aria-selected={view === v.key} data-testid={`view-${v.key}`} onClick={() => onView(v.key)}
+            className={`-mb-px min-h-[44px] shrink-0 border-b-2 px-3 py-2 text-sm sm:min-h-0 ${view === v.key ? 'border-[#0E7490] font-semibold text-[#0E7490]' : 'border-transparent text-gray-600 hover:text-gray-900'}`}>{v.label} <span className="text-xs text-gray-400">{n}</span></button>
+        );
+      })}
+    </div>
+  );
+}
+
+function Chips({ item }: { item: Item }) {
+  const e = item.eligibility;
+  return (
+    <span className="mt-1 inline-flex flex-wrap items-center gap-1.5 align-middle">
+      {e && <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATE_TONE[e.state]}`} data-testid="eligibility-chip" title={e.reason}>{ELIGIBILITY_LABEL[e.state]}</span>}
+      {(item.duplicates ?? 0) > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900" data-testid="duplicate-chip">Possible duplicate</span>}
+    </span>
+  );
+}
+
 export function SubmissionsTab({ callId, timezone, currency }: { callId: string; timezone: string; currency: string }) {
   const [items, setItems] = useState<Item[] | null>(null);
   const [error, setError] = useState('');
-  const [open, setOpen] = useState<Detail | null>(null);
+  const [open, setOpen] = useState<(Detail & { id: string }) | null>(null);
+  const [view, setView] = useState<EligibilityView | 'all'>('all');
+  const [counts, setCounts] = useState<Record<EligibilityView, number> | null>(null);
+
+  const load = useCallback(async (alive: () => boolean = () => true) => {
+    try {
+      const r = await fetch(`/api/calls/${callId}/submissions`, { cache: 'no-store' });
+      const d = await r.json().catch(() => null);
+      if (!alive()) return null;
+      if (r.ok && d?.ok) { setItems(d.submissions); setCounts(d.counts ?? null); return d as { counts?: Record<EligibilityView, number> }; }
+      setItems([]); setError(d?.error ?? 'You cannot view the submissions of this call.');
+    } catch { if (alive()) { setItems([]); setError('We could not load the submissions.'); } }
+    return null;
+  }, [callId]);
 
   useEffect(() => {
     let alive = true;
-    fetch(`/api/calls/${callId}/submissions`, { cache: 'no-store' }).then(async (r) => {
-      const d = await r.json().catch(() => null);
-      if (!alive) return;
-      if (r.ok && d?.ok) setItems(d.submissions); else { setItems([]); setError(d?.error ?? 'You cannot view the submissions of this call.'); }
-    }).catch(() => { if (alive) { setItems([]); setError('We could not load the submissions.'); } });
+    void load(() => alive).then(async (d) => {
+      // Whatever is still waiting for its automatic check is taken forward now (the daily run is only the safety net), and the list is read again once.
+      if (alive && d?.counts && d.counts.processing > 0) { await fetch(`/api/calls/${callId}/submissions/process`, { method: 'POST' }).catch(() => undefined); if (alive) await load(() => alive); }
+    });
     return () => { alive = false; };
-  }, [callId]);
+  }, [callId, load]);
 
   async function show(id: string) {
     setError('');
     const r = await fetch(`/api/calls/${callId}/submissions/${id}`, { cache: 'no-store' });
     const d = await r.json().catch(() => null);
     if (!r.ok || !d?.ok) { setError('We could not open that application.'); return; }
-    setOpen(d as Detail);
+    setOpen({ ...(d as Detail), id });
   }
 
   if (open) {
@@ -125,6 +174,14 @@ export function SubmissionsTab({ callId, timezone, currency }: { callId: string;
         <button type="button" onClick={() => setOpen(null)} className="min-h-[44px] text-sm text-gray-500 hover:text-[#0E7490] sm:min-h-0">← Applications</button>
         <h2 className="mt-2 text-base font-semibold text-gray-900">{open.startup} <span className="font-mono text-xs font-normal text-gray-500">{open.reference}</span></h2>
         <p className="text-xs text-gray-500">Submitted {formatInZone(open.submittedAt, timezone)} · version {open.version} · read-only: exactly as it was submitted</p>
+        {(open.duplicates ?? []).length > 0 && (
+          <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" data-testid="possible-duplicate">
+            <p className="font-semibold">Possible duplicate</p>
+            <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs [overflow-wrap:anywhere]">{(open.duplicates ?? []).map((d) => <li key={d.applicationId}>{duplicateSentence(d)}</li>)}</ul>
+            <p className="mt-1 text-[11px] text-amber-900">Nothing is blocked: you decide, in the light of what counts as one entity in this call.</p>
+          </div>
+        )}
+        {open.eligibility && <div className="mt-3"><ApplicationEligibility callId={callId} applicationId={open.id} info={open.eligibility} canCorrect={open.canCorrect === true} canFlag={open.canFlag === true} onChanged={() => { void show(open.id); void load(); }} /></div>}
         <div className="mt-4 space-y-6">
           {pages.map((p, i) => (
             <div key={p.page}>
@@ -151,15 +208,18 @@ export function SubmissionsTab({ callId, timezone, currency }: { callId: string;
       <h2 className="text-base font-semibold text-gray-900">Applications</h2>
       <p className="mt-1 text-xs text-gray-500">Applications that were submitted, read-only. Applications still being filled in are never shown to the organisation that runs the call.</p>
       {error && <p role="alert" className="mt-3 text-sm text-[#B00000]">{error}</p>}
+      {items !== null && items.length > 0 && <SubViews view={view} counts={counts} total={items.length} onView={setView} />}
       {items === null ? <p className="mt-4 text-sm text-gray-400">Loading…</p> : items.length === 0 && !error ? (
         <p className="mt-4 text-sm text-gray-500" data-testid="no-submissions">No applications have been submitted yet.</p>
       ) : items.length > 0 ? (
         <>
+          {shown(items, view).length === 0 && <p className="mt-4 text-sm text-gray-500" data-testid="no-in-view">No application in this list.</p>}
           {/* A phone cannot hold a table: each application is a card. From a tablet up it is the table. */}
           <ul className="mt-4 space-y-2 sm:hidden" data-testid="submission-cards">
-            {items.map((s) => (
+            {shown(items, view).map((s) => (
               <li key={s.applicationId} className="rounded-lg border border-gray-200 bg-white p-4" data-testid="submission-card">
-                <p className="text-sm font-semibold text-gray-900">{s.startup}</p>
+                <p className="text-sm font-semibold text-gray-900 [overflow-wrap:anywhere]">{s.startup}</p>
+                <Chips item={s} />
                 <p className="mt-0.5 font-mono text-xs text-gray-500">{s.reference ?? '—'}</p>
                 <p className="mt-1 text-xs text-gray-500">Submitted {formatInZone(s.submittedAt, timezone)}</p>
                 <button type="button" onClick={() => void show(s.applicationId)} className="mt-2 min-h-[44px] w-full rounded-lg border border-gray-300 px-3 text-sm font-semibold text-[#0E7490]">Open</button>
@@ -169,12 +229,13 @@ export function SubmissionsTab({ callId, timezone, currency }: { callId: string;
           <div className="hidden sm:block">
           <div className="mt-4 overflow-x-auto rounded-lg border border-gray-200 bg-white">
             <table className="min-w-full text-left text-sm">
-              <thead className="bg-gray-50 text-xs text-gray-500"><tr><th className="px-4 py-2 font-medium">Startup</th><th className="px-4 py-2 font-medium">Reference</th><th className="px-4 py-2 font-medium">Submitted</th><th /></tr></thead>
+              <thead className="bg-gray-50 text-xs text-gray-500"><tr><th className="px-4 py-2 font-medium">Startup</th><th className="px-4 py-2 font-medium">Reference</th><th className="px-4 py-2 font-medium">Eligibility</th><th className="px-4 py-2 font-medium">Submitted</th><th /></tr></thead>
               <tbody>
-                {items.map((s) => (
+                {shown(items, view).map((s) => (
                   <tr key={s.applicationId} className="border-t border-gray-100" data-testid="submission-row">
                     <td className="px-4 py-2 font-medium text-gray-900">{s.startup}</td>
                     <td className="px-4 py-2 font-mono text-xs text-gray-600">{s.reference ?? '—'}</td>
+                    <td className="px-4 py-2"><Chips item={s} /></td>
                     <td className="px-4 py-2 text-gray-600">{formatInZone(s.submittedAt, timezone)}</td>
                     <td className="px-4 py-2 text-right"><button type="button" onClick={() => void show(s.applicationId)} className="text-xs font-semibold text-[#0E7490] hover:underline">Open</button></td>
                   </tr>

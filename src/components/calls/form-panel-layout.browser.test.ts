@@ -61,7 +61,7 @@ describe.skipIf(!CHROME)('the form editor\'s panel never goes past its own width
     const { chromium } = await import('playwright');
     browser = await chromium.launch({ executablePath: CHROME, headless: true, args: ['--no-sandbox'] });
   }, 180_000);
-  afterAll(async () => { await browser?.close(); });
+  afterAll(async () => { await browser?.close(); }, 60_000);
 
   for (const width of WIDTHS) {
     it(`at ${width} px: no element has scrollWidth > clientWidth or sits outside the panel — for a group, a long choice and a condition`, async () => {
