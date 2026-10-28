@@ -15,7 +15,8 @@ import { useEffect, useState } from 'react';
 import { browserClient } from '@/lib/supabase';
 import { getMagicLinkSent, setMagicLinkSent, clearMagicLinkSent } from '@/lib/magic-link-storage';
 import { PasswordInput } from './PasswordInput';
-import { authErrorText } from '@/lib/auth-errors';
+import { describeAuthError, emailProblem, newReference, rateLimitedText, NEW_CODE_NOTE } from '@/lib/auth-errors';
+import { useCountdown } from './useCountdown';
 import { reportAuthEmailFailure } from '@/lib/auth-code/client';
 import { AuthMessage } from '@/components/auth/AuthMessage';
 
@@ -33,6 +34,9 @@ export function InvestorSignInForm({ next, linkFailed }: { next: string; linkFai
   // disappears; this only switches which form is showing, never removes
   // the other option.
   const [passwordMode, setPasswordMode] = useState(false);
+  // Prompt 923 (C): when the provider says to wait, the wait is counted down here and the buttons that ask for a code stay off until it is over.
+  const wait = useCountdown();
+  const [rateLimited, setRateLimited] = useState(false);
 
   useEffect(() => {
     const stored = getMagicLinkSent();
@@ -51,13 +55,17 @@ export function InvestorSignInForm({ next, linkFailed }: { next: string; linkFai
     try {
       const sb = browserClient();
       const { error } = await sb.auth.signInWithPassword({ email, password });
-      if (error) { setMsg(authErrorText(error, { serverText: error.message })); return; }
+      if (error) { setMsg(describeAuthError(error, { ref: newReference() }).text); return; }
       window.location.href = next;
     } finally { setBusy(false); }
   }
 
   async function magicLink() {
-    setBusy(true); setMsg('');
+    setMsg('');
+    // Prompt 923 (C): an address that can never work is refused here, before a code is asked for ("…@gmail.c" used to come back as a 500).
+    const problem = emailProblem(email);
+    if (problem) { setMsg(problem); return; }
+    setBusy(true); setRateLimited(false);
     try {
       const sb = browserClient();
       const { error } = await sb.auth.signInWithOtp({
@@ -76,7 +84,13 @@ export function InvestorSignInForm({ next, linkFailed }: { next: string; linkFai
           shouldCreateUser: true,
         },
       });
-      if (error) { reportAuthEmailFailure({ email, action: 'login', error }); setMsg(authErrorText(error, { serverText: error.message })); return; }
+      if (error) {
+        const ref = newReference();
+        const info = describeAuthError(error, { ref });
+        reportAuthEmailFailure({ email, action: 'login', error, ref });
+        if (info.kind === 'rate_limited' && info.retryAfterSeconds) { wait.start(info.retryAfterSeconds); setRateLimited(true); }
+        setMsg(info.text); return;
+      }
       setMagicLinkSent(email);
       setLinkSent(true);
     } finally { setBusy(false); }
@@ -87,7 +101,7 @@ export function InvestorSignInForm({ next, linkFailed }: { next: string; linkFai
     try {
       const sb = browserClient();
       const { data, error } = await sb.auth.verifyOtp({ email, token: code, type: 'email' });
-      if (error) { setCodeErr(authErrorText(error, { serverText: error.message })); return; }
+      if (error) { setCodeErr(describeAuthError(error, { ref: newReference() }).text); return; }
       clearMagicLinkSent();
       // D2 — same first-time-password offer for the manual-code path as the
       // link-click path (auth/callback/route.ts). This is the fix for item
@@ -138,12 +152,13 @@ export function InvestorSignInForm({ next, linkFailed }: { next: string; linkFai
                 a new one.
               </p>
               <p className="mt-1 text-gray-500">On this device: click the link. Checking email on your phone: type the code below.</p>
+              <p className="mt-1 text-gray-500" data-testid="new-code-note">{NEW_CODE_NOTE}</p>
               <button onClick={startOver} className="mt-1 text-gray-400 hover:underline">Not you? Start over</button>
             </div>
           ) : (
-            <button disabled={busy || !email} onClick={magicLink}
+            <button disabled={busy || !email || wait.left > 0} onClick={magicLink} data-testid="send-code"
               className="w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
-              {busy ? 'Sending…' : 'Email me a sign-in link'}
+              {busy ? 'Sending…' : wait.left > 0 ? `Wait ${wait.left}s` : 'Email me a sign-in link'}
             </button>
           )}
           {showCodeEntry ? (
@@ -158,9 +173,9 @@ export function InvestorSignInForm({ next, linkFailed }: { next: string; linkFai
               {codeErr && (
                 <div className="mt-2 rounded-lg bg-red-50 border border-red-100 px-2.5 py-2">
                   <p className="text-xs text-[#B00000]"><AuthMessage text={codeErr} /></p>
-                  <button onClick={() => { setCode(''); setCodeErr(''); magicLink(); }} disabled={busy}
+                  <button onClick={() => { setCode(''); setCodeErr(''); magicLink(); }} disabled={busy || wait.left > 0} data-testid="resend-code"
                     className="mt-1.5 text-xs font-medium text-[#0E7490] hover:underline disabled:opacity-40">
-                    {busy ? 'Sending…' : 'Send me a new code'}
+                    {busy ? 'Sending…' : wait.left > 0 ? `Send me a new code (wait ${wait.left}s)` : 'Send me a new code'}
                   </button>
                 </div>
               )}
@@ -180,7 +195,7 @@ export function InvestorSignInForm({ next, linkFailed }: { next: string; linkFai
         </>
       )}
 
-      {msg && <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700"><AuthMessage text={msg} /></div>}
+      {(msg || (rateLimited && wait.left > 0)) && <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700" role="alert" data-testid="auth-message"><AuthMessage text={rateLimited && wait.left > 0 ? rateLimitedText(wait.left) : msg} /></div>}
     </>
   );
 }

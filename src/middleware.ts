@@ -172,60 +172,11 @@ export async function middleware(req: NextRequest) {
     }
   }
   if (user && (pathname === '/login' || pathname === '/signup')) {
-    // Prompt 680/682 — this used to send EVERY signed-in visitor straight to
-    // APP_HOME ('/pipeline') regardless of role, unlike '/' and '/investors'
-    // (landing-redirect.ts), which already route by role. A signed-in
-    // investor revisiting /login landed in the founder app instead of
-    // /portal — confirmed in production ahead of the Portugal Ventures
-    // pilot (Prompt 680 Fase 1). Can't call resolveRole here (server-only,
-    // and heavier than middleware should do per request) — mirrors the
-    // existing platform_admins self-check below with the same lightweight,
-    // RLS-scoped queries instead of a second full role resolution.
-    const [{ data: loginAdmin }, { data: loginMember }] = await Promise.all([
-      supabase.from('platform_admins').select('user_id').eq('user_id', user.id).maybeSingle(),
-      supabase.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle(),
-    ]);
-    let isOpenFounder = false;
-    if (loginMember) {
-      // Prompt 900 — a deleted org is no more a founder hat than a closed one (founder-hat.ts, the same predicate
-      // resolveRoleSignals uses; this file cannot import server-only code, which is why it is its own pure module).
-      const { data: org } = await supabase.from('orgs').select('closed_at, moderation_status').eq('id', loginMember.org_id).maybeSingle();
-      isOpenFounder = isLiveFounderOrg(org);
-    }
+    // Prompt 923 (A) — a signed-in visitor on /login or /signup goes through /go, the one router that knows every area the person has (src/lib/areas.ts). It used to decide here with a lighter copy of the rule
+    // (Prompt 680/682), which sent every founder to /pipeline and every other account to /portal whatever else they were — the same fixed destinations that put a firm member on an empty data-room page.
     const home = req.nextUrl.clone();
-    home.search = '';
-    // Prompt I-01 — the incubator signal is the same SQL function resolveRole
-    // calls (has_active_incubator_membership), so the rule lives in one
-    // place; only asked when the founder branch did not already win, which
-    // is decideRole's own order (founder > incubator > investor). A missing
-    // function (migration not yet applied) reads as false.
-    const incubatorSignal = (loginAdmin || isOpenFounder) ? null : await supabase.rpc('has_active_incubator_membership');
-    if (loginAdmin || isOpenFounder) {
-      home.pathname = APP_HOME;
-    } else if (incubatorSignal && !incubatorSignal.error && incubatorSignal.data === true) {
-      home.pathname = '/ecosystem';
-    } else {
-      // Prompt 587 — investor_entity_claims joins the same lightweight
-      // precedence resolveRole() itself now uses (supabase-server.ts's
-      // decideRole): an approved claim is its own 'investor' signal, and a
-      // still-pending one gets its own destination rather than falling
-      // through to '/'. RLS scopes this to the caller's own rows (same
-      // policy the /claim page's own reads rely on), so this is safe on
-      // the request-scoped `supabase` client — no service-role needed here.
-      const [{ data: investorMember }, { data: grant }, { data: claims }] = await Promise.all([
-        supabase.from('matchdeal_investor_members').select('id').eq('user_id', user.id).eq('status', 'active').limit(1).maybeSingle(),
-        user.email
-          ? supabase.from('access_grants').select('id').eq('grantee_email', user.email).limit(1).maybeSingle()
-          : Promise.resolve({ data: null }),
-        supabase.from('investor_entity_claims').select('status').eq('claimant_user_id', user.id).in('status', ['approved', 'pending']),
-      ]);
-      const hasApprovedClaim = (claims ?? []).some((c) => c.status === 'approved');
-      const hasPendingClaim = (claims ?? []).some((c) => c.status === 'pending');
-      // role 'none' has no home (landing-redirect.ts) — '/' renders instead
-      // of redirecting for that role, so send it there rather than replay
-      // /pipeline's empty-shell dead end.
-      home.pathname = (investorMember || grant || hasApprovedClaim) ? '/portal' : hasPendingClaim ? '/claim/pending' : '/';
-    }
+    home.pathname = '/go';
+    home.search = req.nextUrl.searchParams.get('as') === 'investor' ? '?as=investor' : '';
     return NextResponse.redirect(home);
   }
 

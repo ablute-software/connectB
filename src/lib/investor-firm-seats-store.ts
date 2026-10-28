@@ -145,11 +145,16 @@ export function makeSeatStore(admin: SupabaseClient): SeatStore {
     },
 
     async openInvites(entityId) {
-      const { data, error } = await admin.from('investor_firm_seat_invites').select('id, email, invited_by, created_at')
+      const full = await admin.from('investor_firm_seat_invites').select('id, email, invited_by, created_at, failure_reason')
         .eq('catalog_entity_id', entityId).eq('status', 'open').order('created_at', { ascending: true });
+      // Prompt 923: until the migration that adds failure_reason is applied, ask for the columns that always existed — the reserved seats are counted against the plan, so an error here must never read as "no invitations".
+      const res = full.error
+        ? await admin.from('investor_firm_seat_invites').select('id, email, invited_by, created_at').eq('catalog_entity_id', entityId).eq('status', 'open').order('created_at', { ascending: true })
+        : full;
+      const { data, error } = res as unknown as { data: Row[] | null; error: unknown };
       if (error) return [];
       return ((data ?? []) as Row[]).map((r): SeatInvite => ({
-        id: r.id as string, email: r.email as string, invitedBy: (r.invited_by as string | null) ?? null, createdAt: r.created_at as string,
+        id: r.id as string, email: r.email as string, invitedBy: (r.invited_by as string | null) ?? null, createdAt: r.created_at as string, failureReason: (r.failure_reason as string | null) ?? null,
       }));
     },
 

@@ -25,7 +25,7 @@ function SetPasswordInner() {
   // before — except for an account that already has its password (below), which just goes on to the platform.
   const nextParam = sp.get('next');
   const [alreadySet, setAlreadySet] = useState<boolean | null>(null);
-  const next = nextParam ? confirmDestination(nextParam, typeof window === 'undefined' ? 'https://www.sherlockdeal.com' : window.location.origin, '/portal') : alreadySet ? '/' : '/portal';
+  const next = nextParam ? confirmDestination(nextParam, typeof window === 'undefined' ? 'https://www.sherlockdeal.com' : window.location.origin, '/go?as=investor') : alreadySet ? '/' : '/go?as=investor';   // Prompt 923 (A): never a fixed /portal — /go knows which area the person has
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);

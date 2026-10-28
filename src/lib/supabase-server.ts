@@ -65,40 +65,9 @@ export function isAbluteTeamEmail(email: string | undefined | null): boolean {
 // founder who also runs an incubator stays 'founder' (lands on /pipeline) and
 // crosses over with the hat switcher; the people of an accelerator that also
 // invests (D3) resolve as 'incubator' and reach /portal the same way.
-export interface RoleSignals {
-  isPlatformAdmin: boolean;
-  hasOpenFounderOrg: boolean;
-  hasActiveIncubatorMembership: boolean;
-  hasApprovedClaim: boolean;
-  hasActiveInvestorMembership: boolean;
-  hasAccessGrant: boolean;
-  isAbluteTeamEmailConfirmed: boolean;
-  hasPendingClaim: boolean;
-}
-
-export function decideRole(signals: RoleSignals): Role {
-  if (signals.isPlatformAdmin) return 'developer';
-  if (signals.hasOpenFounderOrg) return 'founder';
-  if (signals.hasActiveIncubatorMembership) return 'incubator';
-  if (signals.hasApprovedClaim) return 'investor';
-  if (signals.hasActiveInvestorMembership) return 'investor';
-  if (signals.hasAccessGrant) return 'investor';
-  if (signals.isAbluteTeamEmailConfirmed) return 'developer';
-  if (signals.hasPendingClaim) return 'investor_pending';
-  return 'none';
-}
-
-// Prompt I-01 — which workspaces this user can open, independent of which
-// one decideRole() picks as the landing. Feeds the hat switcher (B.4).
-export interface Hats { founder: boolean; incubator: boolean; investor: boolean }
-
-export function hatsFromSignals(signals: RoleSignals): Hats {
-  return {
-    founder: signals.hasOpenFounderOrg,
-    incubator: signals.hasActiveIncubatorMembership,
-    investor: signals.hasApprovedClaim || signals.hasActiveInvestorMembership || signals.hasAccessGrant,
-  };
-}
+import { decideRole, hatsFromSignals, type RoleSignals, type Hats } from './role-decision';
+export { decideRole, hatsFromSignals };
+export type { RoleSignals, Hats };
 
 export async function resolveRole(
   userId: string,

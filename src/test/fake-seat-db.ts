@@ -13,7 +13,9 @@ import { MATCHDEAL_TIER_TO_INVESTOR_PLAN, investorSeatLimit } from '@/lib/plans'
 export type Row = Record<string, unknown>;
 export interface SeatDb {
   tables: Record<string, Row[]>;
-  users: Map<string, { id: string; email: string }>;
+  users: Map<string, { id: string; email: string; user_metadata?: Record<string, unknown> }>;
+  /** Prompt 923: what the auth provider's email-code endpoint was asked, and a failure to answer with. */
+  otp?: { requests: { email: string; shouldCreateUser: boolean }[]; fail?: { status: number; code?: string; message: string } | null };
   clock: number;
   seq: number;
 }
@@ -68,7 +70,8 @@ function memberTriggers(db: SeatDb, prev: Row | null, next: Row) {
 
 const DEFAULTS: Record<string, () => Row> = {
   matchdeal_investor_members: () => ({ role: 'member', status: 'active' }),
-  investor_firm_seat_invites: () => ({ status: 'open', accepted_user_id: null }),
+  // Prompt 923: the invitation's own token is a column default in the database (two uuids without dashes), and failure_reason is empty until an attempt fails.
+  investor_firm_seat_invites: () => ({ status: 'open', accepted_user_id: null, accepted_at: null, failure_reason: null, failed_at: null, token: `${crypto.randomUUID()}${crypto.randomUUID()}`.replace(/-/g, '') }),
   investor_seat_codes: () => ({ status: 'active', redeemed_by: null, redeemed_at: null }),
   investor_seat_events: () => ({ detail: {}, actor_user_id: null }),
   investor_entity_claims: () => ({ status: 'pending' }),
@@ -235,6 +238,18 @@ export function fakeSeatAdmin(db: SeatDb): SupabaseClient {
       }
       return { data: null, error: { message: `unknown rpc ${name}` } };
     },
-    auth: { admin: { getUserById: async (id: string) => ({ data: { user: db.users.get(id) ?? null }, error: null }) } },
+    auth: {
+      admin: {
+        getUserById: async (id: string) => ({ data: { user: db.users.get(id) ?? null }, error: null }),
+        updateUserById: async (id: string, patch: { user_metadata?: Record<string, unknown> }) => { const u = db.users.get(id); if (u && patch.user_metadata) u.user_metadata = patch.user_metadata; return { data: { user: u ?? null }, error: null }; },
+      },
+      signInWithOtp: async (args: { email: string; options?: { shouldCreateUser?: boolean } }) => {
+        const o = (db.otp ??= { requests: [] });
+        if (o.fail) return { data: {}, error: Object.assign(new Error(o.fail.message), { status: o.fail.status, code: o.fail.code, name: 'AuthApiError' }) };
+        o.requests.push({ email: args.email, shouldCreateUser: args.options?.shouldCreateUser === true });
+        if (![...db.users.values()].some((u) => u.email === args.email) && args.options?.shouldCreateUser) { const id = `new-${db.users.size + 1}`; db.users.set(id, { id, email: args.email }); }
+        return { data: {}, error: null };
+      },
+    },
   } as unknown as SupabaseClient;
 }

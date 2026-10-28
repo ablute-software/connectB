@@ -85,6 +85,7 @@ describe('authenticated response builders never carry verifyIdentity', () => {
       user: { id: 'user-1', email: 'founder@example.com' },
       role: 'founder',
       hats: { founder: true, incubator: false, investor: false },
+      areas: ['founder'],
       orgRole: 'owner',
       plan: 'garage',
       entitlements: {
@@ -103,7 +104,7 @@ describe('authenticated response builders never carry verifyIdentity', () => {
     const result = buildAuthenticatedMeResponse(fields);
     expect('verifyIdentity' in result).toBe(false);
     expect(Object.keys(result).sort()).toEqual(
-      ['authEnabled', 'capabilities', 'entitlements', 'hats', 'orgRole', 'pioneerBadge', 'plan', 'reviewQuota', 'role', 'user', 'viewer', 'watson'].sort(),
+      ['areas', 'authEnabled', 'capabilities', 'entitlements', 'hats', 'orgRole', 'pioneerBadge', 'plan', 'reviewQuota', 'role', 'user', 'viewer', 'watson'].sort(),
     );
     // Round-trips every field it was given, unmodified.
     expect(result).toEqual(fields);
@@ -140,6 +141,7 @@ describe('authenticated response builders never carry verifyIdentity', () => {
       user: { id: 'user-1', email: undefined },
       role: 'investor',
       hats: { founder: false, incubator: false, investor: true },
+      areas: ['investor'],
       orgRole: null,
       plan: 'idea',
       entitlements: {} as unknown as AuthenticatedMeResponse['entitlements'],

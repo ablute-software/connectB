@@ -60,7 +60,8 @@ export interface PendingSeatClaim {
   id: string; claimantUserId: string; claimantEmail: string; requestedRole: string | null; createdAt: string;
 }
 
-export interface SeatInvite { id: string; email: string; invitedBy: string | null; createdAt: string }
+/** `failureReason` (Prompt 923): why the last attempt to accept this open invitation could not be completed; the invitation stays open. */
+export interface SeatInvite { id: string; email: string; invitedBy: string | null; createdAt: string; failureReason?: string | null }
 
 export interface SeatEvent {
   id: number; event: string; userId: string | null; email: string | null; actorUserId: string | null;

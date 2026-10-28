@@ -30,6 +30,7 @@ import { ecosystemFactsAvailable } from '@/lib/ecosystem-facts-capability';
 import { vaultPinOwnerManagedAvailable } from '@/lib/vault-pin-owner-managed-capability';
 import { taskRemindersAvailable } from '@/lib/task-reminders-capability';
 import { callsMode } from '@/lib/calls/mode';
+import { areasOf } from '@/lib/areas';
 import { resolveUserPlanDetail } from '@/lib/plan-server';
 import { planEntitlements, REVIEW_QUOTA } from '@/lib/plans';
 import { aiWalletStatus, aiWalletStatusForViewer } from '@/lib/ai-credits';
@@ -97,6 +98,7 @@ export const GET = withActingOrg(async function GET(req: NextRequest) {
   // Prompt I-01 — every workspace this account can open (the hat switcher in
   // the founder shell, the portal and the incubator shell reads this).
   const hats = hatsFromSignals(signals);
+  const areas = areasOf(signals);
   // Prompt I-01c §A.3 — the shell sends an account with no home that has an
   // ecosystem-team invite waiting (or was created from one) to the page that
   // accepts it, never to "finish your startup account". Only a boolean.
@@ -170,5 +172,5 @@ export const GET = withActingOrg(async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json(buildAuthenticatedMeResponse({ authEnabled: true, user: { id: user.id, email: user.email }, role, hats, pendingIncubatorMemberInvite, signupIntent, orgRole, plan, planOrigin, storedPlan, entitlements, capabilities, watson, reviewQuota, viewer, pioneerBadge }));
+  return NextResponse.json(buildAuthenticatedMeResponse({ authEnabled: true, user: { id: user.id, email: user.email }, role, hats, areas, pendingIncubatorMemberInvite, signupIntent, orgRole, plan, planOrigin, storedPlan, entitlements, capabilities, watson, reviewQuota, viewer, pioneerBadge }));
 });

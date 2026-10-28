@@ -7,7 +7,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 export type Row = Record<string, unknown>;
 export interface CallsDb {
   tables: Record<string, Row[]>;
-  users: Map<string, { id: string; email: string }>;
+  users: Map<string, { id: string; email: string; user_metadata?: Record<string, unknown> }>;
+  /** Prompt 923: what the email-code endpoint of the auth provider was asked, and a failure to answer with (status, code, message). */
+  otp?: { requests: { email: string; shouldCreateUser: boolean }[]; fail?: { status: number; code?: string; message: string } | null };
   clock: number;
   seq: number;
   /** Prompt 907: the server's clock for the functions that read now() (call_accepting, open, submit). Real time when unset. */
@@ -20,7 +22,7 @@ export function callsDb(): CallsDb {
     'catalog_entities', 'incubators', 'matchdeal_investor_members', 'incubator_members', 'investor_billing', 'matchdeal_profiles',
     // Prompt 909
     'call_deletions', 'call_team_categories', 'call_team_members', 'call_declared_conflicts', 'call_source_documents', 'call_import_runs',
-    'investor_firm_seat_invites',
+    'investor_firm_seat_invites', 'investor_firm_seat_plans', 'investor_seat_events',
     // Prompt 907 (the applicant side)
     'orgs', 'org_members', 'documents', 'document_versions', 'call_link_access', 'call_application_files', 'call_notices',
     // Prompt 917 (Adenda 1, Part B)
@@ -49,6 +51,9 @@ const DEFAULTS: Record<string, (db: CallsDb) => Row> = {
   call_team_categories: () => ({ permissions: {}, catalog_entity_id: null, incubator_id: null }),
   call_team_members: () => ({ permission_overrides: {} }),
   call_declared_conflicts: () => ({ note: null }),
+  // Prompt 923: the invitation's own token is a column default in the database (two uuids without dashes).
+  investor_firm_seat_invites: (db) => ({ status: 'open', token: `${uuid(db)}${uuid(db)}`.replace(/-/g, ''), accepted_user_id: null, accepted_at: null, failure_reason: null, failed_at: null, invited_by: null }),
+  investor_seat_events: () => ({ detail: {}, member_id: null, user_id: null, actor_user_id: null }),
   call_eligibility_rules: () => ({ version: 1, params: {}, note: null, position: 0 }),
   call_eligibility_recipes: () => ({ version: 1, source_text: '' }),
   call_eval_criteria: () => ({ version: 1, position: 0, section: null, guidance: '', format: 'scale', levels: [], comment_required: false, min_score: null }),
@@ -351,6 +356,19 @@ export function fakeCallsAdmin(db: CallsDb, storage: FakeStorage = { objects: ne
         download: async (path: string) => { const o = storage.objects.get(path); return o ? { data: new Blob([Buffer.from(o.bytes)]), error: null } : { data: null, error: { message: 'not found' } }; },
       }),
     },
-    auth: { admin: { getUserById: async (id: string) => ({ data: { user: db.users.get(id) ?? null }, error: null }) } },
+    auth: {
+      admin: {
+        getUserById: async (id: string) => ({ data: { user: db.users.get(id) ?? null }, error: null }),
+        updateUserById: async (id: string, patch: { user_metadata?: Record<string, unknown> }) => { const u = db.users.get(id); if (u && patch.user_metadata) u.user_metadata = patch.user_metadata; return { data: { user: u ?? null }, error: null }; },
+      },
+      signInWithOtp: async (args: { email: string; options?: { shouldCreateUser?: boolean } }) => {
+        const o = (db.otp ??= { requests: [] });
+        if (o.fail) return { data: {}, error: Object.assign(new Error(o.fail.message), { status: o.fail.status, code: o.fail.code, name: 'AuthApiError' }) };
+        o.requests.push({ email: args.email, shouldCreateUser: args.options?.shouldCreateUser === true });
+        const known = [...db.users.values()].some((u) => u.email === args.email);
+        if (!known && args.options?.shouldCreateUser) { const id = `new-${db.users.size + 1}`; db.users.set(id, { id, email: args.email }); }
+        return { data: {}, error: null };
+      },
+    },
   } as unknown as SupabaseClient;
 }

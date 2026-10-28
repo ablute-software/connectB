@@ -32,7 +32,7 @@ export const CRAWLER_DISALLOWED_PATHS = [
   '/login', '/signup', '/auth', '/set-password', '/reset-password', '/forgot-password', '/welcome',
   '/pipeline', '/today', '/agenda', '/dashboard', '/documents', '/outbox', '/automations', '/packs', '/queue', '/log', '/import',
   '/needs-review', '/readiness', '/plans', '/network', '/messages', '/tasks', '/calls', '/settings', '/company', '/catalog-people',
-  '/pair', '/portal', '/claim', '/ecosystem', '/incubator', '/suspended', '/blocked', '/closed',
+  '/pair', '/portal', '/go', '/claim', '/ecosystem', '/incubator', '/suspended', '/blocked', '/closed',
 ];
 
 /** Fetch pages to answer a question, or index them for search/answer products: allowed on the public pages. */

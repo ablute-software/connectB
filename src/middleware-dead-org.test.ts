@@ -62,49 +62,39 @@ function world(over: { org?: Record<string, unknown> | null; investorSeat?: bool
 
 beforeEach(() => { h.door = 'active'; h.ecosystem = false; h.tables = world({}); });
 
-async function loginDestination(): Promise<string> {
-  const res = await middleware(new NextRequest(new URL('/login', 'https://www.sherlockdeal.com'), { method: 'GET' }));
+async function loginTarget(path = '/login'): Promise<string> {
+  const res = await middleware(new NextRequest(new URL(path, 'https://www.sherlockdeal.com'), { method: 'GET' }));
   expect(res.status).toBe(307);
-  return new URL(res.headers.get('location') ?? '', 'https://www.sherlockdeal.com').pathname;
+  const to = new URL(res.headers.get('location') ?? '', 'https://www.sherlockdeal.com');
+  return to.pathname + to.search;
 }
 
-describe('middleware /login — a signed-in person with a dead startup org (Prompt 900)', () => {
-  it('a live org → /pipeline, exactly as before', async () => {
-    expect(await loginDestination()).toBe('/pipeline');
+// Prompt 923 (A) — the decision of WHERE a signed-in person goes moved out of the middleware, which used to carry a lighter copy of the rule (and sent every founder to /pipeline and everybody else to /portal), into
+// /go and src/lib/areas.ts (areas.test.ts, src/app/go/go-route.test.ts: a deleted or closed org is no founder area there, a firm member lands in the firm, ...). This file proves the wiring on THIS side:
+// every signed-in visit to /login or /signup goes through /go, whatever the person is, and the door still wins over it.
+describe('middleware /login and /signup — a signed-in person goes through /go (Prompt 923)', () => {
+  it.each([
+    ['a live org', { org: { closed_at: null, moderation_status: 'active' } }, false],
+    ['a deleted org and an ecosystem membership', { org: { closed_at: null, moderation_status: 'deleted' } }, true],
+    ['a deleted org and an investor seat', { org: { closed_at: null, moderation_status: 'deleted' }, investorSeat: true }, false],
+    ['a closed org', { org: { closed_at: '2026-09-30T10:00:00Z', moderation_status: 'active' } }, true],
+    ['nothing at all', { org: null }, false],
+  ])('%s → /go', async (_name, w, ecosystem) => {
+    h.tables = world(w as { org?: Record<string, unknown> | null; investorSeat?: boolean }); h.ecosystem = ecosystem;
+    expect(await loginTarget('/login')).toBe('/go');
+    expect(await loginTarget('/signup')).toBe('/go');
   });
 
-  it('deleted org + ecosystem membership → /ecosystem, not the founder app of the dead org', async () => {
-    h.tables = world({ org: { closed_at: null, moderation_status: 'deleted' } });
-    h.ecosystem = true;
-    expect(await loginDestination()).toBe('/ecosystem');
-  });
-
-  it('deleted org + active investor seat → /portal', async () => {
-    h.tables = world({ org: { closed_at: null, moderation_status: 'deleted' }, investorSeat: true });
-    expect(await loginDestination()).toBe('/portal');
-  });
-
-  it('deleted org and nothing else (if the door ever let them through) → the public landing, never /pipeline', async () => {
-    h.tables = world({ org: { closed_at: null, moderation_status: 'deleted' } });
-    expect(await loginDestination()).toBe('/');
-  });
-
-  it('a closed org (closed_at) is dead too', async () => {
-    h.tables = world({ org: { closed_at: '2026-09-30T10:00:00Z', moderation_status: 'active' } });
-    h.ecosystem = true;
-    expect(await loginDestination()).toBe('/ecosystem');
-  });
-
-  it('suspended org keeps the founder hat at this layer — the door is what blocks it', async () => {
-    h.tables = world({ org: { closed_at: null, moderation_status: 'suspended' } });
-    h.ecosystem = true;
-    expect(await loginDestination()).toBe('/pipeline');
+  it('the choice made on the investor sign-in page travels with the person: /login?as=investor → /go?as=investor', async () => {
+    expect(await loginTarget('/login?as=investor')).toBe('/go?as=investor');
+    expect(await loginTarget('/signup?as=investor')).toBe('/go?as=investor');
+    expect(await loginTarget('/login?as=anything-else')).toBe('/go');
   });
 
   it('and the door still wins over every redirect: a suspended answer sends /login to /suspended', async () => {
     h.door = 'suspended';
     h.tables = world({ org: { closed_at: null, moderation_status: 'suspended' } });
     h.ecosystem = true;
-    expect(await loginDestination()).toBe('/suspended');
+    expect(await loginTarget('/login')).toBe('/suspended');
   });
 });
