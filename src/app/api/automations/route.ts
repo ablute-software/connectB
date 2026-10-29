@@ -36,6 +36,7 @@ import { runInterestReminderSweep, type InterestReminderSweepResult } from '@/li
 import { sendDraftReminders } from '@/lib/calls/applicant/notices';
 import { sendEvaluationReminders } from '@/lib/calls/eval-reminders';
 import { purgeDeletedCalls, type PurgeResult } from '@/lib/calls/purge';
+import { processSends, runDueBatches } from '@/lib/calls/results-publish';
 import {
   malwareScanAvailable, investorVerificationScanAvailable, ndaScanAvailable,
   matchdealPhotoScanAvailable, supportAttachmentScanAvailable, companyMediaScanAvailable,
@@ -216,6 +217,14 @@ export async function GET() {
   } catch (e) {
     console.error('[automations] deleted-calls purge failed:', e);
   }
+  // Prompt 924 (I2) — the results: a publication scheduled for a time that has passed goes out, and the result emails still waiting (a temporary failure's back-off over, or more than the first batch) are sent.
+  let callResults: { due: number; published: number; sends: { tried: number; sent: number; bounced: number; failed: number; retrying: number; waiting: number } } | null = null;
+  try {
+    const due = await runDueBatches(admin, new Date());
+    callResults = { ...due, sends: await processSends(admin, { limit: 400, budgetMs: 40_000 }) };
+  } catch (e) {
+    console.error('[automations] call results failed:', e);
+  }
   // Prompt 918 (I3) — the eligibility queue: whatever nobody got around to (a task waiting for its back-off, one stuck in Processing) is taken forward. Same daily tick, no extra cron.
   let eligibilityQueue: { claimed: number; done: number; requeued: number; technicalFailures: number } | null = null;
   try {
@@ -316,6 +325,7 @@ export async function GET() {
     callDraftReminders,
     callEvalReminders,
     callPurge,
+    callResults,
     eligibilityQueue,
     reconciliationSweep,
     investorNotifyDigestSweep,

@@ -104,6 +104,7 @@ export function ApplicantCalls() {
                     ) : (
                       <>
                         <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${a.stage === 'in_progress' ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'}`} data-testid="stage">{STAGE_LABELS[a.stage]}</span>
+                        {a.resultLabel && <span className="rounded-full bg-[#E8F4F8] px-2.5 py-0.5 text-[11px] font-semibold text-[#0E7490] [overflow-wrap:anywhere]" data-testid="result-label">{a.resultLabel}</span>}
                         {a.token && <Link href={`/call/${a.token}`} className="text-xs font-semibold text-[#0E7490] hover:underline">{a.stage === 'in_progress' ? 'Continue' : 'View'}</Link>}
                       </>
                     )}

@@ -5,11 +5,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_SETTINGS, PLACEHOLDERS, blockersOf, buildMessage, cleanFeedback, defaultMessage, fillPlaceholders, labelOf, nextStepsText, outcomeOf, parseSettingsPatch, roundOf, summarise, unknownPlaceholders,
+  DEFAULT_SETTINGS, MAX_SEND_ATTEMPTS, PLACEHOLDERS, backoffMs, blockersOf, buildMessage, classifyEmailFailure, cleanFeedback, cleanGrade, confirmationMatches, defaultMessage, fillPlaceholders, formatGrade, labelOf, nextStepsText, outcomeOf, parseSettingsPatch, roundOf,
+  scheduleProblem, summarise, unknownPlaceholders,
   type AppFacts, type ResultSettings,
 } from './results';
 
-const app = (over: Partial<AppFacts> = {}): AppFacts => ({ applicationId: 'a1', reference: 'REF-001', startupName: 'Blue Health', applicantUserId: 'u1', decision: null, eligibility: 'fit', eligibilityReason: null, feedback: null, ...over });
+const app = (over: Partial<AppFacts> = {}): AppFacts => ({ applicationId: 'a1', reference: 'REF-001', startupName: 'Blue Health', applicantUserId: 'u1', decision: null, eligibility: 'fit', eligibilityReason: null, feedback: null, grade: null, ...over });
 const settings = (over: Partial<ResultSettings> = {}): ResultSettings => ({ ...DEFAULT_SETTINGS, labels: {}, messages: {}, ...over });
 const input = (over: Partial<Parameters<typeof buildMessage>[0]> = {}): Parameters<typeof buildMessage>[0] => ({
   settings: settings(), call: { name: 'Seed Call 2027', contentLanguage: 'en' }, entityName: 'Portugal Ventures', app: app({ decision: 'advance' }), applicantName: 'Ana Silva', hasNextPhase: false, formatDay: (d) => `on ${d}`, ...over,
@@ -192,5 +193,72 @@ describe('the evaluators\' comments can never be in a message', () => {
       const src = fs.readFileSync(path.join(ROOT, rel), 'utf8').split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
       for (const forbidden of ['call_evaluations', 'call_eval_scores', 'overall_comment', 'private_note', 'grade_percent', 'eval-store', 'loadBoard']) expect(src, `${rel} must not mention ${forbidden}`).not.toContain(forbidden);
     }
+  });
+});
+
+
+// --- Prompt 924, I2 -------------------------------------------------------------------------------------------------------------------------------------
+
+describe('the validated grade (Nuno, 28/10/2026): an option per call, off by default; only what an administrator validated', () => {
+  it('off by default', () => { expect(DEFAULT_SETTINGS.shareGrade).toBe(false); });
+  it('a grade is 0–100 with up to two decimals, a comma is fine, empty clears it, anything else is refused', () => {
+    expect(cleanGrade('91,5')).toEqual({ ok: true, grade: 91.5 });
+    expect(cleanGrade(' 70.25 ')).toEqual({ ok: true, grade: 70.25 });
+    expect(cleanGrade(0)).toEqual({ ok: true, grade: 0 });
+    expect(cleanGrade('100')).toEqual({ ok: true, grade: 100 });
+    for (const empty of ['', '   ', null, undefined]) expect(cleanGrade(empty)).toEqual({ ok: true, grade: null });
+    for (const bad of ['101', '-1', '12.345', 'high', '1e2', '10%', {}]) expect(cleanGrade(bad), String(bad)).toMatchObject({ ok: false });
+  });
+  it('it is written "82%" / "82.5%" / "7.25%"', () => { expect(formatGrade(82)).toBe('82%'); expect(formatGrade(82.5)).toBe('82.5%'); expect(formatGrade(7.25)).toBe('7.25%'); });
+  it('the message carries the validated grade only when the call shares it, and only for a result that comes from a decision', () => {
+    const base = input({ app: app({ decision: 'reject', grade: 48 }) });
+    expect(buildMessage(base)!.html).not.toContain('Score');                                                        // option off: never
+    const on = buildMessage({ ...base, settings: settings({ shareGrade: true }) })!;
+    expect(on.html).toContain('<strong>Score:</strong> 48%');
+    expect(on.grade).toBe(48);
+    expect(buildMessage({ ...base, settings: settings({ shareGrade: true }), app: app({ decision: 'reject', grade: null }) })!.html).not.toContain('Score');
+    // a "Not a fit" was never evaluated: whatever is stored, no score
+    expect(buildMessage({ ...base, settings: settings({ shareGrade: true }), app: app({ eligibility: 'not_fit', grade: 99 }) })!.html).not.toContain('Score');
+  });
+  it('in the language of the call', () => {
+    const m = buildMessage({ ...input({ app: app({ decision: 'advance', grade: 80 }), call: { name: 'Chamada', contentLanguage: 'pt' } }), settings: settings({ shareGrade: true }) })!;
+    expect(m.html).toContain('<strong>Pontuação:</strong> 80%');
+  });
+  it('with the option on, every evaluated application needs its grade before publishing; an eligibility "Not a fit" does not', () => {
+    const apps = [app({ applicationId: 'a', decision: 'advance', grade: 90 }), app({ applicationId: 'b', decision: 'reject' }), app({ applicationId: 'c', eligibility: 'not_fit' })];
+    const s = summarise(apps);
+    expect(s.needGrade.map((x) => x.applicationId)).toEqual(['b']);
+    expect(blockersOf({ summary: s, callStatus: 'closed', alreadyPublished: false }).map((b) => b.code)).toEqual([]);                      // off: not asked for
+    expect(blockersOf({ summary: s, callStatus: 'closed', alreadyPublished: false, shareGrade: true }).map((b) => b.code)).toEqual(['missing_grade']);
+    expect(blockersOf({ summary: summarise([apps[0], apps[2]]), callStatus: 'closed', alreadyPublished: false, shareGrade: true })).toEqual([]);
+  });
+  it('the option is a boolean like the others', () => {
+    expect(parseSettingsPatch({ shareGrade: true })).toEqual({ ok: true, patch: { shareGrade: true } });
+    expect(parseSettingsPatch({ shareGrade: 'yes' })).toMatchObject({ ok: false });
+  });
+});
+
+describe('scheduling, confirming and retrying', () => {
+  const now = new Date('2026-10-29T12:00:00Z');
+  it('a schedule is a real moment, at least two minutes ahead, within a year', () => {
+    expect(scheduleProblem('2026-10-30T09:00:00Z', now)).toBeNull();
+    expect(scheduleProblem('2026-10-29T12:01:00Z', now)).toBe('Choose a time at least 2 minutes from now.');
+    expect(scheduleProblem('2026-10-29T11:00:00Z', now)).toBe('Choose a time at least 2 minutes from now.');
+    expect(scheduleProblem('2028-01-01T00:00:00Z', now)).toBe('Choose a date within the next year.');
+    for (const bad of ['', 'tomorrow', null, undefined, 5]) expect(scheduleProblem(bad, now), String(bad)).toBe('Choose a date and a time.');
+  });
+  it('the name of the call is typed to confirm: capitals and spaces do not matter, the name does', () => {
+    expect(confirmationMatches('seed   call 2027 ', 'Seed Call 2027')).toBe(true);
+    expect(confirmationMatches('Seed Call 2028', 'Seed Call 2027')).toBe(false);
+    expect(confirmationMatches('', '')).toBe(false);
+    expect(confirmationMatches(undefined, 'Seed Call 2027')).toBe(false);
+  });
+  it('an email is tried five times, waiting 5 minutes, 30 minutes, 2 hours and 6 hours between tries', () => {
+    expect(MAX_SEND_ATTEMPTS).toBe(5);
+    expect([1, 2, 3, 4, 5].map((n) => backoffMs(n) / 60_000)).toEqual([5, 30, 120, 360, 360]);
+  });
+  it('a provider answer about the address is permanent ("bounced"); a timeout or a rate limit is temporary', () => {
+    for (const m of ['Invalid recipient address', 'The email address is not a valid address', 'mailbox does not exist', 'Message rejected', 'recipient is on the suppression list']) expect(classifyEmailFailure(m), m).toBe('permanent');
+    for (const m of ['provider timeout', 'rate limit exceeded', '503 Service Unavailable', '', null, undefined]) expect(classifyEmailFailure(m), String(m)).toBe('temporary');
   });
 });

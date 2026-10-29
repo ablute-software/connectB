@@ -8,7 +8,7 @@ import type { Board } from '@/lib/calls/eval-board-store';
 import type { Draft } from '@/lib/calls/eval-draft';
 import type { GridProposal } from '@/lib/calls/eval-grid-reader';
 import type { Criterion } from '@/lib/calls/eval-grid';
-import type { BuiltMessage, PrepareView } from '@/lib/calls/results';
+import type { BuiltMessage, PrepareView, PublicationView } from '@/lib/calls/results';
 import type { CallStatus, PromoterKind } from '@/lib/calls/types';
 import type { Call, CallPhase, FormField } from '@/lib/calls/types';
 import type { CallSummary, ReadinessIssue, availableActions } from '@/lib/calls/lifecycle';
@@ -140,6 +140,15 @@ export const callsApi = {
   resultsSave: (id: string, patch: Record<string, unknown>) => call<PrepareView>(`/api/calls/${id}/results`, send('PUT', patch)),
   resultsFeedback: (id: string, applicationId: string, text: string) => call<PrepareView>(`/api/calls/${id}/results`, send('POST', { action: 'feedback', applicationId, text })),
   resultsPreview: (id: string, applicationId: string) => call<{ message: BuiltMessage }>(`/api/calls/${id}/results`, send('POST', { action: 'preview', applicationId })),
+  resultsGrade: (id: string, applicationId: string, grade: string) => call<PrepareView>(`/api/calls/${id}/results`, send('POST', { action: 'grade', applicationId, grade })),
+  /** Prompt 924 (I2): publishing — the view, the test email, publish now or at a time, cancel the schedule, send what waits, send one again. */
+  publication: (id: string) => call<PublicationView>(`/api/calls/${id}/results/publish`),
+  publicationTest: (id: string) => call<{ sent: number; to: string }>(`/api/calls/${id}/results/publish`, send('POST', { action: 'test' })),
+  publicationPublish: (id: string, confirmName: string) => call<PublicationView & { published: number }>(`/api/calls/${id}/results/publish`, send('POST', { action: 'publish', confirmName })),
+  publicationSchedule: (id: string, at: string, confirmName: string) => call<PublicationView & { scheduledAt: string }>(`/api/calls/${id}/results/publish`, send('POST', { action: 'schedule', at, confirmName })),
+  publicationCancel: (id: string) => call<PublicationView>(`/api/calls/${id}/results/publish`, send('POST', { action: 'cancel_schedule' })),
+  publicationSendWaiting: (id: string) => call<PublicationView>(`/api/calls/${id}/results/publish`, send('POST', { action: 'process_sends' })),
+  publicationResend: (id: string, sendId: string) => call<PublicationView & { status: string }>(`/api/calls/${id}/results/publish`, send('POST', { action: 'resend', sendId })),
   /** Prompt 922 (I2): the distribution of the applications among the evaluators (the administrator's screen) and every move on it. */
   distribution: (id: string) => call<DistributionView>(`/api/calls/${id}/distribution`),
   distributionMode: (id: string, mode: DistributionMode) => call<DistributionView>(`/api/calls/${id}/distribution`, send('POST', { action: 'mode', mode })),

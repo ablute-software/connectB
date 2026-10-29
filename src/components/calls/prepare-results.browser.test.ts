@@ -10,7 +10,7 @@ import type { AppFacts } from '@/lib/calls/results';
 const CHROME = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/chromium']
   .filter((p): p is string => !!p).find((p) => fs.existsSync(p));
 
-const app = (id: string, name: string, over: Partial<AppFacts> = {}): AppFacts => ({ applicationId: id, reference: `REF-${id}`, startupName: name, applicantUserId: `u-${id}`, decision: null, eligibility: 'fit', eligibilityReason: null, feedback: null, ...over });
+const app = (id: string, name: string, over: Partial<AppFacts> = {}): AppFacts => ({ applicationId: id, reference: `REF-${id}`, startupName: name, applicantUserId: `u-${id}`, decision: null, eligibility: 'fit', eligibilityReason: null, feedback: null, grade: null, ...over });
 const APPS = [app('1', 'Blue Health', { decision: 'advance' }), app('2', 'Cyan Labs', { decision: 'reject' }), app('3', 'Green Tech', { decision: 'waitlist' }), app('4', 'Grey Co'), app('5', 'Red Ltd', { eligibility: 'not_fit', eligibilityReason: 'Founded after 2024.' })];
 const DECIDED = APPS.map((a) => (a.decision || a.eligibility === 'not_fit' ? a : { ...a, decision: 'waitlist' as const }));
 

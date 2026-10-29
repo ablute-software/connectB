@@ -25,8 +25,8 @@ import type { ApplicationRow } from './store';
 /** What an applicant is told. */
 export type ApplicantNoticeKind = 'submission_received' | 'draft_reminder' | 'deadline_extended';
 /** Every kind of notice in call_notices: the applicant's three, and (Prompt 909, Adenda 2b) the two that tell the team an import has ended. */
-export type NoticeKind = ApplicantNoticeKind | 'call_cancelled' | 'call_restored' | 'form_changed' | 'import_ready' | 'import_failed' | 'eval_assigned' | 'eval_reminder';
-export const APPLICANT_NOTICE_KINDS: NoticeKind[] = ['submission_received', 'draft_reminder', 'deadline_extended', 'call_cancelled', 'call_restored', 'form_changed'];
+export type NoticeKind = ApplicantNoticeKind | 'call_cancelled' | 'call_restored' | 'form_changed' | 'import_ready' | 'import_failed' | 'eval_assigned' | 'eval_reminder' | 'result_published' | 'contestation_received' | 'contestation_answered';
+export const APPLICANT_NOTICE_KINDS: NoticeKind[] = ['submission_received', 'draft_reminder', 'deadline_extended', 'call_cancelled', 'call_restored', 'form_changed', 'result_published', 'contestation_answered'];
 export const IMPORT_NOTICE_KINDS: NoticeKind[] = ['import_ready', 'import_failed'];
 /** Prompt 922 (I2): what an EVALUATOR is told — applications assigned to them, and the reminders before the deadline of the evaluation. Never shown to an applicant. */
 export const EVALUATOR_NOTICE_KINDS: NoticeKind[] = ['eval_assigned', 'eval_reminder'];
@@ -118,7 +118,7 @@ export async function emailNotice(admin: SupabaseClient, noticeId: string | null
  * The entity's logo, small, beside its name — above the heading of the call's emails (Prompt 918, Adenda 1 C). Nothing when the call has no logo (or when it is not known which call it is):
  * an email is never held back for a picture. The address is absolute (an email client has no page to resolve it against).
  */
-async function brandLine(admin: SupabaseClient, call: Partial<Call>): Promise<string> {
+export async function brandLine(admin: SupabaseClient, call: Partial<Call>): Promise<string> {
   try {
     if (!call.id || !call.promoterKind || !call.promoterId) return '';
     const logo = (await brandingOf(admin, [call as Call], 'public')).get(call.id)?.logoUrl;
@@ -130,7 +130,7 @@ async function brandLine(admin: SupabaseClient, call: Partial<Call>): Promise<st
   } catch { return ''; }
 }
 
-async function emailOf(admin: SupabaseClient, userId: string): Promise<string | null> {
+export async function emailOf(admin: SupabaseClient, userId: string): Promise<string | null> {
   const { data } = await admin.auth.admin.getUserById(userId);
   return data?.user?.email ?? null;
 }
