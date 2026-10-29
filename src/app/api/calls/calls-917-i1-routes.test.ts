@@ -120,10 +120,10 @@ describe('files: the real format, several files, never a ZIP', () => {
     expect((await attach(id, F.others, 'plan.pdf', PDF)).status).toBe(200);
     expect((await attach(id, F.others, 'cv.docx', docx(['Curriculum']))).status).toBe(200);
     // a presentation: not among the formats of this question
-    expect(await attach(id, F.others, 'deck.pptx', pptx())).toMatchObject({ status: 400, body: { error: 'Only PDF or Word files are accepted.' } });
+    expect(await attach(id, F.others, 'deck.pptx', pptx())).toMatchObject({ status: 400, body: { error: 'This file is a PowerPoint presentation, but this question accepts PDF or Word files (.pdf, .docx, .doc).' } });
     // a ZIP: never, whatever it is called
     expect(await attach(id, F.others, 'bundle.zip', plainZip())).toMatchObject({ status: 400, body: { error: expect.stringContaining('ZIP files are not accepted') } });
-    expect(await attach(id, F.others, 'cv2.docx', zipNamedAsOffice())).toMatchObject({ status: 400, body: { error: 'Only PDF or Word files are accepted.' } });
+    expect(await attach(id, F.others, 'cv2.docx', zipNamedAsOffice())).toMatchObject({ status: 400, body: { error: 'The content of “cv2.docx” is not what its name says (a renamed or damaged file), so it cannot be accepted. This question accepts PDF or Word files (.pdf, .docx, .doc).' } });
     // by its bytes, not its name: a program called .pdf, and a Word file called .pdf
     expect((await attach(id, F.others, 'invoice.pdf', exe())).status).toBe(400);
     expect((await attach(id, F.others, 'really-word.pdf', docx(['x']))).status).toBe(400);

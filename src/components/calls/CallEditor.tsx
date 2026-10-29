@@ -158,6 +158,9 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
   const editPhases = (next: PhaseDraft[]) => { phasesRef.current = next; setPhases(next); schedule('phases'); };
   const editFields = (next: FormField[]) => { fieldsRef.current = next; setFields(next); schedule('form'); };
 
+  // How many rules / criteria a step holds: only a CHANGE is news. (A new state object on every report made the editor re-render, and a step that reloads on every render never settled.)
+  const setRulesCount = useCallback((n: number) => setServer((s) => (s && s.eligibilityRules !== n ? { ...s, eligibilityRules: n } : s)), []);
+  const setCriteriaCount = useCallback((n: number) => setServer((s) => (s && s.evalCriteria !== n ? { ...s, evalCriteria: n } : s)), []);
   const goTab = (main: MainTab) => {
     if (main === 'setup' && !server?.canManage) return;                // the tab is not shown to them; nothing else may open it either
     setNav({ main, step: main === 'setup' ? nav?.step ?? 'general' : 'general' }); setJump(null); setSetupNote(null);
@@ -319,14 +322,14 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
           {nav.step === 'phases' && <PhasesTab phases={phases} disabled={readOnly} onChange={editPhases} />}
           {nav.step === 'form' && <FormTab callId={callId} fields={fields} disabled={readOnly} lockedReason={reason} canConvert={server.canManage && call.status !== 'archived'} onConverted={(s) => adopt(s, true)} onChange={editFields} onImport={importForm} onImportDocuments={() => { setImportRunId(null); setImportDocs(true); }} importStatus={importStatus} onReview={reviewProposal} selectId={jump?.target} selectKey={jump?.n} />}
           {nav.step === 'eligibility' && <EligibilityStep callId={callId} call={call} disabled={!server.canManage} canManage={server.canManage}
-            onRulesChanged={(n) => setServer((s) => (s ? { ...s, eligibilityRules: n } : s))} onState={(s) => adopt(s, true)} />}
+            onRulesChanged={setRulesCount} onState={(s) => adopt(s, true)} />}
           {nav.step === 'team' && (
             <div className="min-w-0 space-y-4">
               <TeamTab callId={callId} />
               <DistributionPanel callId={callId} canManage={server.canManage} />
             </div>
           )}
-          {nav.step === 'grid' && <EvalGridStep callId={callId} canManage={server.canManage} onCriteriaChanged={(n) => setServer((s) => (s ? { ...s, evalCriteria: n } : s))} />}
+          {nav.step === 'grid' && <EvalGridStep callId={callId} canManage={server.canManage} onCriteriaChanged={setCriteriaCount} />}
           {nav.step === 'review' && (
             <PreviewTab
               call={call} effectiveStatus={server.effectiveStatus} phases={server.phases} fields={fields} issues={server.issues} summary={server.summary}

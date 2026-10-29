@@ -3,7 +3,7 @@
 // eligible."). What the import found appears as "Suggested rules" (nothing becomes a rule without a click). A document rule shows "How we check this document", read only: the platform prepared it from
 // the text the entity wrote and nobody has to confirm it. An open requirement offers a closed question instead. The rules are frozen once the call has opened: a change then makes a new version and asks,
 // in the page, for a confirmation that says how many applications are evaluated again. Nothing here is a browser dialog.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RULE_KIND_LABELS, ruleSentence, type EligibilityRule, type RuleKind } from '@/lib/calls/eligibility';
 import type { EligibilityView, QuestionOption, RuleView } from '@/lib/calls/eligibility-view';
 import type { Call } from '@/lib/calls/types';
@@ -49,11 +49,14 @@ export function EligibilityStep({ callId, call, disabled, canManage, onRulesChan
   const [ask, setAsk] = useState<{ text: string; rules: unknown[] } | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
 
+  // The callback is a new function on every render of the editor: loading must not depend on its identity (see EvalGridStep — it made the step reload endlessly and drop what was being typed).
+  const countRef = useRef(onRulesChanged);
+  countRef.current = onRulesChanged;
   const load = useCallback(async () => {
     const r = await callsApi.eligibility(callId);
     if (!r.ok) { setError(r.body.error ?? 'Could not load the rules.'); return; }
-    setError(''); setView(r.body); onRulesChanged(r.body.rules.length);
-  }, [callId, onRulesChanged]);
+    setError(''); setView(r.body); countRef.current(r.body.rules.length);
+  }, [callId]);
   useEffect(() => { void load(); }, [load]);
 
   const editable = !disabled && canManage && !!view && (view.mode === 'edit' || view.mode === 'versioned');

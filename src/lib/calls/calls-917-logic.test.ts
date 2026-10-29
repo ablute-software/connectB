@@ -65,13 +65,17 @@ describe('a File question: formats and several files', () => {
     expect(formatOfName('cv.docx', ['pdf'])).toBeNull();
     expect(formatOfName('photo.jpeg', ['image'])).toBe('image');
     expect(formatOfName('bundle.zip', ['pdf', 'word', 'excel', 'powerpoint', 'image'])).toBeNull();
-    expect(formatOfName('old.doc', ['word'])).toBeNull();
+    // The old Office formats count since 29/10/2026 (the server decides by the bytes); a macro-enabled file never does.
+    expect(formatOfName('old.doc', ['word'])).toBe('word');
+    expect(formatOfName('old.XLS', ['excel'])).toBe('excel');
+    expect(formatOfName('old.ppt', ['powerpoint'])).toBe('powerpoint');
+    for (const n of ['book.xlsm', 'cv.docm', 'deck.pptm']) expect(formatOfName(n, ['word', 'excel', 'powerpoint'])).toBeNull();
   });
   it('validates the format, the size, and how many files', () => {
     const f = field('file', { required: true, validations: { fileFormats: ['pdf', 'word'], maxFiles: 2, maxFileMb: 1 } });
     expect(validateAnswer(f, [fv('a.pdf'), fv('b.docx')])).toBeNull();
     expect(validateAnswer(f, [fv('a.pdf'), fv('b.docx'), fv('c.pdf')])).toBe('You can attach at most 2 files.');
-    expect(validateAnswer(f, fv('a.xlsx'))).toBe('Only PDF or Word files are accepted.');
+    expect(validateAnswer(f, fv('a.xlsx'))).toBe('“a.xlsx” is not an accepted file type. This question accepts PDF or Word files (.pdf, .docx, .doc).');
     expect(validateAnswer(f, [fv('a.pdf', 2 * 1024 * 1024)])).toBe('The file is too large (maximum 1 MB).');
     expect(validateAnswer(f, fv('a.pdf'))).toBeNull();                                       // one file where several are allowed
     expect(validateAnswer(field('file', { validations: { maxFileMb: 10 } }), [fv('a.pdf'), fv('b.pdf')])).toBe('Only one file can be attached here.');
@@ -172,7 +176,7 @@ describe('a group — answering and validating', () => {
     expect(validateAnswer(team, answer)).toBe('Team member 2 — Email: This answer is required.');
     expect(groupErrors(team, answer)).toEqual({ ['entry-2/' + U(2)]: 'This answer is required.' });
     expect(validateAnswer(team, [entry('entry-1', { [U(1)]: 'Ana', [U(2)]: 'not-an-email' })])).toBe('Team member 1 — Email: Enter a valid email address.');
-    expect(validateAnswer(team, [entry('entry-1', { [U(1)]: 'Ana', [U(2)]: 'ana@example.pt', [U(3)]: fv('cv.docx') })])).toBe('Team member 1 — CV: Only PDF files are accepted.');
+    expect(validateAnswer(team, [entry('entry-1', { [U(1)]: 'Ana', [U(2)]: 'ana@example.pt', [U(3)]: fv('cv.docx') })])).toBe('Team member 1 — CV: “cv.docx” is not an accepted file type. This question accepts PDF files (.pdf).');
   });
   it('a group is answered when an entry holds something; a group with only empty entries is not', () => {
     expect(isAnswered([entry('e1', { [U(1)]: 'Ana' })])).toBe(true);

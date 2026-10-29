@@ -250,7 +250,7 @@ describe('I2 — documents', () => {
     expect(db.tables.call_application_files).toHaveLength(1);
     // A PDF by name that is not a PDF by content is refused and removed.
     const fake = putObject(ORG_A, 'fake.pdf', new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]));
-    expect((await attachDeck(id, fake, 'fake.pdf'))).toMatchObject({ status: 400, body: { error: 'Only PDF files are accepted.' } });
+    expect((await attachDeck(id, fake, 'fake.pdf'))).toMatchObject({ status: 400, body: { error: 'The content of “fake.pdf” is not what its name says (a renamed or damaged file), so it cannot be accepted. This question accepts PDF files (.pdf).' } });
     expect(storage.objects.has(fake)).toBe(false);
     // Over the question's limit (1 MB here).
     const big = putObject(ORG_A, 'big.pdf', new Uint8Array([...PDF, ...new Uint8Array(1024 * 1024 + 10)]));

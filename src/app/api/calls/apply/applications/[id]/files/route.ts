@@ -15,7 +15,7 @@ import { addFile, loadFiles, loadVaultPdf, objectSize, removeFileRow } from '@/l
 import { fileAnswer } from '@/lib/calls/applicant/answers';
 import { scanWithVirusTotal, sha256Hex } from '@/lib/upload-security';
 import { fileFormatsOf, fileQuestions, formatsText, maxFileMbOf, maxFilesOf } from '@/lib/calls/field-config';
-import { ZIP_REFUSED, formatOfBytes, isZipName } from '@/lib/calls/applicant/file-format';
+import { checkFile } from '@/lib/calls/applicant/file-format';
 import { logCallEvent } from '@/lib/calls/store';
 
 export const dynamic = 'force-dynamic';
@@ -62,9 +62,9 @@ export const POST = withActingOrg(async function POST(req: Request, { params }: 
     if (dlErr || !blob) return NextResponse.json({ ok: false, error: 'We could not read the uploaded file. Please try again.' }, { status: 400 });
     const bytes = Buffer.from(await blob.arrayBuffer());
     const reject = async (error: string) => { await a.admin.storage.from(BUCKET).remove([path]); return NextResponse.json({ ok: false, error }, { status: 400 }); };
-    if (isZipName(name)) return reject(ZIP_REFUSED);
-    const real = formatOfBytes(bytes, name);
-    if (!real || !formats.includes(real)) return reject(`Only ${formatsText(formats)} files are accepted.`);
+    // What it REALLY is (by its bytes, and for the old Office formats by the streams inside), whether it carries macros, and whether this question takes it: every refusal says why and what is accepted.
+    const checked = checkFile(bytes, name, formats);
+    if (!checked.ok) return reject(checked.error);
     if (tooBig(bytes.length)) return reject(`The file is too large (maximum ${maxMb} MB).`);
     const verdict = await scanWithVirusTotal(bytes);
     if (verdict.status === 'flagged') return reject(`Upload blocked: ${verdict.detail}`);

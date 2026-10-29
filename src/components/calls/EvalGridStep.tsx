@@ -51,9 +51,14 @@ export function EvalGridStep({ callId, canManage, onCriteriaChanged }: { callId:
   const [tab, setTab] = useState<'build' | 'preview'>('build');
   const runRef = useRef<string | null>(null);
 
+  // The editor hands over a NEW callback on every render. If loading depended on its identity, every render of the editor (and loading itself makes one) would load again and replace what is being typed with
+  // what the server has — which is how "Add a criterion" opened and vanished (Prompt 922, Adenda 1, A: the grid was read 126 times in a second and a half). The callback is read through a ref; the grid is read
+  // when the call changes, and after a save.
+  const countRef = useRef(onCriteriaChanged);
+  countRef.current = onCriteriaChanged;
   const apply = useCallback((v: GridView) => {
-    setView(v); setDrafts(v.criteria.map((c) => toDraft(c))); setSettings(v.settings); setDirty(false); onCriteriaChanged(v.criteria.length);
-  }, [onCriteriaChanged]);
+    setView(v); setDrafts(v.criteria.map((c) => toDraft(c))); setSettings(v.settings); setDirty(false); countRef.current(v.criteria.length);
+  }, []);
   const load = useCallback(async () => {
     const [g, t] = await Promise.all([callsApi.evalGrid(callId), callsApi.evalTemplates(callId)]);
     if (!g.ok) { setError(g.body.error ?? 'Could not load the grid.'); return; }
@@ -118,7 +123,6 @@ export function EvalGridStep({ callId, canManage, onCriteriaChanged }: { callId:
         {view.mode === 'locked' && <p className="mt-2 rounded bg-sky-50 px-2 py-1.5 text-xs text-sky-900" data-testid="grid-locked">The grid is locked while the call is confirmed. Use “Edit configuration” in Review &amp; publish to change it before the call opens.</p>}
         {view.mode === 'versioned' && <p className="mt-2 rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-900" data-testid="grid-frozen">{view.evaluations.submitted} evaluation{view.evaluations.submitted === 1 ? '' : 's'} already submitted: the grid is frozen (version {view.version}). Changing the criteria makes a new version; those evaluations keep theirs.</p>}
         {view.mode === 'archived' && <p className="mt-2 rounded bg-gray-50 px-2 py-1.5 text-xs text-gray-700">An archived call cannot be changed.</p>}
-        {error && <p role="alert" className="mt-2 rounded bg-red-50 px-2 py-1.5 text-xs text-[#B00000]" data-testid="grid-error">{error}</p>}
         <div role="tablist" aria-label="Grid view" className="mt-3 flex gap-1 border-b border-gray-200">
           {(['build', 'preview'] as const).map((t) => <button key={t} type="button" role="tab" aria-selected={tab === t} data-testid={`grid-tab-${t}`} onClick={() => setTab(t)}
             className={`-mb-px min-h-[44px] border-b-2 px-3 py-2 text-sm sm:min-h-0 ${tab === t ? 'border-[#0E7490] font-semibold text-[#0E7490]' : 'border-transparent text-gray-600 hover:text-gray-900'}`}>{t === 'build' ? 'Build' : 'As the evaluator sees it'}</button>)}
@@ -179,6 +183,8 @@ export function EvalGridStep({ callId, canManage, onCriteriaChanged }: { callId:
             </div>
           )}
 
+          {/* An error is shown right where the person is looking — above the buttons that caused it — never at the top of a long step. */}
+          {error && <p role="alert" className="rounded bg-red-50 px-2 py-1.5 text-xs text-[#B00000]" data-testid="grid-error-near">{error}</p>}
           {editable && (
             <div className="flex flex-wrap items-center gap-2" data-testid="grid-actions">
               <button type="button" className={PRIMARY} disabled={busy || !dirty} data-testid="grid-save" onClick={() => void save(false)}>{busy ? 'Saving…' : 'Save the grid'}</button>

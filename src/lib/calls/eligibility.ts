@@ -245,6 +245,26 @@ export function ruleProblems(rule: EligibilityRule, fields: Pick<FormField, 'id'
 // --- Evaluating one answer (objective rules) ---------------------------------------------------------------------------------------------------
 
 export type Outcome = 'pass' | 'fail' | 'validate';
+
+/** What an application's visible reason starts with when a PERSON decided (the whole application, or one rule of it). */
+export const RECLASSIFIED_BY_A_PERSON = 'Reclassified by a person: ';
+
+/**
+ * Any clear failure → Not a fit; else any doubt → To validate; else Fit. `overrides` are what a person decided on a rule: they replace the engine's verdict of that rule AND its reason — the reason that is shown for a rule
+ * a person corrected is theirs ("Reclassified by a person: …"), never the engine's, which is no longer what decided it (Prompt 922, Adenda 1, 29/10/2026). Pure: the engine, the review and the screens read the same thing.
+ */
+export function aggregateRules(
+  results: { ruleId: string; outcome: Outcome; reason: string }[], overrides: Record<string, { outcome: Outcome; why?: string }> = {},
+): { status: 'fit' | 'not_fit' | 'to_validate'; reason: string } {
+  const humanReason = (id: string): string | null => (overrides[id]?.why?.trim() ? `${RECLASSIFIED_BY_A_PERSON}${overrides[id].why!.trim()}` : null);
+  const final = results.map((r) => ({ ...r, outcome: overrides[r.ruleId]?.outcome ?? r.outcome, reason: humanReason(r.ruleId) ?? r.reason }));
+  const failed = final.filter((r) => r.outcome === 'fail');
+  if (failed.length > 0) return { status: 'not_fit', reason: failed.map((r) => r.reason).join(' ') };
+  const doubts = final.filter((r) => r.outcome === 'validate');
+  if (doubts.length > 0) return { status: 'to_validate', reason: doubts.map((r) => r.reason).join(' ') };
+  const corrected = results.filter((r) => humanReason(r.ruleId)).map((r) => humanReason(r.ruleId) as string);
+  return { status: 'fit', reason: final.length === 0 ? 'There are no eligibility rules: every submitted application is a Fit.' : corrected.length > 0 ? corrected.join(' ') : 'Meets every eligibility rule.' };
+}
 export interface RuleResult { ruleId: string; outcome: Outcome; reason: string; evidence?: { quote?: string; page?: number | null; fileName?: string } | null }
 
 const answered = (v: AnswerValue): boolean => v !== null && v !== undefined && (typeof v !== 'string' || v.trim() !== '') && (!Array.isArray(v) || v.length > 0);

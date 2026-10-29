@@ -12,7 +12,8 @@ vi.mock('@supabase/supabase-js', () => ({ createClient: () => fakeCallsAdmin(db,
 vi.mock('@/lib/supabase-server', () => ({ authEnabled: true, serverClient: async () => ({ auth: { getUser: async () => ({ data: { user: null } }) } }) }));
 
 import { aggregate, claimTasks, enqueueReevaluation, failTask, processQueue } from '@/lib/calls/eligibility-engine';
-import { accuracy, correctRule, flagApplication, reclassify } from '@/lib/calls/eligibility-review';
+import { accuracy, correctRule, flagApplication, loadCurrent, reclassify } from '@/lib/calls/eligibility-review';
+import { buildInfo } from '@/lib/calls/eligibility-payload';
 import { loadRecipes, writeRules } from '@/lib/calls/eligibility-store';
 import { newField } from '@/lib/calls/form-builder';
 import { rowToCall } from '@/lib/calls/mappers';
@@ -295,6 +296,33 @@ describe('what a person can correct', () => {
       call_id: CALL_A, application_id: appId, rule_kind: 'number', engine_outcome: 'fail', human_outcome: 'pass', author_user_id: 'ana', justification: 'Board approved an exception', is_call_exception: true, rules_version: 1,
     }]);
     expect(String(db.tables.call_eligibility_corrections[0].engine_reason)).toContain('outside the limit');
+  });
+
+  it('correcting ONE rule shows the person\'s reason, not the engine\'s: To validate → Not a fit says "Reclassified by a person: …" (Prompt 922, Adenda 1, 29/10/2026)', async () => {
+    const appId = await evaluated(['open']);
+    const engineReason = String(current(appId)!.reason);
+    expect(engineReason).not.toContain('Reclassified');
+    const ruleId = (current(appId)!.rule_results as { ruleId: string }[])[0].ruleId;
+    const why = 'The contents of the file do not correspond to a pitch deck';
+    const r = await correctRule(admin(), callOf(CALL_A), appId, { ruleId, outcome: 'fail', justification: why, actor: 'ana' });
+    expect(r).toEqual({ ok: true, status: 'not_fit', reason: `Reclassified by a person: ${why}` });
+    expect(current(appId)).toMatchObject({ status: 'not_fit', source: 'human', reason: `Reclassified by a person: ${why}` });
+    // what was saved BEFORE the fix (the engine's reason stayed): the screen recomputes it from what the person decided
+    const stale = { ...(await loadCurrent(admin(), appId))!, reason: engineReason };
+    expect(buildInfo(stale, null)).toMatchObject({ state: 'not_fit', reason: `Reclassified by a person: ${why}` });
+    // a result the ENGINE decided keeps the engine's reason
+    expect(buildInfo({ ...stale, source: 'engine', overrides: {} }, null).reason).toBe(engineReason);
+  });
+
+  it('the person\'s reason also shows when the correction makes it a Fit, and only for the rules a person corrected — another failing rule keeps its own reason', async () => {
+    const appId = await evaluated(['options', 'number'], { ...good('a'), [ids('a').sector]: 'o-other', [ids('a').raised]: '999999' });
+    const numberReason = (current(appId)!.rule_results as { kind: string; reason: string }[]).find((x) => x.kind === 'number')!.reason;
+    const r1 = await correctRule(admin(), callOf(CALL_A), appId, { ruleId: ruleIdOf(appId, 'options'), outcome: 'pass', justification: 'Other counts as Health here', actor: 'ana' });
+    expect(r1).toMatchObject({ ok: true, status: 'not_fit' });
+    expect(r1.ok && r1.reason).toBe(numberReason);                                        // the number is still the engine's call
+    const r2 = await correctRule(admin(), callOf(CALL_A), appId, { ruleId: ruleIdOf(appId, 'number'), outcome: 'pass', justification: 'Rounded amount accepted', actor: 'ana' });
+    expect(r2).toMatchObject({ ok: true, status: 'fit' });
+    expect(r2.ok && r2.reason).toBe('Reclassified by a person: Other counts as Health here Reclassified by a person: Rounded amount accepted');
   });
 
   it('a correction without a reason is refused; an unknown rule is refused; before the first evaluation there is nothing to correct', async () => {

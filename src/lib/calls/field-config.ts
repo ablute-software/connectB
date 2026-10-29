@@ -13,9 +13,10 @@ import {
 export interface FileFormatInfo { label: string; extensions: string[]; accept: string; mime: string[] }
 export const FILE_FORMATS: Record<FileFormatKey, FileFormatInfo> = {
   pdf: { label: 'PDF', extensions: ['pdf'], accept: 'application/pdf,.pdf', mime: ['application/pdf'] },
-  word: { label: 'Word', extensions: ['docx'], accept: '.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document', mime: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'] },
-  excel: { label: 'Excel', extensions: ['xlsx'], accept: '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', mime: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'] },
-  powerpoint: { label: 'PowerPoint', extensions: ['pptx'], accept: '.pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation', mime: ['application/vnd.openxmlformats-officedocument.presentationml.presentation'] },
+  // The old Office formats (.doc, .xls, .ppt) are accepted too (29/10/2026): decided by their CONTENT on the server (file-format.ts), like the new ones. Files WITH macros are never accepted (.xlsm, .docm, .pptm, or a VBA project inside).
+  word: { label: 'Word', extensions: ['docx', 'doc'], accept: '.docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword', mime: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword'] },
+  excel: { label: 'Excel', extensions: ['xlsx', 'xls'], accept: '.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel', mime: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel'] },
+  powerpoint: { label: 'PowerPoint', extensions: ['pptx', 'ppt'], accept: '.pptx,.ppt,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint', mime: ['application/vnd.openxmlformats-officedocument.presentationml.presentation', 'application/vnd.ms-powerpoint'] },
   image: { label: 'Image (JPG, PNG)', extensions: ['jpg', 'jpeg', 'png'], accept: 'image/jpeg,image/png,.jpg,.jpeg,.png', mime: ['image/jpeg', 'image/png'] },
 };
 
@@ -38,12 +39,36 @@ const extOf = (name: string): string => (/\.([a-z0-9]+)$/i.exec(name)?.[1] ?? ''
 /** Which of the accepted formats a file NAME belongs to (a first, cheap check in the browser; the server checks the bytes). */
 export const formatOfName = (name: string, formats: FileFormatKey[]): FileFormatKey | null =>
   formats.find((f) => FILE_FORMATS[f].extensions.includes(extOf(name))) ?? null;
+const MIME_OF_EXT: Record<string, string> = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', doc: 'application/msword',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', xls: 'application/vnd.ms-excel',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', ppt: 'application/vnd.ms-powerpoint',
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+};
 /** The content type to say for a file of this name. */
-export function mimeOfName(name: string): string | undefined {
-  const e = extOf(name);
-  for (const k of FILE_FORMAT_KEYS) if (FILE_FORMATS[k].extensions.includes(e)) return FILE_FORMATS[k].mime[e === 'png' ? 1 : 0];
-  return undefined;
-}
+export const mimeOfName = (name: string): string | undefined => MIME_OF_EXT[extOf(name)];
+
+// --- What is said when a file is refused: always WHY, and which formats are accepted ------------------------------------------------------------------
+
+export const MACROS_REFUSED = 'Files with macros are not accepted. Save it as a normal Excel/Word/PowerPoint file and upload again.';
+/** Macro-enabled Office files, by name (the content is checked on the server too: a VBA project inside a normal-looking file is refused as well). */
+export const isMacroName = (name: string): boolean => /\.(xlsm|xlsb|docm|pptm|xltm|dotm|potm|xlam|ppam|ppsm|sldm)$/i.test(name.trim());
+const extensionsText = (formats: FileFormatKey[]): string => formats.flatMap((f) => FILE_FORMATS[f].extensions).map((e) => `.${e}`).join(', ');
+/** "PDF or Word files (.pdf, .docx, .doc)". */
+export const acceptedFilesText = (formats: FileFormatKey[]): string => `${formatsText(formats)} files (${extensionsText(formats)})`;
+const WHAT: Record<FileFormatKey, string> = { pdf: 'a PDF', word: 'a Word document', excel: 'an Excel workbook', powerpoint: 'a PowerPoint presentation', image: 'an image' };
+/** By the name only: the type is not one the question takes. */
+export const notAcceptedMessage = (formats: FileFormatKey[], fileName?: string): string =>
+  `${fileName ? `“${fileName}” is not an accepted file type.` : 'That file type is not accepted.'} This question accepts ${acceptedFilesText(formats)}.`;
+/** The type the browser DECLARED for the file is not one of the accepted ones (whatever its name says). */
+export const declaredTypeMessage = (formats: FileFormatKey[], fileName: string, mime: string): string =>
+  `The type declared for “${fileName}” (${mime}) is not an accepted one. This question accepts ${acceptedFilesText(formats)}.`;
+/** By the bytes: it is a real file of ANOTHER accepted-by-the-platform format. */
+export const wrongFormatMessage = (actual: FileFormatKey, formats: FileFormatKey[]): string => `This file is ${WHAT[actual]}, but this question accepts ${acceptedFilesText(formats)}.`;
+/** By the bytes: the content is not what the name says (a renamed file, a damaged one). */
+export const contentMismatchMessage = (formats: FileFormatKey[], fileName: string): string =>
+  `The content of “${fileName}” is not what its name says (a renamed or damaged file), so it cannot be accepted. This question accepts ${acceptedFilesText(formats)}.`;
 
 // --- Link and email ---------------------------------------------------------------------------------------------------------------------
 
