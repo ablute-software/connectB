@@ -10234,6 +10234,27 @@ Relatório em `docs/calls/PROMPT_917_I2_ADENDA1_PARTE_B.md`. Migração `2026101
 
 **Limites.** O teste usa o markup estático do painel (sem a altura que o `AutoTextarea` calcula no browser depois de carregar); a altura não afeta a largura, que é o que se mede. Em ecrãs de toque o resto do editor mantém as regras da Adenda 1 do 918.
 
+## Prompt 924 — Calls, Etapa 4 (28/10/2026) — I1: preparar os resultados (branch `claude/924-i1-prepare-results`)
+
+**Valores confirmados pelo Nuno (28/10/2026):** contestações desligadas por omissão, com 10 dias de calendário quando ligadas; conservação dos dados dos candidatos 24 meses depois de "Completed"; feedback desligado por omissão.
+
+**O que mudou.** Results deixou de ser "Coming in the next stage": Results → Prepare mostra o que cada candidatura vai ouvir (das decisões Advance/Reject/Waitlist do quadro), quem ainda não tem decisão (e impede publicar), o nome e a mensagem de cada resultado, as opções e uma pré-visualização com uma candidatura real. **Nada chega ao candidato** (princípio 1): publicar é o I2.
+
+**Decisões de detalhe (o mais simples):**
+- *Uma "Not a fit" sem decisão é "Not selected"*; com decisão, a decisão ganha; "To validate" sem decisão está pendente.
+- *Só se prepara/publica com a call fechada* (a spec não permite publicar com candidaturas ainda a entrar); um aviso diz-o.
+- *O feedback não é um campo `{…}` da mensagem*: acrescenta-se no fim, com o título "Feedback" na língua da call, só se existir. O motivo da elegibilidade igual, só se a entidade o quiser.
+- *"Publish results" é aplicada no servidor desde já* (`authCall need: 'publish_results'`). "Handle contestations" fica `enforced: false` até o I3 a aplicar.
+- *Uma mensagem igual ao texto de partida não se grava como "própria"*: o texto de partida acompanha a língua da call.
+- *O separador Results só aparece a quem tem "Publish results" ou "Handle contestations"*; um link para lá de quem não tem leva ao separador que pode usar.
+- *Fases:* `call_applications.current_phase_id` (nulo = primeira fase). A "ronda" de resultados é a primeira fase ainda não publicada.
+
+**Garantia estrutural (princípio 3):** o código que constrói, guarda ou mostra um resultado não pode mencionar `call_evaluations`, `call_eval_scores`, `overall_comment`, `private_note`, `grade_percent`, `eval-store` nem `loadBoard`; um teste lê os ficheiros e falha se algum aparecer. E o teste das rotas semeia comentários, notas privadas e a nota interna da decisão e verifica que não saem em nenhuma resposta.
+
+**Limite de tempo dos testes (29/10/2026).** Três testes que leem o `src/` inteiro (`controller.test.ts`, `website-health-reads.test.ts`, `no-bare-password-field.test.ts`) passaram a demorar 5,1–5,7 s, acima dos 5 s por omissão do vitest, e falhavam pelo relógio e não pelo que verificam (também sozinhos, numa máquina livre). `vitest.config.ts` ganha `testTimeout: 30_000`; as asserções não mudam. Um teste que bloqueie continua a falhar, 30 s depois.
+
+Relatório e diferenças face à spec: `docs/calls/PROMPT_924_ETAPA4.md`.
+
 ## Prompt 923 (pendente) — O Setup só para quem pode "Configure call" (28/10/2026, branch `claude/923-setup-permission`)
 
 **A regra.** O separador **Setup** só existe para quem tem "Configure call" na call. Quem não tem vê Applications · Evaluation · Results e a call abre num separador que pode usar: **Applications** se tiver "View all applications", **Evaluation** (e lá dentro "My evaluations", não o quadro) se só avaliar — seja a call rascunho ou publicada. Um link direto para o Setup (`?section=setup`, `?step=…`, ou um `?tab=` antigo que agora vive no Setup) leva-o para esse separador **com uma nota de uma linha** ("Setup is only for people who can configure this call, so this opened Applications instead."); o endereço passa a dizer onde a pessoa está. Uma call que simplesmente abre por omissão não leva nota (a pessoa não pediu nada). Um link para Applications de quem não pode ver as candidaturas (um avaliador) também vai para Evaluation, sem nota: o servidor recusava-lhe esse ecrã.

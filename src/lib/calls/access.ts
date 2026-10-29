@@ -38,6 +38,9 @@ export interface Promoter {
   /** Per call only (set by authCall): "View all applications" and "Evaluate assigned applications" — what the editor needs to open on a tab the person can use (Prompt 923). */
   canViewApplications?: boolean;
   canEvaluate?: boolean;
+  /** Prompt 924: "Publish results" and "Handle contestations" — the Results tab is shown to whoever has one of them. */
+  canPublishResults?: boolean;
+  canHandleContestations?: boolean;
 }
 
 export const INVESTOR_MANAGE_ROLES = ['owner', 'admin'];
@@ -109,7 +112,7 @@ const forbid = (what: string) => ({ error: NextResponse.json({ ok: false, error:
  * `need: 'configure'`) they must have "Configure call" in it; to edit the team (`need: 'team'`), "Manage team &
  * permissions". The returned promoter carries the answers for THIS call (canManage, canManageTeam).
  */
-export async function authCall(callId: string, opts: { write?: boolean; need?: 'configure' | 'team' | 'view_applications'; includeDeleted?: boolean } = {}): Promise<CallsGate<CallAuth>> {
+export async function authCall(callId: string, opts: { write?: boolean; need?: 'configure' | 'team' | 'view_applications' | 'publish_results' | 'handle_contestations'; includeDeleted?: boolean } = {}): Promise<CallsGate<CallAuth>> {
   const auth = await authCalls();
   if (auth.error) return auth;
   // A deleted call is not reachable (404) unless the route is the one that lists or restores deleted calls.
@@ -130,7 +133,10 @@ export async function authCall(callId: string, opts: { write?: boolean; need?: '
   if (need === 'team' && !perms.manage_team) return forbid('Manage team & permissions');
   // Prompt 907 (I4): the list of submitted applications is for whoever may "View all applications" (the administrators, and any category that has it).
   if (need === 'view_applications' && !perms.view_all_applications) return forbid('View all applications');
-  return { ...auth, call, perms, team, promoter: { ...promoter, canManage: perms.configure_call, canManageTeam: perms.manage_team, canViewApplications: perms.view_all_applications, canEvaluate: perms.evaluate_assigned } };
+  // Prompt 924 (Etapa 4): the results are for whoever may "Publish results"; the contestations of the applicants for whoever may "Handle contestations". Both are now enforced on every request.
+  if (need === 'publish_results' && !perms.publish_results) return forbid('Publish results');
+  if (need === 'handle_contestations' && !perms.handle_contestations) return forbid('Handle contestations');
+  return { ...auth, call, perms, team, promoter: { ...promoter, canManage: perms.configure_call, canManageTeam: perms.manage_team, canViewApplications: perms.view_all_applications, canEvaluate: perms.evaluate_assigned, canPublishResults: perms.publish_results, canHandleContestations: perms.handle_contestations } };
 }
 
 /** For the list of calls: which of them the caller may configure (one set of queries, not one per card). */

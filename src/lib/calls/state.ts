@@ -58,6 +58,8 @@ export async function buildCallState(admin: SupabaseClient, call: Call, promoter
     // Prompt 923: which tab the editor opens on, and whether Setup is shown at all, depends on these (the server still decides every request).
     canViewApplications: promoter.canViewApplications === true,
     canEvaluate: promoter.canEvaluate === true,
+    canPublishResults: promoter.canPublishResults === true,
+    canHandleContestations: promoter.canHandleContestations === true,
     phases, fields, issues,
     // How many people were put on the team (the Setup step "Team & distribution" shows ✓ once there is at least one).
     teamMembers: ((team.data ?? []) as unknown[]).length,

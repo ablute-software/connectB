@@ -3,11 +3,11 @@
 import { createRoot } from 'react-dom/client';
 import { CallEditor } from './CallEditor';
 
-declare global { interface Window { __startEditor: (o: { configure: boolean; viewApplications: boolean; evaluate: boolean; status: string }) => void; __requests: string[] } }
+declare global { interface Window { __startEditor: (o: { configure: boolean; viewApplications: boolean; evaluate: boolean; publishResults?: boolean; handleContestations?: boolean; status: string }) => void; __requests: string[] } }
 
 const CALL_ID = 'call-1';
 
-window.__startEditor = ({ configure, viewApplications, evaluate, status }) => {
+window.__startEditor = ({ configure, viewApplications, evaluate, publishResults, handleContestations, status }) => {
   window.__requests = [];
   const call = {
     id: CALL_ID, promoterKind: 'catalog_entity', promoterId: 'firm-1', name: 'Seed Call', description: null, opensAt: null, closesAt: null, timezone: 'Europe/Lisbon', visibility: 'public', limitUnit: 'per_startup',
@@ -15,7 +15,7 @@ window.__startEditor = ({ configure, viewApplications, evaluate, status }) => {
     createdBy: 'ana', createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
   };
   const state = {
-    ok: true, call, effectiveStatus: status, promoterName: 'zz-test-firm', canManage: configure, canManageTeam: configure, canViewApplications: viewApplications, canEvaluate: evaluate,
+    ok: true, call, effectiveStatus: status, promoterName: 'zz-test-firm', canManage: configure, canManageTeam: configure, canViewApplications: viewApplications, canEvaluate: evaluate, canPublishResults: publishResults === true, canHandleContestations: handleContestations === true,
     phases: [], fields: [], issues: [], teamMembers: 1, eligibilityRules: 0, evalCriteria: 0, branding: { coverUrl: null, logoUrl: null, logoSource: null, profileLogoUrl: null },
     summary: { phases: 0, pages: 0, fields: 0, questions: 0, documents: 0, required: 0, mapped: 0 },
     actions: { canDelete: true, canArchive: false, status }, applications: { submitted: 0, total: 0 }, events: [],

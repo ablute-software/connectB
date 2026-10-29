@@ -12,7 +12,8 @@ import type { Call, FormField } from '@/lib/calls/types';
 import { formatInZone } from '@/lib/calls/tz';
 import { mainTabsFor, navQuery, parseLinkQuery, resolveNavFor, stepStates, type MainTab, type Nav, type StepKey } from '@/lib/calls/editor-nav';
 import { callsApi, type CallState } from './api';
-import { ComingNext, SetupShell } from './SetupShell';
+import { SetupShell } from './SetupShell';
+import { ResultsTab } from './ResultsTab';
 import { GeneralTab, type GeneralPatch } from './GeneralTab';
 import { PhasesTab, type PhaseDraft } from './PhasesTab';
 import { FormTab } from './FormTab';
@@ -170,7 +171,7 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
   // Where the call opens: what the address says (the new section/step, or an old ?tab=), else by the call's state.
   useEffect(() => {
     if (server && !nav) {
-      const r = resolveNavFor(linkQuery.current ?? {}, server.effectiveStatus, { configure: server.canManage, viewApplications: server.canViewApplications === true, evaluate: server.canEvaluate === true });
+      const r = resolveNavFor(linkQuery.current ?? {}, server.effectiveStatus, { configure: server.canManage, viewApplications: server.canViewApplications === true, evaluate: server.canEvaluate === true, publishResults: server.canPublishResults === true, handleContestations: server.canHandleContestations === true });
       setNav(r.nav); setSetupNote(r.note);
     }
   }, [server, nav]);
@@ -286,7 +287,7 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
       </div>
 
       <div role="tablist" aria-label="Call" className="mb-5 flex gap-1 overflow-x-auto whitespace-nowrap border-b border-gray-200" data-testid="main-tabs">
-        {mainTabsFor({ configure: server.canManage, viewApplications: server.canViewApplications === true, evaluate: server.canEvaluate === true }).map((t) => (
+        {mainTabsFor({ configure: server.canManage, viewApplications: server.canViewApplications === true, evaluate: server.canEvaluate === true, publishResults: server.canPublishResults === true, handleContestations: server.canHandleContestations === true }).map((t) => (
           <button key={t.key} type="button" role="tab" aria-selected={nav.main === t.key} data-testid={`tab-${t.key}`} onClick={() => goTab(t.key)}
             className={`-mb-px min-h-[44px] shrink-0 border-b-2 px-4 py-2 text-sm ${nav.main === t.key ? 'border-[#0E7490] font-semibold text-[#0E7490]' : 'border-transparent text-gray-600 hover:text-gray-900'}`}>
             {t.label}
@@ -299,7 +300,7 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
 
       {nav.main === 'applications' && <SubmissionsTab callId={callId} timezone={call.timezone} currency={call.currency} />}
       {nav.main === 'evaluation' && <EvaluationTab callId={callId} />}
-      {nav.main === 'results' && <ComingNext testId="results-soon" title="Results" text="Coming in the next stage. Here you will see the ranking and publish the results." />}
+      {nav.main === 'results' && <ResultsTab callId={callId} canPublish={server.canPublishResults === true} canHandle={server.canHandleContestations === true} onOpenEvaluation={() => goTab('evaluation')} />}
 
       {nav.main === 'setup' && server.canManage && (
         <SetupShell step={nav.step} onStep={(s) => goStep(s)}

@@ -40,10 +40,10 @@ const LEGACY: Record<string, Nav> = {
 };
 
 /** What the person may do in THIS call, as far as the tabs are concerned (the server decides every request on its own). */
-export interface EditorAccess { configure: boolean; viewApplications: boolean; evaluate: boolean }
+export interface EditorAccess { configure: boolean; viewApplications: boolean; evaluate: boolean; publishResults?: boolean; handleContestations?: boolean }
 
-/** Setup is only for whoever may "Configure call": for everybody else the tab is not there. */
-export const mainTabsFor = (a: EditorAccess) => MAIN_TABS.filter((t) => t.key !== 'setup' || a.configure);
+/** Setup is only for whoever may "Configure call", Results only for whoever may "Publish results" or "Handle contestations" (Prompt 924): for everybody else the tab is not there. */
+export const mainTabsFor = (a: EditorAccess) => MAIN_TABS.filter((t) => (t.key === 'setup' ? a.configure : t.key === 'results' ? !!(a.publishResults || a.handleContestations) : true));
 
 /** Where somebody who cannot configure the call opens: Applications when they may view them all, otherwise Evaluation (their own evaluations). */
 export const usableMain = (a: EditorAccess): MainTab => (a.viewApplications ? 'applications' : 'evaluation');
@@ -67,6 +67,7 @@ export function resolveNavFor(q: { tab?: string | null; section?: string | null;
   const landing = usableMain(access);
   // Applications is for whoever may view them all: a call that opens there by default (published), or a link to it, would show an evaluator a screen the server refuses.
   if (wanted.main === 'applications' && !access.viewApplications) return { nav: { main: landing, step: 'general' }, note: null };
+  if (wanted.main === 'results' && !access.publishResults && !access.handleContestations) return { nav: { main: landing, step: 'general' }, note: null };
   if (wanted.main !== 'setup') return { nav: wanted, note: null };
   return { nav: { main: landing, step: 'general' }, note: asksForSetup(q) ? SETUP_RESTRICTED_NOTE(landing) : null };
 }

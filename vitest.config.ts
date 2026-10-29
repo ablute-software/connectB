@@ -29,6 +29,10 @@ export default defineConfig({
   // modules that contain JSX; every existing test is plain .ts.
   oxc: { jsx: { runtime: 'automatic' } },
   test: {
+    // 29/10/2026 (Prompt 924) — three tests read the whole of src/ (the controller literal, the one place the Google key is read, the password-field scan). They took 3-4 s when written and
+    // now take 5.1-5.7 s, over vitest's default of 5 s, so they failed on their clock and not on what they check (alone, on an idle machine, too). Their assertions are untouched; only the
+    // clock moves. A test that hangs still fails, 30 s later.
+    testTimeout: 30_000,
     // 25/08/2026 — Claude Code's isolated-worktree agent runs check out
     // full repo copies under .claude/worktrees/*, INSIDE this project
     // directory. Without this exclude, vitest's default glob picks those

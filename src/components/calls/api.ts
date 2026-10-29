@@ -8,6 +8,7 @@ import type { Board } from '@/lib/calls/eval-board-store';
 import type { Draft } from '@/lib/calls/eval-draft';
 import type { GridProposal } from '@/lib/calls/eval-grid-reader';
 import type { Criterion } from '@/lib/calls/eval-grid';
+import type { BuiltMessage, PrepareView } from '@/lib/calls/results';
 import type { CallStatus, PromoterKind } from '@/lib/calls/types';
 import type { Call, CallPhase, FormField } from '@/lib/calls/types';
 import type { CallSummary, ReadinessIssue, availableActions } from '@/lib/calls/lifecycle';
@@ -41,6 +42,9 @@ export interface CallState {
   /** Prompt 923: "View all applications" and "Evaluate assigned applications" on this call. */
   canViewApplications?: boolean;
   canEvaluate?: boolean;
+  /** Prompt 924: "Publish results" and "Handle contestations". */
+  canPublishResults?: boolean;
+  canHandleContestations?: boolean;
   phases: CallPhase[];
   fields: FormField[];
   issues: ReadinessIssue[];
@@ -131,6 +135,11 @@ export const callsApi = {
   evaluationBoard: (id: string) => call<Board & { canDecide: boolean }>(`/api/calls/${id}/evaluation-board`),
   evaluationBoardAct: (id: string, body: { action: 'decide'; applicationId: string; decision: string | null; note?: string } | { action: 'close' } | { action: 'reopen' }) => call<Board & { canDecide: boolean }>(`/api/calls/${id}/evaluation-board`, send('POST', body)),
   myEvaluations: () => call<{ calls: MineCall[]; remaining: number }>('/api/calls/my-evaluations'),
+  /** Prompt 924 (Etapa 4): preparing the results of a call — the view, the settings, the feedback of one application and the preview of a message (nothing is sent). */
+  results: (id: string) => call<PrepareView>(`/api/calls/${id}/results`),
+  resultsSave: (id: string, patch: Record<string, unknown>) => call<PrepareView>(`/api/calls/${id}/results`, send('PUT', patch)),
+  resultsFeedback: (id: string, applicationId: string, text: string) => call<PrepareView>(`/api/calls/${id}/results`, send('POST', { action: 'feedback', applicationId, text })),
+  resultsPreview: (id: string, applicationId: string) => call<{ message: BuiltMessage }>(`/api/calls/${id}/results`, send('POST', { action: 'preview', applicationId })),
   /** Prompt 922 (I2): the distribution of the applications among the evaluators (the administrator's screen) and every move on it. */
   distribution: (id: string) => call<DistributionView>(`/api/calls/${id}/distribution`),
   distributionMode: (id: string, mode: DistributionMode) => call<DistributionView>(`/api/calls/${id}/distribution`, send('POST', { action: 'mode', mode })),
