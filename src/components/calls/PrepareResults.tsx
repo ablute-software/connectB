@@ -16,11 +16,11 @@ const DEBOUNCE_MS = 700;
 const TITLE: Record<ResultKey, string> = { advance: 'Advance', reject: 'Reject', waitlist: 'Waitlist' };
 
 interface Form {
-  labels: Record<ResultKey, string>; messages: Record<ResultKey, string>; includeEligibilityReason: boolean; feedbackEnabled: boolean; contestationsEnabled: boolean;
+  labels: Record<ResultKey, string>; messages: Record<ResultKey, string>; includeEligibilityReason: boolean; feedbackEnabled: boolean; contestationsEnabled: boolean; shareGrade: boolean;
   contestationDays: string; retentionMonths: string; nextStepsText: string; nextStepsDate: string;
 }
 const formOf = (v: PrepareView): Form => ({
-  labels: { ...v.labels }, messages: { ...v.messages }, includeEligibilityReason: v.settings.includeEligibilityReason, feedbackEnabled: v.settings.feedbackEnabled, contestationsEnabled: v.settings.contestationsEnabled,
+  labels: { ...v.labels }, messages: { ...v.messages }, includeEligibilityReason: v.settings.includeEligibilityReason, feedbackEnabled: v.settings.feedbackEnabled, contestationsEnabled: v.settings.contestationsEnabled, shareGrade: v.settings.shareGrade,
   contestationDays: String(v.settings.contestationDays), retentionMonths: String(v.settings.retentionMonths), nextStepsText: v.settings.nextStepsText, nextStepsDate: v.settings.nextStepsDate ?? '',
 });
 
@@ -66,7 +66,8 @@ export function PrepareResults({ callId, locked = false, lockedReason = null, on
 
   if (error) return <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-[#B00000]" data-testid="results-error">{error}</p>;
   if (!view || !form) return <p className="text-sm text-gray-400" data-testid="results-loading">Loading…</p>;
-  const off = locked;
+  const off = locked || view.locked;
+  const lockNote = lockedReason ?? view.lockedReason;
   const set = (next: Form) => setForm(next);
 
   return (
@@ -75,7 +76,7 @@ export function PrepareResults({ callId, locked = false, lockedReason = null, on
         <p className="min-w-0 text-sm text-gray-600">Nothing here reaches an applicant. {view.phase.name && view.phase.hasNext ? `This is the result of “${view.phase.name}”.` : ''}</p>
         <SaveStatus state={save.state} message={save.message} onRetry={() => void flush()} onReload={() => void load()} />
       </div>
-      {lockedReason && <p role="status" className="rounded-lg bg-sky-50 px-4 py-2.5 text-xs text-sky-900" data-testid="results-locked">{lockedReason}</p>}
+      {lockNote && <p role="status" className="rounded-lg bg-sky-50 px-4 py-2.5 text-xs text-sky-900" data-testid="results-locked">{lockNote}</p>}
 
       <Summary view={view} onOpenEvaluation={onOpenEvaluation} />
 
@@ -103,6 +104,9 @@ export function PrepareResults({ callId, locked = false, lockedReason = null, on
           <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" disabled={off} checked={form.feedbackEnabled} data-testid="opt-feedback"
             onChange={(e) => { set({ ...form, feedbackEnabled: e.target.checked }); change({ feedbackEnabled: e.target.checked }); }} />
             <span className="min-w-0">Feedback to the applicant. Off by default: you write it, application by application, below.</span></label>
+          <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" disabled={off} checked={form.shareGrade} data-testid="opt-share-grade"
+            onChange={(e) => { set({ ...form, shareGrade: e.target.checked }); change({ shareGrade: e.target.checked }); }} />
+            <span className="min-w-0">Tell each applicant their grade. Off by default. Only the grade you validate below is sent — never the average of the evaluations, never an evaluator’s score.</span></label>
           <div>
             <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" disabled={off} checked={form.contestationsEnabled} data-testid="opt-contestations"
               onChange={(e) => { set({ ...form, contestationsEnabled: e.target.checked }); change({ contestationsEnabled: e.target.checked }); }} />
@@ -138,6 +142,7 @@ export function PrepareResults({ callId, locked = false, lockedReason = null, on
         </section>
       )}
 
+      {view.settings.shareGrade && <GradeList callId={callId} view={view} disabled={off} onView={setView} />}
       {view.settings.feedbackEnabled && <FeedbackList callId={callId} view={view} disabled={off} onView={setView} />}
     </div>
   );
@@ -245,6 +250,40 @@ function Preview({ view, callId, flushNow }: { view: PrepareView; callId: string
           <RichText value={msg.html} className="mt-2 text-sm text-gray-800" testId="preview-body" />
         </div>
       )}
+    </section>
+  );
+}
+
+/** The grade an administrator VALIDATES for each evaluated application (0–100 %). Only this is ever sent; the board's average is for administrators and is never what goes out. */
+function GradeList({ callId, view, disabled, onView }: { callId: string; view: PrepareView; disabled: boolean; onView: (v: PrepareView) => void }) {
+  const [text, setText] = useState<Record<string, string>>({});
+  const [state, setState] = useState<Record<string, string | undefined>>({});
+  const evaluated = view.applications.filter((a) => a.source === 'decision');
+  const value = (id: string, stored: number | null) => (id in text ? text[id] : stored === null ? '' : String(stored));
+  async function commit(id: string, stored: number | null) {
+    const v = value(id, stored);
+    if (v.trim() === (stored === null ? '' : String(stored))) return;
+    const r = await callsApi.resultsGrade(callId, id, v);
+    if (!r.ok) { setState((s) => ({ ...s, [id]: r.body.error ?? 'Could not save.' })); return; }
+    setState((s) => ({ ...s, [id]: 'saved' })); onView(r.body);
+  }
+  const missing = evaluated.filter((a) => a.grade === null).length;
+  return (
+    <section className={CARD} data-testid="grade-list">
+      <h2 className="text-sm font-semibold text-gray-900">Validated grade</h2>
+      <p className="mt-1 text-xs text-gray-500">The grade you validate for each application, from 0 to 100. It is sent to the applicant exactly as written here. {missing > 0 ? `${missing} still without a grade: they are needed before the results can be published.` : 'Every evaluated application has one.'}</p>
+      {evaluated.length === 0 && <p className="mt-2 text-sm text-gray-500">No application has a decision yet.</p>}
+      <ul className="mt-3 space-y-2">
+        {evaluated.map((a) => (
+          <li key={a.applicationId} className="flex min-w-0 flex-wrap items-center gap-2" data-testid="grade-item">
+            <label htmlFor={`gr-${a.applicationId}`} className="min-w-0 flex-1 text-xs font-medium text-gray-700 [overflow-wrap:anywhere]">{a.startupName ?? a.reference ?? 'Application'}{a.reference && a.startupName ? ` (${a.reference})` : ''} — {a.label}</label>
+            <input id={`gr-${a.applicationId}`} inputMode="decimal" autoComplete="off" className={`${INPUT} !w-24`} disabled={disabled} value={value(a.applicationId, a.grade)} data-testid="grade-input" placeholder="0 – 100"
+              onChange={(e) => setText((t) => ({ ...t, [a.applicationId]: e.target.value }))} onBlur={() => void commit(a.applicationId, a.grade)} />
+            <span className="text-xs text-gray-500">%</span>
+            {state[a.applicationId] && state[a.applicationId] !== 'saved' && <span role="alert" className="basis-full text-[11px] text-[#B00000]">{state[a.applicationId]}</span>}
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

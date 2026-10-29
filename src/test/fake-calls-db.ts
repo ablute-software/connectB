@@ -34,7 +34,7 @@ export function callsDb(): CallsDb {
     // Prompt 922
     'call_eval_settings', 'call_eval_criteria', 'call_eval_templates', 'call_eval_import_runs', 'call_eval_assignments', 'call_eval_conflicts', 'call_evaluations', 'call_eval_scores', 'call_eval_reopenings', 'call_eval_decisions', 'call_eval_reminders',
     // Prompt 924 (Etapa 4)
-    'call_result_settings', 'call_result_feedback',
+    'call_result_settings', 'call_result_feedback', 'call_result_grades', 'call_result_batches', 'call_results', 'call_result_sends',
   ];
   return { tables: Object.fromEntries(names.map((n) => [n, []])), users: new Map(), clock: Date.UTC(2026, 9, 9, 12, 0, 0), seq: 0 };
 }
@@ -75,6 +75,10 @@ const DEFAULTS: Record<string, (db: CallsDb) => Row> = {
   call_import_runs: () => ({ source_document_ids: [], status: 'proposed', found_later: {}, model: null, tokens_in: null, tokens_out: null, cost_eur: null, applied_at: null, applied_by: null }),
   call_result_settings: () => ({ labels: {}, messages: {}, include_eligibility_reason: false, feedback_enabled: false, contestations_enabled: false, contestation_days: 10, retention_months: 24, next_steps_text: '', next_steps_date: null }),
   call_result_feedback: () => ({ phase_id: null }),
+  call_result_grades: () => ({ phase_id: null }),
+  call_result_batches: () => ({ phase_id: null, scheduled_at: null, scheduled_by: null, published_at: null, published_by: null, total: 0, counts: {}, settings: {} }),
+  call_results: () => ({ phase_id: null, batch_id: null, grade: null, moved_to_phase_id: null, is_current: true, supersedes_id: null, published_at: new Date().toISOString() }),
+  call_result_sends: () => ({ status: 'queued', attempts: 0, last_error: null, next_attempt_at: new Date().toISOString(), sent_at: null }),
   call_phases: () => ({ starts_on: null, ends_on: null }),
   call_form_fields: () => ({
     page: 1, position: 0, instruction: null, required: false, options: [], validations: {}, condition: null,

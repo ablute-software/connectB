@@ -10234,6 +10234,27 @@ Relatório em `docs/calls/PROMPT_917_I2_ADENDA1_PARTE_B.md`. Migração `2026101
 
 **Limites.** O teste usa o markup estático do painel (sem a altura que o `AutoTextarea` calcula no browser depois de carregar); a altura não afeta a largura, que é o que se mede. Em ecrãs de toque o resto do editor mantém as regras da Adenda 1 do 918.
 
+## Prompt 924 — Calls, Etapa 4 (29/10/2026) — I2: publicar (branch `claude/924-i2-publish`)
+
+**Decisões do Nuno (28/10/2026), antes do I2:** (1) **partilhar a nota: sim, como opção por call, desligada por omissão — só a nota validada pelo administrador, nunca a média nem as notas dos avaliadores** (entidades públicas como a Portugal Ventures podem ter de comunicar a pontuação); (2) resultado como documento/link: **não, adiar**; (3) seriação (mínimos, cotas, vagas) será o **Prompt 925**, que o Nuno escreve; os painéis ficam para depois (não se abre o 926); (4) **Upheld como no 924, com duas salvaguardas** (só quem tem "Handle contestations" aceita; o novo resultado é uma nova publicação, com o anterior guardado, nunca por cima) — I3; agendamento como proposto (Hobby).
+
+**O que mudou.** Results ganha **Publish**: o que vai sair e para quantos, o que ainda bloqueia (com o caminho de volta ao Prepare), as mensagens, **"Send me a test"**, publicar agora ou agendar, e, depois, o estado de cada email com "Send again". Tudo se publica **de uma vez, por fase**; antes disso nada chega a ninguém (um teste prova-o: nenhum resultado, aviso, email ou fila, e o endpoint do candidato responde `null`).
+
+**Decisões de detalhe (o mais simples):**
+- *Uma publicação é uma série de passos idempotentes* (resultados, mudança de fase, avisos na app, fila de emails), com o lote `publishing → published`; um pedido que morreu a meio é **terminado** pelo seguinte, nunca duplicado (teste: apagam-se resultados, avisos e fila a meio e volta a publicar-se). Sem transação SQL única: o supabase-js não as tem, e a idempotência dá a mesma garantia.
+- *A confirmação é o nome da call escrito na página* (maiúsculas e espaços não contam). "Publish results for N applicants? This cannot be undone."
+- *Depois de agendar ou publicar, tudo o que foi preparado fica fixo*: nomes, mensagens, opções, feedback, notas **e as decisões** (a rota do quadro devolve 409 com o motivo). O que vem *depois* dos resultados (conservação, contestações) ainda se pode definir. Cancelar o agendamento liberta tudo.
+- *"Selected" numa call com mais fases* → `call_applications.current_phase_id` passa à fase seguinte; a decisão que o levou lá fica em histórico (`is_current=false`) e na fase seguinte é preciso uma nova. A etiqueta passa a "Moves to the next phase". Reject e Waitlist ficam onde estão.
+- *Fila de emails:* `queued → sent`, ou repetição com espera de 5 min, 30 min, 2 h e 6 h (5 tentativas), ou `bounced` (o fornecedor diz que o endereço é o problema: não se repete), ou `failed`. **Um email falhado nunca impede o resultado de aparecer na app.** O administrador vê estado, tentativas e erro (nunca o endereço) e reenvia a um candidato. Os primeiros saem durante a publicação (até 40 s); o resto, no tick diário ou com "Send the N waiting emails now".
+- *"Send me a test":* um email de cada resultado, com dados de exemplo, **só para o administrador que o pede** (prefixo `[Test]`), no máximo 6 por hora.
+- *Email:* cabeçalho da call (logo e nome da entidade, depois o título da call), a etiqueta do resultado, a mensagem, um botão para "My applications" e o rodapé do 911 (acrescentado pelo mailer; o `Reply-To` é o contacto da call, se houver).
+- *Do lado do candidato:* "My applications" mostra a etiqueta e o estado "Result available"; a candidatura submetida mostra, por cima, o resultado e a mensagem (`GET /api/calls/apply/applications/[id]/result`, 404 para candidaturas de outra startup, `null` antes de publicar); o aviso na app usa o mecanismo `call_notices` existente (`result_published`).
+- *Nota validada:* `call_result_settings.share_grade` + `call_result_grades` (0–100, duas casas). Só existe para candidaturas **avaliadas** (resultado vindo de uma decisão; uma "Not a fit" nunca foi avaliada), nunca é calculada, e com a opção ligada **todas as avaliadas precisam dela** antes de publicar (bloqueio em palavras). A mensagem acrescenta "Score: 91.5%" (traduzido). Teste: a nota `grade_percent` de um avaliador (77) nunca aparece em nenhum email nem resposta.
+
+**Agendamento (limite da Hobby, registado em `docs/ops/CONFIG_REGISTRY.md`).** Há um só cron por dia e, enquanto o `CRON_SECRET` estiver pendente, esse tick nem corre sozinho. Por isso uma publicação agendada para as 15:00 sai **na primeira abertura da app depois dessa hora** — abrir "My applications" (qualquer candidato) ou o ecrã Publish — ou no tick seguinte; nunca antes, e nunca duas vezes (cada lote é reclamado por um só chamador: `scheduled → publishing`, testado com duas aberturas em simultâneo). Se o Nuno quiser precisão ao minuto, é preciso um cron externo ou o plano Pro.
+
+Relatório e diferenças face à spec: `docs/calls/PROMPT_924_ETAPA4.md`.
+
 ## Prompt 924 — Calls, Etapa 4 (28/10/2026) — I1: preparar os resultados (branch `claude/924-i1-prepare-results`)
 
 **Valores confirmados pelo Nuno (28/10/2026):** contestações desligadas por omissão, com 10 dias de calendário quando ligadas; conservação dos dados dos candidatos 24 meses depois de "Completed"; feedback desligado por omissão.

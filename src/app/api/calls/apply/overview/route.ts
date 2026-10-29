@@ -10,6 +10,7 @@ import { serviceClient } from '@/lib/calls/applicant/link';
 import { rowToCall } from '@/lib/calls/mappers';
 import { brandingOf } from '@/lib/calls/branding';
 import { sendDraftReminders } from '@/lib/calls/applicant/notices';
+import { runDueBatches } from '@/lib/calls/results-publish';
 import { buildOverview, type ApplicationFacts, type CallFacts } from '@/lib/calls/applicant/overview';
 
 export const dynamic = 'force-dynamic';
@@ -28,6 +29,9 @@ export const GET = withActingOrg(async function GET(req: Request) {
 
   // A draft that is less than 48 hours from its deadline is reminded now, for this person, without waiting for the daily job.
   await sendDraftReminders(admin, new Date(), { userId: user.id }).catch((e) => console.error('[calls] reminder failed:', (e as Error).message));
+
+  // A publication scheduled for a time that has passed goes out now (the daily job may be hours away).
+  await runDueBatches(admin).catch((e) => console.error('[calls] due results failed:', (e as Error).message));
 
   const [{ data: org }, { data: apps }, { data: access }] = await Promise.all([
     admin.from('orgs').select('id, is_test').eq('id', acting.orgId).maybeSingle(),
@@ -65,6 +69,12 @@ export const GET = withActingOrg(async function GET(req: Request) {
     id: a.id as string, callId: a.call_id as string, status: a.status as ApplicationFacts['status'], reference: (a.reference as string | null) ?? null,
     updatedAt: (a.updated_at as string) ?? '', submittedAt: (a.submitted_at as string | null) ?? null,
   }));
-  const overview = buildOverview({ calls: facts, apps: appFacts, linkAccess: reachedIds, viewerIsTestAccount: (org as Row | null)?.is_test === true });
+  // The result the entity published for each of this startup's applications (a label only; the message is read on the application itself).
+  const results: Record<string, string> = {};
+  if (appFacts.length > 0) {
+    const { data: res } = await admin.from('call_results').select('application_id, label').in('application_id', appFacts.map((a) => a.id)).eq('is_current', true);
+    for (const r of (res ?? []) as Row[]) results[r.application_id as string] = String(r.label);
+  }
+  const overview = buildOverview({ calls: facts, apps: appFacts, linkAccess: reachedIds, viewerIsTestAccount: (org as Row | null)?.is_test === true, results });
   return NextResponse.json({ ok: true, startup: true, ...overview });
 });

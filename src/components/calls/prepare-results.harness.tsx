@@ -26,8 +26,8 @@ window.__startPrepare = ({ apps: initial, hasNext = false, status = 'closed' }) 
       placeholders: PLACEHOLDERS, phase: { id: 'p1', name: 'Phase 1', hasNext },
       summary: { total: s.total, counts: s.counts, byEligibility: s.byEligibility, pending: s.pending.map((p) => ({ applicationId: p.applicationId, reference: p.reference, startupName: p.startupName })) },
       blockers: blockersOf({ summary: s, callStatus: status, alreadyPublished: false }),
-      applications: apps.map((a) => { const o = outcomeOf(a); return { applicationId: a.applicationId, reference: a.reference, startupName: a.startupName, result: o.result, label: o.result ? labels[o.result] : null, source: o.source, feedback: a.feedback ?? '' }; }),
-      callStatus: status, language: 'en', timezone: 'Europe/Lisbon',
+      applications: apps.map((a) => { const o = outcomeOf(a); return { applicationId: a.applicationId, reference: a.reference, startupName: a.startupName, result: o.result, label: o.result ? labels[o.result] : null, source: o.source, feedback: a.feedback ?? '', grade: a.grade }; }),
+      callStatus: status, language: 'en', timezone: 'Europe/Lisbon', locked: false, lockedReason: null,
     };
   };
   const reply = (code: number, body: unknown) => new Response(JSON.stringify(body), { status: code, headers: { 'content-type': 'application/json' } });

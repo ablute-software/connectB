@@ -22,11 +22,13 @@ export interface ResultSettings {
   retentionMonths: number;
   nextStepsText: string;
   nextStepsDate: string | null;
+  /** Nuno, 28/10/2026: an option per call, OFF by default. Only the grade an administrator VALIDATED is ever sent — never the average of the evaluations, never an evaluator's score. */
+  shareGrade: boolean;
 }
 
 /** The defaults Nuno decided (28/10/2026): no feedback, no contestations (10 calendar days once on), data kept 24 months after the call is completed. */
 export const DEFAULT_SETTINGS: ResultSettings = {
-  labels: {}, messages: {}, includeEligibilityReason: false, feedbackEnabled: false, contestationsEnabled: false, contestationDays: 10, retentionMonths: 24, nextStepsText: '', nextStepsDate: null,
+  labels: {}, messages: {}, includeEligibilityReason: false, feedbackEnabled: false, contestationsEnabled: false, contestationDays: 10, retentionMonths: 24, nextStepsText: '', nextStepsDate: null, shareGrade: false,
 };
 
 export const MAX_LABEL = 60;
@@ -57,45 +59,45 @@ export function labelOf(key: ResultKey, settings: Pick<ResultSettings, 'labels'>
 // --- The words each result starts with, in the language of the call ---------------------------------------------------------------------------------------
 
 type Lang = 'en' | 'pt' | 'es' | 'fr' | 'de' | 'it';
-interface Words { dear: string; advance: string; advanceNext: string; reject: string; waitlist: string; regards: string; feedback: string; reason: string }
+interface Words { dear: string; advance: string; advanceNext: string; reject: string; waitlist: string; regards: string; feedback: string; reason: string; score: string }
 const WORDS: Record<Lang, Words> = {
   en: {
-    dear: 'Dear {applicant_name},', regards: 'Kind regards,', feedback: 'Feedback', reason: 'Reason',
+    dear: 'Dear {applicant_name},', regards: 'Kind regards,', feedback: 'Feedback', reason: 'Reason', score: 'Score',
     advance: '<p>We are pleased to tell you that {startup_name} has been selected in “{call_title}”.</p><p>{next_steps}</p>',
     advanceNext: '<p>We are pleased to tell you that {startup_name} moves to the next phase of “{call_title}”.</p><p>{next_steps}</p>',
     reject: '<p>Thank you for applying to “{call_title}”. After careful consideration, {startup_name} was not selected this time.</p>',
     waitlist: '<p>Thank you for applying to “{call_title}”. {startup_name} is on the waiting list: if a place becomes available, we will contact you.</p>',
   },
   pt: {
-    dear: 'Caro(a) {applicant_name},', regards: 'Com os melhores cumprimentos,', feedback: 'Comentários', reason: 'Motivo',
+    dear: 'Caro(a) {applicant_name},', regards: 'Com os melhores cumprimentos,', feedback: 'Comentários', reason: 'Motivo', score: 'Pontuação',
     advance: '<p>Temos o prazer de informar que {startup_name} foi selecionada em “{call_title}”.</p><p>{next_steps}</p>',
     advanceNext: '<p>Temos o prazer de informar que {startup_name} passa à fase seguinte de “{call_title}”.</p><p>{next_steps}</p>',
     reject: '<p>Obrigado pela sua candidatura a “{call_title}”. Depois de uma análise cuidada, {startup_name} não foi selecionada desta vez.</p>',
     waitlist: '<p>Obrigado pela sua candidatura a “{call_title}”. {startup_name} está em lista de espera: se surgir uma vaga, entraremos em contacto.</p>',
   },
   es: {
-    dear: 'Estimado/a {applicant_name}:', regards: 'Un cordial saludo,', feedback: 'Comentarios', reason: 'Motivo',
+    dear: 'Estimado/a {applicant_name}:', regards: 'Un cordial saludo,', feedback: 'Comentarios', reason: 'Motivo', score: 'Puntuación',
     advance: '<p>Nos complace informarle de que {startup_name} ha sido seleccionada en «{call_title}».</p><p>{next_steps}</p>',
     advanceNext: '<p>Nos complace informarle de que {startup_name} pasa a la siguiente fase de «{call_title}».</p><p>{next_steps}</p>',
     reject: '<p>Gracias por presentarse a «{call_title}». Tras un estudio cuidadoso, {startup_name} no ha sido seleccionada esta vez.</p>',
     waitlist: '<p>Gracias por presentarse a «{call_title}». {startup_name} está en lista de espera: si queda una plaza libre, nos pondremos en contacto.</p>',
   },
   fr: {
-    dear: 'Bonjour {applicant_name},', regards: 'Cordialement,', feedback: 'Commentaires', reason: 'Motif',
+    dear: 'Bonjour {applicant_name},', regards: 'Cordialement,', feedback: 'Commentaires', reason: 'Motif', score: 'Note',
     advance: '<p>Nous avons le plaisir de vous informer que {startup_name} a été sélectionnée dans « {call_title} ».</p><p>{next_steps}</p>',
     advanceNext: '<p>Nous avons le plaisir de vous informer que {startup_name} passe à la phase suivante de « {call_title} ».</p><p>{next_steps}</p>',
     reject: '<p>Merci d’avoir candidaté à « {call_title} ». Après un examen attentif, {startup_name} n’a pas été sélectionnée cette fois.</p>',
     waitlist: '<p>Merci d’avoir candidaté à « {call_title} ». {startup_name} est sur liste d’attente : si une place se libère, nous vous contacterons.</p>',
   },
   de: {
-    dear: 'Guten Tag {applicant_name},', regards: 'Mit freundlichen Grüßen', feedback: 'Rückmeldung', reason: 'Grund',
+    dear: 'Guten Tag {applicant_name},', regards: 'Mit freundlichen Grüßen', feedback: 'Rückmeldung', reason: 'Grund', score: 'Punktzahl',
     advance: '<p>Wir freuen uns, Ihnen mitzuteilen, dass {startup_name} bei „{call_title}“ ausgewählt wurde.</p><p>{next_steps}</p>',
     advanceNext: '<p>Wir freuen uns, Ihnen mitzuteilen, dass {startup_name} in die nächste Phase von „{call_title}“ übergeht.</p><p>{next_steps}</p>',
     reject: '<p>Vielen Dank für Ihre Bewerbung bei „{call_title}“. Nach sorgfältiger Prüfung wurde {startup_name} diesmal nicht ausgewählt.</p>',
     waitlist: '<p>Vielen Dank für Ihre Bewerbung bei „{call_title}“. {startup_name} steht auf der Warteliste: Wenn ein Platz frei wird, melden wir uns.</p>',
   },
   it: {
-    dear: 'Gentile {applicant_name},', regards: 'Cordiali saluti,', feedback: 'Commenti', reason: 'Motivo',
+    dear: 'Gentile {applicant_name},', regards: 'Cordiali saluti,', feedback: 'Commenti', reason: 'Motivo', score: 'Punteggio',
     advance: '<p>Siamo lieti di comunicarle che {startup_name} è stata selezionata in «{call_title}».</p><p>{next_steps}</p>',
     advanceNext: '<p>Siamo lieti di comunicarle che {startup_name} passa alla fase successiva di «{call_title}».</p><p>{next_steps}</p>',
     reject: '<p>Grazie per aver partecipato a «{call_title}». Dopo un attento esame, {startup_name} non è stata selezionata questa volta.</p>',
@@ -149,6 +151,8 @@ export interface AppFacts {
   applicationId: string; reference: string | null; startupName: string | null; applicantUserId: string;
   decision: Decision | null; eligibility: EligibilityStatus | null; eligibilityReason: string | null;
   feedback: string | null;
+  /** The grade an administrator validated for this application (0–100 %), or none. Never computed from the evaluations. */
+  grade: number | null;
 }
 export interface Outcome { result: ResultKey | null; source: 'decision' | 'eligibility' | null }
 
@@ -159,19 +163,21 @@ export function outcomeOf(a: Pick<AppFacts, 'decision' | 'eligibility'>): Outcom
   return { result: null, source: null };
 }
 
-export interface Summary { total: number; counts: Record<ResultKey, number>; pending: AppFacts[]; byEligibility: number }
+export interface Summary { total: number; counts: Record<ResultKey, number>; pending: AppFacts[]; byEligibility: number; /** Applications whose result comes from a decision and that have no validated grade (only matters when the grade is shared). */ needGrade: AppFacts[] }
 
 export function summarise(apps: AppFacts[]): Summary {
   const counts: Record<ResultKey, number> = { advance: 0, reject: 0, waitlist: 0 };
   const pending: AppFacts[] = [];
+  const needGrade: AppFacts[] = [];
   let byEligibility = 0;
   for (const a of apps) {
     const o = outcomeOf(a);
     if (!o.result) { pending.push(a); continue; }
     counts[o.result]++;
     if (o.source === 'eligibility') byEligibility++;
+    else if (a.grade === null || a.grade === undefined) needGrade.push(a);
   }
-  return { total: apps.length, counts, pending, byEligibility };
+  return { total: apps.length, counts, pending, byEligibility, needGrade };
 }
 
 /**
@@ -185,10 +191,10 @@ export function roundOf(phases: { id: string }[], publishedPhaseIds: string[]): 
   return { phaseId: phases[i].id, hasNextPhase: i < phases.length - 1, allPublished: false };
 }
 
-export type PublishBlocker = { code: 'no_applications' | 'pending' | 'call_not_closed' | 'call_completed' | 'already_published'; text: string };
+export type PublishBlocker = { code: 'no_applications' | 'pending' | 'call_not_closed' | 'call_completed' | 'already_published' | 'missing_grade' | 'scheduled'; text: string };
 
 /** Why the results cannot be published yet — every reason, in words. Empty means they can. */
-export function blockersOf(input: { summary: Summary; callStatus: string; alreadyPublished: boolean }): PublishBlocker[] {
+export function blockersOf(input: { summary: Summary; callStatus: string; alreadyPublished: boolean; shareGrade?: boolean }): PublishBlocker[] {
   const out: PublishBlocker[] = [];
   const { summary } = input;
   if (input.callStatus === 'completed') out.push({ code: 'call_completed', text: 'The call is completed: nothing can be published.' });
@@ -196,6 +202,8 @@ export function blockersOf(input: { summary: Summary; callStatus: string; alread
   if (input.alreadyPublished) out.push({ code: 'already_published', text: 'The results of this phase were already published.' });
   if (summary.total === 0) out.push({ code: 'no_applications', text: 'There are no submitted applications to publish a result for.' });
   if (summary.pending.length > 0) out.push({ code: 'pending', text: `${summary.pending.length} application${summary.pending.length === 1 ? ' has' : 's have'} no decision yet. Every application needs one before the results can be published.` });
+  // The grade is shared only if the entity asked for it, and then every evaluated application needs the one an administrator validated: a score is never left to be guessed.
+  if (input.shareGrade && summary.needGrade.length > 0) out.push({ code: 'missing_grade', text: `${summary.needGrade.length} application${summary.needGrade.length === 1 ? ' has' : 's have'} no validated grade yet. The grade is shared with the applicants, so each one needs it before the results can be published.` });
   return out;
 }
 
@@ -210,7 +218,7 @@ export interface MessageInput {
   hasNextPhase: boolean;
   formatDay: (iso: string) => string;
 }
-export interface BuiltMessage { result: ResultKey; label: string; subject: string; html: string; text: string }
+export interface BuiltMessage { result: ResultKey; label: string; subject: string; html: string; text: string; grade: number | null }
 
 /**
  * What one applicant is told: the message of their result with the fields filled in, then — only if the administrator wrote one — the feedback, and — only if the entity wants it and the result comes from the
@@ -229,10 +237,13 @@ export function buildMessage(input: MessageInput): BuiltMessage | null {
   };
   let html = fillPlaceholders(sanitizeRichText(messageOf(key, settings, call.contentLanguage, input.hasNextPhase)), values);
   if (outcome.source === 'eligibility' && settings.includeEligibilityReason && app.eligibilityReason?.trim()) html += `<p><strong>${esc(w.reason)}:</strong> ${esc(app.eligibilityReason.trim())}</p>`;
+  // The validated grade, and only that: shared if the call says so, only for a result that comes from a decision (an eligibility "Not a fit" was never evaluated).
+  const grade = settings.shareGrade && outcome.source === 'decision' && typeof app.grade === 'number' ? app.grade : null;
+  if (grade !== null) html += `<p><strong>${esc(w.score)}:</strong> ${esc(formatGrade(grade))}</p>`;
   const feedback = settings.feedbackEnabled ? (app.feedback ?? '').trim() : '';
   if (feedback) html += `<h3>${esc(w.feedback)}</h3><p>${esc(feedback).replace(/\n/g, '<br>')}</p>`;
   const label = labelOf(key, settings, input.hasNextPhase);
-  return { result: key, label, subject: `${call.name}: ${label}`, html, text: richTextToPlain(html) };
+  return { result: key, label, subject: `${call.name}: ${label}`, html, text: richTextToPlain(html), grade };
 }
 
 // --- Writing the settings -----------------------------------------------------------------------------------------------------------------------------
@@ -269,7 +280,7 @@ export function parseSettingsPatch(raw: unknown): ParsedSettings {
     }
     patch.messages = messages;
   }
-  for (const k of ['includeEligibilityReason', 'feedbackEnabled', 'contestationsEnabled'] as const) {
+  for (const k of ['includeEligibilityReason', 'feedbackEnabled', 'contestationsEnabled', 'shareGrade'] as const) {
     if (b[k] === undefined) continue;
     if (typeof b[k] !== 'boolean') return { ok: false, error: 'Invalid setting.' };
     patch[k] = b[k] as boolean;
@@ -305,7 +316,7 @@ export function cleanFeedback(raw: unknown): { ok: true; text: string } | { ok: 
 
 // --- What the Results tab reads (the store builds it, the screen draws it) ------------------------------------------------------------------------------
 
-export interface PrepareApplication { applicationId: string; reference: string | null; startupName: string | null; result: ResultKey | null; label: string | null; source: 'decision' | 'eligibility' | null; feedback: string }
+export interface PrepareApplication { applicationId: string; reference: string | null; startupName: string | null; result: ResultKey | null; label: string | null; source: 'decision' | 'eligibility' | null; feedback: string; /** The grade validated for this application (shared only if the call says so). */ grade: number | null }
 export interface PrepareView {
   ok: true;
   settings: ResultSettings;
@@ -317,4 +328,73 @@ export interface PrepareView {
   blockers: PublishBlocker[];
   applications: PrepareApplication[];
   callStatus: string; language: string; timezone: string;
+  /** The publication of this phase is scheduled, running or done: what was prepared is fixed, and why. */
+  locked: boolean; lockedReason: string | null;
+}
+
+// --- The validated grade ------------------------------------------------------------------------------------------------------------------------------
+
+/** "82%", "82.5%", "7.25%": up to two decimals, no trailing zeros. */
+export const formatGrade = (n: number): string => `${Number(n.toFixed(2))}%`;
+
+/** What an administrator types as the validated grade: 0–100, up to two decimals; empty clears it. */
+export function cleanGrade(raw: unknown): { ok: true; grade: number | null } | { ok: false; error: string } {
+  if (raw === null || raw === undefined || (typeof raw === 'string' && raw.trim() === '')) return { ok: true, grade: null };
+  const t = typeof raw === 'number' ? String(raw) : typeof raw === 'string' ? raw.trim().replace(',', '.') : '';
+  if (!/^\d{1,3}(\.\d{1,2})?$/.test(t)) return { ok: false, error: 'The grade is a number from 0 to 100, with up to two decimals.' };
+  const n = Number(t);
+  if (n < 0 || n > 100) return { ok: false, error: 'The grade is a number from 0 to 100, with up to two decimals.' };
+  return { ok: true, grade: n };
+}
+
+// --- Publishing: when, how it is confirmed, how an email is retried ------------------------------------------------------------------------------------
+
+export const MIN_SCHEDULE_MINUTES = 2;
+export const MAX_SCHEDULE_DAYS = 365;
+
+/** Why a time cannot be scheduled (null when it can): it must be a real moment, a couple of minutes ahead at least, and not more than a year away. */
+export function scheduleProblem(atIso: unknown, now: Date): string | null {
+  if (typeof atIso !== 'string' || Number.isNaN(Date.parse(atIso))) return 'Choose a date and a time.';
+  const at = Date.parse(atIso);
+  if (at < now.getTime() + MIN_SCHEDULE_MINUTES * 60_000) return `Choose a time at least ${MIN_SCHEDULE_MINUTES} minutes from now.`;
+  if (at > now.getTime() + MAX_SCHEDULE_DAYS * 86_400_000) return 'Choose a date within the next year.';
+  return null;
+}
+
+/** The confirmation written in the page: the person types the name of the call. Spaces and capitals do not matter; the name itself does. */
+export const confirmationMatches = (typed: unknown, callName: string): boolean => {
+  const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+  return typeof typed === 'string' && norm(callName) !== '' && norm(typed) === norm(callName);
+};
+
+/** How many times an email is tried, and how long it waits after each failure: 5 minutes, 30 minutes, 2 hours, 6 hours. */
+export const MAX_SEND_ATTEMPTS = 5;
+const BACKOFF_MINUTES = [5, 30, 120, 360];
+export const backoffMs = (attemptsSoFar: number): number => BACKOFF_MINUTES[Math.min(Math.max(attemptsSoFar, 1), BACKOFF_MINUTES.length) - 1] * 60_000;
+
+/** A provider answer that says the ADDRESS is the problem will not get better by waiting: it is "bounced". Anything else (a timeout, a rate limit, a 5xx) is tried again. */
+export function classifyEmailFailure(message: string | null | undefined): 'permanent' | 'temporary' {
+  return /invalid (email|address|recipient)|not a valid|does not exist|mailbox|no such user|unknown (user|recipient)|undeliverable|rejected|suppress/i.test(message ?? '') ? 'permanent' : 'temporary';
+}
+
+export type SendStatus = 'queued' | 'sent' | 'bounced' | 'failed';
+export const SEND_LABELS: Record<SendStatus, string> = { queued: 'Waiting', sent: 'Sent', bounced: 'Bounced', failed: 'Failed' };
+
+/** What the Publish screen reads. */
+export interface SendRow { sendId: string; applicationId: string; reference: string | null; startupName: string | null; label: string; status: SendStatus; attempts: number; error: string | null; sentAt: string | null }
+export interface BatchInfo { id: string; status: 'scheduled' | 'publishing' | 'published' | 'cancelled'; scheduledAt: string | null; publishedAt: string | null; publishedBy: string | null; total: number; counts: Partial<Record<ResultKey, number>> }
+export interface PublicationView {
+  ok: true;
+  phase: { id: string | null; name: string | null; hasNext: boolean };
+  summary: { total: number; counts: Record<ResultKey, number>; emails: number };
+  blockers: PublishBlocker[];
+  labels: Record<ResultKey, string>;
+  subjects: Record<ResultKey, string>;
+  messages: Record<ResultKey, string>;
+  /** The live batch of this round (scheduled, publishing or published), or null. */
+  batch: BatchInfo | null;
+  /** Every phase published so far, newest first. */
+  history: BatchInfo[];
+  sends: { counts: Record<SendStatus, number>; rows: SendRow[] };
+  timezone: string; callName: string; callStatus: string; locked: boolean;
 }

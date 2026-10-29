@@ -32,6 +32,8 @@ export interface OpenCallCard {
 export interface ApplicationItem {
   applicationId: string; callId: string; token: string | null; name: string; promoter: string; reference: string | null; stage: ApplicationStage;
   closesAt: string | null; timezone: string; submittedAt: string | null; logoUrl: string | null;
+  /** Prompt 924: what the entity published for this application ("Selected", "Not selected"…), once it did. */
+  resultLabel?: string | null;
   /** Set when the entity deleted the call: the day the application goes with it. A submitted one can still be read and its files downloaded until then. */
   cancelledPurgeAfter?: string | null; applicationStatus?: 'draft' | 'submitted';
 }
@@ -72,6 +74,8 @@ export function sortMine(items: ApplicationItem[], updatedAt: Map<string, string
 
 export function buildOverview(input: {
   calls: CallFacts[]; apps: ApplicationFacts[]; linkAccess: Set<string>; viewerIsTestAccount: boolean; now?: Date;
+  /** Prompt 924: the published result of each application, by application id (its label). Nothing is here before the entity publishes. */
+  results?: Record<string, string>;
 }): Overview {
   const now = input.now ?? new Date();
   const byCall = new Map(input.calls.map((c) => [c.id, c]));
@@ -96,7 +100,7 @@ export function buildOverview(input: {
     const top = apps.find((a) => a.status === 'draft') ?? apps.find((a) => a.status === 'submitted') ?? null;
     open.push({
       callId: c.id, token: c.token, name: c.name, promoter: c.promoter, closesAt: c.closesAt, timezone: c.timezone, description: c.description,
-      linkOnly: c.visibility === 'unlisted', action: cardAction(apps, accepting), applicationStage: top ? stageOf(top, status) : null, reference: top?.reference ?? null, applications: apps.length, logoUrl: c.logoUrl ?? null,
+      linkOnly: c.visibility === 'unlisted', action: cardAction(apps, accepting), applicationStage: top ? (input.results?.[top.id] ? 'result_available' : stageOf(top, status)) : null, reference: top?.reference ?? null, applications: apps.length, logoUrl: c.logoUrl ?? null,
     });
   }
   open.sort((a, b) => (a.closesAt ? Date.parse(a.closesAt) : Infinity) - (b.closesAt ? Date.parse(b.closesAt) : Infinity));
@@ -116,7 +120,8 @@ export function buildOverview(input: {
     }
     if (status === 'archived') { past.push({ ...base, applicationId: a.id, reason: 'archived' }); continue; }
     if (a.status === 'draft' && status !== 'open') { past.push({ ...base, applicationId: a.id, reason: 'closed_without_submission' }); continue; }
-    mine.push({ ...base, applicationId: a.id, stage: stageOf(a, status), submittedAt: a.submittedAt, logoUrl: c.logoUrl ?? null });
+    const resultLabel = input.results?.[a.id] ?? null;
+    mine.push({ ...base, applicationId: a.id, stage: resultLabel ? 'result_available' : stageOf(a, status), submittedAt: a.submittedAt, logoUrl: c.logoUrl ?? null, resultLabel });
   }
   const updated = new Map(input.apps.map((a) => [a.id, a.submittedAt ?? a.updatedAt]));
   return { openCalls: open, mine: sortMine(mine, updated), past };

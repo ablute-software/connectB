@@ -7,6 +7,7 @@ import { computeBoard, type BoardEval, type BoardInput, type BoardRow, type Boar
 import type { Criterion } from './eval-grid';
 import { loadCriteria, loadSettings } from './eval-grid-store';
 import { loadAssignments, loadFitApplications } from './eval-assign-store';
+import { decisionLock } from './results-store';
 import type { Call } from './types';
 
 type Row = Record<string, unknown>;
@@ -55,6 +56,9 @@ export async function setDecision(admin: SupabaseClient, call: Call, application
   const text = typeof note === 'string' ? note.trim().slice(0, MAX_DECISION_NOTE) : '';
   const { data: app } = await admin.from('call_applications').select('id').eq('id', applicationId).eq('call_id', call.id).eq('status', 'submitted').maybeSingle();
   if (!app) return { ok: false, status: 404, error: 'That application does not exist.' };
+  // Prompt 924 (I2): once the result of an application is published — or its phase is scheduled to be — its decision is fixed. Only an accepted contestation changes it (I3).
+  const lock = await decisionLock(admin, call, applicationId);
+  if (lock) return { ok: false, status: 409, error: lock };
   const { data: cur } = await admin.from('call_eval_decisions').select('id, decision, note').eq('application_id', applicationId).eq('is_current', true).maybeSingle();
   const prev = cur as Row | null;
   if (decision === null && !prev) return { ok: true };

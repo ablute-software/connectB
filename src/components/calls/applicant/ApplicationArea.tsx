@@ -8,6 +8,7 @@ import { applicantApi } from '@/lib/calls/applicant/client';
 import type { ApplicationState } from '@/lib/calls/applicant/store';
 import type { PublicCallInfo } from './CallHeader';
 import { ApplicationForm } from './ApplicationForm';
+import { ApplicantResult } from './ApplicantResult';
 import { ReadOnlyNotice } from './ReadOnlyNotice';
 import { TeamNotice } from './TeamNotice';
 
@@ -83,6 +84,7 @@ export function ApplicationArea({ token, call, session, onChanged }: { token: st
           </p>
         </div>
       )}
+      {load.kind === 'ready' && load.state.application.status === 'submitted' && <ApplicantResult applicationId={load.state.application.id} timezone={call.timezone} />}
       {load.kind === 'ready' && (
         <>
           <ApplicationForm key={`${load.state.application.id}-${load.state.application.status}`} initial={load.state} initialPage={load.page}
