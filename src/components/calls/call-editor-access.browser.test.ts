@@ -10,8 +10,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 const CHROME = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/chromium']
   .filter((p): p is string => !!p).find((p) => fs.existsSync(p));
 
-type Access = { configure: boolean; viewApplications: boolean; evaluate: boolean; status: string };
-const ADMIN: Access = { configure: true, viewApplications: true, evaluate: true, status: 'draft' };
+type Access = { configure: boolean; viewApplications: boolean; evaluate: boolean; publishResults?: boolean; handleContestations?: boolean; status: string };
+const ADMIN: Access = { configure: true, viewApplications: true, evaluate: true, publishResults: true, handleContestations: true, status: 'draft' };
 const ANALYST: Access = { configure: false, viewApplications: true, evaluate: false, status: 'draft' };
 const EVALUATOR: Access = { configure: false, viewApplications: false, evaluate: true, status: 'draft' };
 
@@ -71,7 +71,7 @@ describe.skipIf(!CHROME)('the call editor opens on a tab the person can use (rea
   it('somebody who may only view the applications: no Setup tab; the call opens on Applications, a draft or a published one, with no note', async () => {
     for (const status of ['draft', 'open']) {
       const { page, tabs, selected, note, errors } = await open({ ...ANALYST, status });
-      expect(await tabs(), status).toEqual(['Applications', 'Evaluation', 'Results']);
+      expect(await tabs(), status).toEqual(['Applications', 'Evaluation']);
       expect(await selected(), status).toBe('Applications');
       expect(await note(), status).toBeNull();
       expect(errors).toEqual([]);
@@ -82,7 +82,7 @@ describe.skipIf(!CHROME)('the call editor opens on a tab the person can use (rea
   it('somebody who only evaluates: no Setup tab; the call opens on Evaluation, and what it shows is their own evaluations (not the board)', async () => {
     for (const status of ['draft', 'open']) {
       const { page, tabs, selected, note, errors } = await open({ ...EVALUATOR, status });
-      expect(await tabs(), status).toEqual(['Applications', 'Evaluation', 'Results']);
+      expect(await tabs(), status).toEqual(['Applications', 'Evaluation']);
       expect(await selected(), status).toBe('Evaluation');
       expect(await note(), status).toBeNull();
       await page.waitForSelector('[data-testid="evaluation-tab"]');
@@ -111,7 +111,7 @@ describe.skipIf(!CHROME)('the call editor opens on a tab the person can use (rea
   it('the note goes away when they move to another tab, and there is no way back to Setup; the same link opens the step for an administrator', async () => {
     const e = await open(EVALUATOR, '?section=setup&step=form');
     expect(await e.note()).not.toBeNull();
-    await e.page.locator('[data-testid="tab-results"]').click();
+    await e.page.locator('[data-testid="tab-applications"]').click();
     expect(await e.note()).toBeNull();
     expect(await e.page.locator('[data-testid="tab-setup"]').count()).toBe(0);
     await e.page.close();

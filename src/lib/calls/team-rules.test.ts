@@ -25,8 +25,8 @@ describe('the nine permissions', () => {
   it('are the nine of the spec; the ones the server enforces are listed here, the rest are stored for the next stage', () => {
     expect(PERMISSIONS.map((p) => p.key)).toEqual([...PERMISSION_KEYS]);
     expect(PERMISSION_KEYS).toHaveLength(9);
-    // Prompt 907 added View all applications; Prompt 918 (I3) added Correct eligibility & document validity.
-    expect(PERMISSIONS.filter((p) => p.enforced).map((p) => p.key)).toEqual(['configure_call', 'manage_team', 'view_all_applications', 'evaluate_assigned', 'correct_eligibility', 'view_colleagues_evaluations', 'final_decision']);
+    // Prompt 907 added View all applications; Prompt 918 (I3) added Correct eligibility & document validity; Prompt 924 (I1) enforces Publish results.
+    expect(PERMISSIONS.filter((p) => p.enforced).map((p) => p.key)).toEqual(['configure_call', 'manage_team', 'view_all_applications', 'evaluate_assigned', 'correct_eligibility', 'view_colleagues_evaluations', 'final_decision', 'publish_results']);
   });
   it('anything stored that is not a clear "true" is off; unknown keys are ignored', () => {
     expect(normalizePermissions(null)).toEqual(NO_PERMISSIONS);

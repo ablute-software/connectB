@@ -114,14 +114,16 @@ describe('"What is missing" leads to the step and the field', () => {
 
 // Prompt 923 — Setup is only for whoever may "Configure call".
 describe('Setup is only for whoever may configure the call', () => {
-  const ADMIN: EditorAccess = { configure: true, viewApplications: true, evaluate: true };
+  const ADMIN: EditorAccess = { configure: true, viewApplications: true, evaluate: true, publishResults: true, handleContestations: true };
   const ANALYST: EditorAccess = { configure: false, viewApplications: true, evaluate: false };
   const EVALUATOR: EditorAccess = { configure: false, viewApplications: false, evaluate: true };
   const NOTHING: EditorAccess = { configure: false, viewApplications: false, evaluate: false };
 
-  it('the Setup tab is shown to whoever may configure, and to nobody else; the other three stay', () => {
+  it('the Setup tab is shown to whoever may configure, and to nobody else; Results to whoever may publish them or handle contestations (Prompt 924); Applications and Evaluation stay', () => {
     expect(mainTabsFor(ADMIN).map((t) => t.key)).toEqual(['setup', 'applications', 'evaluation', 'results']);
-    for (const a of [ANALYST, EVALUATOR, NOTHING]) expect(mainTabsFor(a).map((t) => t.key)).toEqual(['applications', 'evaluation', 'results']);
+    for (const a of [ANALYST, EVALUATOR, NOTHING]) expect(mainTabsFor(a).map((t) => t.key)).toEqual(['applications', 'evaluation']);
+    expect(mainTabsFor({ ...ANALYST, publishResults: true }).map((t) => t.key)).toEqual(['applications', 'evaluation', 'results']);
+    expect(mainTabsFor({ ...EVALUATOR, handleContestations: true }).map((t) => t.key)).toEqual(['applications', 'evaluation', 'results']);
   });
 
   it('who cannot configure opens on Applications if they may view them all, otherwise on Evaluation (their own evaluations) — whatever the state of the call', () => {
@@ -150,7 +152,8 @@ describe('Setup is only for whoever may configure the call', () => {
   });
 
   it('a link to a tab they may use is respected, with no note', () => {
-    expect(resolveNavFor({ section: 'results' }, 'open', EVALUATOR)).toEqual({ nav: { main: 'results', step: 'general' }, note: null });
+    expect(resolveNavFor({ section: 'results' }, 'open', { ...EVALUATOR, publishResults: true })).toEqual({ nav: { main: 'results', step: 'general' }, note: null });
+    expect(resolveNavFor({ section: 'results' }, 'open', EVALUATOR)).toEqual({ nav: { main: 'evaluation', step: 'general' }, note: null });     // Results is not theirs: it opens where they can work
     expect(resolveNavFor({ tab: 'submissions' }, 'open', EVALUATOR)).toEqual({ nav: { main: 'evaluation', step: 'general' }, note: null });     // Applications is not theirs to view: the server would refuse it
     expect(resolveNavFor({ tab: 'submissions' }, 'open', ANALYST)).toEqual({ nav: { main: 'applications', step: 'general' }, note: null });
     expect(resolveNavFor({ tab: 'evaluation' }, 'open', EVALUATOR)).toEqual({ nav: { main: 'evaluation', step: 'general' }, note: null });

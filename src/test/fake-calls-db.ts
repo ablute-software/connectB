@@ -33,6 +33,8 @@ export function callsDb(): CallsDb {
     'call_processing_tasks', 'call_application_eligibility', 'call_eligibility_corrections',
     // Prompt 922
     'call_eval_settings', 'call_eval_criteria', 'call_eval_templates', 'call_eval_import_runs', 'call_eval_assignments', 'call_eval_conflicts', 'call_evaluations', 'call_eval_scores', 'call_eval_reopenings', 'call_eval_decisions', 'call_eval_reminders',
+    // Prompt 924 (Etapa 4)
+    'call_result_settings', 'call_result_feedback',
   ];
   return { tables: Object.fromEntries(names.map((n) => [n, []])), users: new Map(), clock: Date.UTC(2026, 9, 9, 12, 0, 0), seq: 0 };
 }
@@ -71,12 +73,14 @@ const DEFAULTS: Record<string, (db: CallsDb) => Row> = {
   call_application_files: () => ({ sha256: null, document_id: null, version_id: null, version_number: null, revoked_at: null, frozen_path: null, frozen_at: null }),
   call_notices: () => ({ application_id: null, body: null, link_path: null, seen_at: null, email_sent_at: null, email_error: null }),
   call_import_runs: () => ({ source_document_ids: [], status: 'proposed', found_later: {}, model: null, tokens_in: null, tokens_out: null, cost_eur: null, applied_at: null, applied_by: null }),
+  call_result_settings: () => ({ labels: {}, messages: {}, include_eligibility_reason: false, feedback_enabled: false, contestations_enabled: false, contestation_days: 10, retention_months: 24, next_steps_text: '', next_steps_date: null }),
+  call_result_feedback: () => ({ phase_id: null }),
   call_phases: () => ({ starts_on: null, ends_on: null }),
   call_form_fields: () => ({
     page: 1, position: 0, instruction: null, required: false, options: [], validations: {}, condition: null,
     platform_mapping: null, expected_type: null, max_age_months: null,
   }),
-  call_applications: () => ({ status: 'draft', draft_answers: {}, startup_org_id: null, current_submission_id: null, reference: null, unit_key: null, last_page: null, draft_revision: 0, submitted_at: null }),
+  call_applications: () => ({ status: 'draft', draft_answers: {}, startup_org_id: null, current_submission_id: null, reference: null, unit_key: null, last_page: null, draft_revision: 0, submitted_at: null, current_phase_id: null }),
   call_events: () => ({ application_id: null, actor_user_id: null, detail: {} }),
 };
 
