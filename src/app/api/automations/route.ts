@@ -37,6 +37,7 @@ import { sendDraftReminders } from '@/lib/calls/applicant/notices';
 import { sendEvaluationReminders } from '@/lib/calls/eval-reminders';
 import { purgeDeletedCalls, type PurgeResult } from '@/lib/calls/purge';
 import { processSends, runDueBatches } from '@/lib/calls/results-publish';
+import { purgeExpiredCallData, warnRetentions, type RetentionPurge } from '@/lib/calls/contestations-store';
 import {
   malwareScanAvailable, investorVerificationScanAvailable, ndaScanAvailable,
   matchdealPhotoScanAvailable, supportAttachmentScanAvailable, companyMediaScanAvailable,
@@ -225,6 +226,15 @@ export async function GET() {
   } catch (e) {
     console.error('[automations] call results failed:', e);
   }
+  // Prompt 924 (I3) — the applicants' data of a completed call: the administrators are warned 30 days before it goes, and when the date passes the files leave Storage and the data is deleted (a summary without
+  // personal data stays). Same daily tick, no extra cron.
+  let callRetention: { warned: number; purge: RetentionPurge } | null = null;
+  try {
+    const warned = await warnRetentions(admin, new Date());
+    callRetention = { ...warned, purge: await purgeExpiredCallData(admin, new Date()) };
+  } catch (e) {
+    console.error('[automations] call data retention failed:', e);
+  }
   // Prompt 918 (I3) — the eligibility queue: whatever nobody got around to (a task waiting for its back-off, one stuck in Processing) is taken forward. Same daily tick, no extra cron.
   let eligibilityQueue: { claimed: number; done: number; requeued: number; technicalFailures: number } | null = null;
   try {
@@ -326,6 +336,7 @@ export async function GET() {
     callEvalReminders,
     callPurge,
     callResults,
+    callRetention,
     eligibilityQueue,
     reconciliationSweep,
     investorNotifyDigestSweep,

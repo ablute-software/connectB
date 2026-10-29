@@ -35,6 +35,8 @@ export function callsDb(): CallsDb {
     'call_eval_settings', 'call_eval_criteria', 'call_eval_templates', 'call_eval_import_runs', 'call_eval_assignments', 'call_eval_conflicts', 'call_evaluations', 'call_eval_scores', 'call_eval_reopenings', 'call_eval_decisions', 'call_eval_reminders',
     // Prompt 924 (Etapa 4)
     'call_result_settings', 'call_result_feedback', 'call_result_grades', 'call_result_batches', 'call_results', 'call_result_sends',
+    // Prompt 924 (I3)
+    'call_contestations', 'call_data_summaries',
   ];
   return { tables: Object.fromEntries(names.map((n) => [n, []])), users: new Map(), clock: Date.UTC(2026, 9, 9, 12, 0, 0), seq: 0 };
 }
@@ -75,6 +77,7 @@ const DEFAULTS: Record<string, (db: CallsDb) => Row> = {
   call_import_runs: () => ({ source_document_ids: [], status: 'proposed', found_later: {}, model: null, tokens_in: null, tokens_out: null, cost_eur: null, applied_at: null, applied_by: null }),
   call_result_settings: () => ({ labels: {}, messages: {}, include_eligibility_reason: false, feedback_enabled: false, contestations_enabled: false, contestation_days: 10, retention_months: 24, next_steps_text: '', next_steps_date: null }),
   call_result_feedback: () => ({ phase_id: null }),
+  call_contestations: () => ({ phase_id: null, result_id: null, file_name: null, storage_path: null, file_size: null, status: 'open', response: null, answered_by: null, answered_at: null, new_result_id: null, email_sent_at: null, email_error: null }),
   call_result_grades: () => ({ phase_id: null }),
   call_result_batches: () => ({ phase_id: null, scheduled_at: null, scheduled_by: null, published_at: null, published_by: null, total: 0, counts: {}, settings: {} }),
   call_results: () => ({ phase_id: null, batch_id: null, grade: null, moved_to_phase_id: null, is_current: true, supersedes_id: null, published_at: new Date().toISOString() }),
@@ -269,6 +272,28 @@ function purgeDeletedCall(db: CallsDb, callId: string, promoterName: string) {
   return { ok: true, call_name: c.name, ...counts };
 }
 
+/** purge_completed_call_data(), modelled (migration 20261029140000): a COMPLETED call whose retention date has passed on the server's clock loses its applicants' data and keeps a summary without personal data. */
+function purgeCompletedCallData(db: CallsDb, callId: string, summary: Row) {
+  const c = db.tables.calls.find((r) => r.id === callId);
+  if (!c) return { ok: false, reason: 'not_found' };
+  if (c.status !== 'completed') return { ok: false, reason: 'not_completed' };
+  if (c.data_purged_at) return { ok: false, reason: 'already_purged' };
+  if (!c.data_purge_after || Date.parse(c.data_purge_after as string) > nowOf(db)) return { ok: false, reason: 'too_early' };
+  const appIds = new Set(db.tables.call_applications.filter((a) => a.call_id === callId).map((a) => a.id));
+  db.tables.call_data_summaries.push({ call_id: callId, call_name: c.name, completed_at: c.completed_at, purged_at: new Date(nowOf(db)).toISOString(), summary: { ...summary, applications: appIds.size } });
+  db.tables.call_events = db.tables.call_events.filter((e) => !(e.call_id === callId && e.application_id));
+  db.tables.call_notices = db.tables.call_notices.filter((n) => n.call_id !== callId);
+  db.tables.call_link_access = db.tables.call_link_access.filter((r) => r.call_id !== callId);
+  const resultIds = new Set(db.tables.call_results.filter((r) => appIds.has(r.application_id)).map((r) => r.id));
+  db.tables.call_result_sends = db.tables.call_result_sends.filter((s) => !resultIds.has(s.result_id));
+  for (const t of ['call_application_submissions', 'call_application_files', 'call_results', 'call_contestations', 'call_eval_decisions', 'call_evaluations', 'call_application_eligibility', 'call_result_feedback', 'call_result_grades', 'call_eval_assignments', 'call_eval_conflicts']) {
+    if (db.tables[t]) db.tables[t] = db.tables[t].filter((r) => !appIds.has(r.application_id));
+  }
+  db.tables.call_applications = db.tables.call_applications.filter((a) => a.call_id !== callId);
+  c.data_purged_at = new Date(nowOf(db)).toISOString();
+  return { ok: true, applications: appIds.size };
+}
+
 /** call_accepting(), modelled (migration 20261014100000): open or scheduled, opened, and not past its deadline, on the server's clock. */
 function callAccepting(db: CallsDb, callId: string): boolean {
   const c = db.tables.calls.find((r) => r.id === callId);
@@ -345,6 +370,7 @@ export function fakeCallsAdmin(db: CallsDb, storage: FakeStorage = { objects: ne
       if (name === 'soft_delete_call') return { data: softDeleteCall(db, args.p_call as string, args.p_actor as string, args.p_promoter_name as string), error: null };
       if (name === 'restore_call') return { data: restoreCall(db, args.p_call as string, args.p_actor as string, args.p_promoter_name as string), error: null };
       if (name === 'purge_deleted_call') return { data: purgeDeletedCall(db, args.p_call as string, args.p_promoter_name as string), error: null };
+      if (name === 'purge_completed_call_data') return { data: purgeCompletedCallData(db, args.p_call as string, (args.p_summary ?? {}) as Row), error: null };
       if (name === 'delete_call_if_empty') return { data: deleteCallIfEmpty(db, args.p_call as string, args.p_actor as string, args.p_promoter_name as string), error: null };
       return { data: null, error: { message: `unknown rpc ${name}` } };
     },

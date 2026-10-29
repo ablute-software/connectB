@@ -22,6 +22,8 @@ export interface PublicCallInfo {
   coverUrl?: string | null; logoUrl?: string | null;
   /** Prompt 918 (Adenda 3): the day the call closed when that was BEFORE its deadline (closed early, or deleted and restored) — shown instead of a deadline that is still to come. */
   closedAt?: string | null; closedDay?: string | null;
+  /** Prompt 924 (I3): how many months the applicants' data is kept after the call is completed (the form's privacy notice says it). */
+  retentionMonths?: number;
 }
 
 export function CallHeader({ call, showPromoter = true }: { call: PublicCallInfo; showPromoter?: boolean }) {
