@@ -2,6 +2,7 @@
 // Every call returns { ok, status, body }; nothing throws on a refusal, and a network failure is a result (status 0), never an exception —
 // the form keeps what is on screen and offers to try again (spec §14.1).
 import type { Answers } from '../types';
+import type { ContestInfo } from '../contestations';
 import type { ApplicationState } from './store';
 
 export interface ApiResult<T> { ok: boolean; status: number; body: T & { error?: string; code?: string } }
@@ -22,13 +23,15 @@ const send = (method: string, data?: unknown): RequestInit => ({ method, body: d
 export type StateBody = { state: ApplicationState; page: number };
 export interface FileBody { file: { id: string; fieldId: string; entryId?: string | null; source: 'upload' | 'vault'; fileName: string; size: number; versionNumber?: number | null; documentId?: string | null }; answer: unknown }
 /** Prompt 924: the result the entity published for this application (null before that). */
-export interface ResultBody { result: { label: string; subject: string; html: string; grade: number | null; kind: 'advance' | 'reject' | 'waitlist'; publishedAt: string; movedOn: boolean } | null }
+export interface ResultBody { result: { label: string; subject: string; html: string; grade: number | null; kind: 'advance' | 'reject' | 'waitlist'; publishedAt: string; movedOn: boolean } | null; contest?: ContestInfo }
 export interface SubmitFailure { fieldId: string; label: string; page: number; message: string; key?: string }
 
 export const applicantApi = {
   start: (token: string, startNew = false) => call<StateBody & { created: boolean }>(`/api/calls/apply/${encodeURIComponent(token)}/start`, send('POST', { new: startNew })),
   get: (id: string) => call<StateBody>(`/api/calls/apply/applications/${id}`),
   result: (id: string) => call<ResultBody>(`/api/calls/apply/applications/${id}/result`),
+  /** Prompt 924 (I3): contest a "Not selected": a written reason and, optionally, one PDF the browser already uploaded to the startup's own folder. */
+  contest: (id: string, body: { reason: string; storagePath?: string; fileName?: string }) => call<{ contestation: NonNullable<ContestInfo['contestation']> }>(`/api/calls/apply/applications/${id}/contest`, send('POST', body)),
   save: (id: string, body: { answers: Answers; lastPage: number; baseRevision: number }) => call<{ revision: number }>(`/api/calls/apply/applications/${id}`, send('PUT', body)),
   vault: (id: string) => call<{ documents: { id: string; name: string; version: number; sizeBytes: number | null }[] }>(`/api/calls/apply/applications/${id}/vault`),
   // `entryId`: the entry of a repeatable group the file belongs to (Prompt 917); absent for a File question of the form itself.

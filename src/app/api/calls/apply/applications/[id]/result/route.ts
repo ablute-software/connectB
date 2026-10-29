@@ -3,6 +3,8 @@
 import { NextResponse } from 'next/server';
 import { withActingOrg } from '@/lib/acting-org';
 import { authApplication } from '@/lib/calls/applicant/auth';
+import { contestInfoFor } from '@/lib/calls/contestations-store';
+import type { ResultKey } from '@/lib/calls/results';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,5 +20,7 @@ export const GET = withActingOrg(async function GET(req: Request, { params }: { 
   return NextResponse.json({
     ok: true,
     result: { label: String(r.label), subject: String(r.subject), html: String(r.body_html), grade: r.grade === null || r.grade === undefined ? null : Number(r.grade), kind: r.result as string, publishedAt: String(r.published_at), movedOn: !!r.moved_to_phase_id },
+    // What the applicant may do about it: contest (only a "Not selected", only while the call lets them), or read what became of their contestation.
+    contest: await contestInfoFor(a.admin, a.call, a.app.id, { id: String(r.id), kind: r.result as ResultKey, publishedAt: String(r.published_at), phaseId: (r.phase_id as string | null) ?? null }),
   });
 });

@@ -11,6 +11,7 @@ const TONE: Record<CallStatus, string> = {
   closed: 'bg-slate-200 text-slate-700',
   evaluating: 'bg-violet-100 text-violet-800',
   results_published: 'bg-indigo-100 text-indigo-800',
+  completed: 'bg-teal-100 text-teal-800',
   archived: 'bg-gray-100 text-gray-500',
 };
 

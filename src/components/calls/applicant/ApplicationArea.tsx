@@ -70,6 +70,7 @@ export function ApplicationArea({ token, call, session, onChanged }: { token: st
       <p className="mb-3 text-sm text-gray-600">
         Applying as <b className="text-gray-900">{session.startupName ?? 'your startup'}</b>{session.email ? <> · {session.email}</> : null}
       </p>
+      {call.retentionMonths ? <p className="mb-3 text-xs text-gray-500" data-testid="retention-notice">Privacy: your application — its answers and documents — is kept for {call.retentionMonths} months after the call is completed, and then deleted. Only a summary without personal data stays.</p> : null}
       {load.kind === 'loading' && <p className="text-sm text-gray-400">Opening your application…</p>}
       {load.kind === 'none' && <p className="text-sm text-gray-500">There is no application to continue.</p>}
       {load.kind === 'problem' && (
@@ -84,7 +85,7 @@ export function ApplicationArea({ token, call, session, onChanged }: { token: st
           </p>
         </div>
       )}
-      {load.kind === 'ready' && load.state.application.status === 'submitted' && <ApplicantResult applicationId={load.state.application.id} timezone={call.timezone} />}
+      {load.kind === 'ready' && load.state.application.status === 'submitted' && <ApplicantResult applicationId={load.state.application.id} orgId={load.state.orgId} timezone={call.timezone} />}
       {load.kind === 'ready' && (
         <>
           <ApplicationForm key={`${load.state.application.id}-${load.state.application.status}`} initial={load.state} initialPage={load.page}

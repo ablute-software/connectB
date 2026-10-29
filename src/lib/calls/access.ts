@@ -112,7 +112,7 @@ const forbid = (what: string) => ({ error: NextResponse.json({ ok: false, error:
  * `need: 'configure'`) they must have "Configure call" in it; to edit the team (`need: 'team'`), "Manage team &
  * permissions". The returned promoter carries the answers for THIS call (canManage, canManageTeam).
  */
-export async function authCall(callId: string, opts: { write?: boolean; need?: 'configure' | 'team' | 'view_applications' | 'publish_results' | 'handle_contestations'; includeDeleted?: boolean } = {}): Promise<CallsGate<CallAuth>> {
+export async function authCall(callId: string, opts: { write?: boolean; need?: 'configure' | 'team' | 'view_applications' | 'publish_results' | 'handle_contestations'; includeDeleted?: boolean; allowCompleted?: boolean } = {}): Promise<CallsGate<CallAuth>> {
   const auth = await authCalls();
   if (auth.error) return auth;
   // A deleted call is not reachable (404) unless the route is the one that lists or restores deleted calls.
@@ -129,6 +129,10 @@ export async function authCall(callId: string, opts: { write?: boolean; need?: '
   const perms = callPermissions(promoter, auth.userId, team);
 
   const need = opts.need ?? (opts.write ? 'configure' : null);
+  // Prompt 924 (I3): a completed call is READ-ONLY for everybody. The few writes that still make sense (delete, archive, postponing the deletion of the applicants' data) say so with allowCompleted.
+  if (call.status === 'completed' && !opts.allowCompleted && (opts.write || (need !== null && need !== 'view_applications'))) {
+    return { error: NextResponse.json({ ok: false, code: 'completed', error: 'This call is completed: it is read-only.' }, { status: 409 }) };
+  }
   if (need === 'configure' && !perms.configure_call) return forbid('Configure call');
   if (need === 'team' && !perms.manage_team) return forbid('Manage team & permissions');
   // Prompt 907 (I4): the list of submitted applications is for whoever may "View all applications" (the administrators, and any category that has it).

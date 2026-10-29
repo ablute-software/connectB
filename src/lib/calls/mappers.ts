@@ -26,6 +26,7 @@ export function rowToCall(r: Row): Call {
     deletedAt: s(r.deleted_at), deletedBy: s(r.deleted_by), purgeAfter: s(r.delete_purge_after),
     eligibilityVersion: Number(r.eligibility_version ?? 1), eligibilityRev: Number(r.eligibility_rev ?? 0),
     evalGridVersion: Number(r.eval_grid_version ?? 1), evalGridRev: Number(r.eval_grid_rev ?? 0), evaluationClosedAt: s(r.evaluation_closed_at), evaluationClosedBy: s(r.evaluation_closed_by),
+    completedAt: s(r.completed_at), completedBy: s(r.completed_by), dataPurgeAfter: s(r.data_purge_after), dataPurgeExtendedAt: s(r.data_purge_extended_at), dataPurgeExtendedReason: s(r.data_purge_extended_reason), dataPurgedAt: s(r.data_purged_at),
     duplicatedFrom: s(r.duplicated_from), createdBy: r.created_by as string, createdAt: r.created_at as string, updatedAt: r.updated_at as string,
   };
 }

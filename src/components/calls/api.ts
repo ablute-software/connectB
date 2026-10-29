@@ -9,6 +9,7 @@ import type { Draft } from '@/lib/calls/eval-draft';
 import type { GridProposal } from '@/lib/calls/eval-grid-reader';
 import type { Criterion } from '@/lib/calls/eval-grid';
 import type { BuiltMessage, PrepareView, PublicationView } from '@/lib/calls/results';
+import type { CloseView, ContestationsView } from '@/lib/calls/contestations';
 import type { CallStatus, PromoterKind } from '@/lib/calls/types';
 import type { Call, CallPhase, FormField } from '@/lib/calls/types';
 import type { CallSummary, ReadinessIssue, availableActions } from '@/lib/calls/lifecycle';
@@ -141,6 +142,12 @@ export const callsApi = {
   resultsFeedback: (id: string, applicationId: string, text: string) => call<PrepareView>(`/api/calls/${id}/results`, send('POST', { action: 'feedback', applicationId, text })),
   resultsPreview: (id: string, applicationId: string) => call<{ message: BuiltMessage }>(`/api/calls/${id}/results`, send('POST', { action: 'preview', applicationId })),
   resultsGrade: (id: string, applicationId: string, grade: string) => call<PrepareView>(`/api/calls/${id}/results`, send('POST', { action: 'grade', applicationId, grade })),
+  /** Prompt 924 (I3): the contestations (the queue and the answer) and completing the call (with the retention). */
+  contestations: (id: string) => call<ContestationsView>(`/api/calls/${id}/contestations`),
+  contestationAnswer: (id: string, body: { contestationId: string; outcome: 'upheld' | 'rejected'; newResult?: 'advance' | 'waitlist'; response?: string }) => call<ContestationsView>(`/api/calls/${id}/contestations`, send('POST', { action: 'answer', ...body })),
+  closeView: (id: string) => call<CloseView>(`/api/calls/${id}/results/close`),
+  closeComplete: (id: string, confirmName: string) => call<CloseView>(`/api/calls/${id}/results/close`, send('POST', { action: 'complete', confirmName })),
+  closePostpone: (id: string, reason: string) => call<CloseView>(`/api/calls/${id}/results/close`, send('POST', { action: 'postpone', reason })),
   /** Prompt 924 (I2): publishing — the view, the test email, publish now or at a time, cancel the schedule, send what waits, send one again. */
   publication: (id: string) => call<PublicationView>(`/api/calls/${id}/results/publish`),
   publicationTest: (id: string) => call<{ sent: number; to: string }>(`/api/calls/${id}/results/publish`, send('POST', { action: 'test' })),

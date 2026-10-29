@@ -12,9 +12,11 @@ import { generateLinkToken, loadFields, loadPhases, logCallEvent, snapshotConfig
 import { buildCallState, syncStatus } from '@/lib/calls/state';
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const auth = await authCall(params.id, { write: true });
+  const auth = await authCall(params.id, { write: true, allowCompleted: true });
   if (auth.error) return auth.error;
   const body = await req.json().catch(() => ({})) as { action?: string; closesAt?: string; confirmEarly?: boolean; confirmName?: string };
+  // A completed call is read-only: only deleting it and archiving it still make sense (Prompt 924, I3).
+  if (auth.call.status === 'completed' && body.action !== 'delete' && body.action !== 'archive') return NextResponse.json({ ok: false, code: 'completed', error: 'This call is completed: it is read-only.' }, { status: 409 });
   const now = new Date();
   // Look at the call as it is NOW (a scheduled call may have opened since the editor loaded).
   const call = await syncStatus(auth.admin, auth.call, now);

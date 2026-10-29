@@ -26,7 +26,7 @@ export const PERMISSIONS: readonly PermissionInfo[] = [
   { key: 'view_colleagues_evaluations', label: 'View colleagues’ evaluations after completing own', enforced: true, hint: 'Only after the person has finished their own evaluation. Never the private notes.' },
   { key: 'final_decision', label: 'Final decision & selection overrides', enforced: true, hint: 'Decide Advance, Reject or Waitlist for each application, close the evaluation and export the board.' },
   { key: 'publish_results', label: 'Publish results', enforced: true, hint: 'Prepare the results, write the messages and feedback, and publish them to the applicants. The server checks it on every request.' },
-  { key: 'handle_contestations', label: 'Handle contestations', enforced: false, hint: 'Answer an applicant’s contestation.' },
+  { key: 'handle_contestations', label: 'Handle contestations', enforced: true, hint: 'See the contestations of the applicants and answer them (Upheld or Rejected). The server checks it on every request.' },
 ];
 
 export const NO_PERMISSIONS: PermissionSet = Object.fromEntries(PERMISSION_KEYS.map((k) => [k, false])) as PermissionSet;

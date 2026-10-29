@@ -10,6 +10,7 @@ import { brandingOf } from '@/lib/calls/branding';
 import { resolvePublicCall, serviceClient } from '@/lib/calls/applicant/link';
 import { applicantPhase, phaseSentence } from '@/lib/calls/applicant/phase';
 import { formatDayInZone } from '@/lib/calls/tz';
+import { loadSettings } from '@/lib/calls/results-store';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,7 +35,7 @@ export async function GET(_req: Request, { params }: { params: { token: string }
   return NextResponse.json({
     ok: true,
     name: call.name, description: call.description, promoter: await promoterName(admin, call.promoterKind, call.promoterId),
-    opensAt: call.opensAt, closesAt: call.closesAt, timezone: call.timezone, status: phase,
+    opensAt: call.opensAt, closesAt: call.closesAt, timezone: call.timezone, status: phase, retentionMonths: (await loadSettings(admin, call.id)).retentionMonths,
     phase,
     // The sentence under the header while applications cannot be made ("Opens on …", "Applications closed on …"); null while they can.
     message: phaseSentence(call),

@@ -175,7 +175,7 @@ export const MAX_NUMBER_DIGITS = 15;
 export const YES_NO_OPTIONS: FieldOption[] = [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }];
 
 export const CALL_STATUSES = [
-  'draft', 'validated', 'scheduled', 'open', 'closed', 'evaluating', 'results_published', 'archived',
+  'draft', 'validated', 'scheduled', 'open', 'closed', 'evaluating', 'results_published', 'completed', 'archived',
 ] as const;
 export type CallStatus = (typeof CALL_STATUSES)[number];
 
@@ -187,6 +187,8 @@ export const CALL_STATUS_LABELS: Record<CallStatus, string> = {
   closed: 'Closed',
   evaluating: 'In evaluation',
   results_published: 'Results published',
+  /** Prompt 924 (I3): the call is finished — everything is read-only; the applicants' data goes when the retention ends. */
+  completed: 'Completed',
   archived: 'Archived',
 };
 
@@ -226,6 +228,8 @@ export interface Call {
   eligibilityVersion?: number; eligibilityRev?: number;
   /** Prompt 922 (Etapa 3): the version of the evaluation grid in force and the step's revision counter; when evaluation was closed ("Close evaluation"). */
   evalGridVersion?: number; evalGridRev?: number; evaluationClosedAt?: string | null; evaluationClosedBy?: string | null;
+  /** Prompt 924 (I3): when the call was completed, when the applicants' data goes (and whether it was postponed, or already went). */
+  completedAt?: string | null; completedBy?: string | null; dataPurgeAfter?: string | null; dataPurgeExtendedAt?: string | null; dataPurgeExtendedReason?: string | null; dataPurgedAt?: string | null;
   duplicatedFrom: string | null;
   createdBy: string;
   createdAt: string;

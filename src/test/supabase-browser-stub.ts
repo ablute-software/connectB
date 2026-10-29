@@ -14,7 +14,7 @@ interface Config {
   otpFail: Failure | null;
   calls: { fn: string; args: unknown }[];
 }
-declare global { interface Window { __sb: Config } }
+declare global { interface Window { __sb: Config; __uploads?: { path: string; name: string; size: number }[] } }
 
 const fail = (f: Failure) => Object.assign(new Error(f.message), { status: f.status, code: f.code, name: 'AuthApiError' });
 
@@ -36,5 +36,7 @@ export function browserClient() {
       signInWithPassword: async (args: unknown) => { cfg().calls.push({ fn: 'signInWithPassword', args }); return { data: {}, error: fail({ status: 400, code: 'invalid_credentials', message: 'Invalid login credentials' }) }; },
       signOut: async () => { cfg().calls.push({ fn: 'signOut', args: null }); cfg().user = null; try { sessionStorage.setItem('__signedOut', '1'); } catch { /* storage blocked */ } return { error: null }; },
     },
+    // Prompt 924 — Storage, for the one screen that uploads a file (an applicant's contestation): the upload is only recorded in `window.__uploads`.
+    storage: { from: () => ({ upload: async (path: string, file: File) => { (window.__uploads ??= []).push({ path, name: file.name, size: file.size }); return { data: { path }, error: null }; } }) },
   };
 }

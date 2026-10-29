@@ -16,7 +16,7 @@ Relatório vivo: cada incremento acrescenta a sua secção. Datas de 28/10/2026.
 | Estado "Completed" | não existe (Archived) | **novo** estado `completed` (I3), tudo só de leitura |
 | Conservação (§24) | "definida por call" | **24 meses depois de Completed** por omissão (Nuno, 28/10/2026), configurável por call |
 | Prazo da contestação (§18) | "um prazo posterior à publicação" | **10 dias de calendário** depois da publicação por omissão (Nuno, 28/10/2026), configurável |
-| Avisos ao administrador (§23: "contestações novas") | email + app | I3 (ver a secção) |
+| Avisos ao administrador (§23: "contestações novas") | email + app | **email** a quem tem "Handle contestations"; sem aviso na app para a equipa (os avisos na app são dos candidatos) |
 
 ## I1 — Preparar os resultados
 
@@ -47,3 +47,31 @@ Relatório vivo: cada incremento acrescenta a sua secção. Datas de 28/10/2026.
 ### Limites a conhecer
 - **Agendamento com a Hobby:** ver `docs/ops/CONFIG_REGISTRY.md`. Uma publicação agendada sai na primeira abertura da app depois da hora, ou no tick seguinte.
 - **Fases seguintes:** quem avança passa à fase seguinte e o administrador pode decidi-lo e publicá-lo de novo. **Não existe ainda** a avaliação por fase (grelha, distribuição e prazo próprios de cada fase, spec §5.2/§10/§12): a grelha e a distribuição são as da call inteira. O fluxo de entrevista e de agendamento não foi inventado (prompt 924).
+
+## I3 — Contestações, fecho da call e conservação
+
+### O que foi feito
+- **Migração** `20261029140000_calls_contestations_close.sql` (aplicada, ledger `20261029131202`, depois de teste seco `DRYRUN_OK`): `calls.status` aceita `completed` (+ `completed_at/by`, `data_purge_after`, aviso, adiamento, `data_purged_at`), `call_contestations` (uma por candidatura e fase), `call_data_summaries` (o resumo sem dados pessoais) e a função `purge_completed_call_data`.
+- **Contestar**, **fila de contestações**, **Upheld / Rejected**, **Complete call**, **exportação final** e **conservação**: ver o `DECISIONS.md` (entrada I3).
+- **"Handle contestations" passa a ser aplicada no servidor** em todos os pedidos; com isto, **as nove permissões da equipa estão aplicadas** (nenhuma diz já "Used from the next stage").
+- Uma call `completed` é **só de leitura no servidor** para qualquer escrita (409 `completed`), exceto apagar, arquivar e adiar a eliminação.
+
+### Testes
+`contestations.test.ts` (14), `calls-924-i3-routes.test.ts` (22), `i3-screens.browser.test.ts` (8, Chrome real a 375/768/1280). Capturas em `docs/calls/screenshots-924/` (`results-prepare-*`, `results-publish-*`, `results-published-*`, `contest-applicant-*`, `contestations-*`, `results-close-*`).
+
+## O que ficou de fora (para o relatório do Nuno)
+- **Avaliação por fase** (grelha, distribuição e prazo próprios de cada fase, spec §5.2/§10/§12): quem avança passa à fase seguinte e o administrador pode decidi-lo e publicá-lo de novo, mas a grelha e a distribuição são as da call inteira. Não se inventaram fluxos de entrevista nem de agendamento.
+- **Seriação** (mínimos, cotas, vagas): será o Prompt 925. **Painéis:** para depois. **Resultado como documento/link:** adiado.
+- **Contestações de um resultado que já mudou de fase** ou **mais de uma contestação por candidatura**: só uma por candidatura e fase, como pedido.
+- **Aviso na app para a equipa** quando chega uma contestação (só email).
+- **Agendamento ao minuto:** com a Hobby, uma publicação agendada sai na primeira abertura da app depois da hora ou no tick diário (e, enquanto o `CRON_SECRET` estiver pendente, o tick diário não corre por si).
+- **A purga por testar em produção:** ainda não há uma call completada com a data passada; está testada com a data simulada.
+
+## Lista de cliques para o Nuno (numa call de teste com 3 candidaturas avaliadas, fechada)
+1. **Preparar as mensagens:** abrir a call → **Results → Prepare**. Ver as contagens (Selected / Not selected / Waiting list), decidir no quadro de avaliação o que faltar (o aviso amarelo leva lá). Mudar o nome de um resultado e uma mensagem; ligar **"Applicants who are Not selected can contest"** (10 dias); escolher uma candidatura em **Preview** e ver a mensagem. (Opcional: ligar o feedback e escrevê-lo; ligar a nota e validá-la em cada candidatura.)
+2. **Enviar um teste:** **Results → Publish → Send me a test** (chegam 3 emails, só a ti, com "[Test]").
+3. **Publicar:** escrever o nome da call e **Publish results** (ou **Schedule**). Ver a lista dos emails (Sent / Waiting / Bounced / Failed) e, se algum falhar, **Send again**.
+4. **Ver o resultado em cada conta de candidato:** entrar com cada candidato → **Calls → My applications** (etiqueta "Result available") → abrir a candidatura: o resultado e a mensagem estão por cima.
+5. **Contestar com a "Not selected":** com essa conta, **Contest this decision** → escrever o motivo (e, se quiseres, um PDF) → **Send contestation**. Fica "Contestation under review".
+6. **Responder:** com a conta de quem tem "Handle contestations" → **Results → Contestations** → abrir → **Upheld…** (escolher Advance ou Waitlist, escrever a resposta) ou **Rejected…** (resposta obrigatória). O candidato recebe o email e vê o novo resultado/a resposta.
+7. **Complete call:** esperar que o prazo acabe (ou, para testar já, pôr os dias a 1 e esperar um dia) → **Results → Close → Complete call** (escrever o nome). A call fica só de leitura; ver a data de eliminação dos dados, **Download CSV / Excel** e, se quiseres, **Postpone the deletion…**.
