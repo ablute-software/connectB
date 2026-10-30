@@ -289,7 +289,7 @@ export async function duplicateCall(admin: SupabaseClient, source: Call, actor: 
   // The eligibility rules (and the recipes of their documents) are copied as a copy of their own, pointing at the copy's questions: nothing of one call is shared with another (Prompt 918, I2).
   await copyEligibility(admin, source, copy.id, idMap, actor);
   // The evaluation grid and its settings are copied as a copy of their own too (Prompt 922): never the evaluations, the assignments or the decisions.
-  await copyEvalGrid(admin, source, copy.id, actor);
+  await copyEvalGrid(admin, source, copy.id, actor, idMap);
   // The cover image (and a logo uploaded for the call) are copied as files of the copy — never shared, so removing one from either call cannot take the other's away (Prompt 918, Adenda 1 C).
   let result = copy;
   for (const [kind, path] of [['cover', source.coverPath], ['logo', source.logoPath]] as const) {

@@ -11,6 +11,7 @@ import { callPermissions, type CallAuth, type CallsAuth } from './access';
 import { createNotice } from './applicant/notices';
 import { loadSubmission } from './applicant/store';
 import { GENERIC_EMAIL_DOMAINS } from './duplicates';
+import { autoDrift, autoResultsFor, liveScores, overrideMove, resolveScore, type AutoResult, type HeldScore, type ScoreSource } from './eval-auto';
 import { belowMinimum, weightedGrade, type Criterion, type GridSettings } from './eval-grid';
 import { loadCriteria, loadSettings } from './eval-grid-store';
 import { buildRedactor, identifiersOf, maskAnswers, maskFileName, type Redactor } from './eval-mask';
@@ -55,7 +56,7 @@ const toEval = (r: Row): EvalRow => ({
   id: r.id as string, status: r.status === 'submitted' ? 'submitted' : 'in_progress', gridVersion: Number(r.grid_version ?? 1), revision: Number(r.revision ?? 0), overallComment: String(r.overall_comment ?? ''), privateNote: String(r.private_note ?? ''),
   gradePercent: r.grade_percent === null || r.grade_percent === undefined ? null : Number(r.grade_percent), reopenedCount: Number(r.reopened_count ?? 0), submittedAt: (r.submitted_at as string | null) ?? null, submissionId: (r.submission_id as string | null) ?? null, userId: r.evaluator_user_id as string,
 });
-export type ScoreMap = Record<string, { score: number | null; comment: string }>;
+export type ScoreMap = Record<string, { score: number | null; comment: string; source?: ScoreSource; autoValue?: number | null }>;
 
 export async function loadEvaluation(admin: SupabaseClient, applicationId: string, userId: string): Promise<{ row: EvalRow; scores: ScoreMap } | null> {
   const { data } = await admin.from('call_evaluations').select('*').eq('application_id', applicationId).eq('evaluator_user_id', userId).maybeSingle();
@@ -64,9 +65,12 @@ export async function loadEvaluation(admin: SupabaseClient, applicationId: strin
   return { row, scores: await loadScores(admin, row.id) };
 }
 async function loadScores(admin: SupabaseClient, evaluationId: string): Promise<ScoreMap> {
-  const { data } = await admin.from('call_eval_scores').select('criterion_id, score, comment').eq('evaluation_id', evaluationId);
+  const { data } = await admin.from('call_eval_scores').select('criterion_id, score, comment, source, auto_value').eq('evaluation_id', evaluationId);
   const out: ScoreMap = {};
-  for (const s of (data ?? []) as Row[]) out[s.criterion_id as string] = { score: s.score === null || s.score === undefined ? null : Number(s.score), comment: String(s.comment ?? '') };
+  for (const s of (data ?? []) as Row[]) out[s.criterion_id as string] = {
+    score: s.score === null || s.score === undefined ? null : Number(s.score), comment: String(s.comment ?? ''),
+    source: s.source === 'auto' || s.source === 'override' ? s.source : 'manual', autoValue: s.auto_value === null || s.auto_value === undefined ? null : Number(s.auto_value),
+  };
   return out;
 }
 const numericScores = (m: ScoreMap): Record<string, number | null> => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v.score]));
@@ -96,8 +100,12 @@ export interface EvaluationPayload {
   grid: { version: number; criteria: Criterion[]; commentRequiredForAll: boolean };
   evaluation: { id: string | null; status: EvalState; scores: ScoreMap; overallComment: string; privateNote: string; revision: number; gradePercent: number | null; submittedAt: string | null; reopenedCount: number };
   below: { id: string; name: string; score: number; min: number }[];
+  /** Criteria that score themselves from an answer (Adenda 1, B): what the answer is worth, why, and whether the evaluator may change it. */
+  autos: Record<string, { status: 'scored' | 'missing'; points: number | null; because: string; override: boolean; fieldId: string }>;
+  /** Administrators only: submitted evaluations whose automatic points no longer match the application's answers (a warning; nothing changes by itself). */
+  drift: { criterionId: string; name: string; held: number; now: number }[];
   deadline: { day: string; daysLeft: number } | null;
-  colleagues: { userId: string; evaluator: string | null; scores: ScoreMap; overallComment: string; gradePercent: number | null; privateNote?: string }[] | null;
+  colleagues: { userId: string; evaluator: string | null; scores: ScoreMap; overallComment: string; gradePercent: number | null; privateNote?: string; drift?: { criterionId: string; name: string; held: number; now: number }[] }[] | null;
 }
 
 const daysBetween = (from: string, to: string): number => Math.round((Date.UTC(+to.slice(0, 4), +to.slice(5, 7) - 1, +to.slice(8, 10)) - Date.UTC(+from.slice(0, 4), +from.slice(5, 7) - 1, +from.slice(8, 10))) / 86_400_000);
@@ -123,6 +131,8 @@ export async function buildPayload(auth: CallAuth, gate: Extract<Gate, { ok: tru
   const snapFields = ((snapshot.data as { form_snapshot?: { fields?: FormField[] } } | null)?.form_snapshot?.fields ?? fields) as FormField[];
   const startupName = ((org.data as Row | null)?.name as string | undefined) ?? null;
   let answers = (sub?.answers ?? {}) as Record<string, AnswerValue>;
+  // What the automatic criteria are worth is read from the answers as they were given — closed answers hold no identity, so blind evaluation changes nothing here.
+  const results = autoResultsFor(criteria, snapFields, answers as Record<string, unknown>);
   let docs = (sub?.documents ?? []).map((d, i) => ({ fileId: d.fileId, fieldId: d.fieldId, fileName: d.fileName, size: d.size ?? null, label: snapFields.find((f) => f.id === d.fieldId)?.label ?? '', i }));
   if (gate.masked) {
     const redact = await identityOf(admin, gate.app, startupName);
@@ -133,6 +143,8 @@ export async function buildPayload(auth: CallAuth, gate: Extract<Gate, { ok: tru
   const ev = mine ?? { row: null as EvalRow | null, scores: {} as ScoreMap };
   const state: EvalState = ev.row ? ev.row.status : 'not_started';
   const closed = !!call.evaluationClosedAt;
+  // Until it is submitted the evaluation follows the application (a corrected answer recalculates the point); once submitted it is what it was.
+  const shown: ScoreMap = state === 'submitted' ? ev.scores : liveScores(criteria, ev.scores, results);
 
   // Colleagues: with the permission and only after finishing one's own; an administrator reads all (the private note too).
   let colleagues: EvaluationPayload['colleagues'] = null;
@@ -142,7 +154,8 @@ export async function buildPayload(auth: CallAuth, gate: Extract<Gate, { ok: tru
     const names = await describePeople(admin, callOrg(call), others.map((o) => o.userId));
     colleagues = [];
     for (const o of others) {
-      colleagues.push({ userId: o.userId, evaluator: names.get(o.userId)?.name ?? names.get(o.userId)?.email ?? null, scores: await loadScores(admin, o.id), overallComment: o.overallComment, gradePercent: o.gradePercent, ...(gate.admin ? { privateNote: o.privateNote } : {}) });
+      const theirs = await loadScores(admin, o.id);
+      colleagues.push({ userId: o.userId, evaluator: names.get(o.userId)?.name ?? names.get(o.userId)?.email ?? null, scores: theirs, overallComment: o.overallComment, gradePercent: o.gradePercent, ...(gate.admin ? { privateNote: o.privateNote, drift: autoDrift(criteria, theirs as Record<string, HeldScore>, results) } : {}) });
     }
   }
   return {
@@ -152,8 +165,10 @@ export async function buildPayload(auth: CallAuth, gate: Extract<Gate, { ok: tru
     fields: snapFields, answers, currency: call.currency,
     documents: docs.map((d) => ({ fileId: d.fileId, fieldId: d.fieldId, fileName: d.fileName, size: d.size, url: `${base}/${d.fileId}` })),
     grid: { version, criteria, commentRequiredForAll: gate.settings.commentRequiredForAll },
-    evaluation: { id: ev.row?.id ?? null, status: state, scores: ev.scores, overallComment: ev.row?.overallComment ?? '', privateNote: ev.row?.privateNote ?? '', revision: ev.row?.revision ?? 0, gradePercent: ev.row?.gradePercent ?? null, submittedAt: ev.row?.submittedAt ?? null, reopenedCount: ev.row?.reopenedCount ?? 0 },
-    below: belowMinimum(criteria, numericScores(ev.scores)),
+    evaluation: { id: ev.row?.id ?? null, status: state, scores: shown, overallComment: ev.row?.overallComment ?? '', privateNote: ev.row?.privateNote ?? '', revision: ev.row?.revision ?? 0, gradePercent: ev.row?.gradePercent ?? null, submittedAt: ev.row?.submittedAt ?? null, reopenedCount: ev.row?.reopenedCount ?? 0 },
+    below: belowMinimum(criteria, numericScores(shown)),
+    autos: Object.fromEntries(criteria.filter((c) => c.auto).map((c) => [c.id, { status: results[c.id].status, points: results[c.id].status === 'scored' ? (results[c.id] as Extract<AutoResult, { status: 'scored' }>).points : null, because: results[c.id].because, override: c.auto!.override, fieldId: c.auto!.fieldId }])),
+    drift: gate.admin && state === 'submitted' ? autoDrift(criteria, ev.scores as Record<string, HeldScore>, results) : [],
     deadline: nextDeadline(gate.settings, call),
     colleagues,
   };
@@ -177,9 +192,12 @@ export async function saveDraft(auth: CallAuth, gate: Extract<Gate, { ok: true }
   const version = cur?.row.gridVersion ?? call.evalGridVersion ?? 1;
   const criteria = await loadCriteria(admin, call.id, version);
   const byId = new Map(criteria.map((c) => [c.id, c]));
+  const results = criteria.some((c) => c.auto) ? autoResultsFor(criteria, await loadFields(admin, call.id), ((await loadSubmission(admin, gate.app.submissionId))?.answers ?? {}) as Record<string, unknown>) : {};
   for (const [id, s] of Object.entries(input.scores ?? {})) {
     const c = byId.get(id);
     if (!c) return bad(400, 'One of the criteria does not belong to this grid.');
+    // A criterion that scores itself is not scored by the evaluator — unless the entity allowed it, and then only with a comment (checked on submitting). With no answer to score from, the evaluator scores.
+    if (s.score !== undefined && c.auto && overrideMove(c.auto, results[id] ?? null) === 'locked') return bad(403, `“${c.name}” is scored automatically from the applicant’s answer: it cannot be changed.`, 'auto_locked');
     if (s.score !== undefined && s.score !== null && (!Number.isInteger(s.score) || s.score < c.scaleMin || s.score > c.scaleMax)) return bad(400, `A score for “${c.name}” must be a whole number from ${c.scaleMin} to ${c.scaleMax}.`);
     if (typeof s.comment === 'string' && s.comment.length > MAX_COMMENT) return bad(400, `A comment can have at most ${MAX_COMMENT} characters.`);
   }
@@ -192,15 +210,23 @@ export async function saveDraft(auth: CallAuth, gate: Extract<Gate, { ok: true }
     cur = { row: toEval(ins.data as Row), scores: {} };
     await admin.from('call_events').insert({ call_id: call.id, application_id: gate.app.id, event: 'eval_started', actor_user_id: auth.userId, detail: { gridVersion: version } });
   }
-  const scores = { ...cur.scores };
+  let scores: ScoreMap = { ...cur.scores };
   for (const [id, s] of Object.entries(input.scores ?? {})) {
+    const c = byId.get(id)!;
     const prev = scores[id] ?? { score: null, comment: '' };
-    const next = { score: s.score === undefined ? prev.score : s.score, comment: typeof s.comment === 'string' ? s.comment : prev.comment };
-    if (next.score === null && next.comment === '') { delete scores[id]; await admin.from('call_eval_scores').delete().eq('evaluation_id', cur.row.id).eq('criterion_id', id); continue; }
+    const next: ScoreMap[string] = { score: s.score === undefined ? prev.score : s.score, comment: typeof s.comment === 'string' ? s.comment : prev.comment, source: prev.source ?? 'manual', autoValue: prev.autoValue ?? null };
+    // An automatic criterion keeps its point: a changed score is an override (both values kept), the same value again is just the automatic one.
+    const r = results[id] ?? null;
+    if (c.auto && r && r.status === 'scored' && s.score !== undefined) {
+      if (s.score === null || s.score === r.points) { next.score = r.points; next.source = 'auto'; } else next.source = 'override';
+      next.autoValue = r.points;
+    } else if (!c.auto) { next.source = 'manual'; next.autoValue = null; }
+    if (!c.auto && next.score === null && next.comment === '') { delete scores[id]; await admin.from('call_eval_scores').delete().eq('evaluation_id', cur.row.id).eq('criterion_id', id); continue; }
     scores[id] = next;
-    const up = await admin.from('call_eval_scores').upsert({ evaluation_id: cur.row.id, criterion_id: id, score: next.score, comment: next.comment, updated_at: new Date().toISOString() }, { onConflict: 'evaluation_id,criterion_id' });
+    const up = await admin.from('call_eval_scores').upsert({ evaluation_id: cur.row.id, criterion_id: id, score: next.score, comment: next.comment, source: next.source ?? 'manual', auto_value: next.autoValue ?? null, updated_at: new Date().toISOString() }, { onConflict: 'evaluation_id,criterion_id' });
     if (up.error) return bad(500, 'Your score could not be saved. Please try again.');
   }
+  scores = await syncAuto(admin, cur.row.id, criteria, results, scores);
   const grade = weightedGrade(criteria, numericScores(scores)).percent;
   const revision = cur.row.revision + 1;
   const patch: Row = { revision, grade_percent: grade, updated_at: new Date().toISOString() };
@@ -211,6 +237,23 @@ export async function saveDraft(auth: CallAuth, gate: Extract<Gate, { ok: true }
   return { ok: true, revision, gradePercent: grade };
 }
 
+/**
+ * Writes down what the automatic criteria are worth NOW (the point of the answer, an override kept beside it, or nothing when there is no answer to score from) and returns the scores as they stand. Only rows that
+ * differ are written, so a save that changed nothing here writes nothing.
+ */
+async function syncAuto(admin: SupabaseClient, evaluationId: string, criteria: Criterion[], results: Record<string, AutoResult>, held: ScoreMap): Promise<ScoreMap> {
+  const next = liveScores(criteria, held, results) as ScoreMap;
+  for (const c of criteria) {
+    if (!c.auto || !results[c.id]) continue;
+    const was = held[c.id]; const now = next[c.id];
+    if (!now) { if (was) { await admin.from('call_eval_scores').delete().eq('evaluation_id', evaluationId).eq('criterion_id', c.id); } continue; }
+    if (was && was.score === now.score && was.comment === now.comment && (was.source ?? 'manual') === now.source && (was.autoValue ?? null) === (now.autoValue ?? null)) continue;
+    const up = await admin.from('call_eval_scores').upsert({ evaluation_id: evaluationId, criterion_id: c.id, score: now.score, comment: now.comment, source: now.source ?? 'manual', auto_value: now.autoValue ?? null, updated_at: new Date().toISOString() }, { onConflict: 'evaluation_id,criterion_id' });
+    if (up.error) throw new Error(`Could not write the automatic scores: ${up.error.message}`);
+  }
+  return next;
+}
+
 // --- Submitting ------------------------------------------------------------------------------------------------------------------------------------------
 
 /** What is still missing for a submission: a score for every criterion, and the comment where one is required (the criterion's own, or the grid's "required for all"). */
@@ -219,7 +262,7 @@ export function missingForSubmit(criteria: Criterion[], scores: ScoreMap, commen
   for (const c of criteria) {
     const s = scores[c.id];
     if (!s || s.score === null) out.push({ criterionId: c.id, name: c.name, problem: 'score' });
-    else if ((c.commentRequired || commentRequiredForAll) && s.comment.trim() === '') out.push({ criterionId: c.id, name: c.name, problem: 'comment' });
+    else if ((c.commentRequired || commentRequiredForAll || s.source === 'override') && s.comment.trim() === '') out.push({ criterionId: c.id, name: c.name, problem: 'comment' });
   }
   return out;
 }
@@ -238,9 +281,12 @@ export async function submitEvaluation(auth: CallAuth, gate: Extract<Gate, { ok:
   if (cur.row.status === 'submitted') return bad(409, 'You already submitted this evaluation.', 'submitted');
   if (typeof revision === 'number' && revision !== cur.row.revision) return bad(409, 'This evaluation was changed in another window. Reload to continue.', 'conflict');
   const criteria = await loadCriteria(admin, call.id, cur.row.gridVersion);
-  const missing = missingForSubmit(criteria, cur.scores, gate.settings.commentRequiredForAll);
+  // Last look at the application: an automatic point follows a corrected answer right up to the moment of submitting, and from then on it is what it is.
+  const results = criteria.some((c) => c.auto) ? autoResultsFor(criteria, await loadFields(admin, call.id), ((await loadSubmission(admin, gate.app.submissionId))?.answers ?? {}) as Record<string, unknown>) : {};
+  const scores = await syncAuto(admin, cur.row.id, criteria, results, cur.scores);
+  const missing = missingForSubmit(criteria, scores, gate.settings.commentRequiredForAll);
   if (missing.length) return bad(422, missingSentence(missing), 'incomplete', { missing });
-  const grade = weightedGrade(criteria, numericScores(cur.scores)).percent;
+  const grade = weightedGrade(criteria, numericScores(scores)).percent;
   const at = new Date().toISOString();
   const upd = await admin.from('call_evaluations').update({ status: 'submitted', submitted_at: at, grade_percent: grade, revision: cur.row.revision + 1, updated_at: at }).eq('id', cur.row.id).eq('status', 'in_progress').select('id');
   if (upd.error || (upd.data ?? []).length === 0) return bad(409, 'You already submitted this evaluation.', 'submitted');

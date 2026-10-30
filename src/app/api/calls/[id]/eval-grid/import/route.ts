@@ -7,6 +7,8 @@ import { GRID_IMPORT_MAX_BYTES, GRID_NOTICE, readGridDocument } from '@/lib/call
 import { proposalToCriteria } from '@/lib/calls/eval-grid-reader';
 import { NOT_READY_BODY, evaluationCounts, evaluationReady, saveImportRun } from '@/lib/calls/eval-grid-store';
 import { gridMode } from '@/lib/calls/eval-grid-view';
+import { linkableFields, suggestLinks } from '@/lib/calls/eval-links';
+import { loadFields } from '@/lib/calls/store';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -25,5 +27,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const reading = await readGridDocument(f.name || 'grid', Buffer.from(await f.arrayBuffer()));
   if (!reading.ok) return NextResponse.json({ ok: false, error: reading.error }, { status: 422 });
   const runId = await saveImportRun(auth.admin, auth.call.id, f.name || 'grid', reading.proposal, auth.userId);
-  return NextResponse.json({ ok: true, runId, notice: GRID_NOTICE, fileName: f.name, proposal: reading.proposal, criteria: proposalToCriteria(reading.proposal) });
+  // Links proposed when a criterion's text clearly points to a question of the form (never applied by themselves: the administrator sees each one and accepts it). Computed here, from the call's own form only.
+  const criteria = proposalToCriteria(reading.proposal) as { name: string }[];
+  const lf = linkableFields(await loadFields(auth.admin, auth.call.id));
+  const suggestions = Object.fromEntries(criteria.map((c): [string, string[]] => [c.name, suggestLinks(c.name, lf)]).filter(([, ids]) => ids.length > 0));
+  return NextResponse.json({ ok: true, runId, notice: GRID_NOTICE, fileName: f.name, proposal: reading.proposal, criteria, suggestions });
 }

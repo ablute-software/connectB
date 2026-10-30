@@ -3,18 +3,21 @@
 // call's, and a template is COPIED into a call (nothing is shared afterwards).
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { parseAuto, type AutoScore } from './eval-auto';
 import { DEFAULT_SETTINGS, parseCriteriaPayload, type Criterion, type GridSettings } from './eval-grid';
-import type { Call } from './types';
+import type { Call, FormField } from './types';
 
 type Row = Record<string, unknown>;
 
 export const rowToCriterion = (r: Row): Criterion => ({
   id: r.id as string, section: (r.section as string | null) ?? null, position: Number(r.position ?? 0), name: String(r.name ?? ''), guidance: String(r.guidance ?? ''), weight: Number(r.weight ?? 0), format: 'scale',
   scaleMin: Number(r.scale_min), scaleMax: Number(r.scale_max), levels: Array.isArray(r.levels) ? (r.levels as Criterion['levels']) : [], commentRequired: r.comment_required === true, minScore: r.min_score == null ? null : Number(r.min_score),
+  linkedFields: Array.isArray(r.linked_fields) ? (r.linked_fields as unknown[]).filter((x): x is string => typeof x === 'string') : [],
+  auto: r.auto_score && typeof r.auto_score === 'object' ? (r.auto_score as AutoScore) : null, linkNotice: r.link_notice === true,
 });
 const criterionRow = (callId: string, version: number, c: Criterion, i: number): Row => ({
   id: c.id, call_id: callId, version, position: i, section: c.section, name: c.name, guidance: c.guidance, weight: c.weight, format: c.format, scale_min: c.scaleMin, scale_max: c.scaleMax,
-  levels: c.levels, comment_required: c.commentRequired, min_score: c.minScore,
+  levels: c.levels, comment_required: c.commentRequired, min_score: c.minScore, linked_fields: c.linkedFields ?? [], auto_score: c.auto ?? null, link_notice: c.linkNotice === true,
 });
 
 /**
@@ -100,13 +103,31 @@ export async function saveTemplate(admin: SupabaseClient, call: Call, name: stri
   return { ok: true, id: (data as Row).id as string };
 }
 
-export async function templateCriteria(admin: SupabaseClient, call: Call, templateId: string): Promise<{ criteria: Criterion[]; name: string } | null> {
+/**
+ * A template is a grid, not a call: the questions its criteria were linked to belong to the call it was saved in. Used in another call, a link survives only if that question exists here (the same id, which
+ * is the case when the form is the same), and a table of points only if it still fits the question. A criterion that lost a link asks to be linked to the questions of THIS call.
+ */
+export function relinkToForm(criteria: Criterion[], fields: Pick<FormField, 'id' | 'kind' | 'label' | 'options'>[]): Criterion[] {
+  return criteria.map((c) => {
+    const had = c.linkedFields ?? [];
+    const linkedFields = had.filter((f) => fields.some((x) => x.id === f));
+    let auto = c.auto ?? null;
+    if (auto) {
+      const ok = parseAuto(auto, fields.find((x) => x.id === auto!.fieldId), c, c.name);
+      auto = ok.ok ? ok.auto : null;
+    }
+    const lost = linkedFields.length < had.length || (!!c.auto && !auto);
+    return { ...c, linkedFields, auto, linkNotice: lost || (c.linkNotice === true && linkedFields.length === 0) };
+  });
+}
+
+export async function templateCriteria(admin: SupabaseClient, call: Call, templateId: string, fields: Pick<FormField, 'id' | 'kind' | 'label' | 'options'>[] = []): Promise<{ criteria: Criterion[]; name: string } | null> {
   const col = call.promoterKind === 'incubator' ? 'incubator_id' : 'catalog_entity_id';
   const { data } = await admin.from('call_eval_templates').select('name, criteria').eq('id', templateId).eq(col, call.promoterId).maybeSingle();
   const r = data as Row | null;
   if (!r) return null;
   const parsed = parseCriteriaPayload(r.criteria);       // fresh ids: a use is a copy
-  return parsed.ok ? { criteria: parsed.criteria.map((c) => ({ ...c, id: globalThis.crypto.randomUUID() })), name: r.name as string } : null;
+  return parsed.ok ? { criteria: relinkToForm(parsed.criteria.map((c) => ({ ...c, id: globalThis.crypto.randomUUID() })), fields), name: r.name as string } : null;
 }
 
 export async function deleteTemplate(admin: SupabaseClient, call: Call, templateId: string): Promise<boolean> {
@@ -118,11 +139,13 @@ export async function deleteTemplate(admin: SupabaseClient, call: Call, template
 // --- A duplicated call -----------------------------------------------------------------------------------------------------------------------------------
 
 /** A copy gets the active grid and the settings as a copy of its own (new ids, version 1). The deadlines belong to the phases of the original and are not copied. Never the evaluations or the decisions. */
-export async function copyEvalGrid(admin: SupabaseClient, from: Call, toCallId: string, actor: string): Promise<number> {
+export async function copyEvalGrid(admin: SupabaseClient, from: Call, toCallId: string, actor: string, fieldIdMap?: Map<string, string>): Promise<number> {
   const criteria = await loadCriteria(admin, from.id, from.evalGridVersion ?? 1);
   const settings = await loadSettings(admin, from.id);
   if (criteria.length === 0 && JSON.stringify(settings) === JSON.stringify(DEFAULT_SETTINGS)) return 0;
-  if (criteria.length > 0) await writeCriteria(admin, toCallId, 1, criteria.map((c) => ({ ...c, id: globalThis.crypto.randomUUID() })));
+  // Duplicating the WHOLE call: its form is copied with fresh ids (`fieldIdMap`), so the links and the table of points follow the questions to their new ids.
+  const remap = (id: string): string => fieldIdMap?.get(id) ?? id;
+  if (criteria.length > 0) await writeCriteria(admin, toCallId, 1, criteria.map((c) => ({ ...c, id: globalThis.crypto.randomUUID(), linkedFields: (c.linkedFields ?? []).map(remap), auto: c.auto ? { ...c.auto, fieldId: remap(c.auto.fieldId) } : null })));
   await saveSettings(admin, toCallId, { ...settings, deadlines: [] }, actor);
   return criteria.length;
 }

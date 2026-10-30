@@ -34,7 +34,7 @@ const payload = (over: Partial<EvaluationPayload> = {}): EvaluationPayload => ({
   documents: [{ fileId: 'file-1', fieldId: 'f3', fileName: 'certidao.pdf', size: 2048, url: '/api/calls/c1/evaluations/a1/documents/file-1' }],
   grid: { version: 1, criteria: CRITERIA, commentRequiredForAll: false },
   evaluation: { id: null, status: 'not_started', scores: {}, overallComment: '', privateNote: '', revision: 0, gradePercent: null, submittedAt: null, reopenedCount: 0 },
-  below: [], deadline: { day: '2026-12-15', daysLeft: 3 }, colleagues: null,
+  below: [], autos: {}, drift: [], deadline: { day: '2026-12-15', daysLeft: 3 }, colleagues: null,
   ...over,
 });
 
