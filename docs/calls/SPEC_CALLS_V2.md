@@ -398,6 +398,16 @@ Exemplos: 37 candidaturas por quatro membros a 25% dá 10/9/9/9, e a seguinte va
 
 **Sem destino:** as candidaturas sem correspondência, ou com as quantidades esgotadas, ficam **Unassigned**, com aviso ao administrador. Nunca desaparecem das contagens.
 
+### 10.3.1. Como se reparte a carga: Equal, Weighted e By rules **[Decisão]** (Nuno, Prompt 922, Adenda 1, Parte C, 29/10/2026; construído a 30/10/2026)
+
+O modo da distribuição (Automatic / Mixed / Manual) diz **quem** atribui; isto diz **como se reparte a carga**. A entidade escolhe um de três:
+
+- **Equal:** como sempre — cada candidatura leva os avaliadores com menos trabalho.
+- **Weighted:** cada avaliador tem uma **percentagem** da carga (soma 100 %) ou, em alternativa, um **máximo de candidaturas**. Os alvos fazem-se por maiores restos (30/50/20 com 10 candidaturas e N = 1 dá 3/5/2). O N por candidatura e os conflitos de interesse continuam a valer; o ecrã mostra a percentagem pedida e o número real que cada um recebe.
+- **By rules:** **painéis** de avaliadores (grupos com nome; uma pessoa pode estar em vários) e **regras por ordem** sobre perguntas fechadas (escolha única, escolha múltipla «contém», Sim/Não, número ou montante em intervalo), com **várias condições (E)**. Uma candidatura que cumpre várias regras vai para o painel da **primeira** (por omissão) ou para **todos** os painéis que cumpre. Sem regra, segue a **reserva** (todos por igual, ou todos pelas percentagens) ou fica **«Unassigned»**, para atribuição manual — mesmo no modo Automatic. Dentro do painel a carga é igual ou por percentagem. O **N conta dentro do painel**; um painel mais pequeno do que N obriga a escolher entre **completar com outros** ou **baixar o N nesse painel**, e nada se aplica antes dessa escolha.
+
+Para todos: **pré-visualização antes de aplicar** (por avaliador e por painel, candidaturas sem avaliadores suficientes, conflitos, «Unassigned»), **Apply com confirmação na página**, ajustes manuais, e as candidaturas Fit que chegam depois seguem o mesmo modo. Uma avaliação **começada ou submetida nunca é movida**, nem uma atribuição feita à mão. As regras guardam-se **por call e por versão**, copiam-se ao duplicar (apontando para as perguntas da cópia) e **ficam fixas com a primeira avaliação submetida**: mudar depois cria uma versão nova, depois de perguntar na página.
+
 ### 10.4. Alterações
 
 Ao alterar as regras, o administrador escolhe uma de duas opções: aplicar só às próximas candidaturas, ou também às que não têm trabalho iniciado.
@@ -492,6 +502,13 @@ Cria-se por importação (o motor extrai as contas) ou manualmente. Peças combi
 O total é expresso **na escala da grelha** (por exemplo 3,45 / 5).
 
 Se um documento importado descrever algo que estas peças não cobrem, a plataforma diz exatamente o quê, em vez de aproximar em silêncio.
+
+### 12.2.1. Critérios ligados ao formulário e pontuação automática **[Decisão]** (Nuno, Prompt 922, Adenda 1, Parte B, 29/10/2026; construído a 30/10/2026)
+
+- **«Based on these answers»:** cada critério pode basear-se em perguntas ou documentos do formulário **da própria call**, listados por página e com número; um painel «Form questions» (separador no telemóvel) mostra o formulário inteiro com os critérios a que cada pergunta está ligada. No ecrã do avaliador, junto ao critério, aparecem as respostas e os documentos ligados, com um clique para a resposta completa; **na avaliação às cegas as regras de esconder a identidade continuam a valer** (as respostas vêm já mascaradas do servidor).
+- **Duplicar e modelos:** duplicar a call remapeia as ligações; um modelo usado noutra call só mantém as ligações cujas perguntas existam lá e o critério avisa «Link this criterion to the questions of this call». A importação **propõe** ligações quando o texto aponta claramente para uma pergunta — **nunca liga sem o admin ver**.
+- **«Score automatically from answers»:** o critério liga-se a **uma** pergunta fechada com uma tabela de pontos (escolha múltipla: soma ou máximo, sempre dentro da escala; número: intervalos «até X», sem buracos nem sobreposições). **Todas as opções precisam de pontos** antes de a call poder ser validada. O critério chega ao avaliador pontuado e marcado «Automatic», com a resposta que deu o ponto; **por omissão não se muda**; com «Evaluators may override» muda-se **com comentário** e guardam-se os dois valores; **sem resposta** fica «Needs manual score».
+- **Recálculo:** enquanto a avaliação não está submetida o ponto segue a candidatura; depois de submetida fica fixo e uma diferença é só um **aviso ao administrador**. Os critérios automáticos **contam no peso** mas **ficam fora da divergência**; a consolidação mostra quais foram automáticos e onde houve alterações.
 
 ### 12.3. Pré-visualização da grelha
 
