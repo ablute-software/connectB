@@ -55,6 +55,7 @@ import { MeetingPrepNudge } from '@/components/dossier/MeetingPrepNudge';
 import { CommittedAmountField } from '@/components/dossier/CommittedAmountField';
 import { TermsOnTheTable } from '@/components/dossier/TermsOnTheTable';
 import type { Channel } from '@/lib/types';
+import { ScrollTabs } from '@/components/ScrollTabs';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -649,7 +650,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
           cost — "deixa de haver dossier e registo lado a lado no dossier
           completo"). */}
       <div className="space-y-4">
-        <div className="flex gap-1 overflow-x-auto border-b border-gray-200">
+        <ScrollTabs label="Entity sections" className="flex gap-1 overflow-x-auto border-b border-gray-200" kind="nav">
           {([
             { key: 'summary', label: 'Entity summary' },
             { key: 'people', label: 'People & Team' },
@@ -669,7 +670,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
               {s.label}
             </button>
           ))}
-        </div>
+        </ScrollTabs>
 
         {activeSection === 'files' && <FilesTab entityId={entity.id} />}
 

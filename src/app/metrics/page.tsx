@@ -36,6 +36,7 @@ import { MethodologyTab } from '@/components/backoffice/metrics/MethodologyTab';
 import { MetricDrillDown, type DrillDownSeries } from '@/components/backoffice/metrics/MetricDrillDown';
 import { UsageRankingTab } from '@/components/backoffice/metrics/UsageRankingTab';
 import { DecisionsTab } from '@/components/backoffice/metrics/DecisionsTab';
+import { ScrollTabs } from '@/components/ScrollTabs';
 
 // Prompt 124 §0 — two floors, not a flat row of tabs: the rules differ (the
 // app floor can show individual accounts; Ecosystem never does — K=8 RPCs),
@@ -365,7 +366,7 @@ function MetricsPageContent() {
 
       {floor === 'app' ? (
         <>
-          <nav className="flex gap-1 overflow-x-auto border-b border-gray-100">
+          <ScrollTabs label="Metrics sections" className="flex gap-1 overflow-x-auto border-b border-gray-100" kind="nav">
             {APP_TABS.map((t) => (
               <button key={t.key} onClick={() => setAppTab(t.key)}
                 className={`shrink-0 border-b-2 px-3 py-2 text-sm font-medium ${
@@ -373,7 +374,7 @@ function MetricsPageContent() {
                 {t.label}
               </button>
             ))}
-          </nav>
+          </ScrollTabs>
           {appTab === 'overview' && <OverviewTab />}
           {appTab === 'growth' && <GrowthRevenueTab />}
           {appTab === 'activation' && <ActivationRetentionTab />}
@@ -386,7 +387,7 @@ function MetricsPageContent() {
         </>
       ) : (
         <>
-          <nav className="flex gap-1 overflow-x-auto border-b border-gray-100">
+          <ScrollTabs label="Metrics sections" className="flex gap-1 overflow-x-auto border-b border-gray-100" kind="nav">
             {ECOSYSTEM_TABS.map((t) => (
               <button key={t.key} onClick={() => setEcosystemTab(t.key)}
                 className={`shrink-0 border-b-2 px-3 py-2 text-sm font-medium ${
@@ -394,7 +395,7 @@ function MetricsPageContent() {
                 {t.label}
               </button>
             ))}
-          </nav>
+          </ScrollTabs>
           {ecosystemTab === 'xray' && <EcosystemTab />}
           {ecosystemTab === 'sample-coverage' && <SampleCoverageTab />}
           {ecosystemTab === 'methodology' && <MethodologyTab />}

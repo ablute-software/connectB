@@ -59,6 +59,7 @@ import { useInterestRequests } from '@/lib/interest-requests-client';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { emitProductEvent } from '@/lib/product-events';
 import type { Channel } from '@/lib/types';
+import { ScrollTabs } from '@/components/ScrollTabs';
 
 // Prompt 893 §A — ONE tab set, same order as the full dossier
 // (entities/[id]/page.tsx): Entity summary · People & Team · Conversation ·
@@ -366,7 +367,7 @@ export function EntityDossierPanel({ entityId, onClose }: {
             </span>
           )}
         </div>
-        <div className="mt-2.5 flex gap-1 overflow-x-auto" role="tablist">
+        <ScrollTabs label="Entity" className="mt-2.5 flex gap-1 overflow-x-auto">
           {TABS.map((t) => (
             <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)}
               className={`shrink-0 whitespace-nowrap border-b-2 px-2.5 py-2 text-[13px] font-medium ${
@@ -374,7 +375,7 @@ export function EntityDossierPanel({ entityId, onClose }: {
               {t.label}{tabCount[t.key] ? <span className="ml-1 text-gray-400">{tabCount[t.key]}</span> : ''}
             </button>
           ))}
-        </div>
+        </ScrollTabs>
       </div>
 
       {/* Body — scrolls independently of the header/tabs. */}

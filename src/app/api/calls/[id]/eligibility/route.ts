@@ -31,7 +31,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 }
 
 const sameRules = (a: EligibilityRule[], b: EligibilityRule[]) =>
-  JSON.stringify(a.map((r) => [r.fieldId, r.kind, r.params, r.note])) === JSON.stringify(b.map((r) => [r.fieldId, r.kind, r.params, r.note]));
+  JSON.stringify(a.map((r) => [r.fieldId, r.kind, r.params, r.note, r.applicantText ?? null])) === JSON.stringify(b.map((r) => [r.fieldId, r.kind, r.params, r.note, r.applicantText ?? null]));
 
 export async function PUT(req: Request, { params }: { params: { id: string } }) {
   const auth = await authCall(params.id, { write: true });

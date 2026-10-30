@@ -113,6 +113,9 @@ export async function loadFacts(admin: SupabaseClient, call: Call, phases: CallP
     admin.from('call_result_feedback').select('application_id, body, phase_id').eq('call_id', call.id),
     admin.from('call_result_grades').select('application_id, grade, phase_id').eq('call_id', call.id),
   ]);
+  // The sentences the entity wrote FOR the applicant on each rule (every version of the rules: an application keeps the rule it was evaluated against).
+  const { data: ruleRows } = await admin.from('call_eligibility_rules').select('id, applicant_text').eq('call_id', call.id);
+  const applicantTexts: Record<string, string | null> = Object.fromEntries(((ruleRows ?? []) as Row[]).map((r) => [r.id as string, (r.applicant_text as string | null) ?? null]));
   const decisions = new Map(((decRes.data ?? []) as Row[]).map((d) => [d.application_id as string, d.decision as Decision]));
   const elig = new Map(((eligRes.data ?? []) as Row[]).map((e) => [e.application_id as string, e]));
   const inPhase = (r: Row) => ((r.phase_id as string | null) ?? null) === phaseId;
@@ -127,7 +130,7 @@ export async function loadFacts(admin: SupabaseClient, call: Call, phases: CallP
       applicationId: r.id as string, reference: (r.reference as string | null) ?? null, startupName: r.startup_org_id ? names.get(r.startup_org_id as string) ?? null : null, applicantUserId: r.applicant_user_id as string,
       decision: decisions.get(r.id as string) ?? null, eligibility: (e?.status as AppFacts['eligibility']) ?? null,
       // The sentences of the requirements NOT met, once what a person decided is applied: what the entity wrote for each rule, never the engine's reason and never a person's justification.
-      failedRules: failedRuleSentences(Array.isArray(e?.rule_results) ? (e?.rule_results as { ruleId: string; outcome: string; sentence?: string }[]) : [], (e?.overrides && typeof e.overrides === 'object' ? e.overrides : {}) as Record<string, { outcome?: string }>),
+      failedRules: failedRuleSentences(Array.isArray(e?.rule_results) ? (e?.rule_results as { ruleId: string; outcome: string; sentence?: string }[]) : [], (e?.overrides && typeof e.overrides === 'object' ? e.overrides : {}) as Record<string, { outcome?: string }>, applicantTexts),
       feedback: feedback.get(r.id as string) ?? null, grade: grades.get(r.id as string) ?? null,
     };
   }).sort((a, b) => ((a.reference ?? a.applicationId) < (b.reference ?? b.applicationId) ? -1 : 1));
