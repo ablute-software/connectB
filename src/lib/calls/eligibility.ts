@@ -15,6 +15,8 @@ export const RULE_KIND_LABELS: Record<RuleKind, string> = {
 
 export const MAX_RULES = 60;
 export const MAX_RULE_TEXT = 600;
+/** "How applicants see this rule": one sentence for the applicant. */
+export const MAX_APPLICANT_TEXT = 300;
 
 export type NumberOp = 'eq' | 'gte' | 'gt' | 'lte' | 'lt' | 'between';
 export type DateOp = 'within_last' | 'on_or_after' | 'on_or_before';
@@ -37,6 +39,8 @@ export interface EligibilityRule {
   params: RuleParams;
   /** The entity's own words about the requirement (what the recipe of a document rule is prepared from). */
   note: string | null;
+  /** "How applicants see this rule" (Adenda 2): a sentence the entity writes FOR the applicant, told in the result email when the rule was not met and the entity chose to say why. null = none. */
+  applicantText?: string | null;
   position: number;
 }
 
@@ -144,7 +148,7 @@ export function parseRulesPayload(raw: unknown, fields: Pick<FormField, 'id' | '
     seen.add(key);
     const id = typeof r.id === 'string' && UUID.test(r.id) ? r.id : globalThis.crypto.randomUUID();
     if (out.some((x) => x.id === id)) return { ok: false, error: `${where}: repeated rule.` };
-    out.push({ id, fieldId: field.id, kind, params, note: clean(r.note, MAX_RULE_TEXT) || null, position: i });
+    out.push({ id, fieldId: field.id, kind, params, note: clean(r.note, MAX_RULE_TEXT) || null, applicantText: clean(r.applicantText, MAX_APPLICANT_TEXT) || null, position: i });
   }
   return { ok: true, rules: out };
 }

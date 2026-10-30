@@ -20,7 +20,7 @@ export function rulesMode(status: CallStatus): RulesMode {
 }
 
 export interface RuleView {
-  id: string; fieldId: string; fieldLabel: string; fieldKind: FormField['kind']; kind: RuleKind; kindLabel: string; params: EligibilityRule['params']; note: string | null;
+  id: string; fieldId: string; fieldLabel: string; fieldKind: FormField['kind']; kind: RuleKind; kindLabel: string; params: EligibilityRule['params']; note: string | null; applicantText: string;
   sentence: string; problems: string[];
   /** "How we check this document": read-only lines, for a document rule. */
   recipe: string[] | null;
@@ -49,7 +49,7 @@ export function buildEligibilityView(input: {
       const field = fields.find((f) => f.id === r.fieldId);
       const stored = input.recipes.find((x) => x.ruleId === r.id)?.recipe;
       return {
-        id: r.id, fieldId: r.fieldId, fieldLabel: field?.label ?? '(question removed)', fieldKind: field?.kind ?? 'short_text', kind: r.kind, kindLabel: RULE_KIND_LABELS[r.kind], params: r.params, note: r.note,
+        id: r.id, fieldId: r.fieldId, fieldLabel: field?.label ?? '(question removed)', fieldKind: field?.kind ?? 'short_text', kind: r.kind, applicantText: r.applicantText ?? '', kindLabel: RULE_KIND_LABELS[r.kind], params: r.params, note: r.note,
         sentence: ruleSentence(r, field, { currency: call.currency, call, docTypeLabel: labelOfDoc }), problems: ruleProblems(r, fields, call),
         recipe: stored ? recipeLines(stored) : null,
       };

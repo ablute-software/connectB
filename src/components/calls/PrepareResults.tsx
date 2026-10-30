@@ -100,11 +100,11 @@ export function PrepareResults({ callId, locked = false, lockedReason = null, on
         <div className="mt-3 space-y-3 text-sm">
           <fieldset className="min-w-0" data-testid="opt-eligibility-reason">
             <legend className="text-sm text-gray-800">Applicants whose eligibility was “Not a fit”{view.summary.byEligibility > 0 ? ` (${view.summary.byEligibility} application${view.summary.byEligibility === 1 ? '' : 's'})` : ''}: what are they told about why?</legend>
-            {([['none', 'Do not mention it'], ['general', 'A general sentence (“Your application did not meet the eligibility requirements of this call.”)'], ['rule', 'The sentence of the requirement that was not met']] as [EligibilityReasonMode, string][]).map(([k, text]) => (
+            {([['none', 'Do not mention it'], ['general', 'A general sentence (“Your application did not meet the eligibility criteria of this call.”)'], ['rule', 'The criterion not met, in the sentence you wrote for the applicant (“How applicants see this rule”)']] as [EligibilityReasonMode, string][]).map(([k, text]) => (
               <label key={k} className="mt-1 flex items-start gap-2"><input type="radio" name="eligibility-reason-mode" className="mt-1" disabled={off} checked={form.eligibilityReasonMode === k} data-testid={`eligibility-mode-${k}`}
                 onChange={() => { set({ ...form, eligibilityReasonMode: k }); change({ eligibilityReasonMode: k }); }} /> <span className="min-w-0">{text}</span></label>
             ))}
-            <p className="mt-1 text-[11px] text-gray-500">It goes where the message of “{view.labels.reject}” has the field <span className="merge-tag">Eligibility reason</span>, before the farewell. It is never the platform’s own text nor an internal justification.</p>
+            <p className="mt-1 text-[11px] text-gray-500">It goes where the message of “{view.labels.reject}” has the field <span className="merge-tag">Eligibility reason</span>, before the farewell. A rule with no sentence for the applicant says the general one. It is never the platform’s own text, the question, the applicant’s answer or anyone’s internal justification.</p>
           </fieldset>
           <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" disabled={off} checked={form.feedbackEnabled} data-testid="opt-feedback"
             onChange={(e) => { set({ ...form, feedbackEnabled: e.target.checked }); change({ feedbackEnabled: e.target.checked }); }} />

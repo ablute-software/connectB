@@ -15,10 +15,10 @@ const LABEL = 'block text-[11px] font-semibold uppercase tracking-wide text-gray
 const BTN = 'min-h-[44px] rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 sm:min-h-0 sm:py-1 sm:text-xs';
 const PRIMARY = 'min-h-[44px] rounded-lg bg-[#0E7490] px-4 py-1.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40 sm:min-h-0';
 
-type Draft = { id: string | null; fieldId: string; kind: RuleKind | ''; params: Record<string, unknown>; note: string };
-const blank = (note = ''): Draft => ({ id: null, fieldId: '', kind: '', params: {}, note });
+type Draft = { id: string | null; fieldId: string; kind: RuleKind | ''; params: Record<string, unknown>; note: string; applicantText: string };
+const blank = (note = ''): Draft => ({ id: null, fieldId: '', kind: '', params: {}, note, applicantText: '' });
 
-const asRuleBody = (r: { id: string | null; fieldId: string; kind: string; params: unknown; note: string | null }) => ({ id: r.id ?? undefined, fieldId: r.fieldId, kind: r.kind, params: r.params, note: r.note });
+const asRuleBody = (r: { id: string | null; fieldId: string; kind: string; params: unknown; note: string | null; applicantText?: string | null }) => ({ id: r.id ?? undefined, fieldId: r.fieldId, kind: r.kind, params: r.params, note: r.note, applicantText: r.applicantText ?? null });
 
 /** The default parameters when a kind is chosen, so the form never shows an empty state that cannot be saved by accident. */
 function defaultParams(kind: RuleKind, q: QuestionOption | undefined): Record<string, unknown> {
@@ -78,13 +78,13 @@ export function EligibilityStep({ callId, call, disabled, canManage, onRulesChan
     return true;
   }
 
-  const currentBodies = () => (view?.rules ?? []).map((r) => asRuleBody({ id: r.id, fieldId: r.fieldId, kind: r.kind, params: r.params, note: r.note }));
+  const currentBodies = () => (view?.rules ?? []).map((r) => asRuleBody({ id: r.id, fieldId: r.fieldId, kind: r.kind, params: r.params, note: r.note, applicantText: r.applicantText }));
 
   async function saveDraft() {
     if (!draft || !view) return;
     if (!draft.fieldId) { setFormError('Choose the question or document this rule is about.'); return; }
     if (!draft.kind) { setFormError('Choose the kind of rule.'); return; }
-    const body = asRuleBody({ id: draft.id, fieldId: draft.fieldId, kind: draft.kind, params: draft.params, note: draft.note.trim() || null });
+    const body = asRuleBody({ id: draft.id, fieldId: draft.fieldId, kind: draft.kind, params: draft.params, note: draft.note.trim() || null, applicantText: draft.applicantText.trim() || null });
     const list = currentBodies();
     const next = draft.id ? list.map((r) => (r.id === draft.id ? body : r)) : [...list, body];
     if (await save(next)) setDraft(null);
@@ -114,7 +114,7 @@ export function EligibilityStep({ callId, call, disabled, canManage, onRulesChan
   const sentenceOf = (d: Draft): string | null => {
     if (!d.fieldId || !d.kind) return null;
     const q = byId.get(d.fieldId);
-    const rule: EligibilityRule = { id: 'draft', fieldId: d.fieldId, kind: d.kind, params: d.params as never, note: d.note || null, position: 0 };
+    const rule: EligibilityRule = { id: 'draft', fieldId: d.fieldId, kind: d.kind, params: d.params as never, note: d.note || null, applicantText: d.applicantText || null, position: 0 };
     try { return ruleSentence(rule, q ? { label: q.label, options: q.options, kind: q.kind } : undefined, { currency: call.currency, call, docTypeLabel: (k) => view.docTypes.find((t) => t.key === k)?.label ?? null }); } catch { return null; }
   };
 
@@ -153,7 +153,7 @@ export function EligibilityStep({ callId, call, disabled, canManage, onRulesChan
         {view.rules.length === 0 && !draft && <p className="rounded-lg border border-dashed border-gray-300 p-4 text-center text-sm text-gray-500" data-testid="no-rules">No rules yet: every submitted application will be a Fit. Add a rule to limit who can apply.</p>}
         {view.rules.map((r) => (
           <RuleCard key={r.id} rule={r} editable={editable} busy={busy} removing={removing === r.id} canClose={view.mode === 'edit' && r.kind === 'open'}
-            onEdit={() => { setDraft({ id: r.id, fieldId: r.fieldId, kind: r.kind, params: { ...(r.params as Record<string, unknown>) }, note: r.note ?? '' }); setFormError(''); }}
+            onEdit={() => { setDraft({ id: r.id, fieldId: r.fieldId, kind: r.kind, params: { ...(r.params as Record<string, unknown>) }, note: r.note ?? '', applicantText: r.applicantText ?? '' }); setFormError(''); }}
             onAskRemove={() => setRemoving(r.id)} onKeep={() => setRemoving(null)} onRemove={() => void remove(r.id)} onClose={() => void closeQuestion(r.id)} />
         ))}
       </section>
@@ -340,6 +340,12 @@ function RuleForm({ draft, questions, view, sentence, busy, error, onChange, onS
         <div><label className={LABEL} htmlFor="rule-note">{draft.kind.startsWith('doc_') ? 'What the applicants are told about this document (optional)' : 'A note (optional)'}</label>
           <AutoTextarea id="rule-note" multiline className={INPUT} value={draft.note} maxLength={600} onChange={(note) => set({ note })} />
           {draft.kind.startsWith('doc_') && <p className="mt-1 text-[11px] text-gray-500">The platform prepares how to check the document from the question and from this text. You do not need to describe the check.</p>}</div>
+      )}
+
+      {q && draft.kind && (
+        <div data-testid="rule-applicant-text"><label className={LABEL} htmlFor="rule-applicant-text">How applicants see this rule (optional)</label>
+          <AutoTextarea id="rule-applicant-text" multiline className={INPUT} value={draft.applicantText} maxLength={300} placeholder="e.g. This call is for companies that have already received funding." onChange={(applicantText) => set({ applicantText })} />
+          <p className="mt-1 text-[11px] text-gray-500">One sentence, written for the applicant. It is the only thing a “Not a fit” applicant can be told about this rule, and only if you choose “the criterion not met” in Results. Never the question, their answer or the platform’s own text.</p></div>
       )}
 
       {sentence && <p className="rounded bg-[#E8F4F8] px-2.5 py-2 text-sm text-gray-900 [overflow-wrap:anywhere]" data-testid="rule-preview"><b>The rule, in one sentence:</b> {sentence}</p>}

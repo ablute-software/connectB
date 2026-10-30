@@ -149,20 +149,21 @@ describe('the message one applicant receives', () => {
     expect(withFb({ feedbackEnabled: true }, '<b>x</b>\nsecond line').html).toContain('&lt;b&gt;x&lt;/b&gt;<br>second line');
   });
   it('the eligibility reason goes where {eligibility_reason} is, before the farewell, in the way the entity chose; a decision by a person means no reason', () => {
-    const notFit = app({ eligibility: 'not_fit', failedRules: ['The company was founded in 2024 or earlier.', 'At least 2 founders.'] });
+    const notFit = app({ eligibility: 'not_fit', failedRules: ['This call is for companies founded in 2024 or earlier.', 'We look for teams of at least two founders.'] });
     const html = (mode: ResultSettings['eligibilityReasonMode'], a: AppFacts) => buildMessage(input({ settings: settings({ eligibilityReasonMode: mode }), app: a }))!.html;
     expect(html('none', notFit)).not.toContain('founded in 2024');
-    expect(html('none', notFit)).not.toContain('eligibility requirements');
+    expect(html('none', notFit)).not.toContain('eligibility criteria');
     expect(html('none', notFit)).not.toContain('<p></p>');
-    expect(html('general', notFit)).toContain('<p>Your application did not meet the eligibility requirements of this call.</p>');
+    expect(html('general', notFit)).toContain('<p>Your application did not meet the eligibility criteria of this call.</p>');
     expect(html('general', notFit)).not.toContain('founded in 2024');
-    expect(html('rule', notFit)).toContain('The requirement that was not met: The company was founded in 2024 or earlier.; At least 2 founders.');
-    expect(html('rule', notFit).indexOf('The requirement')).toBeLessThan(html('rule', notFit).indexOf('Kind regards'));
+    // the criterion not met: the entity's own sentence for the applicant, as it is — no label before it
+    expect(html('rule', notFit)).toContain('<p>This call is for companies founded in 2024 or earlier. We look for teams of at least two founders.</p>');
+    expect(html('rule', notFit).indexOf('This call is for')).toBeLessThan(html('rule', notFit).indexOf('Kind regards'));
     // a person decided: the application is not told about the eligibility at all
     expect(html('rule', { ...notFit, decision: 'reject' })).not.toContain('founded in 2024');
-    expect(html('general', { ...notFit, decision: 'reject' })).not.toContain('eligibility requirements');
-    // "rule" with no sentence to quote falls back to the general one
-    expect(html('rule', app({ eligibility: 'not_fit', failedRules: [] }))).toContain('did not meet the eligibility requirements');
+    expect(html('general', { ...notFit, decision: 'reject' })).not.toContain('eligibility criteria');
+    // "rule" with no sentence for the applicant (a rule without one, or a person's own reclassification) falls back to the general one
+    expect(html('rule', app({ eligibility: 'not_fit', failedRules: [] }))).toContain('did not meet the eligibility criteria');
   });
   it('the field exists, and a message with a field that does not exist blocks publishing', () => {
     expect(PLACEHOLDERS.map((p) => p.key)).toContain('eligibility_reason');
@@ -173,11 +174,13 @@ describe('the message one applicant receives', () => {
     expect(blockersOf({ summary, callStatus: 'closed', alreadyPublished: false, unknownFields: ['applicant_nam'] }).map((b) => b.code)).toContain('unknown_fields');
     expect(blockersOf({ summary, callStatus: 'closed', alreadyPublished: false, unknownFields: [] }).map((b) => b.code)).not.toContain('unknown_fields');
   });
-  it('the sentences of the rules not met are those that still fail after a decision by a person, never the engine reason', () => {
-    const results = [{ ruleId: 'a', outcome: 'fail', sentence: 'Sentence A.' }, { ruleId: 'b', outcome: 'fail', sentence: 'Sentence B.' }, { ruleId: 'c', outcome: 'pass', sentence: 'Sentence C.' }];
-    expect(failedRuleSentences(results)).toEqual(['Sentence A.', 'Sentence B.']);
-    expect(failedRuleSentences(results, { a: { outcome: 'pass' } })).toEqual(['Sentence B.']);
-    expect(failedRuleSentences(results, { c: { outcome: 'fail' } })).toEqual(['Sentence A.', 'Sentence B.', 'Sentence C.']);
+  it('the sentences told are those the entity wrote for the applicant on the rules that still fail after a decision by a person — never the engine reason, never what a person wrote', () => {
+    const results = [{ ruleId: 'a', outcome: 'fail', reason: 'ENGINE: the answer is No' }, { ruleId: 'b', outcome: 'fail' }, { ruleId: 'c', outcome: 'pass' }];
+    const texts = { a: 'Sentence A.', b: '', c: 'Sentence C.' };
+    expect(failedRuleSentences(results, {}, texts)).toEqual(['Sentence A.']);                          // b has no sentence for the applicant: nothing of it goes out
+    expect(failedRuleSentences(results, { a: { outcome: 'pass' } }, texts)).toEqual([]);              // a person passed it
+    expect(failedRuleSentences(results, { c: { outcome: 'fail', justification: 'the file is not a pitch deck' } as never }, texts)).toEqual(['Sentence A.', 'Sentence C.']);
+    expect(failedRuleSentences(results)).toEqual([]);                                                  // no texts at all: the general sentence
   });
 });
 

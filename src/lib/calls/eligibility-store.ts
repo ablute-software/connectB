@@ -10,7 +10,7 @@ type Row = Record<string, unknown>;
 
 export const rowToRule = (r: Row): EligibilityRule => ({
   id: r.id as string, fieldId: r.field_id as string, kind: r.kind as RuleKind, params: ((r.params && typeof r.params === 'object' ? r.params : {}) as RuleParams),
-  note: (r.note as string | null) ?? null, position: Number(r.position ?? 0),
+  note: (r.note as string | null) ?? null, applicantText: (r.applicant_text as string | null) ?? null, position: Number(r.position ?? 0),
 });
 
 /** The rules in force (or, for the record, those of another version). */
@@ -37,7 +37,7 @@ export const rulesAsText = (rules: EligibilityRule[], fields: FormField[], call:
   rules.map((r) => ruleSentence(r, fields.find((f) => f.id === r.fieldId), { currency: call.currency, call }));
 
 const ruleRow = (callId: string, version: number, r: EligibilityRule, actor: string): Row => ({
-  id: r.id, call_id: callId, version, field_id: r.fieldId, kind: r.kind, params: r.params, note: r.note, position: r.position, created_by: actor,
+  id: r.id, call_id: callId, version, field_id: r.fieldId, kind: r.kind, params: r.params, note: r.note, applicant_text: r.applicantText ?? null, position: r.position, created_by: actor,
 });
 
 /** The recipe row of a document rule, prepared from the entity's own text. */
@@ -118,7 +118,7 @@ export async function copyEligibility(admin: SupabaseClient, fromCall: Call, toC
     // A document comparison points at another question of the form: it follows the copy.
     const params = { ...(r.params as Record<string, unknown>) };
     for (const k of ['matchName', 'matchTaxId']) if (typeof params[k] === 'string') params[k] = fieldIdMap.get(params[k] as string) ?? null;
-    rows.push({ id, call_id: toCallId, version: 1, field_id: field, kind: r.kind, params, note: r.note, position: r.position, created_by: actor });
+    rows.push({ id, call_id: toCallId, version: 1, field_id: field, kind: r.kind, params, note: r.note, applicant_text: r.applicantText ?? null, position: r.position, created_by: actor });
   }
   if (rows.length === 0) return 0;
   const ins = await admin.from('call_eligibility_rules').insert(rows);

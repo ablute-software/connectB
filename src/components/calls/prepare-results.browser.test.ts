@@ -11,7 +11,7 @@ const CHROME = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Applica
   .filter((p): p is string => !!p).find((p) => fs.existsSync(p));
 
 const app = (id: string, name: string, over: Partial<AppFacts> = {}): AppFacts => ({ applicationId: id, reference: `REF-${id}`, startupName: name, applicantUserId: `u-${id}`, decision: null, eligibility: 'fit', failedRules: [], feedback: null, grade: null, ...over });
-const APPS = [app('1', 'Blue Health', { decision: 'advance' }), app('2', 'Cyan Labs', { decision: 'reject' }), app('3', 'Green Tech', { decision: 'waitlist' }), app('4', 'Grey Co'), app('5', 'Red Ltd', { eligibility: 'not_fit', failedRules: ['The company was founded in 2024 or earlier.'] })];
+const APPS = [app('1', 'Blue Health', { decision: 'advance' }), app('2', 'Cyan Labs', { decision: 'reject' }), app('3', 'Green Tech', { decision: 'waitlist' }), app('4', 'Grey Co'), app('5', 'Red Ltd', { eligibility: 'not_fit', failedRules: ['This call is for companies founded in 2024 or earlier.'] })];
 /** A paste into an editor, as the browser delivers it: the clipboard carries one format and the editor reads it. */
 async function pasteInto(page: import('playwright').Page, selector: string, type: string, data: string) {
   await page.evaluate(([sel, t, d]) => {

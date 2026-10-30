@@ -70,6 +70,8 @@ beforeEach(async () => {
   A.rej = application(CALL, '2', 'REF-002', 'Cyan Labs', { decision: 'reject' });
   A.wl = application(CALL, '3', 'REF-003', 'Green Tech', { decision: 'waitlist' });
   A.none = application(CALL, '4', 'REF-004', 'Grey Co');                                                                  // Fit, no decision: pending
+  // The rules of the call: r1 carries the sentence the entity wrote FOR the applicant, r2 has none.
+  db.tables.call_eligibility_rules.push({ id: 'r1', call_id: CALL, version: 1, field_id: 'f1', kind: 'number', params: {}, note: null, applicant_text: 'This call is for companies founded in 2024 or earlier.', position: 0 }, { id: 'r2', call_id: CALL, version: 1, field_id: 'f2', kind: 'number', params: {}, note: null, applicant_text: null, position: 1 });
   A.nofit = application(CALL, '5', 'REF-005', 'Red Ltd', { eligibility: 'not_fit', sentence: 'The company was founded in 2024 or earlier.' });
   application(OTHER, '6', 'REF-006', 'Other Startup', { decision: 'advance' });
   setStatus(CALL, 'closed');
@@ -189,13 +191,21 @@ describe('the preview is a real application\'s message', () => {
   it('the feedback shows up in it only once written; the reason of a "Not a fit" in the way the entity chose, and never the engine text', async () => {
     const html = async () => (await post('pat', { action: 'preview', applicationId: A.nofit })).body.message.html as string;
     expect(await html()).not.toContain('founded in 2024');
-    expect(await html()).not.toContain('eligibility requirements');
+    expect(await html()).not.toContain('eligibility criteria');
     await put('pat', { eligibilityReasonMode: 'general', feedbackEnabled: true });
-    expect(await html()).toContain('did not meet the eligibility requirements of this call.');
+    expect(await html()).toContain('did not meet the eligibility criteria of this call.');
     expect(await html()).not.toContain('founded in 2024');
     await put('pat', { eligibilityReasonMode: 'rule' });
-    expect(await html()).toContain('The requirement that was not met: The company was founded in 2024 or earlier.');
+    expect(await html()).toContain('<p>This call is for companies founded in 2024 or earlier.</p>');
     expect(await html()).not.toContain('ENGINE-REASON-SECRET');
+    expect(await html()).not.toContain('2025');
+    // a rule with no sentence for the applicant, or a person's reclassification (no failing rule): the general sentence
+    const rows = db.tables.call_application_eligibility.filter((x) => x.application_id === A.nofit);
+    rows[0].rule_results = [{ ruleId: 'r2', outcome: 'fail', reason: 'ENGINE-REASON-SECRET: scanned file', sentence: 'internal' }];
+    expect(await html()).toContain('did not meet the eligibility criteria of this call.');
+    rows[0].rule_results = []; rows[0].source = 'human'; rows[0].reason = 'the file is not a pitch deck';
+    expect(await html()).toContain('did not meet the eligibility criteria of this call.');
+    expect(await html()).not.toContain('pitch deck');
     expect((await put('pat', { eligibilityReasonMode: 'whatever' })).status).toBe(400);
     expect((await post('pat', { action: 'preview', applicationId: A.rej })).body.message.html).not.toContain('Feedback');
     await post('pat', { action: 'feedback', applicationId: A.rej, text: 'Come back next year.' });

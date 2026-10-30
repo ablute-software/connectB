@@ -64,45 +64,45 @@ export function labelOf(key: ResultKey, settings: Pick<ResultSettings, 'labels'>
 // --- The words each result starts with, in the language of the call ---------------------------------------------------------------------------------------
 
 type Lang = 'en' | 'pt' | 'es' | 'fr' | 'de' | 'it';
-interface Words { dear: string; advance: string; advanceNext: string; reject: string; waitlist: string; regards: string; feedback: string; eligibilityGeneral: string; eligibilityRule: string; score: string }
+interface Words { dear: string; advance: string; advanceNext: string; reject: string; waitlist: string; regards: string; feedback: string; eligibilityGeneral: string; score: string }
 const WORDS: Record<Lang, Words> = {
   en: {
-    dear: 'Dear {applicant_name},', regards: 'Kind regards,', feedback: 'Feedback', eligibilityGeneral: 'Your application did not meet the eligibility requirements of this call.', eligibilityRule: 'The requirement that was not met:', score: 'Score',
+    dear: 'Dear {applicant_name},', regards: 'Kind regards,', feedback: 'Feedback', eligibilityGeneral: 'Your application did not meet the eligibility criteria of this call.', score: 'Score',
     advance: '<p>We are pleased to tell you that {startup_name} has been selected in “{call_title}”.</p><p>{next_steps}</p>',
     advanceNext: '<p>We are pleased to tell you that {startup_name} moves to the next phase of “{call_title}”.</p><p>{next_steps}</p>',
     reject: '<p>Thank you for applying to “{call_title}”. After careful consideration, {startup_name} was not selected this time.</p>',
     waitlist: '<p>Thank you for applying to “{call_title}”. {startup_name} is on the waiting list: if a place becomes available, we will contact you.</p>',
   },
   pt: {
-    dear: 'Caro(a) {applicant_name},', regards: 'Com os melhores cumprimentos,', feedback: 'Comentários', eligibilityGeneral: 'A sua candidatura não cumpriu os requisitos de elegibilidade desta chamada.', eligibilityRule: 'O requisito que não foi cumprido:', score: 'Pontuação',
+    dear: 'Caro(a) {applicant_name},', regards: 'Com os melhores cumprimentos,', feedback: 'Comentários', eligibilityGeneral: 'A sua candidatura não cumpriu os critérios de elegibilidade desta chamada.', score: 'Pontuação',
     advance: '<p>Temos o prazer de informar que {startup_name} foi selecionada em “{call_title}”.</p><p>{next_steps}</p>',
     advanceNext: '<p>Temos o prazer de informar que {startup_name} passa à fase seguinte de “{call_title}”.</p><p>{next_steps}</p>',
     reject: '<p>Obrigado pela sua candidatura a “{call_title}”. Depois de uma análise cuidada, {startup_name} não foi selecionada desta vez.</p>',
     waitlist: '<p>Obrigado pela sua candidatura a “{call_title}”. {startup_name} está em lista de espera: se surgir uma vaga, entraremos em contacto.</p>',
   },
   es: {
-    dear: 'Estimado/a {applicant_name}:', regards: 'Un cordial saludo,', feedback: 'Comentarios', eligibilityGeneral: 'Su candidatura no cumplió los requisitos de elegibilidad de esta convocatoria.', eligibilityRule: 'El requisito que no se cumplió:', score: 'Puntuación',
+    dear: 'Estimado/a {applicant_name}:', regards: 'Un cordial saludo,', feedback: 'Comentarios', eligibilityGeneral: 'Su candidatura no cumplió los criterios de elegibilidad de esta convocatoria.', score: 'Puntuación',
     advance: '<p>Nos complace informarle de que {startup_name} ha sido seleccionada en «{call_title}».</p><p>{next_steps}</p>',
     advanceNext: '<p>Nos complace informarle de que {startup_name} pasa a la siguiente fase de «{call_title}».</p><p>{next_steps}</p>',
     reject: '<p>Gracias por presentarse a «{call_title}». Tras un estudio cuidadoso, {startup_name} no ha sido seleccionada esta vez.</p>',
     waitlist: '<p>Gracias por presentarse a «{call_title}». {startup_name} está en lista de espera: si queda una plaza libre, nos pondremos en contacto.</p>',
   },
   fr: {
-    dear: 'Bonjour {applicant_name},', regards: 'Cordialement,', feedback: 'Commentaires', eligibilityGeneral: 'Votre candidature ne remplissait pas les conditions d’éligibilité de cet appel.', eligibilityRule: 'La condition qui n’était pas remplie :', score: 'Note',
+    dear: 'Bonjour {applicant_name},', regards: 'Cordialement,', feedback: 'Commentaires', eligibilityGeneral: 'Votre candidature ne remplissait pas les critères d’éligibilité de cet appel.', score: 'Note',
     advance: '<p>Nous avons le plaisir de vous informer que {startup_name} a été sélectionnée dans « {call_title} ».</p><p>{next_steps}</p>',
     advanceNext: '<p>Nous avons le plaisir de vous informer que {startup_name} passe à la phase suivante de « {call_title} ».</p><p>{next_steps}</p>',
     reject: '<p>Merci d’avoir candidaté à « {call_title} ». Après un examen attentif, {startup_name} n’a pas été sélectionnée cette fois.</p>',
     waitlist: '<p>Merci d’avoir candidaté à « {call_title} ». {startup_name} est sur liste d’attente : si une place se libère, nous vous contacterons.</p>',
   },
   de: {
-    dear: 'Guten Tag {applicant_name},', regards: 'Mit freundlichen Grüßen', feedback: 'Rückmeldung', eligibilityGeneral: 'Ihre Bewerbung hat die Teilnahmevoraussetzungen dieses Aufrufs nicht erfüllt.', eligibilityRule: 'Die nicht erfüllte Voraussetzung:', score: 'Punktzahl',
+    dear: 'Guten Tag {applicant_name},', regards: 'Mit freundlichen Grüßen', feedback: 'Rückmeldung', eligibilityGeneral: 'Ihre Bewerbung hat die Zulassungskriterien dieses Aufrufs nicht erfüllt.', score: 'Punktzahl',
     advance: '<p>Wir freuen uns, Ihnen mitzuteilen, dass {startup_name} bei „{call_title}“ ausgewählt wurde.</p><p>{next_steps}</p>',
     advanceNext: '<p>Wir freuen uns, Ihnen mitzuteilen, dass {startup_name} in die nächste Phase von „{call_title}“ übergeht.</p><p>{next_steps}</p>',
     reject: '<p>Vielen Dank für Ihre Bewerbung bei „{call_title}“. Nach sorgfältiger Prüfung wurde {startup_name} diesmal nicht ausgewählt.</p>',
     waitlist: '<p>Vielen Dank für Ihre Bewerbung bei „{call_title}“. {startup_name} steht auf der Warteliste: Wenn ein Platz frei wird, melden wir uns.</p>',
   },
   it: {
-    dear: 'Gentile {applicant_name},', regards: 'Cordiali saluti,', feedback: 'Commenti', eligibilityGeneral: 'La sua candidatura non rispettava i requisiti di ammissibilità di questo bando.', eligibilityRule: 'Il requisito non soddisfatto:', score: 'Punteggio',
+    dear: 'Gentile {applicant_name},', regards: 'Cordiali saluti,', feedback: 'Commenti', eligibilityGeneral: 'La sua candidatura non rispettava i criteri di ammissibilità di questo bando.', score: 'Punteggio',
     advance: '<p>Siamo lieti di comunicarle che {startup_name} è stata selezionata in «{call_title}».</p><p>{next_steps}</p>',
     advanceNext: '<p>Siamo lieti di comunicarle che {startup_name} passa alla fase successiva di «{call_title}».</p><p>{next_steps}</p>',
     reject: '<p>Grazie per aver partecipato a «{call_title}». Dopo un attento esame, {startup_name} non è stata selezionata questa volta.</p>',
@@ -220,15 +220,16 @@ export function blockersOf(input: { summary: Summary; callStatus: string; alread
 // --- The eligibility reason ({eligibility_reason}) ----------------------------------------------------------------------------------------------------
 
 /** What fills {eligibility_reason}: nothing, one general sentence, or the sentence(s) of the requirement(s) that were not met. Never the engine's text, never a person's internal justification. */
-function eligibilityReasonText(mode: EligibilityReasonMode, failedRules: string[], w: { eligibilityGeneral: string; eligibilityRule: string }): string {
+function eligibilityReasonText(mode: EligibilityReasonMode, failedRules: string[], w: { eligibilityGeneral: string }): string {
   if (mode === 'none') return '';
-  if (mode === 'rule' && failedRules.length > 0) return `${w.eligibilityRule} ${failedRules.map((r) => r.trim()).filter(Boolean).join('; ')}`;
-  return w.eligibilityGeneral;
+  // The criterion not met: the sentence the entity wrote FOR the applicant on that rule, as it is — no label, no question, no answer. A rule without one (or a person's own reclassification, which is no rule) says the general sentence.
+  const texts = mode === 'rule' ? failedRules.map((r) => r.trim()).filter(Boolean) : [];
+  return texts.length > 0 ? texts.join(' ') : w.eligibilityGeneral;
 }
 
 /** The sentences of the rules that fail once what a person decided is applied (a rule a person passed is not "not met"). */
-export function failedRuleSentences(results: { ruleId: string; outcome: string; sentence?: string | null }[], overrides: Record<string, { outcome?: string }> = {}): string[] {
-  return results.filter((r) => (overrides[r.ruleId]?.outcome ?? r.outcome) === 'fail').map((r) => (r.sentence ?? '').trim()).filter(Boolean);
+export function failedRuleSentences(results: { ruleId: string; outcome: string }[], overrides: Record<string, { outcome?: string }> = {}, applicantTexts: Record<string, string | null | undefined> = {}): string[] {
+  return results.filter((r) => (overrides[r.ruleId]?.outcome ?? r.outcome) === 'fail').map((r) => (applicantTexts[r.ruleId] ?? '').trim()).filter(Boolean);
 }
 
 /** The unknown fields of the messages as they stand for this call (the entity's own, or the default text). */
