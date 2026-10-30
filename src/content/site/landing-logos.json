@@ -1,1 +1,10 @@
-[]
+[
+  { "name": "Gripwise", "file": "gripwise.png", "width": 512, "height": 512, "pages": "both", "order": 10, "authorization": "pending" },
+  { "name": "Lenera", "file": "lenera.png", "width": 512, "height": 512, "pages": "both", "order": 20, "authorization": "pending" },
+  { "name": "Otitest", "file": "otitest.png", "width": 512, "height": 512, "pages": "both", "order": 30, "authorization": "pending" },
+  { "name": "About Food", "file": "aboutfood.png", "width": 512, "height": 512, "pages": "both", "order": 40, "authorization": "pending" },
+  { "name": "Spaceo", "file": "spaceo.png", "width": 512, "height": 512, "pages": "both", "order": 50, "authorization": "pending" },
+  { "name": "ablute_", "file": "ablute.png", "width": 512, "height": 512, "pages": "both", "order": 60, "authorization": "pending" },
+  { "name": "QuemPinta.pt", "file": "quempinta.png", "width": 512, "height": 512, "pages": "both", "order": 70, "authorization": "pending" },
+  { "name": "Lunia", "file": "lunia.png", "width": 512, "height": 512, "pages": "both", "order": 80, "authorization": "pending" }
+]
