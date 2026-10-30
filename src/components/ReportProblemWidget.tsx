@@ -27,6 +27,7 @@ import { usePathname } from 'next/navigation';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { useBottomNavHeight } from '@/lib/bottom-nav-context';
 import { areaFromPath } from '@/lib/support-area';
+import { showsReportProblemWidget } from '@/lib/report-widget-visibility';
 import { captureViewport, screenshotFileName } from '@/lib/screen-capture';
 import { OPEN_REPORT_EVENT } from '@/lib/report-problem-event';
 import type { SupportSource } from './ContactForm';
@@ -47,7 +48,14 @@ const WIDGET_PANEL_ID = 'tell-us-panel';
 
 type Mode = 'choose' | 'problem' | 'suggestion';
 
+// 30/10/2026 — not drawn on the landing pages (Nuno): the wrapper decides BEFORE the form's state, listeners and fetches exist, so a visitor of the landing runs none of them.
 export function ReportProblemWidget() {
+  const pathname = usePathname();
+  if (!showsReportProblemWidget(pathname)) return null;
+  return <ReportProblemWidgetInner />;
+}
+
+function ReportProblemWidgetInner() {
   // Prompt 125 Block A — was a flat `bottom-5`, which lands exactly on the
   // last item of any bottom nav ("Profile" on MatchDeal, confirmed by
   // screenshot). navHeight is 0 on any page without one (unchanged

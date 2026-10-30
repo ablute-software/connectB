@@ -11198,3 +11198,13 @@ O contexto: a plataforma tem **7 teses de investidor (2 completas) e 6 membros**
 **Retirar um logo** continua a ser apagar a sua linha (ou pôr `"pending"`) e fazer deploy: `public/landing/logos/README.md`.
 
 **Verificado num browser real** (`dev:verify`, identidade conferida), com os 8 logos reais: a faixa está presente em `/` (606–694 px) e em `/investors` (581–669 px), a 1280×720, 1366×768 e 375×812; 8 logos na lista anunciada (24 imagens, com as 3 cópias), 0 imagens partidas, 0 pedidos falhados, 0 erros de consola (repetido duas vezes; o único erro da primeira passagem foi do primeiro carregamento do servidor de desenvolvimento e não voltou); a pista move-se em movimento normal e fica parada com «reduzir movimento».
+
+## 30/10/2026 — Landing: o botão flutuante «Tell us / Report a problem» deixa de aparecer nas páginas públicas (Nuno: «não faz sentido»; branch `fix/landing-no-report-widget`)
+
+**O pedido.** O botão do lápis, no canto inferior direito, abria «Report a problem» a um visitante anónimo da landing, que ainda não usa o produto.
+
+**Causa.** `ReportProblemWidget` está montado uma vez no layout de raiz, por isso aparece em todas as rotas, as públicas incluídas.
+
+**Correção.** `src/lib/report-widget-visibility.ts` (puro) diz em que caminhos não se desenha: `/`, `/investors` e os seus sub-caminhos, e as páginas de marketing da lista partilhada `public-site-routes.ts` (`/for-startups`, `/about`, `/faq`) — as mesmas que o Shell já desenha sem moldura da aplicação. O componente exportado só pergunta o caminho e devolve `null` ou o componente de dentro (`ReportProblemWidgetInner`, o de antes): numa landing não correm o estado do formulário, os ouvintes nem os `fetch` (`/api/me`, elegibilidade). `/contact`, entrar, registar e o resto mantêm o botão (o `/contact` é a página de contacto; se o Nuno o quiser fora, é acrescentar o caminho à função).
+
+**Verificado num browser real** (`dev:verify`, identidade conferida), a 1280×720 e 375×812: `#tell-us-widget` com 0 elementos e sem o texto «Tell us» / «Report a problem» em `/`, `/investors`, `/for-startups`, `/about` e `/faq`; com 1 em `/contact`, `/signup` e `/login` (controlo). Testes: 19 novos (a regra, e que o componente exportado decide antes de qualquer estado, ouvinte ou `fetch`, e que o layout o monta uma só vez).
