@@ -87,9 +87,10 @@ export function EvaluationBoard({ callId, onOpen }: { callId: string; onOpen: (a
                 </div>
                 <div className="text-right" data-testid="board-average">{r.average === null ? <span className="text-sm text-gray-400">No grade yet</span> : <><span className="text-lg font-bold text-gray-900">{r.average} %</span>{r.deviation !== null && <span className="block text-[11px] text-gray-500">deviation {r.deviation}</span>}</>}</div>
               </div>
-              {(r.divergence.length > 0 || r.below.length > 0) && (
+              {(r.divergence.length > 0 || r.below.length > 0 || r.overrides.length > 0) && (
                 <ul className="mt-2 flex flex-wrap gap-1.5" data-testid="board-flags">
                   {r.divergence.map((d, i) => <li key={`d${i}`} className="min-w-0 max-w-full rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-950 [overflow-wrap:anywhere]" data-testid="board-flag-divergence">⚠ {d.kind === 'total' ? `Evaluators are ${d.range} points apart in total` : `${d.name}: evaluators are ${d.range} points apart`}</li>)}
+                  {r.overrides.map((o, i) => <li key={`o${i}`} className="min-w-0 max-w-full rounded bg-sky-50 px-2 py-0.5 text-xs text-sky-950 [overflow-wrap:anywhere]" data-testid="board-flag-override">{o.name}: an evaluator changed the automatic {o.auto} to {o.chosen}</li>)}
                   {r.below.map((b) => <li key={b.criterionId} className="min-w-0 max-w-full rounded bg-red-50 px-2 py-0.5 text-xs text-[#8a0000] [overflow-wrap:anywhere]" data-testid="board-flag-below">Below the minimum on {b.name} ({b.evaluators} evaluator{b.evaluators === 1 ? '' : 's'})</li>)}
                 </ul>
               )}
@@ -100,7 +101,7 @@ export function EvaluationBoard({ callId, onOpen }: { callId: string; onOpen: (a
               </div>
               {expanded && (
                 <ul className="mt-2 divide-y divide-gray-100 rounded-lg border border-gray-200 text-xs" data-testid="board-criteria">
-                  {r.perCriterion.map((c) => <li key={c.criterionId} className="flex min-w-0 flex-wrap justify-between gap-x-3 px-3 py-1.5"><span className="min-w-0 [overflow-wrap:anywhere]">{c.name}</span><span className="text-gray-700">{c.average} · {c.percent} % · {c.count} evaluation{c.count === 1 ? '' : 's'}</span></li>)}
+                  {r.perCriterion.map((c) => <li key={c.criterionId} className="flex min-w-0 flex-wrap justify-between gap-x-3 px-3 py-1.5"><span className="min-w-0 [overflow-wrap:anywhere]">{c.name}{r.autoCriteria.includes(c.criterionId) && <span className="ml-1.5 rounded-full bg-[#E8F4F8] px-1.5 py-0.5 text-[10px] font-semibold text-[#0A5F75]" data-testid="board-auto">Automatic</span>}</span><span className="text-gray-700">{c.average} · {c.percent} % · {c.count} evaluation{c.count === 1 ? '' : 's'}</span></li>)}
                 </ul>
               )}
               {editing && edit && (

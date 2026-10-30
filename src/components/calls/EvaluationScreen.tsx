@@ -3,9 +3,10 @@
 // itself a moment later (the evaluator never presses Save); the grade ring follows the scores; the level's description shows under the buttons; comments per criterion, a general comment and a private note that only an
 // administrator reads. "Submit evaluation" asks IN the page, then the evaluation is read-only — only an administrator reopens it, with a reason. When the evaluation is blind the server already sent the application
 // masked, and says so at the top. Nothing is a browser dialog. The files open through the platform (never a Storage address).
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
 import { belowMinimum, gradeText, levelDescription, scaleLabel, scaleLevels, weightedGrade, type Criterion } from '@/lib/calls/eval-grid';
 import { isEmptyDraft, mergeDraft, withDraft, type Draft } from '@/lib/calls/eval-draft';
+import { fieldTitle, linkableFields } from '@/lib/calls/eval-links';
 import type { EvaluationPayload } from '@/lib/calls/eval-store';
 import { formatDayInZone, formatInZone } from '@/lib/calls/tz';
 import { callsApi } from './api';
@@ -36,6 +37,7 @@ export function EvaluationScreen({ callId, applicationId, onBack }: { callId: st
   const [reopening, setReopening] = useState<string | null>(null);
   const [reason, setReason] = useState('');
   const [hover, setHover] = useState<{ id: string; level: number } | null>(null);
+  const [spot, setSpot] = useState<string | null>(null);
 
   const pending = useRef<Draft>({});
   const inflight = useRef(false);
@@ -75,6 +77,7 @@ export function EvaluationScreen({ callId, applicationId, onBack }: { callId: st
   };
 
   const criteria = data?.grid.criteria ?? [];
+  const numbered = useMemo(() => linkableFields(data?.fields ?? []), [data?.fields]);
   const server = data?.evaluation.scores ?? {};
   const scores = useMemo(() => withDraft(server, draft), [server, draft]);
   const numeric = useMemo(() => Object.fromEntries(Object.entries(scores).map(([k, v]) => [k, v.score])), [scores]);
@@ -127,15 +130,22 @@ export function EvaluationScreen({ callId, applicationId, onBack }: { callId: st
   const editable = data.canEdit && !busy;
   const title = `${data.application.reference ?? 'Application'}${data.application.startupName ? ` · ${data.application.startupName}` : ''}`;
   const needs = (id: string) => missing.find((m) => m.criterionId === id)?.problem;
+  /** A click on a linked answer: to the full answer in the application (on a phone, to its tab first), highlighted for a moment. */
+  const openAnswer = (fieldId: string) => {
+    setTab('application'); setSpot(fieldId);
+    setTimeout(() => document.getElementById(`eval-answer-${fieldId}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 60);
+    setTimeout(() => setSpot((s) => (s === fieldId ? null : s)), 2500);
+  };
+  const docs = data.documents.map((d) => ({ ...d, size: d.size ?? 0, source: 'upload' as const, versionNumber: null }));
 
   const applicationPane = (
     <section className="min-w-0 space-y-3" aria-label="Application" data-testid="eval-application">
       {data.blind && <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-900" data-testid="eval-blind">Blind evaluation: who applied is hidden — the startup, the people and their emails. The documents are open in full.</p>}
       <dl className="space-y-3">
         {data.fields.map((f) => (
-          <div key={f.id} className="min-w-0 rounded-lg border border-gray-200 bg-white p-3" data-testid="eval-answer">
+          <div key={f.id} id={`eval-answer-${f.id}`} className={`min-w-0 rounded-lg border bg-white p-3 ${spot === f.id ? 'border-[#0E7490] ring-2 ring-[#0E7490]' : 'border-gray-200'}`} data-testid="eval-answer" data-field={f.id}>
             <dt className="text-xs font-semibold text-gray-500 [overflow-wrap:anywhere]">{f.label}</dt>
-            <dd className="mt-1 text-sm text-gray-900 [overflow-wrap:anywhere]"><AnswerView field={f} value={data.answers[f.id]} docs={data.documents.map((d) => ({ ...d, size: d.size ?? 0, source: 'upload', versionNumber: null }))} currency={data.currency} /></dd>
+            <dd className="mt-1 text-sm text-gray-900 [overflow-wrap:anywhere]"><AnswerView field={f} value={data.answers[f.id]} docs={docs} currency={data.currency} /></dd>
           </div>
         ))}
       </dl>
@@ -153,9 +163,21 @@ export function EvaluationScreen({ callId, applicationId, onBack }: { callId: st
         </div>
       </div>
 
+      {data.drift.length > 0 && (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900" role="status" data-testid="eval-drift">
+          The application’s answers are not what they were when this evaluation was submitted: {data.drift.map((x) => `${x.name} was scored ${x.held} and would now be ${x.now}`).join('; ')}. Nothing was changed; reopen the evaluation if it should follow the answer.
+        </p>
+      )}
       <ul className="space-y-3">
-        {criteria.map((c) => <CriterionScore key={c.id} c={c} entry={scores[c.id]} editable={editable} need={needs(c.id)} forced={data.grid.commentRequiredForAll || c.commentRequired} showComment={comments.has(c.id)} hover={hover?.id === c.id ? hover.level : null}
-          onHover={(level) => setHover(level === null ? null : { id: c.id, level })} onScore={(score) => change({ scores: { [c.id]: { score } } })} onComment={(comment) => change({ scores: { [c.id]: { comment } } })} onShowComment={() => setComments((s) => new Set(s).add(c.id))} />)}
+        {criteria.map((c) => {
+          const auto = data.autos[c.id];
+          const held = scores[c.id]?.score ?? null;
+          const overridden = !!auto && auto.status === 'scored' && auto.override && held !== null && held !== auto.points;
+          return <CriterionScore key={c.id} c={c} entry={scores[c.id]} editable={editable} need={needs(c.id)} forced={data.grid.commentRequiredForAll || c.commentRequired || overridden} showComment={comments.has(c.id)} hover={hover?.id === c.id ? hover.level : null}
+            auto={auto} overridden={overridden} submitted={submitted}
+            linked={(c.linkedFields ?? []).flatMap((id) => { const f = data.fields.find((x) => x.id === id); return f ? [{ field: f, title: fieldTitle(numbered.find((n) => n.id === id) ?? { number: 0, label: f.label }) }] : []; })} answers={data.answers} docs={docs} currency={data.currency} onOpenAnswer={openAnswer}
+            onHover={(level) => setHover(level === null ? null : { id: c.id, level })} onScore={(score) => change({ scores: { [c.id]: { score } } })} onComment={(comment) => change({ scores: { [c.id]: { comment } } })} onShowComment={() => setComments((s) => new Set(s).add(c.id))} />;
+        })}
       </ul>
 
       <div className="min-w-0 rounded-lg border border-gray-200 bg-white p-3">
@@ -173,7 +195,8 @@ export function EvaluationScreen({ callId, applicationId, onBack }: { callId: st
             {data.colleagues.map((c) => (
               <li key={c.userId} className="min-w-0 rounded-lg bg-gray-50 p-2.5 text-xs text-gray-800" data-testid="eval-colleague">
                 <p className="font-semibold [overflow-wrap:anywhere]">{c.evaluator ?? 'An evaluator'} · {c.gradePercent === null ? 'N/A' : `${c.gradePercent} %`}</p>
-                <ul className="mt-1 space-y-0.5">{criteria.map((k) => <li key={k.id} className="[overflow-wrap:anywhere]">{k.name}: <b>{c.scores[k.id]?.score ?? '—'}</b>{c.scores[k.id]?.comment ? ` — ${c.scores[k.id].comment}` : ''}</li>)}</ul>
+                <ul className="mt-1 space-y-0.5">{criteria.map((k) => <li key={k.id} className="[overflow-wrap:anywhere]">{k.name}: <b>{c.scores[k.id]?.score ?? '—'}</b>{c.scores[k.id]?.source === 'auto' ? ' (automatic)' : c.scores[k.id]?.source === 'override' ? ` (changed from the automatic ${c.scores[k.id].autoValue ?? '—'})` : ''}{c.scores[k.id]?.comment ? ` — ${c.scores[k.id].comment}` : ''}</li>)}</ul>
+                {c.drift && c.drift.length > 0 && <p className="mt-1 text-amber-900" data-testid="eval-colleague-drift">The application’s answers changed since: {c.drift.map((x) => `${x.name} ${x.held} → ${x.now}`).join('; ')}.</p>}
                 {c.overallComment && <p className="mt-1 [overflow-wrap:anywhere]">“{c.overallComment}”</p>}
                 {c.privateNote && <p className="mt-1 text-gray-600 [overflow-wrap:anywhere]" data-testid="eval-colleague-note">Private note: {c.privateNote}</p>}
                 {data.canReopen && (reopening === c.userId ? (
@@ -245,11 +268,17 @@ export function EvaluationScreen({ callId, applicationId, onBack }: { callId: st
   );
 }
 
-function CriterionScore({ c, entry, editable, need, forced, showComment, hover, onHover, onScore, onComment, onShowComment }: {
+type AutoView = EvaluationPayload['autos'][string];
+function CriterionScore({ c, entry, editable, need, forced, showComment, hover, auto, overridden, submitted, linked, answers, docs, currency, onOpenAnswer, onHover, onScore, onComment, onShowComment }: {
   c: Criterion; entry: { score: number | null; comment: string } | undefined; editable: boolean; need: 'score' | 'comment' | undefined; forced: boolean; showComment: boolean; hover: number | null;
+  auto: AutoView | undefined; overridden: boolean; submitted: boolean; linked: { field: EvaluationPayload['fields'][number]; title: string }[]; answers: EvaluationPayload['answers']; docs: ComponentProps<typeof AnswerView>['docs']; currency: string; onOpenAnswer: (fieldId: string) => void;
   onHover: (level: number | null) => void; onScore: (score: number | null) => void; onComment: (c: string) => void; onShowComment: () => void;
 }) {
   const score = entry?.score ?? null;
+  // An automatic criterion with an answer is scored by the platform: the buttons are there to read, and only move when the entity allowed an override.
+  const automatic = !!auto && auto.status === 'scored';
+  const locked = automatic && !auto.override;
+  const buttonsOn = editable && !locked;
   const desc = levelDescription(c, hover ?? score ?? NaN);
   const open = showComment || forced || !!entry?.comment;
   return (
@@ -259,9 +288,28 @@ function CriterionScore({ c, entry, editable, need, forced, showComment, hover, 
         <span className="shrink-0 text-xs text-gray-500">weight {c.weight} % · scale {scaleLabel(c)}</span>
       </div>
       {c.guidance && <p className="mt-1 text-xs text-gray-600 [overflow-wrap:anywhere]">{c.guidance}</p>}
+      {linked.length > 0 && (
+        <div className="mt-2 min-w-0 space-y-1.5 rounded bg-gray-50 p-2" data-testid="eval-linked">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Based on these answers</p>
+          {linked.map(({ field, title }) => (
+            <div key={field.id} className="min-w-0 rounded bg-white p-2" data-testid="eval-linked-answer" data-field={field.id}>
+              <p className="text-xs font-semibold text-gray-600 [overflow-wrap:anywhere]">{title}</p>
+              <div className="mt-0.5 line-clamp-6 text-sm text-gray-900 [overflow-wrap:anywhere]"><AnswerView field={field} value={answers[field.id]} docs={docs} currency={currency} /></div>
+              <button type="button" className="mt-1 min-h-[44px] text-xs font-medium text-[#0E7490] hover:underline sm:min-h-0" data-testid="eval-open-answer" onClick={() => onOpenAnswer(field.id)}>Open the full answer</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {auto && (
+        <p className={`mt-2 rounded px-2 py-1 text-xs ${automatic ? 'bg-[#E8F4F8] text-[#0A5F75]' : 'bg-amber-50 text-amber-900'}`} data-testid="eval-auto" data-state={automatic ? (overridden ? 'override' : 'auto') : 'manual'}>
+          {automatic
+            ? <><b>Automatic</b> · {auto.points} from the answer “{auto.because}”.{overridden ? ` Changed by you from the automatic ${auto.points}: a comment is required.` : locked ? ' It cannot be changed.' : submitted ? '' : ' You may change it, with a comment.'}</>
+            : <><b>Needs manual score</b> · {auto.because} Score this criterion yourself.</>}
+        </p>
+      )}
       <div role="radiogroup" aria-label={`Score for ${c.name}`} className="mt-2 flex flex-wrap gap-1.5">
         {scaleLevels(c).map((l) => (
-          <button key={l} type="button" role="radio" aria-checked={score === l} disabled={!editable} data-testid="eval-level" onClick={() => onScore(score === l ? null : l)}
+          <button key={l} type="button" role="radio" aria-checked={score === l} disabled={!buttonsOn} data-testid="eval-level" onClick={() => onScore(automatic ? l : score === l ? null : l)}
             onMouseEnter={() => onHover(l)} onMouseLeave={() => onHover(null)} onFocus={() => onHover(l)} onBlur={() => onHover(null)}
             className={`min-h-[44px] min-w-[44px] rounded-lg border px-2 text-sm font-semibold disabled:opacity-60 ${score === l ? 'border-[#0E7490] bg-[#0E7490] text-white' : 'border-gray-300 bg-white text-gray-800 hover:bg-gray-50'}`}>{l}</button>
         ))}

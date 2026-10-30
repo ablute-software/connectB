@@ -119,7 +119,7 @@ export const callsApi = {
     try {
       const form = new FormData(); form.append('file', file);
       const res = await fetch(`/api/calls/${id}/eval-grid/import`, { method: 'POST', body: form });
-      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; runId: string; fileName: string; notice: string; proposal: GridProposal; criteria: unknown[] };
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; runId: string; fileName: string; notice: string; proposal: GridProposal; criteria: unknown[]; suggestions?: Record<string, string[]> };
       return { ok: res.ok && body.ok !== false, status: res.status, body };
     } catch { return { ok: false, status: 0, body: { error: 'We could not reach the server. Check your connection and try again.', runId: '', fileName: '', notice: '', proposal: { criteria: [], scaleGuess: null, notes: [] } as GridProposal, criteria: [] as unknown[] } }; }
   },
