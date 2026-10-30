@@ -34,7 +34,7 @@ const payload = (over: Partial<EvaluationPayload> = {}): EvaluationPayload => ({
   documents: [{ fileId: 'file-1', fieldId: 'f3', fileName: 'certidao.pdf', size: 2048, url: '/api/calls/c1/evaluations/a1/documents/file-1' }],
   grid: { version: 1, criteria: CRITERIA, commentRequiredForAll: false },
   evaluation: { id: null, status: 'not_started', scores: {}, overallComment: '', privateNote: '', revision: 0, gradePercent: null, submittedAt: null, reopenedCount: 0 },
-  below: [], deadline: { day: '2026-12-15', daysLeft: 3 }, colleagues: null,
+  below: [], autos: {}, drift: [], deadline: { day: '2026-12-15', daysLeft: 3 }, colleagues: null,
   ...over,
 });
 
@@ -300,4 +300,84 @@ describe.skipIf(!CHROME)('the evaluator screens (real browser)', () => {
     expect(await empty.page.locator('[data-testid="mine-empty"]').innerText()).toContain('you get an email');
     await empty.page.close();
   }, 240_000);
+
+  it('criteria linked to the form: the answers beside each criterion (as the server sent them, masked when blind), a click to the full answer, and automatic points that are read, not chosen', async () => {
+    const closed = [
+      ...(FIELDS as unknown as Record<string, unknown>[]),
+      { id: 'f4', label: 'Stage of the company', kind: 'single_choice', page: 2, position: 1, options: [{ id: 'f4-o0', label: 'Pre-seed' }, { id: 'f4-o1', label: 'Seed' }], validations: {}, required: false, instruction: '' },
+      { id: 'f5', label: 'Have you received a grant?', kind: 'yes_no', page: 2, position: 2, options: [], validations: {}, required: false, instruction: '' },
+    ] as never;
+    const auto = (fieldId: string, kind: string, override = false) => ({ fieldId, kind, options: {}, yes: null, no: null, ranges: [], multi: 'sum', override }) as never;
+    const criteria = [
+      crit('k1', 'Team', 25, 1, 5, { linkedFields: ['f2', 'f3'] }),
+      crit('k4', 'Stage', 25, 1, 5, { linkedFields: ['f4'], auto: auto('f4', 'single_choice') }),
+      crit('k5', 'Grant', 25, 1, 5, { linkedFields: ['f5'], auto: auto('f5', 'yes_no', true) }),
+      crit('k6', 'Raised', 25, 1, 5, { auto: auto('f6', 'number') }),
+    ];
+    const p = payload({
+      blind: true, fields: closed, grid: { version: 1, criteria, commentRequiredForAll: false },
+      answers: { f1: '[hidden]', f2: 'We build robots for [the startup].', f3: [{ fileId: 'file-1', fileName: 'Document 1.pdf', size: 2048 }], f4: 'f4-o1', f5: 'yes' } as never,
+      autos: { k4: { status: 'scored', points: 3, because: 'Seed', override: false, fieldId: 'f4' }, k5: { status: 'scored', points: 5, because: 'Yes', override: true, fieldId: 'f5' }, k6: { status: 'missing', points: null, because: 'The question was not answered.', override: false, fieldId: 'f6' } },
+      evaluation: { id: null, status: 'not_started', scores: { k4: { score: 3, comment: '', source: 'auto', autoValue: 3 }, k5: { score: 5, comment: '', source: 'auto', autoValue: 5 } }, overallComment: '', privateNote: '', revision: 0, gradePercent: null, submittedAt: null, reopenedCount: 0 },
+    });
+    const srv = server(p);
+    const { page, errors, dialogs, overflow, saved } = await open(1280, srv);
+    const card = (n: number) => page.locator('[data-testid="eval-criterion"]').nth(n);
+    // linked answers, as sent (masked by the server when blind), with their number and question
+    expect(await card(0).locator('[data-testid="eval-linked-answer"]').count()).toBe(2);
+    expect(await card(0).locator('[data-testid="eval-linked-answer"]').first().innerText()).toContain('2. Pitch');
+    expect(await card(0).locator('[data-testid="eval-linked-answer"]').first().innerText()).toContain('We build robots for [the startup].');
+    expect(await card(0).locator('[data-testid="eval-linked-answer"] a').first().getAttribute('href')).toBe('/api/calls/c1/evaluations/a1/documents/file-1');
+    expect(await card(3).locator('[data-testid="eval-linked"]').count()).toBe(0);
+    await card(0).locator('[data-testid="eval-open-answer"]').first().click();
+    await page.waitForFunction(() => document.getElementById('eval-answer-f2')?.className.includes('ring-2') === true);
+    // automatic: read, not chosen
+    expect(await card(1).locator('[data-testid="eval-auto"]').getAttribute('data-state')).toBe('auto');
+    expect(await card(1).locator('[data-testid="eval-auto"]').innerText()).toContain('Automatic · 3 from the answer “Seed”. It cannot be changed.');
+    expect(await card(1).getByRole('radio').evaluateAll((els) => els.every((e) => (e as HTMLButtonElement).disabled))).toBe(true);
+    expect(await card(1).getByRole('radio', { name: '3', exact: true }).getAttribute('aria-checked')).toBe('true');
+    // automatic with the entity's permission to override: the buttons work and a comment becomes required
+    expect(await card(2).locator('[data-testid="eval-auto"]').innerText()).toContain('You may change it, with a comment.');
+    await level(page, 2, 2).click();
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid="eval-auto"][data-state="override"]').length === 1);
+    expect(await card(2).locator('[data-testid="eval-auto"]').innerText()).toContain('a comment is required');
+    expect(await card(2).locator('label[for="cc-k5"]').innerText()).toMatch(/(required)/i);
+    await saved();
+    // no answer to score from: scored by hand
+    expect(await card(3).locator('[data-testid="eval-auto"]').getAttribute('data-state')).toBe('manual');
+    expect(await card(3).locator('[data-testid="eval-auto"]').innerText()).toContain('Needs manual score');
+    expect(await card(3).getByRole('radio').evaluateAll((els) => els.every((e) => !(e as HTMLButtonElement).disabled))).toBe(true);
+    // a click on a locked point sends nothing
+    const before = srv.state.puts.length;
+    await card(1).getByRole('radio', { name: '5', exact: true }).click({ force: true, timeout: 2000 }).catch(() => undefined);
+    expect(srv.state.puts.length).toBe(before);
+    await page.screenshot({ path: path.join(SHOTS, 'linked-answers-1280.png'), fullPage: true });
+    expect(await overflow()).toBeLessThanOrEqual(0);
+    expect(errors).toEqual([]); expect(dialogs).toEqual([]);
+    await page.close();
+    // a phone: the click on "Open the full answer" goes to the application tab
+    const phone = await open(375, server(p));
+    await phone.page.locator('[data-testid="eval-tab-score"]').click();
+    await phone.page.locator('[data-testid="eval-criterion"]').first().locator('[data-testid="eval-open-answer"]').first().click();
+    await phone.page.waitForFunction(() => (document.querySelector('[data-testid="eval-application"]')?.getBoundingClientRect().width ?? 0) > 0);
+    expect(await phone.page.locator('[data-testid="eval-application"]').isVisible()).toBe(true);
+    expect(await phone.overflow()).toBeLessThanOrEqual(0);
+    await phone.page.screenshot({ path: path.join(SHOTS, 'linked-answers-375.png'), fullPage: true });
+    await phone.page.close();
+  }, 120_000);
+
+  it('an administrator is warned when a submitted evaluation no longer matches the application answer; the automatic and changed scores of colleagues are marked', async () => {
+    const p = payload({
+      role: 'admin', canEdit: false,
+      grid: { version: 1, criteria: [crit('k4', 'Stage', 50, 1, 5, { auto: { fieldId: 'f4', kind: 'single_choice', options: {}, yes: null, no: null, ranges: [], multi: 'sum', override: true } as never }), crit('k1', 'Team', 50, 1, 5)], commentRequiredForAll: false },
+      evaluation: { id: 'ev1', status: 'submitted', scores: { k4: { score: 3, comment: '', source: 'auto', autoValue: 3 }, k1: { score: 4, comment: '' } }, overallComment: '', privateNote: '', revision: 3, gradePercent: 70, submittedAt: '2026-10-20T09:00:00Z', reopenedCount: 0 },
+      drift: [{ criterionId: 'k4', name: 'Stage', held: 3, now: 5 }],
+      colleagues: [{ userId: 'u2', evaluator: 'Rita', scores: { k4: { score: 5, comment: 'They raised more.', source: 'override', autoValue: 3 }, k1: { score: 2, comment: '' } }, overallComment: '', gradePercent: 60, drift: [] }],
+    });
+    const { page, errors } = await open(1280, server(p));
+    expect(await page.locator('[data-testid="eval-drift"]').innerText()).toContain('Stage was scored 3 and would now be 5');
+    expect(await page.locator('[data-testid="eval-colleague"]').innerText()).toContain('Stage: 5 (changed from the automatic 3) — They raised more.');
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 120_000);
 });

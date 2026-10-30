@@ -13,15 +13,15 @@ import { parseCriteriaPayload, parseSettingsPayload } from '@/lib/calls/eval-gri
 import { diffProposal, type GridProposal } from '@/lib/calls/eval-grid-reader';
 import { NOT_READY_BODY, bumpGrid, evaluationCounts, evaluationReady, loadCriteria, loadImportRun, loadSettings, markImportApplied, saveSettings, writeCriteria } from '@/lib/calls/eval-grid-store';
 import { buildGridView, gridMode } from '@/lib/calls/eval-grid-view';
-import { loadCall, loadPhases, logCallEvent } from '@/lib/calls/store';
+import { loadCall, loadFields, loadPhases, logCallEvent } from '@/lib/calls/store';
 
 export const dynamic = 'force-dynamic';
 
 async function viewOf(admin: Parameters<typeof loadCriteria>[0], callId: string) {
   const call = (await loadCall(admin, callId))!;
   const version = call.evalGridVersion ?? 1;
-  const [criteria, settings, evaluations, phases] = await Promise.all([loadCriteria(admin, callId, version), loadSettings(admin, callId), evaluationCounts(admin, callId), loadPhases(admin, callId)]);
-  return buildGridView({ status: call.status, version, rev: call.evalGridRev ?? 0, criteria, settings, evaluations, phases: phases.map((p) => ({ id: p.id, name: p.name })) });
+  const [criteria, settings, evaluations, phases, fields] = await Promise.all([loadCriteria(admin, callId, version), loadSettings(admin, callId), evaluationCounts(admin, callId), loadPhases(admin, callId), loadFields(admin, callId)]);
+  return buildGridView({ status: call.status, version, rev: call.evalGridRev ?? 0, criteria, settings, evaluations, phases: phases.map((p) => ({ id: p.id, name: p.name })), fields });
 }
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
@@ -46,7 +46,8 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   if (!Number.isInteger(body.baseRev)) return NextResponse.json({ ok: false, error: 'Missing baseRev.' }, { status: 400 });
 
   const phases = await loadPhases(auth.admin, call.id);
-  const parsed = parseCriteriaPayload(body.criteria);
+  const fields = await loadFields(auth.admin, call.id);
+  const parsed = parseCriteriaPayload(body.criteria, { fields });
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 });
   const ps = parseSettingsPayload(body.settings, phases.map((p) => p.id));
   if (!ps.ok) return NextResponse.json({ ok: false, error: ps.error }, { status: 400 });
@@ -56,8 +57,8 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   if (counts.started > 0 && (ps.settings.blind !== beforeSettings.blind || ps.settings.commentRequiredForAll !== beforeSettings.commentRequiredForAll)) {
     return NextResponse.json({ ok: false, code: 'settings_locked', error: 'Blind evaluation and “comment required for all” cannot change once an evaluation has been started.' }, { status: 409 });
   }
-  const norm = (cs: { name: string; weight: number; scaleMin: number; scaleMax: number; section: string | null; guidance: string; levels: unknown; commentRequired: boolean; minScore: number | null }[]) =>
-    cs.map((c) => [c.name, c.weight, c.scaleMin, c.scaleMax, c.section, c.guidance, c.levels, c.commentRequired, c.minScore]);
+  const norm = (cs: { name: string; weight: number; scaleMin: number; scaleMax: number; section: string | null; guidance: string; levels: unknown; commentRequired: boolean; minScore: number | null; linkedFields?: string[]; auto?: unknown; linkNotice?: boolean }[]) =>
+    cs.map((c) => [c.name, c.weight, c.scaleMin, c.scaleMax, c.section, c.guidance, c.levels, c.commentRequired, c.minScore, c.linkedFields ?? [], c.auto ?? null, c.linkNotice === true]);
   const criteriaSame = same(norm(before), norm(parsed.criteria));
   const settingsSame = same(beforeSettings, ps.settings);
   if (criteriaSame && settingsSame) return NextResponse.json({ ok: true, unchanged: true, ...(await viewOf(auth.admin, call.id)) });

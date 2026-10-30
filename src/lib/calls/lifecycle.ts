@@ -94,7 +94,7 @@ export function readiness(call: Call, phases: CallPhase[], fields: FormField[], 
   // Prompt 918 (I2): a rule whose question went away or changed cannot work; the call is not ready until it is fixed or removed.
   for (const r of rules) for (const p of ruleProblems(r, fields, call)) issues.push({ tab: 'eligibility', message: p, target: r.id });
   // Prompt 922 (I1): an evaluation grid that is started must be usable — weights adding up to 100 %. (No grid at all is fine: a call may have no evaluation.)
-  if (criteria.length > 0) for (const p of gridProblems(criteria)) issues.push({ tab: 'grid', message: p });
+  if (criteria.length > 0) for (const p of gridProblems(criteria, fields)) issues.push({ tab: 'grid', message: p });
   return issues;
 }
 

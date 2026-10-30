@@ -24,12 +24,20 @@ export async function loadBoard(admin: SupabaseClient, call: Call): Promise<Boar
     admin.from('call_eval_decisions').select('application_id, decision, note').eq('call_id', call.id).eq('is_current', true),
   ]);
   const evRows = (evRes.data ?? []) as Row[];
-  const { data: scoreRows } = evRows.length ? await admin.from('call_eval_scores').select('evaluation_id, criterion_id, score').in('evaluation_id', evRows.map((e) => e.id as string)) : { data: [] };
+  const { data: scoreRows } = evRows.length ? await admin.from('call_eval_scores').select('evaluation_id, criterion_id, score, source, auto_value').in('evaluation_id', evRows.map((e) => e.id as string)) : { data: [] };
   const scoresBy = new Map<string, Record<string, number | null>>();
-  for (const s of (scoreRows ?? []) as Row[]) { const m = scoresBy.get(s.evaluation_id as string) ?? {}; m[s.criterion_id as string] = s.score === null || s.score === undefined ? null : Number(s.score); scoresBy.set(s.evaluation_id as string, m); }
+  const sourcesBy = new Map<string, Record<string, 'manual' | 'auto' | 'override'>>();
+  const autoBy = new Map<string, Record<string, number | null>>();
+  for (const s of (scoreRows ?? []) as Row[]) {
+    const id = s.evaluation_id as string;
+    const m = scoresBy.get(id) ?? {}; m[s.criterion_id as string] = s.score === null || s.score === undefined ? null : Number(s.score); scoresBy.set(id, m);
+    const so = sourcesBy.get(id) ?? {}; so[s.criterion_id as string] = s.source === 'auto' || s.source === 'override' ? s.source : 'manual'; sourcesBy.set(id, so);
+    const av = autoBy.get(id) ?? {}; av[s.criterion_id as string] = s.auto_value === null || s.auto_value === undefined ? null : Number(s.auto_value); autoBy.set(id, av);
+  }
   const evaluations: BoardEval[] = evRows.map((e) => ({
     applicationId: e.application_id as string, evaluatorUserId: e.evaluator_user_id as string, status: e.status === 'submitted' ? 'submitted' : 'in_progress', gridVersion: Number(e.grid_version ?? 1),
     gradePercent: e.grade_percent === null || e.grade_percent === undefined ? null : Number(e.grade_percent), scores: scoresBy.get(e.id as string) ?? {},
+    sources: sourcesBy.get(e.id as string) ?? {}, autoValues: autoBy.get(e.id as string) ?? {},
   }));
   // An application that is no longer Fit but already has evaluations stays on the board (what was evaluated is never hidden).
   const known = new Set(fit.map((a) => a.applicationId));

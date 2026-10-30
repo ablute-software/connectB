@@ -4,6 +4,7 @@
 // allows — assigning and removing by hand. Nothing is a browser dialog: the preview and every refusal are in the page.
 import { useCallback, useEffect, useState } from 'react';
 import type { DistributionMode, DistributionView } from '@/lib/calls/eval-assign-store';
+import { AllocationEditor } from './AllocationEditor';
 import { callsApi, type DistributionPreview } from './api';
 
 const BTN = 'min-h-[44px] rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 sm:min-h-0 sm:py-1 sm:text-xs';
@@ -48,8 +49,8 @@ export function DistributionPanel({ callId, canManage }: { callId: string; canMa
 
   if (!view) return <section className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-500" data-testid="distribution-loading">{error || 'Loading the distribution…'}</section>;
   const editable = canManage && !busy;
-  const hand = view.mode !== 'auto';
   const nothing = preview && !preview.remove.length && !preview.add.length;
+  const alloc = preview?.allocation ?? null;
 
   return (
     <section className="min-w-0 space-y-4 rounded-lg border border-gray-200 bg-white p-4" aria-label="Distribution of applications" data-testid="distribution">
@@ -72,10 +73,12 @@ export function DistributionPanel({ callId, canManage }: { callId: string; canMa
         </div>
       </fieldset>
 
+      <AllocationEditor callId={callId} view={view} editable={editable} onView={(v) => { setView(v); setPreview(null); setError(''); }} />
+
       <p className="text-sm text-gray-800" data-testid="distribution-summary">
         {view.applications.length} application{view.applications.length === 1 ? '' : 's'} to evaluate · {view.evaluators.length} evaluator{view.evaluators.length === 1 ? '' : 's'} ·{' '}
         {view.evaluatorsPerApplication === 'all' ? 'every evaluator evaluates every application' : `${view.evaluatorsPerApplication} evaluator${view.evaluatorsPerApplication === 1 ? '' : 's'} per application`}
-        <span className="text-gray-500"> (set in the Evaluation grid)</span>
+        <span className="text-gray-500"> (set in the Evaluation grid) · load shared {view.allocation.config.strategy === 'equal' ? 'equally' : view.allocation.config.strategy === 'weighted' ? 'by weight' : 'by rules'}</span>
       </p>
       {view.warning && <p className="rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-950" data-testid="distribution-warning">⚠ {view.warning}</p>}
       {view.evaluators.length === 0 && <p className="rounded-lg border border-dashed border-gray-300 p-3 text-sm text-gray-600" data-testid="no-evaluators">Nobody can evaluate yet. Give someone of the team the permission “Evaluate assigned applications”.</p>}
@@ -108,8 +111,25 @@ export function DistributionPanel({ callId, canManage }: { callId: string; canMa
           {preview.keptWithConflict.length > 0 && <ul className="mt-2 space-y-0.5 text-xs text-amber-950" data-testid="preview-kept">{preview.keptWithConflict.map((r) => <li key={r.applicationId + r.userId} className="[overflow-wrap:anywhere]">⚠ {r.evaluator} has a conflict with {r.reference} but already started the evaluation: it stays, for you to decide.</li>)}</ul>}
           {preview.shortfalls.length > 0 && <ul className="mt-2 space-y-0.5 text-xs text-amber-950" data-testid="preview-short">{preview.shortfalls.map((r) => <li key={r.applicationId} className="[overflow-wrap:anywhere]">⚠ {r.reference} would have {r.got} of {r.wanted} evaluators: there are not enough people without a conflict.</li>)}</ul>}
           {preview.warning && <p className="mt-2 text-xs text-amber-950">⚠ {preview.warning}</p>}
+          {alloc && (
+            <div className="mt-3 min-w-0 space-y-2 border-t border-gray-100 pt-2" data-testid="preview-allocation">
+              {alloc.problems.length > 0 && <ul className="space-y-0.5 text-xs text-amber-950" data-testid="preview-problems">{alloc.problems.map((p) => <li key={p} className="[overflow-wrap:anywhere]">⚠ {p}</li>)}</ul>}
+              {alloc.evaluators.length > 0 && (
+                <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 text-xs" data-testid="preview-evaluators" aria-label="What each evaluator would get">
+                  {alloc.evaluators.map((e) => <li key={e.userId} className="flex min-w-0 flex-wrap justify-between gap-x-3 px-3 py-1.5" data-testid="preview-evaluator"><span className="min-w-0 [overflow-wrap:anywhere]">{e.name}</span><span className="text-gray-700">{e.requested !== null ? `asked ${e.requested} % · ` : e.limit !== null ? `at most ${e.limit} · ` : ''}would have <b>{e.got}</b></span></li>)}
+                </ul>
+              )}
+              {alloc.panels.map((p) => (
+                <div key={p.panelId} className="min-w-0 rounded-lg border border-gray-200 px-3 py-2 text-xs" data-testid="preview-panel">
+                  <p className="font-semibold text-gray-900 [overflow-wrap:anywhere]">{p.name || 'Unnamed panel'} · {p.applications} application{p.applications === 1 ? '' : 's'}{p.short ? ' · smaller than the number of evaluators asked' : ''}</p>
+                  <ul className="mt-1 space-y-0.5 text-gray-700">{p.evaluators.map((e) => <li key={e.userId} className="[overflow-wrap:anywhere]">{e.name}{e.requested !== null ? ` (asked ${e.requested} %)` : ''}: gets {e.got} more</li>)}</ul>
+                </div>
+              ))}
+              {alloc.unassigned.length > 0 && <p className="text-xs text-amber-950" data-testid="preview-unassigned">Unassigned (meet no rule — for you to assign): {alloc.unassigned.map((u) => u.reference).join(', ')}.</p>}
+            </div>
+          )}
           <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" className={PRIMARY} disabled={busy} data-testid="preview-apply" onClick={() => void run(callsApi.distributionRedistribute(callId), 'Redistributed. Each evaluator who received something was told.')}>{busy ? 'Applying…' : nothing ? 'Close' : 'Apply'}</button>
+            <button type="button" className={PRIMARY} disabled={busy || (!nothing && !!alloc?.blocked)} data-testid="preview-apply" onClick={() => { if (nothing && alloc?.blocked) { setPreview(null); return; } void run(callsApi.distributionRedistribute(callId), 'Redistributed. Each evaluator who received something was told.'); }}>{busy ? 'Applying…' : nothing ? 'Close' : 'Apply'}</button>
             {!nothing && <button type="button" className={BTN} disabled={busy} data-testid="preview-cancel" onClick={() => setPreview(null)}>Cancel</button>}
           </div>
         </div>
@@ -133,14 +153,14 @@ export function DistributionPanel({ callId, canManage }: { callId: string; canMa
                     {a.evaluators.map((e) => (
                       <li key={e.userId} className="flex min-w-0 items-center gap-1 rounded-full bg-gray-100 py-0.5 pl-2.5 pr-1 text-xs text-gray-800" data-testid="assigned-evaluator">
                         <span className="min-w-0 [overflow-wrap:anywhere]">{e.name ?? 'Evaluator'} · {STATE_TEXT[e.status]}{e.source === 'manual' ? ' · by hand' : ''}</span>
-                        {hand && e.status === 'not_started' && (
+                        {a.byHand && e.status === 'not_started' && (
                           <button type="button" aria-label={`Take ${e.name ?? 'the evaluator'} off ${a.reference ?? 'this application'}`} disabled={!editable} data-testid="unassign" onClick={() => void run(callsApi.distributionMove(callId, 'unassign', a.applicationId, e.userId))} className="min-h-[28px] min-w-[28px] rounded-full text-gray-500 hover:text-[#B00000] disabled:opacity-40">✕</button>
                         )}
                       </li>
                     ))}
                     {a.evaluators.length === 0 && <li className="text-xs text-gray-500">Nobody yet.</li>}
                   </ul>
-                  {hand && free.length > 0 && (
+                  {a.byHand && free.length > 0 && (
                     <label className="mt-2 flex min-w-0 flex-wrap items-center gap-2 text-xs text-gray-700">Assign to
                       <select className="min-w-0 max-w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" disabled={!editable} value="" data-testid="assign-select" onChange={(e) => { if (e.target.value) void run(callsApi.distributionMove(callId, 'assign', a.applicationId, e.target.value)); }}>
                         <option value="">Choose…</option>{free.map((e) => <option key={e.userId} value={e.userId}>{e.name ?? e.email}</option>)}

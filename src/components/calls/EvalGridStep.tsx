@@ -13,6 +13,8 @@ import type { GridView } from '@/lib/calls/eval-grid-view';
 import type { GridProposal } from '@/lib/calls/eval-grid-reader';
 import { callsApi } from './api';
 import { AutoTextarea } from './AutoTextarea';
+import { AutoEditor, FormQuestionsPanel, LinkPicker } from './EvalGridLinks';
+import type { LinkableField } from '@/lib/calls/eval-links';
 import { EvaluatorPreview } from './EvaluatorPreview';
 import { ScrollTabs } from '@/components/ScrollTabs';
 
@@ -32,9 +34,16 @@ const newId = (): string => {
   const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 };
-const fresh = (scale = { min: 1, max: 5 }): Draft => ({ id: newId(), section: null, position: 0, name: '', guidance: '', weight: '', format: 'scale', scaleMin: scale.min, scaleMax: scale.max, levels: [], commentRequired: false, minScore: '', levelsText: '' });
+const fresh = (scale = { min: 1, max: 5 }): Draft => ({ id: newId(), section: null, position: 0, name: '', guidance: '', weight: '', format: 'scale', scaleMin: scale.min, scaleMax: scale.max, levels: [], commentRequired: false, minScore: '', levelsText: '', linkedFields: [], auto: null, linkNotice: false });
 const toDraft = (c: Criterion, source?: Draft['source']): Draft => ({ ...c, weight: String(c.weight), minScore: c.minScore === null ? '' : String(c.minScore), levelsText: levelsToText(c.levels), ...(source ? { source } : {}) });
-const toPayload = (d: Draft) => ({ id: d.id, section: d.section, name: d.name, guidance: d.guidance, weight: d.weight === '' ? NaN : Number(d.weight), format: 'scale', scaleMin: d.scaleMin, scaleMax: d.scaleMax, levels: textToLevels(d.levelsText), commentRequired: d.commentRequired, minScore: d.minScore === '' ? null : Number(d.minScore) });
+const toPayload = (d: Draft) => ({ id: d.id, section: d.section, name: d.name, guidance: d.guidance, weight: d.weight === '' ? NaN : Number(d.weight), format: 'scale', scaleMin: d.scaleMin, scaleMax: d.scaleMax, levels: textToLevels(d.levelsText), commentRequired: d.commentRequired, minScore: d.minScore === '' ? null : Number(d.minScore), linkedFields: d.linkedFields ?? [], auto: d.auto ?? null, linkNotice: d.linkNotice === true });
+/** A new scale can leave points of a table outside it: those answers go back to "no points yet" (the step says so), never to a value the server would refuse. */
+const clampAuto = (d: Draft, patch: Partial<Draft>): Partial<Draft> => {
+  if (!d.auto || (patch.scaleMin === undefined && patch.scaleMax === undefined)) return patch;
+  const lo = patch.scaleMin ?? d.scaleMin; const hi = patch.scaleMax ?? d.scaleMax; const a = d.auto;
+  const ok = (v: number | null) => (v === null || (v >= lo && v <= hi) ? v : null);
+  return { ...patch, auto: { ...a, options: Object.fromEntries(Object.entries(a.options).map(([k, v]) => [k, ok(v)])), yes: ok(a.yes), no: ok(a.no), ranges: a.ranges.map((r) => ({ ...r, points: ok(r.points) })) } };
+};
 const asCriterion = (d: Draft): Criterion => ({ ...d, weight: Number(d.weight) || 0, minScore: d.minScore === '' ? null : Number(d.minScore), levels: textToLevels(d.levelsText) });
 
 export function EvalGridStep({ callId, canManage, onCriteriaChanged }: { callId: string; canManage: boolean; onCriteriaChanged: (count: number) => void }) {
@@ -49,7 +58,8 @@ export function EvalGridStep({ callId, canManage, onCriteriaChanged }: { callId:
   const [templates, setTemplates] = useState<{ id: string; name: string; criteria: number }[]>([]);
   const [saveName, setSaveName] = useState<string | null>(null);
   const [importing, setImporting] = useState<{ runId: string; fileName: string; notes: string[]; proposal: GridProposal } | null>(null);
-  const [tab, setTab] = useState<'build' | 'preview'>('build');
+  const [tab, setTab] = useState<'build' | 'questions' | 'preview'>('build');
+  const [suggestions, setSuggestions] = useState<Record<string, string[]>>({});
   const runRef = useRef<string | null>(null);
 
   // The editor hands over a NEW callback on every render. If loading depended on its identity, every render of the editor (and loading itself makes one) would load again and replace what is being typed with
@@ -70,7 +80,7 @@ export function EvalGridStep({ callId, canManage, onCriteriaChanged }: { callId:
   const editable = !!view && canManage && (view.mode === 'edit' || view.mode === 'versioned');
   const criteria = useMemo(() => drafts.map(asCriterion), [drafts]);
   const weights = weightsLine(criteria);
-  const update = (id: string, patch: Partial<Draft>) => { setDrafts((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d))); setDirty(true); };
+  const update = (id: string, patch: Partial<Draft>) => { setDrafts((ds) => ds.map((d) => (d.id === id ? { ...d, ...clampAuto(d, patch) } : d))); setDirty(true); };
   const setSet = (patch: Partial<GridSettings>) => { setSettings((s) => (s ? { ...s, ...patch } : s)); setDirty(true); };
 
   async function save(confirm = false) {
@@ -83,7 +93,7 @@ export function EvalGridStep({ callId, canManage, onCriteriaChanged }: { callId:
       if (r.body.code === 'conflict') { setError(r.body.error ?? 'Someone else changed the grid.'); void load(); return; }
       setError(r.body.error ?? 'The grid could not be saved.'); return;
     }
-    setAsk(null); runRef.current = null; setImporting(null); apply(r.body);
+    setAsk(null); runRef.current = null; setImporting(null); setSuggestions({}); apply(r.body);
   }
 
   async function chooseFile(file: File | undefined) {
@@ -92,7 +102,7 @@ export function EvalGridStep({ callId, canManage, onCriteriaChanged }: { callId:
     const r = await callsApi.importEvalGrid(callId, file);
     setBusy(false);
     if (!r.ok) { setError(r.body.error ?? 'The file could not be read.'); return; }
-    runRef.current = r.body.runId;
+    runRef.current = r.body.runId; setSuggestions(r.body.suggestions ?? {});
     const byName = new Map(r.body.proposal.criteria.map((p) => [p.name, p.source]));
     setImporting({ runId: r.body.runId, fileName: r.body.fileName, notes: r.body.proposal.notes, proposal: r.body.proposal });
     setDrafts((r.body.criteria as Criterion[]).map((c) => toDraft({ ...c, id: newId() }, byName.get(c.name)))); setDirty(true);
@@ -125,15 +135,16 @@ export function EvalGridStep({ callId, canManage, onCriteriaChanged }: { callId:
         {view.mode === 'versioned' && <p className="mt-2 rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-900" data-testid="grid-frozen">{view.evaluations.submitted} evaluation{view.evaluations.submitted === 1 ? '' : 's'} already submitted: the grid is frozen (version {view.version}). Changing the criteria makes a new version; those evaluations keep theirs.</p>}
         {view.mode === 'archived' && <p className="mt-2 rounded bg-gray-50 px-2 py-1.5 text-xs text-gray-700">An archived call cannot be changed.</p>}
         <ScrollTabs label="Grid view" className="mt-3 flex gap-1 border-b border-gray-200">
-          {(['build', 'preview'] as const).map((t) => <button key={t} type="button" role="tab" aria-selected={tab === t} data-testid={`grid-tab-${t}`} onClick={() => setTab(t)}
-            className={`-mb-px min-h-[44px] border-b-2 px-3 py-2 text-sm sm:min-h-0 ${tab === t ? 'border-[#0E7490] font-semibold text-[#0E7490]' : 'border-transparent text-gray-600 hover:text-gray-900'}`}>{t === 'build' ? 'Build' : 'As the evaluator sees it'}</button>)}
+          {(['build', 'questions', 'preview'] as const).map((t) => <button key={t} type="button" role="tab" aria-selected={tab === t} data-testid={`grid-tab-${t}`} onClick={() => setTab(t)}
+            className={`-mb-px min-h-[44px] border-b-2 px-3 py-2 text-sm sm:min-h-0 ${t === 'questions' ? 'lg:hidden ' : ''}${tab === t ? 'border-[#0E7490] font-semibold text-[#0E7490]' : 'border-transparent text-gray-600 hover:text-gray-900'}`}>{t === 'build' ? 'Build' : t === 'questions' ? 'Form questions' : 'As the evaluator sees it'}</button>)}
         </ScrollTabs>
       </section>
 
       {tab === 'preview' ? (
         <EvaluatorPreview criteria={criteria} />
       ) : (
-        <>
+        <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
+        <div className={`min-w-0 space-y-4 ${tab === 'questions' ? 'hidden lg:block' : ''}`}>
           {editable && (
             <section className="rounded-lg border border-[#BAD9E3] bg-[#E8F4F8] p-4" data-testid="grid-sources">
               <p className="text-sm font-semibold text-[#0E7490]">Start from a document or a template</p>
@@ -160,7 +171,7 @@ export function EvalGridStep({ callId, canManage, onCriteriaChanged }: { callId:
             {drafts.length === 0 && <p className="rounded-lg border border-dashed border-gray-300 p-4 text-center text-sm text-gray-500" data-testid="no-criteria">No criteria yet. Add the first one, or import a grid from a document.</p>}
             {sections.length > 1 || sections[0] ? null : null}
             {drafts.map((d, i) => (
-              <CriterionCard key={d.id} d={d} index={i} total={drafts.length} editable={editable} removing={removing === d.id}
+              <CriterionCard key={d.id} d={d} index={i} total={drafts.length} editable={editable} removing={removing === d.id} fields={view.fields ?? []} suggestion={suggestions[d.name]}
                 onChange={(p) => update(d.id, p)} onMove={(dir) => { setDrafts((ds) => { const n = [...ds]; const j = i + dir; if (j < 0 || j >= n.length) return ds; [n[i], n[j]] = [n[j], n[i]]; return n; }); setDirty(true); }}
                 onAskRemove={() => setRemoving(d.id)} onKeep={() => setRemoving(null)} onRemove={() => { setDrafts((ds) => ds.filter((x) => x.id !== d.id)); setRemoving(null); setDirty(true); }} />
             ))}
@@ -201,14 +212,16 @@ export function EvalGridStep({ callId, canManage, onCriteriaChanged }: { callId:
               <div className="mt-2 flex gap-2"><button type="button" className={PRIMARY} data-testid="grid-template-save" onClick={() => void saveTemplate()}>Save the template</button><button type="button" className={BTN} onClick={() => setSaveName(null)}>Cancel</button></div>
             </div>
           )}
-        </>
+        </div>
+        <aside className={`min-w-0 ${tab === 'questions' ? '' : 'hidden lg:block'}`}><FormQuestionsPanel fields={view.fields ?? []} criteria={criteria} /></aside>
+        </div>
       )}
     </div>
   );
 }
 
-function CriterionCard({ d, index, total, editable, removing, onChange, onMove, onAskRemove, onKeep, onRemove }: {
-  d: Draft; index: number; total: number; editable: boolean; removing: boolean; onChange: (p: Partial<Draft>) => void; onMove: (dir: -1 | 1) => void; onAskRemove: () => void; onKeep: () => void; onRemove: () => void;
+function CriterionCard({ d, index, total, editable, removing, fields, suggestion, onChange, onMove, onAskRemove, onKeep, onRemove }: {
+  d: Draft; index: number; total: number; editable: boolean; removing: boolean; fields: LinkableField[]; suggestion?: string[]; onChange: (p: Partial<Draft>) => void; onMove: (dir: -1 | 1) => void; onAskRemove: () => void; onKeep: () => void; onRemove: () => void;
 }) {
   const preset = presetKeyOf(d);
   const levels = scaleLevels(d);
@@ -255,6 +268,8 @@ function CriterionCard({ d, index, total, editable, removing, onChange, onMove, 
       </div>
       <label className={`${LABEL} mt-2`} htmlFor={`cg-${d.id}`}>Guidance for the evaluator</label>
       <AutoTextarea id={`cg-${d.id}`} multiline className={INPUT} value={d.guidance} disabled={!editable} maxLength={1500} onChange={(guidance) => onChange({ guidance })} />
+      <LinkPicker d={d} fields={fields} editable={editable} suggestion={suggestion} locked={d.auto?.fieldId} onChange={(linkedFields) => onChange({ linkedFields, linkNotice: false })} />
+      <AutoEditor d={d} fields={fields} editable={editable} onChange={(auto, linked) => onChange({ auto, ...(linked ? { linkedFields: linked } : {}), linkNotice: false })} />
       <details className="mt-2 rounded bg-gray-50 px-2.5 py-1.5" data-testid="criterion-levels">
         <summary className="cursor-pointer text-xs font-medium text-[#0E7490]">Describe the levels (optional){d.levelsText.trim() ? ' ✓' : ''}</summary>
         <p className="mt-1 text-[11px] text-gray-500">One line each: “{d.scaleMax}: excellent”{levels.length > 5 ? ` or a range “${d.scaleMin}–${d.scaleMin + 2}: weak”` : ''}.</p>

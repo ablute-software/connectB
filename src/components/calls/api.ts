@@ -83,6 +83,13 @@ export interface DistributionPreview {
   add: { applicationId: string; reference: string; userId: string; evaluator: string }[];
   keptWithConflict: { applicationId: string; reference: string; userId: string; evaluator: string }[];
   shortfalls: { applicationId: string; reference: string; wanted: number; got: number }[];
+  /** Weighted / By rules (Adenda 1, C): what each evaluator and each panel would end up with, who stays unassigned, and what stops the rules from being applied. null for Equal. */
+  allocation?: {
+    strategy: 'equal' | 'weighted' | 'rules'; blocked: boolean; problems: string[]; needsChoice: string[];
+    evaluators: { userId: string; name: string; requested: number | null; limit: number | null; got: number }[];
+    panels: { panelId: string; name: string; applications: number; slots: number; size: number; short: boolean; needsChoice: boolean; evaluators: { userId: string; name: string; requested: number | null; got: number }[] }[];
+    unassigned: { applicationId: string; reference: string }[];
+  } | null;
 }
 
 export const callsApi = {
@@ -119,7 +126,7 @@ export const callsApi = {
     try {
       const form = new FormData(); form.append('file', file);
       const res = await fetch(`/api/calls/${id}/eval-grid/import`, { method: 'POST', body: form });
-      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; runId: string; fileName: string; notice: string; proposal: GridProposal; criteria: unknown[] };
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; runId: string; fileName: string; notice: string; proposal: GridProposal; criteria: unknown[]; suggestions?: Record<string, string[]> };
       return { ok: res.ok && body.ok !== false, status: res.status, body };
     } catch { return { ok: false, status: 0, body: { error: 'We could not reach the server. Check your connection and try again.', runId: '', fileName: '', notice: '', proposal: { criteria: [], scaleGuess: null, notes: [] } as GridProposal, criteria: [] as unknown[] } }; }
   },
@@ -158,6 +165,7 @@ export const callsApi = {
   publicationResend: (id: string, sendId: string) => call<PublicationView & { status: string }>(`/api/calls/${id}/results/publish`, send('POST', { action: 'resend', sendId })),
   /** Prompt 922 (I2): the distribution of the applications among the evaluators (the administrator's screen) and every move on it. */
   distribution: (id: string) => call<DistributionView>(`/api/calls/${id}/distribution`),
+  saveAllocation: (id: string, baseRev: number, config: unknown, confirm = false) => call<DistributionView>(`/api/calls/${id}/distribution`, send('POST', { action: 'allocation', baseRev, config, confirm })),
   distributionMode: (id: string, mode: DistributionMode) => call<DistributionView>(`/api/calls/${id}/distribution`, send('POST', { action: 'mode', mode })),
   distributionPreview: (id: string) => call<DistributionPreview>(`/api/calls/${id}/distribution`, send('POST', { action: 'preview' })),
   distributionRedistribute: (id: string) => call<DistributionView & { added: number; removed: number }>(`/api/calls/${id}/distribution`, send('POST', { action: 'redistribute' })),

@@ -3,6 +3,9 @@
 //
 // The weighted average converts each score to the same base (0–100 %) BEFORE weighting, so criteria with different scales can be added; the ranking shows the final grade in %, and also on the scale when
 // every criterion uses the same one. The data model carries a `format` per criterion for later (Yes/No, category, ranking); only `scale` is active in v1 and the others are never shown.
+import { autoProblems, parseAuto, type AutoScore } from './eval-auto';
+import type { FormField } from './types';
+
 export const CRITERION_FORMATS = ['scale'] as const;
 export type CriterionFormat = (typeof CRITERION_FORMATS)[number];
 
@@ -18,6 +21,8 @@ export const MAX_SECTION_NAME = 80;
 export const MAX_CRITERION_NAME = 160;
 export const MAX_GUIDANCE = 1500;
 export const MAX_LEVEL_TEXT = 300;
+/** The questions of the form a criterion can be based on (Prompt 922, Adenda 1, B). */
+export const MAX_LINKED_FIELDS = 20;
 
 export interface LevelDescription { from: number; to: number; text: string }
 
@@ -39,6 +44,12 @@ export interface Criterion {
   commentRequired: boolean;
   /** Eliminatory (optional): a score BELOW it flags the application — it is never excluded automatically. */
   minScore: number | null;
+  /** "Based on these answers" (Adenda 1, B): the questions or documents of the form the evaluator reads next to this criterion. Ids of the call's own form fields. */
+  linkedFields?: string[];
+  /** "Score automatically from answers": the table of points of one closed question. Null = the evaluator scores. */
+  auto?: AutoScore | null;
+  /** Set when the criterion came from a template or another call and its links could not come along: it asks to be linked to the questions of THIS call. */
+  linkNotice?: boolean;
 }
 
 export type DivergenceSettings = { enabled: boolean; scalePct: number; totalPct: number };
@@ -140,7 +151,7 @@ export type ParsedGrid = { ok: true; criteria: Criterion[] } | { ok: false; erro
  * The criteria the editor sent, read strictly. It does NOT require the weights to add up to 100 (a grid is saved while it is being built; the step shows ⚠ and the call cannot be confirmed until they do):
  * every other rule is enforced — a name, a weight between 0 and 100, a scale with a minimum below its maximum and at most 21 levels, descriptions inside the scale, the minimum inside the scale.
  */
-export function parseCriteriaPayload(raw: unknown): ParsedGrid {
+export function parseCriteriaPayload(raw: unknown, opts: { fields?: Pick<FormField, 'id' | 'kind' | 'label' | 'options'>[] } = {}): ParsedGrid {
   if (!Array.isArray(raw)) return { ok: false, error: 'The criteria must be a list.' };
   if (raw.length > MAX_CRITERIA) return { ok: false, error: `A grid can have at most ${MAX_CRITERIA} criteria.` };
   const out: Criterion[] = [];
@@ -168,10 +179,30 @@ export function parseCriteriaPayload(raw: unknown): ParsedGrid {
     }
     const minScore = r.minScore === null || r.minScore === undefined || r.minScore === '' ? null : intIn(r.minScore, scaleMin, scaleMax);
     if (r.minScore !== null && r.minScore !== undefined && r.minScore !== '' && minScore === null) return { ok: false, error: `${where}: the eliminatory minimum must be inside the scale ${scaleMin}–${scaleMax}.` };
+    // Links to the form (Adenda 1, B): with the call's fields at hand every link must be a question of THIS call; a table of points belongs to one closed question, which is linked too.
+    const rawLinks = Array.isArray(r.linkedFields) ? (r.linkedFields as unknown[]).filter((x): x is string => typeof x === 'string' && x !== '' && x.length <= 64) : [];
+    let linkedFields = [...new Set(rawLinks)];
+    if (linkedFields.length > MAX_LINKED_FIELDS) return { ok: false, error: `${where}: at most ${MAX_LINKED_FIELDS} questions can be linked to a criterion.` };
+    if (opts.fields) {
+      const gone = linkedFields.filter((f) => !opts.fields!.some((x) => x.id === f));
+      if (gone.length) return { ok: false, error: `${where} is linked to a question that is no longer in the form: remove that link.` };
+    }
+    let auto: AutoScore | null = null;
+    if (r.auto !== null && r.auto !== undefined) {
+      const field = opts.fields?.find((x) => x.id === (r.auto as { fieldId?: unknown }).fieldId);
+      if (opts.fields) {
+        const pa = parseAuto(r.auto, field, { scaleMin, scaleMax }, name);
+        if (!pa.ok) return { ok: false, error: pa.error };
+        auto = pa.auto;
+      } else {
+        auto = r.auto as AutoScore;           // a template is read without the form: the call that uses it checks the table against its own questions
+      }
+      if (auto && !linkedFields.includes(auto.fieldId)) linkedFields = [auto.fieldId, ...linkedFields];
+    }
     let id = typeof r.id === 'string' && UUID.test(r.id) ? r.id : globalThis.crypto.randomUUID();
     if (ids.has(id)) id = globalThis.crypto.randomUUID();
     ids.add(id);
-    out.push({ id, section: clean(r.section, MAX_SECTION_NAME) || null, position: i, name, guidance: text(r.guidance, MAX_GUIDANCE), weight: round(weight, 3), format, scaleMin, scaleMax, levels, commentRequired: r.commentRequired === true, minScore });
+    out.push({ id, section: clean(r.section, MAX_SECTION_NAME) || null, position: i, name, guidance: text(r.guidance, MAX_GUIDANCE), weight: round(weight, 3), format, scaleMin, scaleMax, levels, commentRequired: r.commentRequired === true, minScore, linkedFields, auto, linkNotice: r.linkNotice === true && linkedFields.length === 0 });
   }
   return { ok: true, criteria: out };
 }
@@ -202,12 +233,19 @@ export function parseSettingsPayload(raw: unknown, phaseIds: string[] = []): { o
 }
 
 /** Whether the grid can be used to evaluate: criteria, weights adding up to 100, and a name on every one. The step says what is wrong. */
-export function gridProblems(cs: Criterion[]): string[] {
+export function gridProblems(cs: Criterion[], fields?: Pick<FormField, 'id' | 'kind' | 'label' | 'options'>[]): string[] {
   const out: string[] = [];
   if (cs.length === 0) { out.push('The evaluation grid has no criteria.'); return out; }
   const w = weightsLine(cs);
   if (!w.ok) out.push(`The weights add up to ${w.sum} %, not 100 %${w.sum < 100 ? ` (${round(100 - w.sum, 3)} % missing)` : ` (${round(w.sum - 100, 3)} % over)`}.`);
   for (const c of cs) if (c.weight === 0) out.push(`“${c.name}” has a weight of 0 %: it would not count.`);
+  // A criterion that scores itself needs a complete table of points; a link to a question that is gone must be removed (Adenda 1, B).
+  if (fields) {
+    for (const c of cs) {
+      if ((c.linkedFields ?? []).some((f) => !fields.some((x) => x.id === f))) out.push(`“${c.name}” is linked to a question that is no longer in the form.`);
+      if (c.auto) out.push(...autoProblems(c.auto, fields.find((x) => x.id === c.auto!.fieldId), c.name));
+    }
+  }
   return out;
 }
 

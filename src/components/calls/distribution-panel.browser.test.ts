@@ -12,7 +12,7 @@ const CHROME = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Applica
 const ORIGIN = 'http://distribution.test';
 const SHOTS = path.join(process.cwd(), 'docs/calls/screenshots-922-i2');
 
-const view = (over: Partial<DistributionView> = {}): DistributionView => ({
+const viewBase = (over: Partial<Omit<DistributionView, 'allocation'>> = {}): Omit<DistributionView, 'allocation'> => ({
   mode: 'auto', evaluatorsPerApplication: 2, effectiveN: 2, warning: null, unassigned: 0,
   evaluators: [
     { userId: 'u1', name: 'Rita Almeida', email: 'rita@fund.com', assigned: 3, started: 1, submitted: 1 },
@@ -20,9 +20,9 @@ const view = (over: Partial<DistributionView> = {}): DistributionView => ({
     { userId: 'u3', name: null, email: 'carla@fund.com', assigned: 3, started: 0, submitted: 0 },
   ],
   applications: [
-    { applicationId: 'a1', reference: 'REF-001', startupName: 'Acme Robotics', needed: 0, short: false, evaluators: [{ userId: 'u1', name: 'Rita Almeida', source: 'auto', status: 'submitted' }, { userId: 'u3', name: 'carla@fund.com', source: 'auto', status: 'not_started' }] },
-    { applicationId: 'a2', reference: 'REF-002', startupName: 'Blue Health', needed: 1, short: true, evaluators: [{ userId: 'u2', name: 'Bruno Costa', source: 'manual', status: 'in_progress' }] },
-    { applicationId: 'a3', reference: 'REF-003', startupName: null, needed: 2, short: true, evaluators: [] },
+    { applicationId: 'a1', reference: 'REF-001', startupName: 'Acme Robotics', needed: 0, short: false, byHand: false, evaluators: [{ userId: 'u1', name: 'Rita Almeida', source: 'auto', status: 'submitted' }, { userId: 'u3', name: 'carla@fund.com', source: 'auto', status: 'not_started' }] },
+    { applicationId: 'a2', reference: 'REF-002', startupName: 'Blue Health', needed: 1, short: true, byHand: false, evaluators: [{ userId: 'u2', name: 'Bruno Costa', source: 'manual', status: 'in_progress' }] },
+    { applicationId: 'a3', reference: 'REF-003', startupName: null, needed: 2, short: true, byHand: false, evaluators: [] },
   ],
   conflicts: [
     { applicationId: 'a1', reference: 'REF-001', userId: 'u2', evaluator: 'Bruno Costa', text: 'has the same company email domain as a member of the startup', kind: 'auto', note: null, createdAt: null, resolved: true },
@@ -30,6 +30,17 @@ const view = (over: Partial<DistributionView> = {}): DistributionView => ({
   ],
   ...over,
 });
+
+/** The screen as the server builds it: what a person may assign by hand follows the mode, and the rules to share the load come with it (Equal unless a test says otherwise). */
+const view = (over: Partial<DistributionView> = {}): DistributionView => {
+  const base = viewBase(over);
+  const people = base.evaluators.map((e) => ({ userId: e.userId, name: e.name, email: e.email }));
+  return {
+    ...base, applications: base.applications.map((a) => ({ ...a, byHand: base.mode !== 'auto' })),
+    allocation: { config: { strategy: 'equal', weighted: { by: 'percent', percent: {}, max: {} }, panels: [], rules: [], multi: 'first', fallback: 'equal' }, version: 1, rev: 0, mode: 'edit', evaluations: { started: 0, submitted: 0 }, problems: [], people, fields: [] },
+    ...(over.allocation ? { allocation: over.allocation } : {}),
+  };
+};
 
 describe.skipIf(!CHROME)('the distribution screen (real browser)', () => {
   let bundle = ''; let css = '';
@@ -65,7 +76,7 @@ describe.skipIf(!CHROME)('the distribution screen (real browser)', () => {
         if (opts.unavailable) return { status: 503, body: { ok: false, code: 'not_available', error: 'Evaluation is not available yet. It will be switched on shortly.' } };
         if (method === 'GET') return { status: 200, body: { ok: true, ...state.view } };
         state.posts.push(body ?? {});
-        if (body?.action === 'mode') { state.view = { ...state.view, mode: body.mode as DistributionMode }; return { status: 200, body: { ok: true, ...state.view } }; }
+        if (body?.action === 'mode') { state.view = view({ ...state.view, mode: body.mode as DistributionMode }); return { status: 200, body: { ok: true, ...state.view } }; }
         if (body?.action === 'preview') {
           return { status: 200, body: { ok: true, manual: state.view.mode === 'manual', warning: null, loads: {}, newConflicts: 0,
             remove: [{ applicationId: 'a2', reference: 'REF-002', userId: 'u3', evaluator: 'carla@fund.com', why: 'conflict of interest' }],
@@ -136,7 +147,7 @@ describe.skipIf(!CHROME)('the distribution screen (real browser)', () => {
     await page.locator('[data-testid="unassign"]').first().click();
     expect(srv.state.posts.at(-1)).toEqual({ action: 'unassign', applicationId: 'a1', userId: 'u3' });
     // a refusal from the server (somebody switched the call to Automatic meanwhile) is shown in the page, not swallowed
-    srv.state.view = { ...srv.state.view, mode: 'auto' };
+    srv.state.view = view({ ...srv.state.view, mode: 'auto' });
     await page.locator('[data-testid="distribution-application"]').nth(2).locator('[data-testid="assign-select"]').selectOption('u2');
     await page.waitForSelector('[data-testid="distribution-error"]');
     expect(await page.locator('[data-testid="distribution-error"]').innerText()).toContain('The distribution is automatic');

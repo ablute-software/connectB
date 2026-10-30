@@ -205,7 +205,7 @@ describe('scoring, autosave and submitting', () => {
     expect(b.body).toMatchObject({ revision: 2, gradePercent: 85 });            // Team 5/5 = 100 %, Market 3/5 on 1–5 = 50 %, Tech 10/10 = 100 %  →  50 + 15 + 20
     const back = await get('rita');
     expect(back.body.evaluation).toMatchObject({ status: 'in_progress', revision: 2, overallComment: 'Promising.', privateNote: 'Ask about IP.', gradePercent: 85 });
-    expect(back.body.evaluation.scores[C.market]).toEqual({ score: 3, comment: 'Crowded but growing.' });
+    expect(back.body.evaluation.scores[C.market]).toMatchObject({ score: 3, comment: 'Crowded but growing.' });
     // a score cleared is cleared; a comment alone is allowed
     await put('rita', { revision: 2, scores: { [C.tech]: { score: null } } });
     expect((await get('rita')).body.evaluation).toMatchObject({ gradePercent: null });
@@ -325,7 +325,7 @@ describe('reopening, colleagues and the private note', () => {
     const sara = (await get('sara')).body.colleagues;
     expect(sara).toHaveLength(1);
     expect(sara[0]).toMatchObject({ userId: 'rita', gradePercent: 92.5, overallComment: 'overall rita' });
-    expect(sara[0].scores[C.team]).toEqual({ score: 5, comment: 'team by rita' });
+    expect(sara[0].scores[C.team]).toMatchObject({ score: 5, comment: 'team by rita' });
     expect(JSON.stringify(sara)).not.toContain('secret of rita');
     const admin = (await get('ana')).body;
     expect(admin.colleagues).toHaveLength(2);

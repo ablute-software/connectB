@@ -1,13 +1,17 @@
 // Prompt 922 (I4) — the consolidation of the evaluation, pure: from the evaluations that exist it builds the board the administrator reads — progress, the ranking by weighted average, the average of each
 // criterion, the divergence between evaluators, who scored below an eliminatory minimum, and the decision — and the table that is exported. Nothing here changes a score or decides anything: a flag is a
 // flag. The ranking only reads SUBMITTED evaluations; an evaluation in progress counts as progress, never as a grade.
-import { belowMinimum, type Criterion, type GridSettings } from './eval-grid';
+import { belowMinimum, weightedGrade, type Criterion, type GridSettings } from './eval-grid';
 
 export type Decision = 'advance' | 'reject' | 'waitlist';
 export const DECISION_LABEL: Record<Decision, string> = { advance: 'Advance', reject: 'Reject', waitlist: 'Waitlist' };
 
 export interface BoardApp { applicationId: string; reference: string | null; startupName: string | null }
-export interface BoardEval { applicationId: string; evaluatorUserId: string; status: 'in_progress' | 'submitted'; gridVersion: number; gradePercent: number | null; scores: Record<string, number | null> }
+export interface BoardEval {
+  applicationId: string; evaluatorUserId: string; status: 'in_progress' | 'submitted'; gridVersion: number; gradePercent: number | null; scores: Record<string, number | null>;
+  /** Adenda 1, B: how each score came about ('auto' = the point of the answer, 'override' = an evaluator changed it) and the automatic value beside it. */
+  sources?: Record<string, 'manual' | 'auto' | 'override'>; autoValues?: Record<string, number | null>;
+}
 export interface BoardInput {
   apps: BoardApp[]; evaluations: BoardEval[]; assignments: { applicationId: string; userId: string }[];
   criteriaByVersion: Record<number, Criterion[]>; currentVersion: number; divergence: GridSettings['divergence'];
@@ -24,6 +28,9 @@ export interface BoardRow {
   divergence: DivergenceFlag[];
   below: { criterionId: string; name: string; min: number; evaluators: number }[];
   gridVersions: number[];
+  /** The criteria of the grid in force that scored themselves, and where an evaluator changed the automatic point (the value beside the new one). */
+  autoCriteria: string[];
+  overrides: { criterionId: string; name: string; auto: number; chosen: number; evaluators: number }[];
   decision: { decision: Decision; note: string | null } | null;
 }
 export interface BoardProgress { applications: number; assigned: number; started: number; submitted: number; complete: number; unassigned: number; decided: number }
@@ -48,19 +55,23 @@ export function computeBoard(input: BoardInput): { rows: BoardRow[]; progress: B
       return xs.length ? { criterionId: c.id, name: c.name, average: round(mean(xs)), percent: round(((mean(xs) - c.scaleMin) / (c.scaleMax - c.scaleMin)) * 100), count: xs.length } : null;
     }).filter((x): x is NonNullable<typeof x> => x !== null);
 
-    // Divergence: only between evaluations on the SAME grid version (the criteria are the same), and only when the entity left it on. It never changes a score.
+    // Divergence: only between evaluations on the SAME grid version (the criteria are the same), and only when the entity left it on. It never changes a score. A criterion that scores itself is the same for every
+    // evaluator by construction, so it stays out of the divergence — and out of the total, which is then worked out on the criteria the evaluators scored by hand.
     const divergence: DivergenceFlag[] = [];
     if (input.divergence.enabled) {
       for (const v of [...new Set(submitted.map((e) => e.gridVersion))]) {
         const same = submitted.filter((e) => e.gridVersion === v);
         if (same.length < 2) continue;
-        for (const c of input.criteriaByVersion[v] ?? []) {
+        const grid = input.criteriaByVersion[v] ?? [];
+        for (const c of grid) {
+          if (c.auto) continue;
           const xs = same.map((e) => e.scores[c.id]).filter((s): s is number => typeof s === 'number');
           if (xs.length < 2) continue;
           const range = Math.max(...xs) - Math.min(...xs); const amplitude = c.scaleMax - c.scaleMin;
           if (amplitude > 0 && (range / amplitude) * 100 >= input.divergence.scalePct) divergence.push({ criterionId: c.id, name: c.name, range, limit: round((input.divergence.scalePct / 100) * amplitude), kind: 'criterion' });
         }
-        const gs = same.map((e) => e.gradePercent).filter((g): g is number => typeof g === 'number');
+        const manual = grid.filter((c) => !c.auto);
+        const gs = (manual.length > 0 && manual.length < grid.length ? same.map((e) => weightedGrade(manual, e.scores).percent) : same.map((e) => e.gradePercent)).filter((g): g is number => typeof g === 'number');
         if (gs.length >= 2) { const range = round(Math.max(...gs) - Math.min(...gs)); if (range >= input.divergence.totalPct) divergence.push({ criterionId: null, name: 'Total', range, limit: input.divergence.totalPct, kind: 'total' }); }
       }
     }
@@ -70,8 +81,15 @@ export function computeBoard(input: BoardInput): { rows: BoardRow[]; progress: B
     for (const e of submitted) for (const b of belowMinimum(input.criteriaByVersion[e.gridVersion] ?? [], e.scores)) {
       const cur = belowMap.get(b.id) ?? { criterionId: b.id, name: b.name, min: b.min, evaluators: 0 }; cur.evaluators++; belowMap.set(b.id, cur);
     }
+    // Where an evaluator changed an automatic point: the criterion, the automatic value, the value chosen — read from the submitted evaluations on the grid in force.
+    const overrides: BoardRow['overrides'] = [];
+    for (const c of current) {
+      if (!c.auto) continue;
+      const ch = onCurrent.filter((e) => e.sources?.[c.id] === 'override' && typeof e.scores[c.id] === 'number' && typeof e.autoValues?.[c.id] === 'number');
+      for (const e of ch) overrides.push({ criterionId: c.id, name: c.name, auto: e.autoValues![c.id] as number, chosen: e.scores[c.id] as number, evaluators: 1 });
+    }
     return {
-      applicationId: a.applicationId, reference: a.reference, startupName: a.startupName, state,
+      applicationId: a.applicationId, reference: a.reference, startupName: a.startupName, state, autoCriteria: current.filter((c) => c.auto).map((c) => c.id), overrides,
       assigned: asg.length, started: evs.length, submitted: submitted.length,
       average: grades.length ? round(mean(grades)) : null, deviation: grades.length >= 2 ? round(stdev(grades)) : null, rank: null,
       perCriterion, divergence, below: [...belowMap.values()], gridVersions: [...new Set(submitted.map((e) => e.gridVersion))].sort((x, y) => x - y),
