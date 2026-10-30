@@ -32,7 +32,7 @@ export function callsDb(): CallsDb {
     // Prompt 918 (I3)
     'call_processing_tasks', 'call_application_eligibility', 'call_eligibility_corrections',
     // Prompt 922
-    'call_eval_settings', 'call_eval_criteria', 'call_eval_templates', 'call_eval_import_runs', 'call_eval_assignments', 'call_eval_conflicts', 'call_evaluations', 'call_eval_scores', 'call_eval_reopenings', 'call_eval_decisions', 'call_eval_reminders',
+    'call_eval_settings', 'call_eval_criteria', 'call_eval_templates', 'call_eval_import_runs', 'call_eval_assignments', 'call_eval_conflicts', 'call_evaluations', 'call_eval_scores', 'call_eval_reopenings', 'call_eval_decisions', 'call_eval_reminders', 'call_eval_distribution_configs',
     // Prompt 924 (Etapa 4)
     'call_result_settings', 'call_result_feedback', 'call_result_grades', 'call_result_batches', 'call_results', 'call_result_sends',
     // Prompt 924 (I3)

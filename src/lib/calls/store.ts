@@ -10,6 +10,7 @@ import { CLOSE_REASON_EVENTS, closeReasonFrom, type CloseReason } from './closin
 import type { Call, CallPhase, FormField, PromoterKind } from './types';
 import { newFieldId } from './form-builder';
 import { copyEligibility } from './eligibility-store';
+import { copyAlloc } from './eval-alloc-store';
 import { copyEvalGrid } from './eval-grid-store';
 
 type Row = Record<string, unknown>;
@@ -290,6 +291,8 @@ export async function duplicateCall(admin: SupabaseClient, source: Call, actor: 
   await copyEligibility(admin, source, copy.id, idMap, actor);
   // The evaluation grid and its settings are copied as a copy of their own too (Prompt 922): never the evaluations, the assignments or the decisions.
   await copyEvalGrid(admin, source, copy.id, actor, idMap);
+  // …and so are the rules that share the load among the evaluators (Prompt 922, Adenda 1, C).
+  await copyAlloc(admin, source, copy.id, idMap, actor);
   // The cover image (and a logo uploaded for the call) are copied as files of the copy — never shared, so removing one from either call cannot take the other's away (Prompt 918, Adenda 1 C).
   let result = copy;
   for (const [kind, path] of [['cover', source.coverPath], ['logo', source.logoPath]] as const) {

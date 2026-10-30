@@ -9,17 +9,21 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { emailNotice, createNotice, type NoticeContent } from './applicant/notices';
+import { loadAlloc, type AllocState } from './eval-alloc-store';
+import { allocProblems, allocate, isRuleField, panelsFor, type AllocOutput, type Strategy } from './eval-allocation';
 import { CONFLICT_TEXT, autoConflict, loadsOf, redistribute, distribute, type ConflictCode, type Pair } from './eval-distribution';
-import { loadSettings } from './eval-grid-store';
+import { evaluationCounts, loadSettings } from './eval-grid-store';
+import { linkableFields } from './eval-links';
+import { loadFields } from './store';
 import { effectivePermissions } from './permissions';
 import { callOrg, describePeople, loadCallTeam, loadCategories, loadConflicts as loadCompanyConflicts } from './team-store';
-import type { Call } from './types';
+import type { Call, FormField } from './types';
 
 type Row = Record<string, unknown>;
 export type DistributionMode = 'auto' | 'manual' | 'mixed';
 
 export interface EvaluatorInfo { userId: string; name: string | null; email: string | null }
-export interface AppInfo { applicationId: string; reference: string | null; startupOrgId: string | null; startupName: string | null; applicantUserId: string }
+export interface AppInfo { applicationId: string; reference: string | null; startupOrgId: string | null; startupName: string | null; applicantUserId: string; submissionId?: string | null }
 export interface Blocked { applicationId: string; userId: string; code: ConflictCode | 'declared' | 'declared_company'; text: string; kind: 'auto' | 'declared'; note: string | null; createdAt: string | null }
 export interface AssignmentRow { applicationId: string; userId: string; source: 'auto' | 'manual'; createdAt: string }
 export interface Gathered {
@@ -27,6 +31,8 @@ export interface Gathered {
   evaluators: EvaluatorInfo[]; apps: AppInfo[]; assignments: AssignmentRow[]; blocked: Blocked[];
   /** Pairs (application:user) with an evaluation already started: never moved by a plan. */
   started: Set<string>;
+  /** How the load is shared (Adenda 1, C), the form, and — only when the rules read them — the answers of each application. */
+  alloc: AllocState; fields: FormField[]; answers: Record<string, Record<string, unknown>>;
 }
 export const pairKey = (applicationId: string, userId: string): string => `${applicationId}:${userId}`;
 const COMPANY_CONFLICT_TEXT = 'declared, before the call, a conflict with this company';
@@ -67,7 +73,7 @@ export async function loadEvaluators(admin: SupabaseClient, call: Call): Promise
 
 /** Applications that are SUBMITTED and whose current eligibility is Fit — the only ones that enter evaluation (To validate must be resolved first; Not a fit is not distributed). */
 export async function loadFitApplications(admin: SupabaseClient, callId: string): Promise<AppInfo[]> {
-  const { data: apps } = await admin.from('call_applications').select('id, reference, startup_org_id, applicant_user_id, status').eq('call_id', callId).eq('status', 'submitted');
+  const { data: apps } = await admin.from('call_applications').select('id, reference, startup_org_id, applicant_user_id, status, current_submission_id').eq('call_id', callId).eq('status', 'submitted');
   const rows = (apps ?? []) as Row[];
   if (rows.length === 0) return [];
   const { data: elig } = await admin.from('call_application_eligibility').select('application_id, status').eq('call_id', callId).eq('is_current', true);
@@ -76,7 +82,7 @@ export async function loadFitApplications(admin: SupabaseClient, callId: string)
   const names = new Map<string, string>();
   if (orgIds.length) { const { data: orgs } = await admin.from('orgs').select('id, name').in('id', orgIds); for (const o of (orgs ?? []) as Row[]) names.set(o.id as string, String(o.name ?? '')); }
   return rows.filter((r) => fit.has(r.id as string))
-    .map((r) => ({ applicationId: r.id as string, reference: (r.reference as string | null) ?? null, startupOrgId: (r.startup_org_id as string | null) ?? null, startupName: r.startup_org_id ? names.get(r.startup_org_id as string) ?? null : null, applicantUserId: r.applicant_user_id as string }))
+    .map((r) => ({ applicationId: r.id as string, reference: (r.reference as string | null) ?? null, startupOrgId: (r.startup_org_id as string | null) ?? null, startupName: r.startup_org_id ? names.get(r.startup_org_id as string) ?? null : null, applicantUserId: r.applicant_user_id as string, submissionId: (r.current_submission_id as string | null) ?? null }))
     .sort((a, b) => (a.reference ?? a.applicationId) < (b.reference ?? b.applicationId) ? -1 : 1);
 }
 
@@ -130,7 +136,16 @@ export async function gather(admin: SupabaseClient, call: Call): Promise<Gathere
     }
   }
   const started = new Set(((evals.data ?? []) as Row[]).map((r) => pairKey(r.application_id as string, r.evaluator_user_id as string)));
-  return { call, mode, n: settings.evaluatorsPerApplication, evaluators, apps, assignments, blocked, started };
+  const [alloc, fields] = await Promise.all([loadAlloc(admin, call.id), loadFields(admin, call.id)]);
+  // The answers are read only when the rules look at them: By rules routes an application by what the applicant answered.
+  const answers: Gathered['answers'] = {};
+  if (alloc.config.strategy === 'rules' && apps.length > 0) {
+    const ids = apps.map((a) => a.submissionId).filter((x): x is string => !!x);
+    const { data } = ids.length ? await admin.from('call_application_submissions').select('id, answers').in('id', ids) : { data: [] };
+    const bySub = new Map(((data ?? []) as Row[]).map((r) => [r.id as string, (r.answers ?? {}) as Record<string, unknown>]));
+    for (const a of apps) answers[a.applicationId] = (a.submissionId ? bySub.get(a.submissionId) : null) ?? {};
+  }
+  return { call, mode, n: settings.evaluatorsPerApplication, evaluators, apps, assignments, blocked, started, alloc, fields, answers };
 }
 
 // --- The plan --------------------------------------------------------------------------------------------------------------------------------------------
@@ -145,9 +160,39 @@ export interface Plan {
   warning: string | null;
   /** Automatic conflicts found that are not recorded yet. */
   newConflicts: Blocked[];
+  /** Weighted / By rules (Adenda 1, C): what each evaluator and each panel would end up with, who is left unassigned, and what stops the rules from being applied. */
+  allocation?: PlanAllocation;
+}
+export interface PlanAllocation { strategy: Strategy; evaluators: AllocOutput['evaluators']; panels: AllocOutput['panels']; unassigned: string[]; needsChoice: string[]; problems: string[]; matched: Record<string, string[]>; blocked: boolean }
+
+/** The plan when the load is shared by percentage or by rules: the same care with conflicts and with what is started, and the placement decided by `allocate`. */
+function planByAllocation(g: Gathered, opts: { only?: string[]; recordedKeys?: Set<string>; replan?: boolean }): Plan {
+  const config = g.alloc.config;
+  const ids = g.evaluators.map((e) => e.userId);
+  const evSet = new Set(ids);
+  const blockedKeys = new Set(g.blocked.map((b) => pairKey(b.applicationId, b.userId)));
+  const why = (a: { applicationId: string; userId: string }) => (blockedKeys.has(pairKey(a.applicationId, a.userId)) ? 'conflict of interest' : 'no longer an evaluator');
+  const bad = g.assignments.filter((a) => blockedKeys.has(pairKey(a.applicationId, a.userId)) || !evSet.has(a.userId));
+  const keptWithConflict = bad.filter((a) => g.started.has(pairKey(a.applicationId, a.userId))).map((a) => ({ applicationId: a.applicationId, userId: a.userId }));
+  const removeBad = bad.filter((a) => !g.started.has(pairKey(a.applicationId, a.userId))).map((a) => ({ applicationId: a.applicationId, userId: a.userId, why: why(a) }));
+  const gone = new Set(removeBad.map((r) => pairKey(r.applicationId, r.userId)));
+  const existing = g.assignments.filter((a) => !gone.has(pairKey(a.applicationId, a.userId))).map((a) => ({ applicationId: a.applicationId, userId: a.userId, fixed: g.started.has(pairKey(a.applicationId, a.userId)) || a.source === 'manual' }));
+  const apps = (opts.only ? g.apps.filter((a) => opts.only!.includes(a.applicationId)) : g.apps).map((a) => ({ applicationId: a.applicationId, answers: g.answers[a.applicationId] ?? {} }));
+  const problems = allocProblems(config, { evaluators: g.evaluators.map((e) => ({ userId: e.userId, name: e.name ?? e.email })), fields: g.fields, n: g.n });
+  const out = allocate({ config, applications: apps, fields: g.fields, evaluators: ids, n: g.n, existing, blocked: g.blocked.map((b) => ({ applicationId: b.applicationId, userId: b.userId })), replan: opts.replan === true });
+  const blocked = problems.length > 0 || out.needsChoice.length > 0;
+  const recorded = opts.recordedKeys ?? new Set<string>();
+  const newConflicts = g.blocked.filter((b) => b.kind === 'auto' && !recorded.has(`${pairKey(b.applicationId, b.userId)}:auto`) && (g.assignments.some((a) => a.applicationId === b.applicationId && a.userId === b.userId) || g.apps.some((a) => a.applicationId === b.applicationId)));
+  return {
+    remove: [...removeBad, ...(blocked ? [] : out.remove.map((r) => ({ ...r, why: 'the distribution rules changed' })))],
+    add: blocked ? [] : out.add, keptWithConflict, shortfalls: blocked ? [] : out.shortfalls.map(({ applicationId, wanted, got }) => ({ applicationId, wanted, got })),
+    loads: blocked ? loadsOf(g.assignments, ids) : out.loads, warning: out.warning, newConflicts,
+    allocation: { strategy: config.strategy, evaluators: out.evaluators, panels: out.panels, unassigned: out.unassigned, needsChoice: out.needsChoice, problems, matched: out.matched, blocked },
+  };
 }
 
-export function plan(g: Gathered, opts: { only?: string[]; recordedKeys?: Set<string> } = {}): Plan {
+export function plan(g: Gathered, opts: { only?: string[]; recordedKeys?: Set<string>; replan?: boolean } = {}): Plan {
+  if (g.alloc.config.strategy !== 'equal' && g.mode !== 'manual') return planByAllocation(g, opts);
   const apps = (opts.only ? g.apps.filter((a) => opts.only!.includes(a.applicationId)) : g.apps).map((a) => ({ applicationId: a.applicationId }));
   const input = { applications: apps, evaluators: g.evaluators.map((e) => ({ userId: e.userId })), n: g.n, existing: g.assignments.map((a) => ({ applicationId: a.applicationId, userId: a.userId })), blocked: g.blocked.map((b) => ({ applicationId: b.applicationId, userId: b.userId })) };
   const r = redistribute(input);
@@ -221,7 +266,7 @@ export async function applyPlan(admin: SupabaseClient, g: Gathered, p: Plan, act
 /** "Redistribute": the plan for the whole call, to show before applying — and the same plan applied once the administrator confirms. */
 export async function previewRedistribution(admin: SupabaseClient, call: Call): Promise<{ g: Gathered; p: Plan }> {
   const g = await gather(admin, call);
-  return { g, p: plan(g, { recordedKeys: await recordedAutoKeys(admin, call.id) }) };
+  return { g, p: plan(g, { recordedKeys: await recordedAutoKeys(admin, call.id), replan: true }) };
 }
 export async function redistributeAll(admin: SupabaseClient, call: Call, actor: string): Promise<{ applied: Applied; plan: Plan }> {
   const { g, p } = await previewRedistribution(admin, call);
@@ -254,9 +299,15 @@ export async function syncApplication(admin: SupabaseClient, call: Call, applica
 
 export type MoveResult = { ok: true } | { ok: false; error: string; status: number };
 
+/** By rules with "Unassigned" as the fallback: an application that meets no rule is for a person to assign, whatever the mode. */
+export function leftToHand(g: Gathered, applicationId: string): boolean {
+  const c = g.alloc.config;
+  return c.strategy === 'rules' && c.fallback === 'unassigned' && panelsFor(c, g.fields, g.answers[applicationId] ?? {}).filter((id) => c.panels.some((p) => p.id === id)).length === 0;
+}
+
 export async function assignByHand(admin: SupabaseClient, call: Call, applicationId: string, userId: string, actor: string): Promise<MoveResult> {
   const g = await gather(admin, call);
-  if (g.mode === 'auto') return { ok: false, status: 409, error: 'The distribution is automatic. Switch to “Mixed” or “Manual” to assign by hand.' };
+  if (g.mode === 'auto' && !leftToHand(g, applicationId)) return { ok: false, status: 409, error: 'The distribution is automatic. Switch to “Mixed” or “Manual” to assign by hand.' };
   if (!g.apps.some((a) => a.applicationId === applicationId)) return { ok: false, status: 404, error: 'Only submitted applications that are a Fit can be assigned.' };
   const ev = g.evaluators.find((e) => e.userId === userId);
   if (!ev) return { ok: false, status: 409, error: 'This person cannot evaluate: they need the permission “Evaluate assigned applications”.' };
@@ -301,12 +352,19 @@ export async function declareConflict(admin: SupabaseClient, call: Call, applica
 export interface DistributionView {
   mode: DistributionMode; evaluatorsPerApplication: number | 'all'; effectiveN: number; warning: string | null;
   evaluators: { userId: string; name: string | null; email: string | null; assigned: number; started: number; submitted: number }[];
-  applications: { applicationId: string; reference: string | null; startupName: string | null; needed: number; evaluators: { userId: string; name: string | null; source: 'auto' | 'manual'; status: 'not_started' | 'in_progress' | 'submitted' }[]; short: boolean }[];
+  applications: { applicationId: string; reference: string | null; startupName: string | null; needed: number; /** Whether a person may assign this application now: the mode allows it, or By rules left it unassigned. */ byHand: boolean; evaluators: { userId: string; name: string | null; source: 'auto' | 'manual'; status: 'not_started' | 'in_progress' | 'submitted' }[]; short: boolean }[];
   conflicts: { applicationId: string; reference: string | null; userId: string; evaluator: string | null; text: string; kind: 'auto' | 'declared'; note: string | null; createdAt: string | null; resolved: boolean }[];
   unassigned: number;
+  /** Adenda 1, C: the rules that share the load, what is wrong with them, and what the editor needs to build them. */
+  allocation: {
+    config: AllocState['config']; version: number; rev: number; mode: 'edit' | 'versioned'; evaluations: { started: number; submitted: number }; problems: string[];
+    people: { userId: string; name: string | null; email: string | null }[];
+    fields: { id: string; number: number; page: number; label: string; kind: string; options: { id: string; label: string }[] }[];
+  };
 }
 
 export async function buildDistributionView(admin: SupabaseClient, g: Gathered): Promise<DistributionView> {
+  const counts = await evaluationCounts(admin, g.call.id);
   const { data: evs } = await admin.from('call_evaluations').select('application_id, evaluator_user_id, status').eq('call_id', g.call.id);
   const state = new Map(((evs ?? []) as Row[]).map((r) => [pairKey(r.application_id as string, r.evaluator_user_id as string), r.status === 'submitted' ? 'submitted' as const : 'in_progress' as const]));
   const nameOf = (id: string) => { const e = g.evaluators.find((x) => x.userId === id); return e?.name ?? e?.email ?? null; };
@@ -319,11 +377,17 @@ export async function buildDistributionView(admin: SupabaseClient, g: Gathered):
   const applications = g.apps.map((a) => {
     const mine = g.assignments.filter((x) => x.applicationId === a.applicationId);
     const needed = g.n === 'all' ? Math.max(0, g.evaluators.filter((e) => !g.blocked.some((b) => b.applicationId === a.applicationId && b.userId === e.userId)).length - mine.length) : Math.max(0, effectiveN - mine.length);
-    return { applicationId: a.applicationId, reference: a.reference, startupName: a.startupName, needed, short: needed > 0,
+    return { applicationId: a.applicationId, reference: a.reference, startupName: a.startupName, needed, short: needed > 0, byHand: g.mode !== 'auto' || leftToHand(g, a.applicationId),
       evaluators: mine.map((m) => ({ userId: m.userId, name: nameOf(m.userId), source: m.source, status: state.get(pairKey(m.applicationId, m.userId)) ?? ('not_started' as const) })) };
   });
   const refOf = new Map(g.apps.map((a) => [a.applicationId, a.reference]));
   const conflicts = g.blocked.map((b) => ({ applicationId: b.applicationId, reference: refOf.get(b.applicationId) ?? null, userId: b.userId, evaluator: nameOf(b.userId), text: b.text, kind: b.kind, note: b.note, createdAt: b.createdAt,
     resolved: !g.assignments.some((a) => a.applicationId === b.applicationId && a.userId === b.userId) }));
-  return { mode: g.mode, evaluatorsPerApplication: g.n, effectiveN, warning: dry.warning, evaluators, applications, conflicts, unassigned: applications.filter((a) => a.evaluators.length === 0).length };
+  const people = g.evaluators.map((e) => ({ userId: e.userId, name: e.name, email: e.email }));
+  const problems = g.alloc.config.strategy === 'equal' ? [] : allocProblems(g.alloc.config, { evaluators: people.map((p) => ({ userId: p.userId, name: p.name ?? p.email })), fields: g.fields, n: g.n });
+  const allocation: DistributionView['allocation'] = {
+    config: g.alloc.config, version: g.alloc.version, rev: g.alloc.rev, mode: counts.submitted > 0 ? 'versioned' : 'edit', evaluations: counts, problems, people,
+    fields: linkableFields(g.fields).filter((f) => isRuleField({ kind: f.kind })).map((f) => ({ id: f.id, number: f.number, page: f.page, label: f.label, kind: f.kind, options: f.options })),
+  };
+  return { mode: g.mode, evaluatorsPerApplication: g.n, effectiveN, warning: dry.warning, evaluators, applications, conflicts, unassigned: applications.filter((a) => a.evaluators.length === 0).length, allocation };
 }
