@@ -26,7 +26,8 @@ describe('Prompt 499 §1 — the shared Tabs strip scrolls instead of squashing'
   it('the tablist container can scroll horizontally', () => {
     // Nine files use <Tabs>, including the seven-tab Readiness bar. The
     // container is the half that lets the overflow exist at all.
-    expect(ui).toMatch(/role="tablist"[^>]*className="[^"]*overflow-x-auto/);
+    // Since Prompt 924 the strip is a <ScrollTabs> (the same scrolling bar, with arrows at the edges); its className still carries overflow-x-auto.
+    expect(ui).toMatch(/<ScrollTabs[^>]*className="[^"]*overflow-x-auto/);
   });
 
   it('each tab keeps its own width instead of shrinking below its label', () => {

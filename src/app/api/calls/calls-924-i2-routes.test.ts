@@ -139,6 +139,13 @@ describe('what stops a publication', () => {
     expect(await act('pat', { action: 'publish', confirmName: NAME })).toMatchObject({ status: 409, body: { error: 'An archived call cannot be changed.' } });
     expect(resultsOf()).toHaveLength(0); expect(db.tables.call_result_batches).toHaveLength(0); expect(mail.sent).toHaveLength(0);
   });
+  it('a stored message that uses a field that does not exist (an old one) blocks publishing in words, and nothing is written', async () => {
+    db.tables.call_result_settings.push({ call_id: CALL, labels: {}, messages: { reject: '<p>Hi {applicant_nam}</p>' } });
+    const r = await act('pat', { action: 'publish', confirmName: NAME });
+    expect(r.status).toBe(409);
+    expect(r.body.error).toContain('{applicant_nam}');
+    expect(resultsOf()).toHaveLength(0); expect(db.tables.call_result_batches).toHaveLength(0); expect(mail.sent).toHaveLength(0);
+  });
 });
 
 describe('publishing now', () => {

@@ -37,12 +37,12 @@ const onTeam = (callId: string, userId: string, name: string, perms: Record<stri
   if (!db.tables.call_team_categories.some((c) => c.id === id)) db.tables.call_team_categories.push({ id, catalog_entity_id: FIRM, incubator_id: null, name, permissions: { ...NO_PERMISSIONS, ...perms }, created_at: '2026-01-01T00:00:00.000Z' });
   db.tables.call_team_members.push({ id: `tm-${callId.slice(0, 4)}-${userId}`, call_id: callId, user_id: userId, category_id: id, permission_overrides: {}, created_at: '2026-01-02T00:00:00.000Z' });
 };
-function application(callId: string, tag: string, ref: string, name: string, over: { decision?: 'advance' | 'reject' | 'waitlist'; eligibility?: 'fit' | 'not_fit' | 'to_validate'; reason?: string } = {}) {
+function application(callId: string, tag: string, ref: string, name: string, over: { decision?: 'advance' | 'reject' | 'waitlist'; eligibility?: 'fit' | 'not_fit' | 'to_validate'; sentence?: string } = {}) {
   const id = `aaaaaaaa-0000-4000-8000-${tag.padStart(12, '0')}`; const org = `bbbbbbbb-0000-4000-8000-${tag.padStart(12, '0')}`;
   db.users.set(`ap-${tag}`, { id: `ap-${tag}`, email: `ap-${tag}@startup${tag}.com`, user_metadata: { full_name: `Founder ${tag}` } });
   db.tables.orgs.push({ id: org, name });
   db.tables.call_applications.push({ id, call_id: callId, startup_org_id: org, applicant_user_id: `ap-${tag}`, status: 'submitted', reference: ref, draft_answers: {}, created_at: '2026-10-10T00:00:00Z', updated_at: '2026-10-10T00:00:00Z' });
-  db.tables.call_application_eligibility.push({ id: `el-${id}`, call_id: callId, application_id: id, status: over.eligibility ?? 'fit', is_current: true, source: 'engine', rule_results: [], overrides: {}, reason: over.reason ?? '', created_at: '2026-10-11T00:00:00Z' });
+  db.tables.call_application_eligibility.push({ id: `el-${id}`, call_id: callId, application_id: id, status: over.eligibility ?? 'fit', is_current: true, source: 'engine', rule_results: over.sentence ? [{ ruleId: 'r1', outcome: 'fail', reason: 'ENGINE-REASON-SECRET: value 2025 > 2024', sentence: over.sentence, kind: 'number', fieldId: 'f1' }] : [], overrides: {}, reason: over.sentence ? 'ENGINE-REASON-SECRET: value 2025 > 2024' : '', created_at: '2026-10-11T00:00:00Z' });
   if (over.decision) db.tables.call_eval_decisions.push({ id: `d-${id}`, call_id: callId, application_id: id, decision: over.decision, note: 'INTERNAL-DECISION-NOTE', decided_by: 'decider', is_current: true, decided_at: '2026-10-20T00:00:00Z' });
   // what an evaluator wrote about it — must never come out of these routes
   db.tables.call_evaluations.push({ id: `ev-${id}`, call_id: callId, application_id: id, evaluator_user_id: 'rita', grid_version: 1, status: 'submitted', grade_percent: 77, overall_comment: 'OVERALL-COMMENT-SECRET', private_note: 'PRIVATE-NOTE-SECRET', revision: 1, reopened_count: 0 });
@@ -70,7 +70,7 @@ beforeEach(async () => {
   A.rej = application(CALL, '2', 'REF-002', 'Cyan Labs', { decision: 'reject' });
   A.wl = application(CALL, '3', 'REF-003', 'Green Tech', { decision: 'waitlist' });
   A.none = application(CALL, '4', 'REF-004', 'Grey Co');                                                                  // Fit, no decision: pending
-  A.nofit = application(CALL, '5', 'REF-005', 'Red Ltd', { eligibility: 'not_fit', reason: 'The company was founded after 2024.' });
+  A.nofit = application(CALL, '5', 'REF-005', 'Red Ltd', { eligibility: 'not_fit', sentence: 'The company was founded in 2024 or earlier.' });
   application(OTHER, '6', 'REF-006', 'Other Startup', { decision: 'advance' });
   setStatus(CALL, 'closed');
 });
@@ -118,7 +118,7 @@ describe('what the applicants will be told, from the decisions', () => {
     expect((await get('pat')).body.summary.total).toBe(5);
   });
   it('the defaults Nuno decided: feedback off, contestations off (10 days), data kept 24 months, no reason sent', async () => {
-    expect((await get('pat')).body.settings).toMatchObject({ feedbackEnabled: false, contestationsEnabled: false, contestationDays: 10, retentionMonths: 24, includeEligibilityReason: false });
+    expect((await get('pat')).body.settings).toMatchObject({ feedbackEnabled: false, contestationsEnabled: false, contestationDays: 10, retentionMonths: 24, eligibilityReasonMode: 'none' });
   });
   it('the editor starts from the default text of each result (in the language of the call)', async () => {
     const en = (await get('pat')).body;
@@ -130,11 +130,11 @@ describe('what the applicants will be told, from the decisions', () => {
 
 describe('the settings', () => {
   it('names, messages and options are saved and come back; the message is cleaned and may use only the fields that exist; an event records who changed what', async () => {
-    const r = await put('pat', { labels: { advance: 'Welcome aboard' }, messages: { advance: '<p>Hi {applicant_name}! <script>bad()</script></p>' }, feedbackEnabled: true, contestationsEnabled: true, contestationDays: 14, retentionMonths: 36, includeEligibilityReason: true });
+    const r = await put('pat', { labels: { advance: 'Welcome aboard' }, messages: { advance: '<p>Hi {applicant_name}! <script>bad()</script></p>' }, feedbackEnabled: true, contestationsEnabled: true, contestationDays: 14, retentionMonths: 36, eligibilityReasonMode: 'general' });
     expect(r.status).toBe(200);
     expect(r.body.labels.advance).toBe('Welcome aboard');
     expect(r.body.messages.advance).toBe('<p>Hi {applicant_name}! </p>');
-    expect(r.body.settings).toMatchObject({ feedbackEnabled: true, contestationsEnabled: true, contestationDays: 14, retentionMonths: 36, includeEligibilityReason: true });
+    expect(r.body.settings).toMatchObject({ feedbackEnabled: true, contestationsEnabled: true, contestationDays: 14, retentionMonths: 36, eligibilityReasonMode: 'general' });
     expect(db.tables.call_result_settings).toHaveLength(1);
     expect(events('results_settings_changed')).toMatchObject([{ actor_user_id: 'pat' }]);
     const bad = await put('pat', { messages: { reject: '<p>{applicant}</p>' } });
@@ -186,10 +186,17 @@ describe('the preview is a real application\'s message', () => {
     expect(body.message.html).toContain('Blue Health has been selected in “Seed Call 2027”');
     expect(body.message.html).toContain('zz-test-firm');
   });
-  it('the feedback shows up in it only once written; the reason of a "Not a fit" only if asked for', async () => {
-    expect((await post('pat', { action: 'preview', applicationId: A.nofit })).body.message.html).not.toContain('founded after 2024');
-    await put('pat', { includeEligibilityReason: true, feedbackEnabled: true });
-    expect((await post('pat', { action: 'preview', applicationId: A.nofit })).body.message.html).toContain('The company was founded after 2024.');
+  it('the feedback shows up in it only once written; the reason of a "Not a fit" in the way the entity chose, and never the engine text', async () => {
+    const html = async () => (await post('pat', { action: 'preview', applicationId: A.nofit })).body.message.html as string;
+    expect(await html()).not.toContain('founded in 2024');
+    expect(await html()).not.toContain('eligibility requirements');
+    await put('pat', { eligibilityReasonMode: 'general', feedbackEnabled: true });
+    expect(await html()).toContain('did not meet the eligibility requirements of this call.');
+    expect(await html()).not.toContain('founded in 2024');
+    await put('pat', { eligibilityReasonMode: 'rule' });
+    expect(await html()).toContain('The requirement that was not met: The company was founded in 2024 or earlier.');
+    expect(await html()).not.toContain('ENGINE-REASON-SECRET');
+    expect((await put('pat', { eligibilityReasonMode: 'whatever' })).status).toBe(400);
     expect((await post('pat', { action: 'preview', applicationId: A.rej })).body.message.html).not.toContain('Feedback');
     await post('pat', { action: 'feedback', applicationId: A.rej, text: 'Come back next year.' });
     expect((await post('pat', { action: 'preview', applicationId: A.rej })).body.message.html).toContain('<h3>Feedback</h3><p>Come back next year.</p>');

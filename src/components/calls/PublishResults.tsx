@@ -3,7 +3,7 @@
 // now or at a time (the name of the call typed in the page to confirm — never a browser dialog), and, once it is out, the state of every email with "Send again". All the applications of a phase go out together.
 import { useCallback, useEffect, useState } from 'react';
 import { RichText } from '@/components/RichText';
-import { RESULT_KEYS, SEND_LABELS, confirmationMatches, type PublicationView, type ResultKey, type SendStatus } from '@/lib/calls/results';
+import { PLACEHOLDERS, RESULT_KEYS, SEND_LABELS, confirmationMatches, type PublicationView, type ResultKey, type SendStatus } from '@/lib/calls/results';
 import { formatInZone, wallToUtcIso } from '@/lib/calls/tz';
 import { callsApi } from './api';
 
@@ -74,7 +74,7 @@ export function PublishResults({ callId, onOpenPrepare }: { callId: string; onOp
           <section className={CARD} data-testid="publish-summary">
             <h2 className="text-sm font-semibold text-gray-900">What will go out</h2>
             <p className="mt-1 text-sm text-gray-700">{n} email{n === 1 ? '' : 's'}{view.phase.name && view.phase.hasNext ? ` for “${view.phase.name}”` : ''}, all at once: {RESULT_KEYS.map((k) => `${view.summary.counts[k]} ${view.labels[k]}`).join(' · ')}. Each applicant also gets it in the app, under My applications.</p>
-            {blockers.map((b) => <p key={b.code} role="alert" className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid={`blocker-${b.code}`}>{b.text}{b.code === 'pending' || b.code === 'missing_grade' ? ' ' : ''}{(b.code === 'pending' || b.code === 'missing_grade') && onOpenPrepare && <button type="button" className="underline" onClick={onOpenPrepare}>Go to Prepare</button>}</p>)}
+            {blockers.map((b) => <p key={b.code} role="alert" className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid={`blocker-${b.code}`}>{b.text}{b.code === 'pending' || b.code === 'missing_grade' || b.code === 'unknown_fields' ? ' ' : ''}{(b.code === 'pending' || b.code === 'missing_grade' || b.code === 'unknown_fields') && onOpenPrepare && <button type="button" className="underline" onClick={onOpenPrepare}>Go to Prepare</button>}</p>)}
           </section>
 
           <section className={CARD} data-testid="publish-messages">
@@ -85,7 +85,7 @@ export function PublishResults({ callId, onOpenPrepare }: { callId: string; onOp
                 <div key={k} className="min-w-0 rounded-lg border border-gray-100 bg-gray-50 p-3" data-testid={`message-${k}`}>
                   <p className="min-w-0 text-xs text-gray-500">Subject · {view.summary.counts[k]} applicant{view.summary.counts[k] === 1 ? '' : 's'}</p>
                   <p className="min-w-0 text-sm font-semibold text-gray-900 [overflow-wrap:anywhere]">{view.subjects[k]}</p>
-                  <RichText value={view.messages[k]} className="mt-2 text-sm text-gray-800" />
+                  <RichText value={view.messages[k]} className="mt-2 text-sm text-gray-800" mergeFields={[...PLACEHOLDERS]} />
                 </div>
               ))}
             </div>

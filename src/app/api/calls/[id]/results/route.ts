@@ -2,7 +2,7 @@
 //
 //   GET                                      the preparation: what each application will be told (from the decisions of the evaluation board and the eligibility), who is still pending, the names
 //                                            and messages of the results, the options (feedback, contestations, retention) and what blocks publishing
-//   PUT   { labels?, messages?, includeEligibilityReason?, feedbackEnabled?, contestationsEnabled?, contestationDays?, retentionMonths?, nextStepsText?, nextStepsDate? }
+//   PUT   { labels?, messages?, eligibilityReasonMode?, feedbackEnabled?, contestationsEnabled?, contestationDays?, retentionMonths?, nextStepsText?, nextStepsDate? }
 //                                            changes only what is present
 //   POST  { action: 'feedback', applicationId, text }     the feedback an administrator writes for one application ('' clears it)
 //         { action: 'grade',    applicationId, grade }    the grade an administrator VALIDATES for one application (only if the call shares grades; '' clears it)

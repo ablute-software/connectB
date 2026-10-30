@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RichText } from '@/components/RichText';
 import { RichTextEditor } from '@/components/RichTextEditor';
-import { RESULT_KEYS, MAX_FEEDBACK, type BuiltMessage, type PrepareView, type ResultKey } from '@/lib/calls/results';
+import { RESULT_KEYS, MAX_FEEDBACK, type BuiltMessage, type EligibilityReasonMode, type PrepareView, type ResultKey } from '@/lib/calls/results';
 import { callsApi } from './api';
 import { SaveStatus, type SaveState } from './SaveStatus';
 
@@ -16,11 +16,11 @@ const DEBOUNCE_MS = 700;
 const TITLE: Record<ResultKey, string> = { advance: 'Advance', reject: 'Reject', waitlist: 'Waitlist' };
 
 interface Form {
-  labels: Record<ResultKey, string>; messages: Record<ResultKey, string>; includeEligibilityReason: boolean; feedbackEnabled: boolean; contestationsEnabled: boolean; shareGrade: boolean;
+  labels: Record<ResultKey, string>; messages: Record<ResultKey, string>; eligibilityReasonMode: EligibilityReasonMode; feedbackEnabled: boolean; contestationsEnabled: boolean; shareGrade: boolean;
   contestationDays: string; retentionMonths: string; nextStepsText: string; nextStepsDate: string;
 }
 const formOf = (v: PrepareView): Form => ({
-  labels: { ...v.labels }, messages: { ...v.messages }, includeEligibilityReason: v.settings.includeEligibilityReason, feedbackEnabled: v.settings.feedbackEnabled, contestationsEnabled: v.settings.contestationsEnabled, shareGrade: v.settings.shareGrade,
+  labels: { ...v.labels }, messages: { ...v.messages }, eligibilityReasonMode: v.settings.eligibilityReasonMode, feedbackEnabled: v.settings.feedbackEnabled, contestationsEnabled: v.settings.contestationsEnabled, shareGrade: v.settings.shareGrade,
   contestationDays: String(v.settings.contestationDays), retentionMonths: String(v.settings.retentionMonths), nextStepsText: v.settings.nextStepsText, nextStepsDate: v.settings.nextStepsDate ?? '',
 });
 
@@ -98,9 +98,14 @@ export function PrepareResults({ callId, locked = false, lockedReason = null, on
       <section className={CARD} data-testid="result-options">
         <h2 className="text-sm font-semibold text-gray-900">Options</h2>
         <div className="mt-3 space-y-3 text-sm">
-          <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" disabled={off} checked={form.includeEligibilityReason} data-testid="opt-eligibility-reason"
-            onChange={(e) => { set({ ...form, includeEligibilityReason: e.target.checked }); change({ includeEligibilityReason: e.target.checked }); }} />
-            <span className="min-w-0">Tell the applicants whose eligibility was “Not a fit” the reason{view.summary.byEligibility > 0 ? ` (${view.summary.byEligibility} application${view.summary.byEligibility === 1 ? '' : 's'})` : ''}.</span></label>
+          <fieldset className="min-w-0" data-testid="opt-eligibility-reason">
+            <legend className="text-sm text-gray-800">Applicants whose eligibility was “Not a fit”{view.summary.byEligibility > 0 ? ` (${view.summary.byEligibility} application${view.summary.byEligibility === 1 ? '' : 's'})` : ''}: what are they told about why?</legend>
+            {([['none', 'Do not mention it'], ['general', 'A general sentence (“Your application did not meet the eligibility requirements of this call.”)'], ['rule', 'The sentence of the requirement that was not met']] as [EligibilityReasonMode, string][]).map(([k, text]) => (
+              <label key={k} className="mt-1 flex items-start gap-2"><input type="radio" name="eligibility-reason-mode" className="mt-1" disabled={off} checked={form.eligibilityReasonMode === k} data-testid={`eligibility-mode-${k}`}
+                onChange={() => { set({ ...form, eligibilityReasonMode: k }); change({ eligibilityReasonMode: k }); }} /> <span className="min-w-0">{text}</span></label>
+            ))}
+            <p className="mt-1 text-[11px] text-gray-500">It goes where the message of “{view.labels.reject}” has the field <span className="merge-tag">Eligibility reason</span>, before the farewell. It is never the platform’s own text nor an internal justification.</p>
+          </fieldset>
           <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" disabled={off} checked={form.feedbackEnabled} data-testid="opt-feedback"
             onChange={(e) => { set({ ...form, feedbackEnabled: e.target.checked }); change({ feedbackEnabled: e.target.checked }); }} />
             <span className="min-w-0">Feedback to the applicant. Off by default: you write it, application by application, below.</span></label>
@@ -181,8 +186,6 @@ function Summary({ view, onOpenEvaluation }: { view: PrepareView; onOpenEvaluati
   );
 }
 
-const FIELD_HELP = 'You can use these fields:';
-
 function ResultEditor({ resultKey: k, view, form, disabled, onLabel, onMessage, onReset }: {
   resultKey: ResultKey; view: PrepareView; form: Form; disabled: boolean; onLabel: (v: string) => void; onMessage: (v: string) => void; onReset: () => void;
 }) {
@@ -198,16 +201,7 @@ function ResultEditor({ resultKey: k, view, form, disabled, onLabel, onMessage, 
         <button type="button" className={BTN} disabled={disabled || !changed} onClick={onReset} data-testid={`reset-${k}`}>Use the default text</button>
       </div>
       <p id={`msg-label-${k}`} className="mb-1 mt-3 text-xs font-medium text-gray-600">Message</p>
-      <RichTextEditor id={`msg-${k}`} labelledBy={`msg-label-${k}`} value={form.messages[k]} disabled={disabled} onChange={onMessage} />
-      <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500">
-        {FIELD_HELP}
-        {view.placeholders.map((p) => (
-          <button key={p.key} type="button" disabled={disabled} title={p.label} data-testid={`field-${k}-${p.key}`}
-            onMouseDown={(e) => e.preventDefault()}                                             // keep the cursor in the message: the field goes where it is
-            onClick={() => { document.execCommand('insertText', false, `{${p.key}}`); }}
-            className="rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-mono text-[11px] text-gray-700 hover:bg-white disabled:opacity-40">{`{${p.key}}`}</button>
-        ))}
-      </p>
+      <RichTextEditor id={`msg-${k}`} labelledBy={`msg-label-${k}`} value={form.messages[k]} disabled={disabled} onChange={onMessage} mergeFields={[...view.placeholders]} />
     </div>
   );
 }

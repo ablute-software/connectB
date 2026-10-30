@@ -482,6 +482,9 @@ body.investor-pipeline-dragging a, body.investor-pipeline-dragging button { curs
 .rich-text > :first-child { margin-top: 0; }
 .rich-text > :last-child { margin-bottom: 0; }
 .rich-edit:empty::before { content: attr(data-placeholder); color: #9ca3af; pointer-events: none; }
+/* Prompt 924 — merge tags: a field a message fills in ("Applicant name"), shown as ONE small block, in one brand colour (#0A5F75 on #E8F4F8: 6.6:1). An unknown field is red. */
+.merge-tag { display: inline-block; margin: 0 1px; padding: 0 0.4em; border: 1px solid #bad9e3; border-radius: 0.4rem; background: #e8f4f8; color: #0a5f75; font-size: 0.9em; line-height: 1.5; white-space: nowrap; user-select: all; cursor: default; }
+.merge-tag-unknown { border-color: #f2b8b8; background: #fdecec; color: #b00000; }
 
 /* Prompt 917 (Adenda 2, A) — the form editor's settings panel: NOTHING inside it may be wider than the panel. Fields shrink or move to the next line, long words break, and the panel never
    scrolls sideways (the group's sub-question box used to end up a 20 px square with its buttons outside the card). The same rule holds on a phone, where the panel is a full screen. */

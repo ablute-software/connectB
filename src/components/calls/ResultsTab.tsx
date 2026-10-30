@@ -6,6 +6,7 @@ import { ClosePanel } from './ClosePanel';
 import { ContestationsPanel } from './ContestationsPanel';
 import { PrepareResults } from './PrepareResults';
 import { PublishResults } from './PublishResults';
+import { ScrollTabs } from '@/components/ScrollTabs';
 
 type Section = 'prepare' | 'publish' | 'contestations' | 'close';
 
@@ -21,12 +22,12 @@ export function ResultsTab({ callId, canPublish, canHandle, onOpenEvaluation }: 
   }
   return (
     <div className="min-w-0" data-testid="results-tab">
-      <div role="tablist" aria-label="Results" className="mb-4 flex gap-1 overflow-x-auto whitespace-nowrap border-b border-gray-200" data-testid="results-sections">
+      <ScrollTabs label="Results" className="mb-4 flex gap-1 overflow-x-auto whitespace-nowrap border-b border-gray-200" testId="results-sections">
         {sections.map((s) => (
           <button key={s.key} type="button" role="tab" aria-selected={section === s.key} data-testid={`results-section-${s.key}`} onClick={() => setSection(s.key)}
             className={`-mb-px min-h-[44px] shrink-0 border-b-2 px-4 py-2 text-sm ${section === s.key ? 'border-[#0E7490] font-semibold text-[#0E7490]' : 'border-transparent text-gray-600 hover:text-gray-900'}`}>{s.label}</button>
         ))}
-      </div>
+      </ScrollTabs>
       {section === 'prepare' && <PrepareResults callId={callId} onOpenEvaluation={onOpenEvaluation} />}
       {section === 'publish' && <PublishResults callId={callId} onOpenPrepare={() => setSection('prepare')} />}
       {section === 'contestations' && <ContestationsPanel callId={callId} />}

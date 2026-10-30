@@ -12,6 +12,7 @@ import { callsApi } from './api';
 import { AutoTextarea } from './AutoTextarea';
 import { GradeRing } from './EvaluatorPreview';
 import { AnswerView } from './SubmissionsTab';
+import { ScrollTabs } from '@/components/ScrollTabs';
 
 const BTN = 'min-h-[44px] rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 sm:min-h-0 sm:py-1 sm:text-xs';
 const PRIMARY = 'min-h-[44px] rounded-lg bg-[#0E7490] px-4 py-1.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40 sm:min-h-0';
@@ -233,10 +234,10 @@ export function EvaluationScreen({ callId, applicationId, onBack }: { callId: st
       {submitted && <p className="rounded bg-emerald-50 px-3 py-2 text-sm text-emerald-900" data-testid="eval-submitted">Submitted{data.evaluation.submittedAt ? ` on ${formatInZone(data.evaluation.submittedAt, data.call.timezone)}` : ''}. It is read-only; only an administrator can reopen it.</p>}
       {data.call.closed && <p className="rounded bg-gray-100 px-3 py-2 text-sm text-gray-800" data-testid="eval-closed">The evaluation is closed. Nothing can be changed.</p>}
 
-      <div role="tablist" aria-label="Application or score" className="flex gap-1 border-b border-gray-200 lg:hidden">
+      <ScrollTabs label="Application or score" className="flex gap-1 border-b border-gray-200 lg:hidden">
         {(['application', 'score'] as const).map((t) => <button key={t} type="button" role="tab" aria-selected={tab === t} data-testid={`eval-tab-${t}`} onClick={() => setTab(t)}
           className={`-mb-px min-h-[44px] border-b-2 px-4 py-2 text-sm ${tab === t ? 'border-[#0E7490] font-semibold text-[#0E7490]' : 'border-transparent text-gray-600'}`}>{t === 'application' ? 'Application' : 'Score'}</button>)}
-      </div>
+      </ScrollTabs>
       <div className="grid min-w-0 gap-4 lg:grid-cols-2 lg:items-start">
         <div className={`${tab === 'application' ? '' : 'hidden'} min-w-0 lg:block`}>{applicationPane}</div>
         <div className={`${tab === 'score' ? '' : 'hidden'} min-w-0 lg:sticky lg:top-2 lg:block lg:max-h-[calc(100vh-1rem)] lg:overflow-y-auto`}>{scorePane}</div>

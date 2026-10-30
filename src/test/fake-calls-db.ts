@@ -75,7 +75,7 @@ const DEFAULTS: Record<string, (db: CallsDb) => Row> = {
   call_application_files: () => ({ sha256: null, document_id: null, version_id: null, version_number: null, revoked_at: null, frozen_path: null, frozen_at: null }),
   call_notices: () => ({ application_id: null, body: null, link_path: null, seen_at: null, email_sent_at: null, email_error: null }),
   call_import_runs: () => ({ source_document_ids: [], status: 'proposed', found_later: {}, model: null, tokens_in: null, tokens_out: null, cost_eur: null, applied_at: null, applied_by: null }),
-  call_result_settings: () => ({ labels: {}, messages: {}, include_eligibility_reason: false, feedback_enabled: false, contestations_enabled: false, contestation_days: 10, retention_months: 24, next_steps_text: '', next_steps_date: null }),
+  call_result_settings: () => ({ labels: {}, messages: {}, eligibility_reason_mode: 'none', feedback_enabled: false, contestations_enabled: false, contestation_days: 10, retention_months: 24, next_steps_text: '', next_steps_date: null }),
   call_result_feedback: () => ({ phase_id: null }),
   call_contestations: () => ({ phase_id: null, result_id: null, file_name: null, storage_path: null, file_size: null, status: 'open', response: null, answered_by: null, answered_at: null, new_result_id: null, email_sent_at: null, email_error: null }),
   call_result_grades: () => ({ phase_id: null }),

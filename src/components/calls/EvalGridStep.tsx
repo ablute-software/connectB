@@ -14,6 +14,7 @@ import type { GridProposal } from '@/lib/calls/eval-grid-reader';
 import { callsApi } from './api';
 import { AutoTextarea } from './AutoTextarea';
 import { EvaluatorPreview } from './EvaluatorPreview';
+import { ScrollTabs } from '@/components/ScrollTabs';
 
 const INPUT = 'block w-full min-w-0 rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm disabled:bg-gray-50 disabled:text-gray-500';
 const LABEL = 'block text-[11px] font-semibold uppercase tracking-wide text-gray-500';
@@ -119,10 +120,10 @@ export function EvalGridStep({ callId, canManage, onCriteriaChanged }: { callId:
         {view.mode === 'versioned' && <p className="mt-2 rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-900" data-testid="grid-frozen">{view.evaluations.submitted} evaluation{view.evaluations.submitted === 1 ? '' : 's'} already submitted: the grid is frozen (version {view.version}). Changing the criteria makes a new version; those evaluations keep theirs.</p>}
         {view.mode === 'archived' && <p className="mt-2 rounded bg-gray-50 px-2 py-1.5 text-xs text-gray-700">An archived call cannot be changed.</p>}
         {error && <p role="alert" className="mt-2 rounded bg-red-50 px-2 py-1.5 text-xs text-[#B00000]" data-testid="grid-error">{error}</p>}
-        <div role="tablist" aria-label="Grid view" className="mt-3 flex gap-1 border-b border-gray-200">
+        <ScrollTabs label="Grid view" className="mt-3 flex gap-1 border-b border-gray-200">
           {(['build', 'preview'] as const).map((t) => <button key={t} type="button" role="tab" aria-selected={tab === t} data-testid={`grid-tab-${t}`} onClick={() => setTab(t)}
             className={`-mb-px min-h-[44px] border-b-2 px-3 py-2 text-sm sm:min-h-0 ${tab === t ? 'border-[#0E7490] font-semibold text-[#0E7490]' : 'border-transparent text-gray-600 hover:text-gray-900'}`}>{t === 'build' ? 'Build' : 'As the evaluator sees it'}</button>)}
-        </div>
+        </ScrollTabs>
       </section>
 
       {tab === 'preview' ? (
