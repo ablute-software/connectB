@@ -62,7 +62,7 @@ describe.skipIf(!CHROME)('Tabs with scroll arrows (real browser)', () => {
     // the last tab is reachable (inside the bar's box) once it is at the end
     const bar = await page.locator('[data-testid="bar"]').boundingBox(); const last = await page.locator('[data-testid="tab-11"]').boundingBox();
     expect(last!.x + last!.width).toBeLessThanOrEqual(bar!.x + bar!.width + 1);
-    expect(await page.locator('[data-testid="bar"]').evaluate((b) => { const cs = getComputedStyle(b); return [cs.overflowY, b.offsetWidth - b.clientWidth, b.scrollHeight <= b.clientHeight + 1]; })).toEqual(['hidden', 0, true]);
+    expect(await page.locator('[data-testid="bar"]').evaluate((el) => { const b = el as HTMLElement; const cs = getComputedStyle(b); return [cs.overflowY, b.offsetWidth - b.clientWidth, b.scrollHeight <= b.clientHeight + 1]; })).toEqual(['hidden', 0, true]);
     expect(await overflow()).toBeLessThanOrEqual(0);
     expect(errors).toEqual([]);
     await page.close();
@@ -86,7 +86,7 @@ describe.skipIf(!CHROME)('Tabs with scroll arrows (real browser)', () => {
     // from 768 px up the tabs wrap instead of scrolling: nothing hidden, no arrow, no scrollbar
     const mid = await open(768, 14);
     expect(await mid.page.locator('[data-testid^="tabs-scroll-"]').count()).toBe(0);
-    const m = await mid.page.locator('[data-testid="bar"]').evaluate((b) => { const cs = getComputedStyle(b); return { overflowY: cs.overflowY, wrapped: b.scrollHeight > 60, sideways: b.scrollWidth > b.clientWidth + 1, drawn: b.offsetWidth - b.clientWidth > 0.5 || b.offsetHeight - b.clientHeight - parseFloat(cs.borderBottomWidth) > 0.5 }; });
+    const m = await mid.page.locator('[data-testid="bar"]').evaluate((el) => { const b = el as HTMLElement; const cs = getComputedStyle(b); return { overflowY: cs.overflowY, wrapped: b.scrollHeight > 60, sideways: b.scrollWidth > b.clientWidth + 1, drawn: b.offsetWidth - b.clientWidth > 0.5 || b.offsetHeight - b.clientHeight - parseFloat(cs.borderBottomWidth) > 0.5 }; });
     expect(m).toMatchObject({ overflowY: 'visible', sideways: false, drawn: false });
     expect(await mid.overflow()).toBeLessThanOrEqual(0);
     await mid.page.close();
