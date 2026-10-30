@@ -332,7 +332,7 @@
 /* ---------- hero with the logo strip under it (Prompt 926, 30/10/2026) ----------
    With the strip of logos under it the hero moves up, so the whole strip is in the first screen of a laptop (1280x720 and up). Only vertical space changes: the gap
    under the nav (which is 72 px tall), the gap under the content, and the margins between the lines of the left column. No font size, no text, no width and no part of
-   the pipeline picture is touched. heroWithLogos is added only while the strip is drawn, so the hero keeps its old spacing whenever it is not (fewer than six
+   the pipeline picture is touched (the strip now sits UNDER the dark bar of checks, so this brings the bar and the strip as high as the hero allows). heroWithLogos is added only while the strip is drawn, so the hero keeps its old spacing whenever it is not (fewer than six
    authorized logos). Written with the hero's own class in front of each selector so it wins over the rules above whatever their order; the bottom padding is on
    the hero's DIRECT .wrap only, because the dark bar of checks inside the hero has a .wrap of its own (".strip .wrap", 18 px) that a plain ".wrap" would also reach. */
 .hero.heroWithLogos { padding-top: 96px; }
@@ -346,14 +346,19 @@
 }
 
 /* ---------- logo strip (Prompt 926, 30/10/2026) ----------
-   The white band of logos between the hero and what follows it (LogoStrip.tsx). The sizes, the loop time and the number of copies of the list arrive as custom
+   The band of logos at the foot of the hero, under the dark bar of checks (LogoStrip.tsx): a heading row and a white row of logos. The sizes, the loop time and the number of copies of the list arrive as custom
    properties on the <section> (--logo-h, --logo-gap, --logo-maxw and their -phone twins, --logo-loop, --logo-copies); their source is src/content/site/logo-strip.ts, so no
    number Nuno may want to change is written twice. Every rule is under .logoStrip: ".landing *" resets margin and padding at (0,1,0), which a lone class would tie with
    and lose to by the order of the files. The motion is transform only: it never touches layout, so it cannot move anything else on the page. */
-.logoStrip { --h: var(--logo-h); --gap: var(--logo-gap); --maxw: var(--logo-maxw); background: #fff; }
-.logoStrip .logoInner { max-width: 1140px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; gap: 28px; }
-.logoStrip .logoLabel { flex: 0 1 200px; font-size: .78rem; line-height: 1.35; font-weight: 500; color: var(--muted); }
-.logoStrip .logoWindow { position: relative; flex: 1 1 0; min-width: 0; overflow: hidden; }
+.logoStrip { --h: var(--logo-h); --gap: var(--logo-gap); --maxw: var(--logo-maxw); }
+/* the heading: ONE centred line in the brand's amber. It sits on the same dark as the bar of checks right above it, so it reads at about 7:1 (the same amber on white would
+   be 2.3:1); on the investors page, which has no bar, it is transparent and the hero's own gradient shows through. The hairline is the bar's own. */
+.logoStrip .logoHead { background: var(--ink); border-top: 1px solid rgba(255, 255, 255, .06); padding: 30px 24px 24px; text-align: center; }
+.logoStrip[data-logo-strip='investors'] .logoHead { background: transparent; border-top: 0; padding-top: 6px; }
+.logoStrip .logoLabel { font-size: 1.25rem; line-height: 1.3; font-weight: 600; letter-spacing: .01em; color: var(--amber); white-space: nowrap; }
+/* the row of logos is the only white part: the whole width of the page, up to 1600 px, then centred with its ends faded out */
+.logoStrip .logoInner { background: #fff; padding: 24px 0 26px; }
+.logoStrip .logoWindow { position: relative; max-width: 1600px; margin: 0 auto; overflow: hidden; }
 /* the two ends fade into the band, so a logo is never cut off by a hard edge */
 .logoStrip .logoWindow::before, .logoStrip .logoWindow::after { content: ''; position: absolute; top: 0; bottom: 0; width: 64px; z-index: 1; pointer-events: none; }
 .logoStrip .logoWindow::before { left: 0; background: linear-gradient(to right, #fff, rgba(255, 255, 255, 0)); }
@@ -369,9 +374,10 @@
 
 @media (max-width: 760px) {
   .logoStrip { --h: var(--logo-h-phone); --gap: var(--logo-gap-phone); --maxw: var(--logo-maxw-phone); }
-  .logoStrip .logoInner { flex-direction: column; align-items: stretch; gap: 6px; padding: 12px 0 10px; }
-  .logoStrip .logoLabel { flex: none; padding: 0 24px; text-align: center; }
-  .logoStrip .logoWindow { flex: none; }
+  .logoStrip .logoHead { padding: 24px 16px 18px; }
+  .logoStrip[data-logo-strip='investors'] .logoHead { padding-top: 4px; }
+  .logoStrip .logoLabel { font-size: 1.05rem; }
+  .logoStrip .logoInner { padding: 18px 0 20px; }
   .logoStrip .logoWindow::before, .logoStrip .logoWindow::after { width: 28px; }
 }
 

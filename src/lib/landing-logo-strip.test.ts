@@ -1,4 +1,4 @@
-// Prompt 926 (30/10/2026) — where the strip of logos sits on the two landing pages, what the hero gives up to make room for it, and the stylesheet's promises
+// Prompt 926 (30/10/2026; placement changed the same evening: under the dark bar of checks) — where the strip of logos sits on the two landing pages, what the hero gives up to make room for it, and the stylesheet's promises
 // (transform-only motion, still on hover, still under "reduce motion", edges that fade to white). Pinned at the source, like landing-contrast.test.ts, because none
 // of it is visible to a unit test's natural field of view: it is a selector's specificity, an order of tags, a property that is or is not in a rule. The measured
 // side of the same promises — the strip fully visible without scrolling at 1280x720, 1366x768, 1440x900 and 1920x1080 — is in docs/screenshots-926/.
@@ -40,20 +40,24 @@ describe('where the strip sits', () => {
   const startups = read('src/app/page.tsx');
   const investors = read('src/app/investors/page.tsx');
 
-  it('startups page: after the top block (title, text, buttons, pipeline picture) and before the dark bar of checks, inside the hero', () => {
+  it('startups page: UNDER the dark bar of checks, the last thing in the hero (hero, bar and heading are one dark block, then the white row of logos), never between the top block and the bar', () => {
     const hero = startups.indexOf('{/* ============ HERO ============ */}');
     const mock = startups.indexOf('<div className={s.mock}>');
-    const strip = startups.indexOf('<LogoStrip page="startups" logos={logos} />');
     const checks = startups.indexOf('<div className={s.strip}>');
+    const strip = startups.indexOf('<LogoStrip page="startups" logos={logos} />');
     const end = startups.indexOf('</header>');
     expect(count(startups, /<LogoStrip\b/g)).toBe(1);
     expect(hero).toBeGreaterThan(-1);
     expect(mock).toBeGreaterThan(hero);
-    expect(strip).toBeGreaterThan(mock);
-    expect(checks).toBeGreaterThan(strip);
-    expect(end).toBeGreaterThan(checks);
-    // the bar of checks is still the same bar, right after the strip, with its four checks
-    for (const t of ['Outreach discipline, enforced', 'One version of the truth', 'NDA-protected data room', 'AI drafts — you decide']) expect(startups.indexOf(`<TickAmber />${t}`)).toBeGreaterThan(checks);
+    expect(checks).toBeGreaterThan(mock);
+    expect(strip).toBeGreaterThan(checks);
+    expect(end).toBeGreaterThan(strip);
+    // the bar of checks is still the same bar, with its four checks, all of them BEFORE the strip
+    for (const t of ['Outreach discipline, enforced', 'One version of the truth', 'NDA-protected data room', 'AI drafts — you decide']) {
+      const at = startups.indexOf(`<TickAmber />${t}`);
+      expect(at, t).toBeGreaterThan(checks);
+      expect(at, t).toBeLessThan(strip);
+    }
   });
 
   it('investors page (it has no bar of checks): after the top block, at the foot of the hero, before the "Already in our database" section', () => {
@@ -178,8 +182,9 @@ describe('the strip\'s stylesheet', () => {
     expect(shared['pointer-events']).toBe('none');
   });
 
-  it('the band is white, the logos have a fixed height and a largest width, and the colours are the files\' own', () => {
-    expect(declarations(find('.logoStrip')[0].body).background).toBe('#fff');
+  it('the row of logos is white (the band itself is not: its heading is dark), the logos have a fixed height and a largest width, and the colours are the files\' own', () => {
+    expect(declarations(find('.logoStrip .logoInner')[0].body).background).toBe('#fff');
+    expect(declarations(find('.logoStrip')[0].body).background).toBeUndefined();
     const img = declarations(find('.logoStrip .logoImg')[0].body);
     expect(img.height).toBe('var(--h)');
     expect(img['max-width']).toBe('var(--maxw)');
@@ -187,12 +192,33 @@ describe('the strip\'s stylesheet', () => {
     expect(Object.keys(img).filter((k) => /filter|opacity|mix-blend|grayscale/.test(k))).toEqual([]);
   });
 
-  it('the label is small and grey, on the left of the logos (above them on a phone), in the colour the page already uses for small print', () => {
+  it('the heading is ONE centred line in the brand amber, on the same dark as the bar of checks above it, and transparent on the investors page (no bar there: the hero shows through)', () => {
     const label = declarations(find('.logoStrip .logoLabel')[0].body);
-    expect(label.color).toBe('var(--muted)');
-    expect(label['font-size']).toBe('.78rem');
-    const phone = css.filter((r) => r.media === '@media (max-width: 760px)').map((r) => r.selector);
-    expect(phone).toContain('.logoStrip .logoInner');
-    expect(declarations(find('.logoStrip .logoInner', '@media (max-width: 760px)')[0].body)['flex-direction']).toBe('column');
+    expect(label.color).toBe('var(--amber)');
+    expect(label['white-space']).toBe('nowrap');
+    const head = declarations(find('.logoStrip .logoHead')[0].body);
+    expect(head['text-align']).toBe('center');
+    expect(head.background).toBe('var(--ink)');
+    expect(declarations(find('.strip')[0].body).background).toBe('var(--ink)'); // the bar's own dark: the same token, so there is no seam
+    expect(declarations(find(".logoStrip[data-logo-strip='investors'] .logoHead")[0].body).background).toBe('transparent');
+  });
+
+  it('the amber heading on that dark passes WCAG AA for normal text (the same amber on white is 2.3:1, which is why the heading is not on the white row)', () => {
+    const tokens = Object.fromEntries([...read('src/app/landing.module.css').matchAll(/--(ink|amber):\s*(#[0-9a-f]{6})/gi)].map((m) => [m[1], m[2]]));
+    const lum = (hex: string) => {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const ratio = (a: string, b: string) => { const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x); return (hi + 0.05) / (lo + 0.05); };
+    expect(tokens.amber).toBe('#d9a441');
+    expect(ratio(tokens.amber, tokens.ink)).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(tokens.amber, '#ffffff')).toBeLessThan(3);
+  });
+
+  it('on a phone the heading is smaller (still one line) and the logos use the phone sizes', () => {
+    const phone = '@media (max-width: 760px)';
+    expect(declarations(find('.logoStrip .logoLabel', phone)[0].body)['font-size']).toBe('1.05rem');
+    expect(declarations(find('.logoStrip .logoLabel')[0].body)['white-space']).toBe('nowrap');
+    expect(declarations(find('.logoStrip', phone)[0].body)['--h']).toBe('var(--logo-h-phone)');
   });
 });

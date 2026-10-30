@@ -1,6 +1,6 @@
 // Prompt 926 (30/10/2026) — the strip of logos in a REAL browser: the real component's markup (server-rendered) with the real landing stylesheet, so the things a unit test
 // cannot see are measured — the loop turns by exactly one copy of the list and never shows an empty end, the pointer stops it, "reduce motion" leaves a still row of whole
-// logos, a long logo is held to its box, the label is beside the logos on a laptop and above them on a phone, and nothing makes the page wider. Without a Chrome
+// logos, a long logo is held to its box, the heading is one centred amber line above the logos (laptop and phone), and nothing makes the page wider. Without a Chrome
 // (set CHROME_PATH) it is skipped. The logos are invented (zz-test-*) and drawn as plain rectangles of the right shape.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -65,7 +65,9 @@ describe.skipIf(!CHROME)('Logo strip (real browser)', () => {
     const lists = [...strip.querySelectorAll('ul')];
     const track = strip.querySelector('[class="logoTrack"]')!;
     return {
-      strip: r(strip), label: r(strip.querySelector('.logoLabel')), window: r(strip.querySelector('.logoWindow')), track: r(track), firstList: r(lists[0]),
+      strip: r(strip), label: r(strip.querySelector('.logoLabel')), head: r(strip.querySelector('.logoHead')), inner: r(strip.querySelector('.logoInner')), window: r(strip.querySelector('.logoWindow')), track: r(track), firstList: r(lists[0]),
+      labelLines: Math.round(strip.querySelector('.logoLabel')!.getBoundingClientRect().height / parseFloat(getComputedStyle(strip.querySelector('.logoLabel')!).lineHeight)),
+      labelColor: getComputedStyle(strip.querySelector('.logoLabel')!).color, headBg: getComputedStyle(strip.querySelector('.logoHead')!).backgroundColor, innerBg: getComputedStyle(strip.querySelector('.logoInner')!).backgroundColor,
       lists: lists.length, imgs: [...lists[0].querySelectorAll('img')].map(r),
       pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     };
@@ -165,21 +167,38 @@ describe.skipIf(!CHROME)('Logo strip (real browser)', () => {
     await ctx.close();
   });
 
-  it('1280 px: the label is beside the logos, the band is as tall as one logo plus its padding, and the page is no wider than the screen', async () => {
+  it('1280 px: the heading is ONE line, centred, in the brand amber, above the logos; the row of logos is one logo tall plus its padding and white; the page is no wider than the screen', async () => {
     const { page, ctx } = await open(1280);
     const m = await page.evaluate(measure);
-    expect(m.label.right).toBeLessThanOrEqual(m.window.left);
-    expect(Math.abs((m.label.top + m.label.bottom) / 2 - (m.window.top + m.window.bottom) / 2)).toBeLessThan(1);
-    expect(m.strip.height).toBeCloseTo(LOGO_STRIP_SIZES.height + 24, 0);
+    expect(m.labelLines).toBe(1);
+    expect(Math.abs((m.label.left + m.label.right) / 2 - 640)).toBeLessThan(1);
+    expect(m.label.bottom).toBeLessThanOrEqual(m.window.top);
+    expect(m.labelColor).toBe('rgb(217, 164, 65)');
+    expect(m.headBg).toBe('rgb(12, 39, 46)');
+    expect(m.innerBg).toBe('rgb(255, 255, 255)');
+    expect(m.inner.height).toBeCloseTo(LOGO_STRIP_SIZES.height + 50, 0);
+    expect(m.strip.height).toBeCloseTo(m.head.height + m.inner.height, 0);
     expect(m.strip.width).toBe(1280);
+    expect(m.window.width).toBe(1280);
     expect(m.lists).toBeGreaterThanOrEqual(2);
     expect(m.pageOverflow).toBeLessThanOrEqual(0);
     await ctx.close();
   });
 
-  it('375 px: the label is above the logos, and again the page is no wider than the screen', async () => {
+  it('1920 px: the window stops at 1600 px, centred, and the loop still has no empty end', async () => {
+    const { page, ctx } = await open(1920);
+    const m = await page.evaluate(measure);
+    expect(m.window.width).toBe(1600);
+    expect(Math.abs((m.window.left + m.window.right) / 2 - 960)).toBeLessThan(1);
+    expect(m.track.width - m.firstList.width).toBeGreaterThanOrEqual(m.window.width);
+    await ctx.close();
+  });
+
+  it('375 px: the heading is above the logos, still ONE line and centred, and again the page is no wider than the screen', async () => {
     const { page, ctx } = await open(375);
     const m = await page.evaluate(measure);
+    expect(m.labelLines).toBe(1);
+    expect(Math.abs((m.label.left + m.label.right) / 2 - 187.5)).toBeLessThan(1);
     expect(m.label.bottom).toBeLessThanOrEqual(m.window.top);
     expect(m.window.width).toBe(375);
     expect(m.pageOverflow).toBeLessThanOrEqual(0);

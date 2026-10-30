@@ -1,0 +1,567 @@
+{
+  "startups-1143x706-no-preference": {
+    "info": {
+      "present": true,
+      "strip": {
+        "top": 661,
+        "bottom": 888,
+        "left": 0,
+        "right": 1143,
+        "h": 227,
+        "w": 1143
+      },
+      "head": {
+        "top": 661,
+        "bottom": 742,
+        "left": 0,
+        "right": 1143,
+        "h": 81,
+        "w": 1143
+      },
+      "label": {
+        "top": 692,
+        "bottom": 718,
+        "left": 24,
+        "right": 1119,
+        "h": 26,
+        "w": 1095
+      },
+      "inner": {
+        "top": 742,
+        "bottom": 888,
+        "left": 0,
+        "right": 1143,
+        "h": 146,
+        "w": 1143
+      },
+      "bar": {
+        "top": 602,
+        "bottom": 661,
+        "left": 0,
+        "right": 1143,
+        "h": 59,
+        "w": 1143
+      },
+      "labelText": "Startups that trust us",
+      "labelLines": 1,
+      "labelColor": "rgb(217, 164, 65)",
+      "labelCenterOffset": 0,
+      "headBg": "rgb(12, 39, 46)",
+      "innerBg": "rgb(255, 255, 255)",
+      "imgH": 96,
+      "imgsTotal": 24,
+      "broken": 0,
+      "region": "Startups that trust us",
+      "pageOverflow": 0,
+      "docH": 5758
+    },
+    "trackMoves": true,
+    "failedImages": [],
+    "errors": []
+  },
+  "startups-1280x720-no-preference": {
+    "info": {
+      "present": true,
+      "strip": {
+        "top": 665,
+        "bottom": 892,
+        "left": 0,
+        "right": 1280,
+        "h": 227,
+        "w": 1280
+      },
+      "head": {
+        "top": 665,
+        "bottom": 746,
+        "left": 0,
+        "right": 1280,
+        "h": 81,
+        "w": 1280
+      },
+      "label": {
+        "top": 696,
+        "bottom": 722,
+        "left": 24,
+        "right": 1256,
+        "h": 26,
+        "w": 1232
+      },
+      "inner": {
+        "top": 746,
+        "bottom": 892,
+        "left": 0,
+        "right": 1280,
+        "h": 146,
+        "w": 1280
+      },
+      "bar": {
+        "top": 606,
+        "bottom": 665,
+        "left": 0,
+        "right": 1280,
+        "h": 59,
+        "w": 1280
+      },
+      "labelText": "Startups that trust us",
+      "labelLines": 1,
+      "labelColor": "rgb(217, 164, 65)",
+      "labelCenterOffset": 0,
+      "headBg": "rgb(12, 39, 46)",
+      "innerBg": "rgb(255, 255, 255)",
+      "imgH": 96,
+      "imgsTotal": 24,
+      "broken": 0,
+      "region": "Startups that trust us",
+      "pageOverflow": 0,
+      "docH": 5748
+    },
+    "trackMoves": true,
+    "failedImages": [],
+    "errors": []
+  },
+  "startups-1920x1080-no-preference": {
+    "info": {
+      "present": true,
+      "strip": {
+        "top": 665,
+        "bottom": 892,
+        "left": 0,
+        "right": 1920,
+        "h": 227,
+        "w": 1920
+      },
+      "head": {
+        "top": 665,
+        "bottom": 746,
+        "left": 0,
+        "right": 1920,
+        "h": 81,
+        "w": 1920
+      },
+      "label": {
+        "top": 696,
+        "bottom": 722,
+        "left": 24,
+        "right": 1896,
+        "h": 26,
+        "w": 1872
+      },
+      "inner": {
+        "top": 746,
+        "bottom": 892,
+        "left": 0,
+        "right": 1920,
+        "h": 146,
+        "w": 1920
+      },
+      "bar": {
+        "top": 606,
+        "bottom": 665,
+        "left": 0,
+        "right": 1920,
+        "h": 59,
+        "w": 1920
+      },
+      "labelText": "Startups that trust us",
+      "labelLines": 1,
+      "labelColor": "rgb(217, 164, 65)",
+      "labelCenterOffset": 0,
+      "headBg": "rgb(12, 39, 46)",
+      "innerBg": "rgb(255, 255, 255)",
+      "imgH": 96,
+      "imgsTotal": 24,
+      "broken": 0,
+      "region": "Startups that trust us",
+      "pageOverflow": 0,
+      "docH": 5300
+    },
+    "trackMoves": true,
+    "failedImages": [],
+    "errors": []
+  },
+  "startups-375x812-no-preference": {
+    "info": {
+      "present": true,
+      "strip": {
+        "top": 1395,
+        "bottom": 1566,
+        "left": 0,
+        "right": 375,
+        "h": 171,
+        "w": 375
+      },
+      "head": {
+        "top": 1395,
+        "bottom": 1460,
+        "left": 0,
+        "right": 375,
+        "h": 65,
+        "w": 375
+      },
+      "label": {
+        "top": 1420,
+        "bottom": 1442,
+        "left": 16,
+        "right": 359,
+        "h": 22,
+        "w": 343
+      },
+      "inner": {
+        "top": 1460,
+        "bottom": 1566,
+        "left": 0,
+        "right": 375,
+        "h": 106,
+        "w": 375
+      },
+      "bar": {
+        "top": 1155,
+        "bottom": 1395,
+        "left": 0,
+        "right": 375,
+        "h": 240,
+        "w": 375
+      },
+      "labelText": "Startups that trust us",
+      "labelLines": 1,
+      "labelColor": "rgb(217, 164, 65)",
+      "labelCenterOffset": 0,
+      "headBg": "rgb(12, 39, 46)",
+      "innerBg": "rgb(255, 255, 255)",
+      "imgH": 68,
+      "imgsTotal": 24,
+      "broken": 0,
+      "region": "Startups that trust us",
+      "pageOverflow": 0,
+      "docH": 10405
+    },
+    "trackMoves": true,
+    "failedImages": [],
+    "errors": []
+  },
+  "startups-1280x720-reduce": {
+    "info": {
+      "present": true,
+      "strip": {
+        "top": 665,
+        "bottom": 892,
+        "left": 0,
+        "right": 1280,
+        "h": 227,
+        "w": 1280
+      },
+      "head": {
+        "top": 665,
+        "bottom": 746,
+        "left": 0,
+        "right": 1280,
+        "h": 81,
+        "w": 1280
+      },
+      "label": {
+        "top": 696,
+        "bottom": 722,
+        "left": 24,
+        "right": 1256,
+        "h": 26,
+        "w": 1232
+      },
+      "inner": {
+        "top": 746,
+        "bottom": 892,
+        "left": 0,
+        "right": 1280,
+        "h": 146,
+        "w": 1280
+      },
+      "bar": {
+        "top": 606,
+        "bottom": 665,
+        "left": 0,
+        "right": 1280,
+        "h": 59,
+        "w": 1280
+      },
+      "labelText": "Startups that trust us",
+      "labelLines": 1,
+      "labelColor": "rgb(217, 164, 65)",
+      "labelCenterOffset": 0,
+      "headBg": "rgb(12, 39, 46)",
+      "innerBg": "rgb(255, 255, 255)",
+      "imgH": 96,
+      "imgsTotal": 24,
+      "broken": 0,
+      "region": "Startups that trust us",
+      "pageOverflow": 0,
+      "docH": 5748
+    },
+    "trackMoves": null,
+    "failedImages": [],
+    "errors": []
+  },
+  "investors-1143x706-no-preference": {
+    "info": {
+      "present": true,
+      "strip": {
+        "top": 574,
+        "bottom": 776,
+        "left": 0,
+        "right": 1143,
+        "h": 202,
+        "w": 1143
+      },
+      "head": {
+        "top": 574,
+        "bottom": 630,
+        "left": 0,
+        "right": 1143,
+        "h": 56,
+        "w": 1143
+      },
+      "label": {
+        "top": 580,
+        "bottom": 606,
+        "left": 24,
+        "right": 1119,
+        "h": 26,
+        "w": 1095
+      },
+      "inner": {
+        "top": 630,
+        "bottom": 776,
+        "left": 0,
+        "right": 1143,
+        "h": 146,
+        "w": 1143
+      },
+      "bar": null,
+      "labelText": "Startups that trust us",
+      "labelLines": 1,
+      "labelColor": "rgb(217, 164, 65)",
+      "labelCenterOffset": 0,
+      "headBg": "rgba(0, 0, 0, 0)",
+      "innerBg": "rgb(255, 255, 255)",
+      "imgH": 96,
+      "imgsTotal": 24,
+      "broken": 0,
+      "region": "Startups that trust us",
+      "pageOverflow": 0,
+      "docH": 9368
+    },
+    "trackMoves": true,
+    "failedImages": [],
+    "errors": []
+  },
+  "investors-1280x720-no-preference": {
+    "info": {
+      "present": true,
+      "strip": {
+        "top": 581,
+        "bottom": 783,
+        "left": 0,
+        "right": 1280,
+        "h": 202,
+        "w": 1280
+      },
+      "head": {
+        "top": 581,
+        "bottom": 637,
+        "left": 0,
+        "right": 1280,
+        "h": 56,
+        "w": 1280
+      },
+      "label": {
+        "top": 587,
+        "bottom": 613,
+        "left": 24,
+        "right": 1256,
+        "h": 26,
+        "w": 1232
+      },
+      "inner": {
+        "top": 637,
+        "bottom": 783,
+        "left": 0,
+        "right": 1280,
+        "h": 146,
+        "w": 1280
+      },
+      "bar": null,
+      "labelText": "Startups that trust us",
+      "labelLines": 1,
+      "labelColor": "rgb(217, 164, 65)",
+      "labelCenterOffset": 0,
+      "headBg": "rgba(0, 0, 0, 0)",
+      "innerBg": "rgb(255, 255, 255)",
+      "imgH": 96,
+      "imgsTotal": 24,
+      "broken": 0,
+      "region": "Startups that trust us",
+      "pageOverflow": 0,
+      "docH": 9389
+    },
+    "trackMoves": true,
+    "failedImages": [],
+    "errors": []
+  },
+  "investors-1920x1080-no-preference": {
+    "info": {
+      "present": true,
+      "strip": {
+        "top": 581,
+        "bottom": 783,
+        "left": 0,
+        "right": 1920,
+        "h": 202,
+        "w": 1920
+      },
+      "head": {
+        "top": 581,
+        "bottom": 637,
+        "left": 0,
+        "right": 1920,
+        "h": 56,
+        "w": 1920
+      },
+      "label": {
+        "top": 587,
+        "bottom": 613,
+        "left": 24,
+        "right": 1896,
+        "h": 26,
+        "w": 1872
+      },
+      "inner": {
+        "top": 637,
+        "bottom": 783,
+        "left": 0,
+        "right": 1920,
+        "h": 146,
+        "w": 1920
+      },
+      "bar": null,
+      "labelText": "Startups that trust us",
+      "labelLines": 1,
+      "labelColor": "rgb(217, 164, 65)",
+      "labelCenterOffset": 0,
+      "headBg": "rgba(0, 0, 0, 0)",
+      "innerBg": "rgb(255, 255, 255)",
+      "imgH": 96,
+      "imgsTotal": 24,
+      "broken": 0,
+      "region": "Startups that trust us",
+      "pageOverflow": 0,
+      "docH": 8807
+    },
+    "trackMoves": true,
+    "failedImages": [],
+    "errors": []
+  },
+  "investors-375x812-no-preference": {
+    "info": {
+      "present": true,
+      "strip": {
+        "top": 1093,
+        "bottom": 1243,
+        "left": 0,
+        "right": 375,
+        "h": 150,
+        "w": 375
+      },
+      "head": {
+        "top": 1093,
+        "bottom": 1137,
+        "left": 0,
+        "right": 375,
+        "h": 44,
+        "w": 375
+      },
+      "label": {
+        "top": 1097,
+        "bottom": 1119,
+        "left": 16,
+        "right": 359,
+        "h": 22,
+        "w": 343
+      },
+      "inner": {
+        "top": 1137,
+        "bottom": 1243,
+        "left": 0,
+        "right": 375,
+        "h": 106,
+        "w": 375
+      },
+      "bar": null,
+      "labelText": "Startups that trust us",
+      "labelLines": 1,
+      "labelColor": "rgb(217, 164, 65)",
+      "labelCenterOffset": 0,
+      "headBg": "rgba(0, 0, 0, 0)",
+      "innerBg": "rgb(255, 255, 255)",
+      "imgH": 68,
+      "imgsTotal": 24,
+      "broken": 0,
+      "region": "Startups that trust us",
+      "pageOverflow": 0,
+      "docH": 15229
+    },
+    "trackMoves": true,
+    "failedImages": [],
+    "errors": []
+  },
+  "investors-1280x720-reduce": {
+    "info": {
+      "present": true,
+      "strip": {
+        "top": 581,
+        "bottom": 783,
+        "left": 0,
+        "right": 1280,
+        "h": 202,
+        "w": 1280
+      },
+      "head": {
+        "top": 581,
+        "bottom": 637,
+        "left": 0,
+        "right": 1280,
+        "h": 56,
+        "w": 1280
+      },
+      "label": {
+        "top": 587,
+        "bottom": 613,
+        "left": 24,
+        "right": 1256,
+        "h": 26,
+        "w": 1232
+      },
+      "inner": {
+        "top": 637,
+        "bottom": 783,
+        "left": 0,
+        "right": 1280,
+        "h": 146,
+        "w": 1280
+      },
+      "bar": null,
+      "labelText": "Startups that trust us",
+      "labelLines": 1,
+      "labelColor": "rgb(217, 164, 65)",
+      "labelCenterOffset": 0,
+      "headBg": "rgba(0, 0, 0, 0)",
+      "innerBg": "rgb(255, 255, 255)",
+      "imgH": 96,
+      "imgsTotal": 24,
+      "broken": 0,
+      "region": "Startups that trust us",
+      "pageOverflow": 0,
+      "docH": 9389
+    },
+    "trackMoves": null,
+    "failedImages": [],
+    "errors": []
+  }
+}

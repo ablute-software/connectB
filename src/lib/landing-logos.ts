@@ -103,8 +103,8 @@ export interface LogoStripSizes {
   heightPhone: number; gapPhone: number; maxWidthPhone: number;
 }
 
-/** The widest the moving window can be: the page's content width (1140) less its two 24 px paddings, rounded up. */
-export const LOGO_STRIP_WINDOW = 1100;
+/** The widest the moving window can be: the row of logos runs the whole width of the page up to 1600 px (the stylesheet's max-width on .logoWindow); beyond that it is centred and its ends fade to white. */
+export const LOGO_STRIP_WINDOW = 1600;
 
 /** How wide a logo is drawn: the box's height times the file's own shape, never wider than `maxWidth` (a long logo is shrunk to fit, not stretched taller). */
 export function drawnWidth(logo: Pick<LandingLogo, 'width' | 'height'>, height: number, maxWidth: number): number {

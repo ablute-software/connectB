@@ -1,5 +1,6 @@
-// Prompt 926 (30/10/2026) — the strip of logos of companies already on the platform, between the landing's hero and what follows it (the dark bar of checks on the
-// startups page, the "Already in our database" section on the investors page).
+// Prompt 926 (30/10/2026) — the strip of logos of companies already on the platform, the last thing in the landing's hero: under the dark bar of checks on the startups page,
+// at the foot of the hero on the investors page (which has no bar), and before the "Already in our database" section there. Two rows: the heading (one centred line, in the
+// brand's amber, on the same dark as the bar above it) and the row of logos (white).
 //
 // No client code: a list of logos that slides left by CSS alone (transform only), repeated so the turn has no seam — see landing-logos.ts (`loopCopies`) for how
 // many copies. Hover stops it; "reduce motion" in the system leaves it still, showing the logos that fit. No links: a logo here is a statement, not a door.
@@ -46,8 +47,10 @@ export function LogoStrip({ page, logos, sizes = LOGO_STRIP_SIZES, loopSeconds =
 
   return (
     <section className={s.logoStrip} aria-label={label} data-logo-strip={page} style={style}>
-      <div className={s.logoInner}>
+      <div className={s.logoHead}>
         <p className={s.logoLabel} aria-hidden="true">{label}</p>
+      </div>
+      <div className={s.logoInner}>
         <div className={s.logoWindow}>
           <div className={s.logoTrack}>
             {Array.from({ length: copies }, (_, copy) => list(copy))}

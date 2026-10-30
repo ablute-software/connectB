@@ -273,9 +273,6 @@ export default async function LandingPage() {
           </div>
         </div>
 
-        {/* Prompt 926 — the logos of companies already on the platform: between the top block (title, text, buttons, pipeline picture) and the dark bar of checks. */}
-        {withLogos && <LogoStrip page="startups" logos={logos} />}
-
         <div className={s.strip}>
           <div className={s.wrap}>
             <span><TickAmber />Outreach discipline, enforced</span>
@@ -284,6 +281,10 @@ export default async function LandingPage() {
             <span><TickAmber />AI drafts — you decide</span>
           </div>
         </div>
+
+        {/* Prompt 926 (30/10/2026; moved UNDER the dark bar of checks the same evening, Nuno): the logos of companies already on the platform, the last thing in the hero. The hero, the bar of checks and
+            the heading of the strip are one dark block; only the row of logos is white, so the page no longer goes dark, white, dark, white. */}
+        {withLogos && <LogoStrip page="startups" logos={logos} />}
       </header>
 
       {/* ============ FEATURES ============ */}

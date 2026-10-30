@@ -44,8 +44,8 @@ describe('what the strip says', () => {
   });
 
   it('the words above it are the brief\'s proposals, one per page, and the investors page names only startups', () => {
-    expect(LOGO_STRIP_LABEL.startups).toBe('Startups and investors already on Sherlock Deal');
-    expect(LOGO_STRIP_LABEL.investors).toBe('Startups already on Sherlock Deal');
+    expect(LOGO_STRIP_LABEL.startups).toBe('Startups that trust us');
+    expect(LOGO_STRIP_LABEL.investors).toBe('Startups that trust us');
     const investors = render({ page: 'investors', logos: many(6) });
     expect(investors).toContain('data-logo-strip="investors"');
     expect(investors).toContain(`aria-label="${LOGO_STRIP_LABEL.investors}"`);
