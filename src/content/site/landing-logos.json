@@ -1,10 +1,10 @@
 [
-  { "name": "Gripwise", "file": "gripwise.png", "width": 512, "height": 512, "pages": "both", "order": 10, "authorization": "pending" },
-  { "name": "Lenera", "file": "lenera.png", "width": 512, "height": 512, "pages": "both", "order": 20, "authorization": "pending" },
-  { "name": "Otitest", "file": "otitest.png", "width": 512, "height": 512, "pages": "both", "order": 30, "authorization": "pending" },
-  { "name": "About Food", "file": "aboutfood.png", "width": 512, "height": 512, "pages": "both", "order": 40, "authorization": "pending" },
-  { "name": "Spaceo", "file": "spaceo.png", "width": 512, "height": 512, "pages": "both", "order": 50, "authorization": "pending" },
-  { "name": "ablute_", "file": "ablute.png", "width": 512, "height": 512, "pages": "both", "order": 60, "authorization": "pending" },
-  { "name": "QuemPinta.pt", "file": "quempinta.png", "width": 512, "height": 512, "pages": "both", "order": 70, "authorization": "pending" },
-  { "name": "Lunia", "file": "lunia.png", "width": 512, "height": 512, "pages": "both", "order": 80, "authorization": "pending" }
+  { "name": "Gripwise", "file": "gripwise.png", "width": 512, "height": 512, "pages": "both", "order": 10, "authorization": { "date": "2026-10-30", "form": "owner", "note": "decisão do Nuno no chat de 30/10/2026; sem prova da empresa em arquivo" } },
+  { "name": "Lenera", "file": "lenera.png", "width": 512, "height": 512, "pages": "both", "order": 20, "authorization": { "date": "2026-10-30", "form": "owner", "note": "decisão do Nuno no chat de 30/10/2026; sem prova da empresa em arquivo" } },
+  { "name": "Otitest", "file": "otitest.png", "width": 512, "height": 512, "pages": "both", "order": 30, "authorization": { "date": "2026-10-30", "form": "owner", "note": "decisão do Nuno no chat de 30/10/2026; sem prova da empresa em arquivo" } },
+  { "name": "About Food", "file": "aboutfood.png", "width": 512, "height": 512, "pages": "both", "order": 40, "authorization": { "date": "2026-10-30", "form": "owner", "note": "decisão do Nuno no chat de 30/10/2026; sem prova da empresa em arquivo" } },
+  { "name": "Spaceo", "file": "spaceo.png", "width": 512, "height": 512, "pages": "both", "order": 50, "authorization": { "date": "2026-10-30", "form": "owner", "note": "decisão do Nuno no chat de 30/10/2026; sem prova da empresa em arquivo" } },
+  { "name": "ablute_", "file": "ablute.png", "width": 512, "height": 512, "pages": "both", "order": 60, "authorization": { "date": "2026-10-30", "form": "owner", "note": "decisão do Nuno no chat de 30/10/2026; sem prova da empresa em arquivo" } },
+  { "name": "QuemPinta.pt", "file": "quempinta.png", "width": 512, "height": 512, "pages": "both", "order": 70, "authorization": { "date": "2026-10-30", "form": "owner", "note": "decisão do Nuno no chat de 30/10/2026; sem prova da empresa em arquivo" } },
+  { "name": "Lunia", "file": "lunia.png", "width": 512, "height": 512, "pages": "both", "order": 80, "authorization": { "date": "2026-10-30", "form": "owner", "note": "decisão do Nuno no chat de 30/10/2026; sem prova da empresa em arquivo" } }
 ]

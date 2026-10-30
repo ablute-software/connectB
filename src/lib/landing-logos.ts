@@ -1,7 +1,7 @@
 // Prompt 926 (30/10/2026) — which company logos the landing's strip may show, and when the strip shows at all.
 //
 // A company's logo on the public landing says, in public, that it uses Sherlock Deal. So a logo is shown only when its authorization is RECORDED in
-// src/content/site/landing-logos.json: a date and a form (an email from the company, or the terms it accepted). Getting the authorization is Nuno's job,
+// src/content/site/landing-logos.json: a date and a form (an email from the company, the terms it accepted, or the owner's own decision). Getting the authorization is Nuno's job,
 // outside the code. Anything short of a complete record is "not authorized" — the word "pending", a missing field, a date that does not exist, a date in
 // the future — and a logo that is not authorized is never drawn: the rule fails closed, it cannot be satisfied by accident.
 //
@@ -18,13 +18,15 @@ export type LogoPage = 'startups' | 'investors';
 export const LOGO_PAGES = ['startups', 'investors', 'both'] as const;
 export type LogoPages = (typeof LOGO_PAGES)[number];
 
-export const AUTHORIZATION_FORMS = ['email', 'terms'] as const;
+// 'owner' (30/10/2026): the platform owner's own decision, with no proof from the company on file. It is recorded as exactly that, never as an email or terms that do not exist;
+// the build prints a line for every logo shown this way, and an email or accepted terms replace it when they exist.
+export const AUTHORIZATION_FORMS = ['email', 'terms', 'owner'] as const;
 export type AuthorizationForm = (typeof AUTHORIZATION_FORMS)[number];
 
 export interface LogoAuthorization {
   /** The day the company gave its authorization, yyyy-mm-dd. */
   date: string;
-  /** How it gave it: an email from the company, or the terms it accepted. */
+  /** How it was given: an email from the company, the terms it accepted, or "owner": the platform owner's decision, with no proof from the company on file. */
   form: AuthorizationForm;
   /** Where the proof is kept (a mailbox label, a thread subject). Never an address or any personal data: the file lives in the repository. */
   note?: string;

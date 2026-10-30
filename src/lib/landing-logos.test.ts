@@ -18,7 +18,7 @@ import {
 
 const ROOT = process.cwd();
 const TODAY = new Date('2026-10-30T12:00:00Z');
-const granted = (date = '2026-10-29', form: 'email' | 'terms' = 'email') => ({ date, form });
+const granted = (date = '2026-10-29', form: 'email' | 'terms' | 'owner' = 'email') => ({ date, form });
 const logo = (n: number, over: Partial<LandingLogo> = {}): LandingLogo => ({
   name: `zz-test-${n}`, file: `zz-test-${n}.svg`, width: 120, height: 40, pages: 'both', order: n, authorization: granted(), ...over,
 });
@@ -35,6 +35,7 @@ describe('the authorization rule: a logo is shown only with a complete record, a
     ['an empty object', {}, NO_DATE],
     ['an email, yesterday', { date: '2026-10-29', form: 'email' }, null],
     ['accepted terms, today', { date: '2026-10-30', form: 'terms' }, null],
+    ["the owner's own decision, today (no proof from the company on file)", { date: '2026-10-30', form: 'owner' }, null],
     ['a note saying where the proof is kept is allowed', { date: '2026-10-29', form: 'email', note: 'label of the mailbox folder' }, null],
     ['a day that does not exist', { date: '2026-02-30', form: 'email' }, NO_DATE],
     ['a month that does not exist', { date: '2026-13-01', form: 'email' }, NO_DATE],
@@ -42,8 +43,8 @@ describe('the authorization rule: a logo is shown only with a complete record, a
     ['a date with a time', { date: '2026-10-29T10:00:00Z', form: 'email' }, NO_DATE],
     ['a date that is not a string', { date: 20261029, form: 'email' }, NO_DATE],
     ['tomorrow (an authorization cannot have been given yet)', { date: '2026-10-31', form: 'email' }, 'authorization date is in the future'],
-    ['no form', { date: '2026-10-29' }, 'authorization form missing or not one of: email, terms'],
-    ['a form that is not allowed', { date: '2026-10-29', form: 'phone' }, 'authorization form missing or not one of: email, terms'],
+    ['no form', { date: '2026-10-29' }, 'authorization form missing or not one of: email, terms, owner'],
+    ['a form that is not allowed', { date: '2026-10-29', form: 'phone' }, 'authorization form missing or not one of: email, terms, owner'],
   ];
 
   it.each(CASES)('%s', (_name, input, expected) => {
@@ -203,6 +204,16 @@ describe('scripts/check-landing-logos.mjs says the same as the page, in words a 
     const mixed = [...many(3, { pages: 'startups' }), ...many(3, { pages: 'investors' }).map((l) => ({ ...l, file: `i-${l.file}` })), ...many(2, { pages: 'both' }).map((l) => ({ ...l, file: `b-${l.file}` }))];
     const r = buildCheck.checkLogos(mixed, { folderFiles: FOLDER_FILES(mixed), today: TODAY });
     expect(r.authorized).toEqual({ startups: 5, investors: 5 });
+  });
+
+  it("a logo shown on the owner's decision is counted like any other and named in the summary, so it is never forgotten", () => {
+    const rows = [...many(5), logo(6, { authorization: { date: '2026-10-30', form: 'owner' } })];
+    const r = buildCheck.checkLogos(rows, { folderFiles: FOLDER_FILES(rows), today: TODAY });
+    expect(r.errors).toEqual([]);
+    expect(r.authorized).toEqual({ startups: 6, investors: 6 });
+    expect(r.summary[0]).toContain('6 authorized logo(s), 6 needed: the strip is SHOWN');
+    expect(r.summary[2]).toContain('1 logo(s) shown on the owner\'s decision (form "owner")');
+    expect(stripVisible(logosForPage('startups', rows, TODAY))).toBe(true);
   });
 
   it('an authorized logo whose image is not in the folder is an ERROR (the page would show a broken picture); a pending one is only one more warning', () => {

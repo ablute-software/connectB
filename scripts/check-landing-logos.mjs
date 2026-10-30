@@ -22,7 +22,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const LOGO_STRIP_MIN = 6;
 export const PAGES = ['startups', 'investors', 'both'];
-export const FORMS = ['email', 'terms'];
+export const FORMS = ['email', 'terms', 'owner'];
 export const FILE_PATTERN = /^[a-z0-9][a-z0-9._-]*\.(svg|png|webp)$/i;
 
 export function isRealIsoDate(v) {
@@ -55,6 +55,7 @@ export function checkLogos(entries, { folderFiles, today = new Date() }) {
   const warnings = [];
   const errors = [];
   const authorized = { startups: 0, investors: 0 };
+  let ownerShown = 0; // logos shown on the owner's decision alone: named in the summary so they are not forgotten
   if (!Array.isArray(entries)) {
     return { warnings, errors: ['the file must hold a list of logos ([...])'], summary: [], authorized };
   }
@@ -82,6 +83,7 @@ export function checkLogos(entries, { folderFiles, today = new Date() }) {
       return;
     }
     if (!inFolder.has(e.file)) { errors.push(`${who} is authorized but its image is not in public/landing/logos/: the page would show a broken picture`); return; }
+    if (e.authorization.form === 'owner') ownerShown += 1;
     if (e.pages === 'startups' || e.pages === 'both') authorized.startups += 1;
     if (e.pages === 'investors' || e.pages === 'both') authorized.investors += 1;
   });
@@ -89,6 +91,7 @@ export function checkLogos(entries, { folderFiles, today = new Date() }) {
     if (!listed.has(f)) warnings.push(`${f} is in public/landing/logos/ but no row of the file lists it: it is not shown`);
   }
   const summary = ['startups', 'investors'].map((p) => `${p} page: ${authorized[p]} authorized logo(s), ${LOGO_STRIP_MIN} needed: the strip is ${authorized[p] >= LOGO_STRIP_MIN ? 'SHOWN' : 'hidden'}`);
+  if (ownerShown > 0) summary.push(`${ownerShown} logo(s) shown on the owner's decision (form "owner"): no proof from the company is on file; replace it with an email or accepted terms when it exists`);
   return { warnings, errors, summary, authorized };
 }
 

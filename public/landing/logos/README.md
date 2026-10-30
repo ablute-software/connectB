@@ -3,7 +3,7 @@
 A faixa branca entre o topo da landing e o resto da página (a das startups e a dos investidores) mostra, a correr sozinhos, os logos de empresas que já estão na
 Sherlock Deal. **Mostrar o logo de uma empresa diz publicamente que ela usa a Sherlock Deal**, por isso esta pasta tem uma regra que não se contorna:
 
-> **Um logo só aparece com a autorização da empresa REGISTADA** — a data e a forma (um email dela, ou os termos que aceitou). Sem esse registo o logo não é mostrado
+> **Um logo só aparece com a autorização REGISTADA** — a data e a forma (um email da empresa, os termos que aceitou, ou a decisão do dono da plataforma, registada como tal). Sem esse registo o logo não é mostrado
 > e o `npm run build` avisa. A faixa só aparece quando uma página tem **6 ou mais** logos autorizados; com menos desaparece (e o topo da página fica como estava).
 
 A autorização é tratada pelo Nuno, fora do código. Quem mexe aqui não a inventa: se ainda não foi dada, a linha fica `"pending"`.
@@ -46,9 +46,10 @@ A autorização é tratada pelo Nuno, fora do código. Quem mexe aqui não a inv
    | `width`, `height` | o tamanho do próprio ficheiro, em píxeis (num SVG, o `viewBox`); reserva o espaço antes de a imagem chegar, para a página não saltar. Um teste confere-os com o ficheiro |
    | `pages` | `"startups"`, `"investors"` ou `"both"`: em que página aparece |
    | `order` | a posição na faixa, do menor para o maior; empate desfaz-se pelo nome |
-   | `authorization` | `"pending"` enquanto a empresa não autorizou; depois `{ "date": "aaaa-mm-dd", "form": "email" ou "terms", "note": "..." }` |
+   | `authorization` | `"pending"` enquanto a empresa não autorizou; depois `{ "date": "aaaa-mm-dd", "form": "email", "terms" ou "owner", "note": "..." }` |
 
-   `form` é `"email"` (a empresa autorizou por email) ou `"terms"` (aceitou uns termos). `note` é opcional e diz **onde está a prova** (uma etiqueta da caixa de correio,
+   `form` é `"email"` (a empresa autorizou por email), `"terms"` (aceitou uns termos) ou `"owner"` (decisão do dono da plataforma, sem prova da empresa em arquivo: o build escreve uma
+   linha por cada logo mostrado assim, para não ser esquecido, e um email ou uns termos aceites substituem-na quando existirem). `note` é opcional e diz **onde está a prova** (uma etiqueta da caixa de correio,
    o assunto da conversa); nunca um endereço de email nem dados pessoais. A `date` não pode ser futura nem inexistente.
 3. `npm run verify:landing-logos` diz o que ficou de fora e porquê; `npm test` e `npm run build` têm de passar.
 
