@@ -1,0 +1,25 @@
+=== AFTER mobile /
+run 1: perf 93 a11y 96 bp 100 seo 100 | FCP 1366 LCP 3182 CLS 0.0006 TBT 47 SI 1471 | unsized images 0 | LCP element null
+run 2: perf 85 a11y 96 bp 100 seo 100 | FCP 2268 LCP 3999 CLS 0.0006 TBT 4 SI 2268 | unsized images 0 | LCP element null
+run 3: perf 93 a11y 96 bp 100 seo 100 | FCP 1362 LCP 3175 CLS 0.0006 TBT 31 SI 1477 | unsized images 0 | LCP element null
+run 4: perf 89 a11y 96 bp 100 seo 100 | FCP 1818 LCP 3624 CLS 0.0006 TBT 18 SI 1818 | unsized images 0 | LCP element null
+run 5: perf 92 a11y 96 bp 100 seo 100 | FCP 1362 LCP 3399 CLS 0.0006 TBT 19 SI 1533 | unsized images 0 | LCP element null
+MEDIAN mobile http://127.0.0.1:3100/: perf 92 a11y 96 bp 100 seo 100 | FCP 1366 LCP 3399 CLS 0.0006 TBT 19 SI 1533
+=== AFTER mobile /investors
+run 1: perf 81 a11y 96 bp 100 seo 100 | FCP 2266 LCP 4454 CLS 0.0009 TBT 24 SI 3171 | unsized images 0 | LCP element null
+run 2: perf 93 a11y 96 bp 100 seo 100 | FCP 1361 LCP 3172 CLS 0.0009 TBT 1 SI 1361 | unsized images 0 | LCP element null
+run 3: perf 82 a11y 96 bp 100 seo 100 | FCP 2270 LCP 4377 CLS 0.0009 TBT 0 SI 2270 | unsized images 0 | LCP element null
+run 4: perf 93 a11y 96 bp 100 seo 100 | FCP 1361 LCP 3172 CLS 0.0009 TBT 34 SI 1369 | unsized images 0 | LCP element null
+run 5: perf 82 a11y 96 bp 100 seo 100 | FCP 2265 LCP 4375 CLS 0.0009 TBT 38 SI 3075 | unsized images 0 | LCP element null
+MEDIAN mobile http://127.0.0.1:3100/investors: perf 82 a11y 96 bp 100 seo 100 | FCP 2265 LCP 4375 CLS 0.0009 TBT 24 SI 2270
+=== AFTER desktop /
+run 1: perf 99 a11y 96 bp 100 seo 100 | FCP 497 LCP 899 CLS 0.0006 TBT 0 SI 497 | unsized images 0 | LCP element null
+run 2: perf 99 a11y 96 bp 100 seo 100 | FCP 498 LCP 824 CLS 0.0006 TBT 0 SI 498 | unsized images 0 | LCP element null
+run 3: perf 100 a11y 96 bp 100 seo 100 | FCP 496 LCP 821 CLS 0.0006 TBT 0 SI 496 | unsized images 0 | LCP element null
+MEDIAN desktop http://127.0.0.1:3100/: perf 99 a11y 96 bp 100 seo 100 | FCP 497 LCP 824 CLS 0.0006 TBT 0 SI 497
+=== AFTER desktop /investors
+run 1: perf 99 a11y 96 bp 100 seo 100 | FCP 493 LCP 836 CLS 0.0002 TBT 0 SI 538 | unsized images 0 | LCP element null
+run 2: perf 99 a11y 96 bp 100 seo 100 | FCP 499 LCP 888 CLS 0.0002 TBT 0 SI 499 | unsized images 0 | LCP element null
+run 3: perf 99 a11y 96 bp 100 seo 100 | FCP 492 LCP 900 CLS 0.0002 TBT 0 SI 499 | unsized images 0 | LCP element null
+MEDIAN desktop http://127.0.0.1:3100/investors: perf 99 a11y 96 bp 100 seo 100 | FCP 493 LCP 888 CLS 0.0002 TBT 0 SI 499
+LH_AFTER_DONE exit=0

@@ -21,8 +21,10 @@ import { AudienceToggle } from '@/components/landing/AudienceToggle';
 import { InvestorPricingSection } from '@/components/landing/InvestorPricingSection';
 import { HowItWorksVideo } from '@/components/landing/HowItWorksVideo';
 import { SeeHowButton } from '@/components/landing/SeeHowButton';
+import { LogoStrip } from '@/components/landing/LogoStrip';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { INVESTOR_FAQ_EXTRA, INVESTOR_FIT_SECTION } from '@/content/site/investors';
+import { landingLogosFor, logoStripVisible } from '@/content/site/logo-strip';
 import { articleNode, breadcrumbNode, faqPageNode, graph, organizationNode, websiteNode } from '@/lib/site-schema';
 import s from '../landing.module.css';
 
@@ -132,6 +134,11 @@ export default async function InvestorLandingPage() {
     }
   }
 
+  // Prompt 926 — the strip of logos of companies that authorized it (src/lib/landing-logos.ts), drawn only when there are enough of them; the hero moves up to make
+  // room for it only then, so the page looks exactly as before while the strip is not shown.
+  const logos = landingLogosFor('investors');
+  const withLogos = logoStripVisible(logos);
+
   return (
     <div className={`${fraunces.variable} ${inter.variable} ${s.landing}`}>
       <LandingEffects />
@@ -158,7 +165,7 @@ export default async function InvestorLandingPage() {
           ".split + .split", pairs two elements that stay siblings inside it). */}
       <main>
       {/* ============ HERO ============ */}
-      <header className={s.hero} id="top">
+      <header className={withLogos ? `${s.hero} ${s.heroWithLogos}` : s.hero} id="top">
         <div className={s.wrap}>
           <div>
             <span className={s.badge}><span className={s.dot} />{BRAND_NAME.toUpperCase()} FOR INVESTORS</span>
@@ -196,6 +203,10 @@ export default async function InvestorLandingPage() {
             </div>
           </div>
         </div>
+
+        {/* Prompt 926 — the logos of companies already on the platform, at the foot of the top block. This page has no dark bar of checks: the strip is the last thing in the
+            hero, and the "Already in our database" section follows it. */}
+        {withLogos && <LogoStrip page="investors" logos={logos} />}
       </header>
 
       {/* ============ CLAIM ============ */}

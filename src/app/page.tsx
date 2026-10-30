@@ -21,7 +21,9 @@ import { LandingEffects } from '@/components/landing/LandingEffects';
 import { PricingSection } from '@/components/landing/PricingSection';
 import { AudienceToggle } from '@/components/landing/AudienceToggle';
 import { JsonLd } from '@/components/seo/JsonLd';
+import { LogoStrip } from '@/components/landing/LogoStrip';
 import { HOME_META } from '@/content/site/pages';
+import { landingLogosFor, logoStripVisible } from '@/content/site/logo-strip';
 import { homeGraph } from '@/lib/site-schema';
 import s from './landing.module.css';
 
@@ -176,6 +178,11 @@ export default async function LandingPage() {
     }
   }
 
+  // Prompt 926 — the strip of logos of companies that authorized it (src/lib/landing-logos.ts), drawn only when there are enough of them; the hero moves up to make
+  // room for it only then, so the page looks exactly as before while the strip is not shown.
+  const logos = landingLogosFor('startups');
+  const withLogos = logoStripVisible(logos);
+
   return (
     <div className={`${fraunces.variable} ${inter.variable} ${s.landing}`}>
       <LandingEffects />
@@ -202,7 +209,7 @@ export default async function LandingPage() {
           child of it). */}
       <main>
       {/* ============ HERO ============ */}
-      <header className={s.hero} id="top">
+      <header className={withLogos ? `${s.hero} ${s.heroWithLogos}` : s.hero} id="top">
         <Lens className={`${s.lens} ${s.l1}`} size={260} />
         <div className={s.wrap}>
           <div>
@@ -210,7 +217,7 @@ export default async function LandingPage() {
             <h1>Crack the case on your <em>fundraise.</em></h1>
             {/* Prompt 920 §F.3 (Nuno's "sim") — one factual line under the H1, in the subtitle's own style, so the page says in plain words what
                 the product does for both sides (the rest of the hero describes the founder's workspace). */}
-            <p className={s.lead} style={{ marginBottom: 14 }}>
+            <p className={s.lead} style={{ marginBottom: withLogos ? 10 : 14 }}>
               {BRAND_NAME} matches startups with the investors that fit them, and puts startups that match their mandate in front of investors.
             </p>
             <p className={s.lead}>
@@ -265,6 +272,9 @@ export default async function LandingPage() {
             </div>
           </div>
         </div>
+
+        {/* Prompt 926 — the logos of companies already on the platform: between the top block (title, text, buttons, pipeline picture) and the dark bar of checks. */}
+        {withLogos && <LogoStrip page="startups" logos={logos} />}
 
         <div className={s.strip}>
           <div className={s.wrap}>

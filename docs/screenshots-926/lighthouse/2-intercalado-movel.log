@@ -1,0 +1,37 @@
+/          round 1 before perf 92 | FCP 1680 LCP 3190 TBT 24 CLS 0.0006
+/          round 1 after  perf 91 | FCP 1664 LCP 3393 TBT 42 CLS 0.0006
+/          round 2 after  perf 93 | FCP 1360 LCP 3168 TBT 18 CLS 0.0006
+/          round 2 before perf 95 | FCP 1370 LCP 2890 TBT 43 CLS 0.0006
+/          round 3 before perf 90 | FCP 1673 LCP 3481 TBT 16 CLS 0.0006
+/          round 3 after  perf 94 | FCP 1358 LCP 3092 TBT 12 CLS 0.0006
+/          round 4 after  perf 93 | FCP 1360 LCP 3170 TBT 28 CLS 0.0006
+/          round 4 before perf 85 | FCP 2272 LCP 3929 TBT 21 CLS 0.0006
+/          round 5 before perf 95 | FCP 1365 LCP 2880 TBT 21 CLS 0.0006
+/          round 5 after  perf 92 | FCP 1368 LCP 3361 TBT 19 CLS 0.0006
+/          round 6 after  perf 82 | FCP 2265 LCP 4370 TBT 25 CLS 0.0006
+/          round 6 before perf 95 | FCP 1367 LCP 2884 TBT 4 CLS 0.0006
+/          round 7 before perf 95 | FCP 1364 LCP 2878 TBT 24 CLS 0.0006
+/          round 7 after  perf 95 | FCP 1361 LCP 2867 TBT 17 CLS 0.0006
+/          round 8 after  perf 92 | FCP 1360 LCP 3396 TBT 21 CLS 0.0006
+/          round 8 before perf 95 | FCP 1363 LCP 2876 TBT 65 CLS 0.0006
+MEDIAN mobile /  BEFORE perf 95 FCP 1369 LCP 2887 (2876-3929) TBT 23 CLS 0 slow-FCP runs 3/8
+MEDIAN mobile /  AFTER  perf 93 FCP 1361 LCP 3266 (2867-4370) TBT 20 CLS 0 slow-FCP runs 2/8
+/investors round 1 before perf 86 | FCP 1828 LCP 4022 TBT 22 CLS 0.0009
+/investors round 1 after  perf 93 | FCP 1358 LCP 3242 TBT 0 CLS 0.0009
+/investors round 2 after  perf 93 | FCP 1359 LCP 3244 TBT 6 CLS 0.0009
+/investors round 2 before perf 95 | FCP 1360 LCP 2945 TBT 0 CLS 0.0009
+/investors round 3 before perf 94 | FCP 1363 LCP 2951 TBT 1 CLS 0.0009
+/investors round 3 after  perf 92 | FCP 1359 LCP 3269 TBT 21 CLS 0.0009
+/investors round 4 after  perf 95 | FCP 1358 LCP 2937 TBT 0 CLS 0.0009
+/investors round 4 before perf 91 | FCP 1666 LCP 3396 TBT 0 CLS 0.0009
+/investors round 5 before perf 95 | FCP 1361 LCP 2947 TBT 0 CLS 0.0009
+/investors round 5 after  perf 94 | FCP 1359 LCP 3014 TBT 0 CLS 0.0009
+/investors round 6 after  perf 93 | FCP 1358 LCP 3241 TBT 30 CLS 0.0009
+/investors round 6 before perf 93 | FCP 1360 LCP 3246 TBT 4 CLS 0.0009
+/investors round 7 before perf 84 | FCP 2273 LCP 4156 TBT 0 CLS 0.0009
+/investors round 7 after  perf 89 | FCP 1964 LCP 3544 TBT 36 CLS 0.0009
+/investors round 8 after  perf 83 | FCP 2266 LCP 4296 TBT 40 CLS 0.0009
+/investors round 8 before perf 94 | FCP 1361 LCP 3099 TBT 0 CLS 0.0009
+MEDIAN mobile /investors  BEFORE perf 94 FCP 1362 LCP 3173 (2945-4156) TBT 0 CLS 0 slow-FCP runs 3/8
+MEDIAN mobile /investors  AFTER  perf 93 FCP 1359 LCP 3243 (2937-4296) TBT 14 CLS 0 slow-FCP runs 2/8
+LH_PAIR_DONE exit=0

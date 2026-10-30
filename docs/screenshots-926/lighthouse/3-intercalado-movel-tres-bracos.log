@@ -1,0 +1,22 @@
+/          round 1 before  perf 95 | FCP 1362 LCP 2873 TBT 14 CLS 0.0006
+/          round 1 after   perf 93 | FCP 1360 LCP 3171 TBT 18 CLS 0.0006
+/          round 1 blocked perf 92 | FCP 1361 LCP 3398 TBT 45 CLS 0.0006
+/          round 2 after   perf 81 | FCP 2265 LCP 4520 TBT 17 CLS 0.0006
+/          round 2 blocked perf 82 | FCP 2268 LCP 4374 TBT 8 CLS 0.0006
+/          round 2 before  perf 82 | FCP 2277 LCP 4362 TBT 46 CLS 0.0006
+/          round 3 blocked perf 89 | FCP 1666 LCP 3622 TBT 24 CLS 0.0006
+/          round 3 before  perf 83 | FCP 2266 LCP 4222 TBT 20 CLS 0.0006
+/          round 3 after   perf 92 | FCP 1362 LCP 3399 TBT 22 CLS 0.0006
+/          round 4 before  perf 91 | FCP 1678 LCP 3328 TBT 34 CLS 0.0006
+/          round 4 after   perf 93 | FCP 1358 LCP 3165 TBT 29 CLS 0.0006
+/          round 4 blocked perf 81 | FCP 2289 LCP 4477 TBT 39 CLS 0.0006
+/          round 5 after   perf 93 | FCP 1367 LCP 3185 TBT 11 CLS 0.0006
+/          round 5 blocked perf 94 | FCP 1372 LCP 2964 TBT 10 CLS 0.0006
+/          round 5 before  perf 91 | FCP 1666 LCP 3472 TBT 23 CLS 0.0006
+/          round 6 blocked perf 93 | FCP 1359 LCP 3243 TBT 12 CLS 0.0006
+/          round 6 before  perf 85 | FCP 2270 LCP 3926 TBT 31 CLS 0.0006
+/          round 6 after   perf 81 | FCP 2267 LCP 4523 TBT 51 CLS 0.0006
+MEDIAN mobile /  BEFORE perf 88 FCP 1972 LCP 3699 (2873-4362) TBT 27 CLS 0 slow-FCP runs 5/6
+MEDIAN mobile /  BLOCKED perf 91 FCP 1519 LCP 3510 (2964-4477) TBT 18 slow-FCP runs 3/6
+MEDIAN mobile /  AFTER  perf 93 FCP 1365 LCP 3292 (3165-4523) TBT 20 CLS 0 slow-FCP runs 2/6
+LH_PAIR3_DONE exit=0

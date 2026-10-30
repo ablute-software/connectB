@@ -1,0 +1,8 @@
+A1 logos allowed: perf 96 | FCP 1732 (observed 1732) LCP 1732 (observed 1732) TBT 196 CLS 0.0009 | logo requests 8 [Low] 470555 B | requests 53
+B1 logos BLOCKED: perf 97 | FCP 1845 (observed 1845) LCP 1845 (observed 1845) TBT 128 CLS 0.0009 | logo requests 24 [Low] 0 B | requests 69
+A2 logos allowed: perf 98 | FCP 1719 (observed 1719) LCP 1719 (observed 1719) TBT 111 CLS 0.0009 | logo requests 8 [Low] 470555 B | requests 53
+B2 logos BLOCKED: perf 95 | FCP 1786 (observed 1786) LCP 1786 (observed 1786) TBT 224 CLS 0.0009 | logo requests 24 [Low] 0 B | requests 69
+A3 logos allowed: perf 98 | FCP 1785 (observed 1785) LCP 1785 (observed 1785) TBT 124 CLS 0.0009 | logo requests 8 [Low] 470555 B | requests 53
+B3 logos BLOCKED: perf 97 | FCP 1839 (observed 1839) LCP 1839 (observed 1839) TBT 131 CLS 0.0009 | logo requests 24 [Low] 0 B | requests 69
+MEDIAN A (logos allowed): perf 98 FCP 1732 LCP 1732 TBT 124
+MEDIAN B (logos blocked): perf 97 FCP 1839 LCP 1839 TBT 131

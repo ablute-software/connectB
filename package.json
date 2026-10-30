@@ -11,7 +11,8 @@
     "test": "vitest run",
     "verify:migrations": "node --experimental-strip-types scripts/verify-migrations.ts",
     "verify:migration-order": "node scripts/check-migration-order.mjs",
-    "verify:no-signed-url-leak": "node scripts/check-no-signed-url-leak.mjs"
+    "verify:no-signed-url-leak": "node scripts/check-no-signed-url-leak.mjs",
+    "verify:landing-logos": "node scripts/check-landing-logos.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",

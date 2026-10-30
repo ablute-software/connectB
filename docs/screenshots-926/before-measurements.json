@@ -1,0 +1,822 @@
+[
+  {
+    "page": "/",
+    "size": "1280x720",
+    "errors": [],
+    "viewport": {
+      "w": 1280,
+      "h": 720
+    },
+    "docScrollHeight": 5721,
+    "scrollbarX": false,
+    "nav": {
+      "top": 0,
+      "bottom": 72,
+      "height": 72,
+      "left": 0,
+      "width": 1280
+    },
+    "hero": {
+      "top": 0,
+      "bottom": 865,
+      "height": 865,
+      "left": 0,
+      "width": 1280
+    },
+    "heroPaddingTop": "170px",
+    "wrap": {
+      "top": 170,
+      "bottom": 806,
+      "height": 636,
+      "left": 70,
+      "width": 1140
+    },
+    "wrapPaddingBottom": "110px",
+    "leftCol": {
+      "top": 170,
+      "bottom": 696,
+      "height": 526,
+      "left": 94,
+      "width": 548,
+      "layout": {
+        "offsetTop": 170,
+        "offsetHeight": 526
+      }
+    },
+    "rightCol": {
+      "top": 270,
+      "bottom": 596,
+      "height": 327,
+      "left": 690,
+      "width": 496,
+      "layout": {
+        "offsetTop": 270,
+        "offsetHeight": 327
+      }
+    },
+    "h1": {
+      "top": 229,
+      "bottom": 357,
+      "height": 128,
+      "left": 94,
+      "width": 548
+    },
+    "h1Font": "59.2px",
+    "ctas": {
+      "top": 596,
+      "bottom": 647,
+      "height": 50,
+      "left": 94,
+      "width": 548
+    },
+    "note": {
+      "top": 675,
+      "bottom": 696,
+      "height": 22,
+      "left": 94,
+      "width": 548
+    },
+    "faixa": null,
+    "strip": {
+      "top": 806,
+      "bottom": 865,
+      "height": 59,
+      "left": 0,
+      "width": 1280
+    },
+    "lastChildOfHeroIsStrip": true,
+    "nextSectionTop": 865
+  },
+  {
+    "page": "/",
+    "size": "1366x768",
+    "errors": [],
+    "viewport": {
+      "w": 1366,
+      "h": 768
+    },
+    "docScrollHeight": 5288,
+    "scrollbarX": false,
+    "nav": {
+      "top": 0,
+      "bottom": 72,
+      "height": 72,
+      "left": 0,
+      "width": 1366
+    },
+    "hero": {
+      "top": 0,
+      "bottom": 865,
+      "height": 865,
+      "left": 0,
+      "width": 1366
+    },
+    "heroPaddingTop": "170px",
+    "wrap": {
+      "top": 170,
+      "bottom": 806,
+      "height": 636,
+      "left": 113,
+      "width": 1140
+    },
+    "wrapPaddingBottom": "110px",
+    "leftCol": {
+      "top": 170,
+      "bottom": 696,
+      "height": 526,
+      "left": 137,
+      "width": 548,
+      "layout": {
+        "offsetTop": 170,
+        "offsetHeight": 526
+      }
+    },
+    "rightCol": {
+      "top": 270,
+      "bottom": 596,
+      "height": 327,
+      "left": 733,
+      "width": 496,
+      "layout": {
+        "offsetTop": 270,
+        "offsetHeight": 327
+      }
+    },
+    "h1": {
+      "top": 229,
+      "bottom": 357,
+      "height": 128,
+      "left": 137,
+      "width": 548
+    },
+    "h1Font": "59.2px",
+    "ctas": {
+      "top": 596,
+      "bottom": 647,
+      "height": 50,
+      "left": 137,
+      "width": 548
+    },
+    "note": {
+      "top": 675,
+      "bottom": 696,
+      "height": 22,
+      "left": 137,
+      "width": 548
+    },
+    "faixa": null,
+    "strip": {
+      "top": 806,
+      "bottom": 865,
+      "height": 59,
+      "left": 0,
+      "width": 1366
+    },
+    "lastChildOfHeroIsStrip": true,
+    "nextSectionTop": 865
+  },
+  {
+    "page": "/",
+    "size": "1440x900",
+    "errors": [],
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "docScrollHeight": 5273,
+    "scrollbarX": false,
+    "nav": {
+      "top": 0,
+      "bottom": 72,
+      "height": 72,
+      "left": 0,
+      "width": 1440
+    },
+    "hero": {
+      "top": 0,
+      "bottom": 865,
+      "height": 865,
+      "left": 0,
+      "width": 1440
+    },
+    "heroPaddingTop": "170px",
+    "wrap": {
+      "top": 170,
+      "bottom": 806,
+      "height": 636,
+      "left": 150,
+      "width": 1140
+    },
+    "wrapPaddingBottom": "110px",
+    "leftCol": {
+      "top": 170,
+      "bottom": 696,
+      "height": 526,
+      "left": 174,
+      "width": 548,
+      "layout": {
+        "offsetTop": 170,
+        "offsetHeight": 526
+      }
+    },
+    "rightCol": {
+      "top": 270,
+      "bottom": 596,
+      "height": 327,
+      "left": 770,
+      "width": 496,
+      "layout": {
+        "offsetTop": 270,
+        "offsetHeight": 327
+      }
+    },
+    "h1": {
+      "top": 229,
+      "bottom": 357,
+      "height": 128,
+      "left": 174,
+      "width": 548
+    },
+    "h1Font": "59.2px",
+    "ctas": {
+      "top": 596,
+      "bottom": 647,
+      "height": 50,
+      "left": 174,
+      "width": 548
+    },
+    "note": {
+      "top": 675,
+      "bottom": 696,
+      "height": 22,
+      "left": 174,
+      "width": 548
+    },
+    "faixa": null,
+    "strip": {
+      "top": 806,
+      "bottom": 865,
+      "height": 59,
+      "left": 0,
+      "width": 1440
+    },
+    "lastChildOfHeroIsStrip": true,
+    "nextSectionTop": 865
+  },
+  {
+    "page": "/",
+    "size": "1920x1080",
+    "errors": [],
+    "viewport": {
+      "w": 1920,
+      "h": 1080
+    },
+    "docScrollHeight": 5273,
+    "scrollbarX": false,
+    "nav": {
+      "top": 0,
+      "bottom": 72,
+      "height": 72,
+      "left": 0,
+      "width": 1920
+    },
+    "hero": {
+      "top": 0,
+      "bottom": 865,
+      "height": 865,
+      "left": 0,
+      "width": 1920
+    },
+    "heroPaddingTop": "170px",
+    "wrap": {
+      "top": 170,
+      "bottom": 806,
+      "height": 636,
+      "left": 390,
+      "width": 1140
+    },
+    "wrapPaddingBottom": "110px",
+    "leftCol": {
+      "top": 170,
+      "bottom": 696,
+      "height": 526,
+      "left": 414,
+      "width": 548,
+      "layout": {
+        "offsetTop": 170,
+        "offsetHeight": 526
+      }
+    },
+    "rightCol": {
+      "top": 270,
+      "bottom": 596,
+      "height": 327,
+      "left": 1010,
+      "width": 496,
+      "layout": {
+        "offsetTop": 270,
+        "offsetHeight": 327
+      }
+    },
+    "h1": {
+      "top": 229,
+      "bottom": 357,
+      "height": 128,
+      "left": 414,
+      "width": 548
+    },
+    "h1Font": "59.2px",
+    "ctas": {
+      "top": 596,
+      "bottom": 647,
+      "height": 50,
+      "left": 414,
+      "width": 548
+    },
+    "note": {
+      "top": 675,
+      "bottom": 696,
+      "height": 22,
+      "left": 414,
+      "width": 548
+    },
+    "faixa": null,
+    "strip": {
+      "top": 806,
+      "bottom": 865,
+      "height": 59,
+      "left": 0,
+      "width": 1920
+    },
+    "lastChildOfHeroIsStrip": true,
+    "nextSectionTop": 865
+  },
+  {
+    "page": "/",
+    "size": "375x812",
+    "errors": [],
+    "viewport": {
+      "w": 375,
+      "h": 812
+    },
+    "docScrollHeight": 10384,
+    "scrollbarX": false,
+    "nav": {
+      "top": 0,
+      "bottom": 72,
+      "height": 72,
+      "left": 0,
+      "width": 375
+    },
+    "hero": {
+      "top": 0,
+      "bottom": 1545,
+      "height": 1545,
+      "left": 0,
+      "width": 375
+    },
+    "heroPaddingTop": "170px",
+    "wrap": {
+      "top": 170,
+      "bottom": 1305,
+      "height": 1135,
+      "left": 0,
+      "width": 375
+    },
+    "wrapPaddingBottom": "80px",
+    "leftCol": {
+      "top": 170,
+      "bottom": 759,
+      "height": 589,
+      "left": 24,
+      "width": 327,
+      "layout": {
+        "offsetTop": 170,
+        "offsetHeight": 589
+      }
+    },
+    "rightCol": {
+      "top": 807,
+      "bottom": 1225,
+      "height": 418,
+      "left": 24,
+      "width": 327,
+      "layout": {
+        "offsetTop": 807,
+        "offsetHeight": 418
+      }
+    },
+    "h1": {
+      "top": 250,
+      "bottom": 333,
+      "height": 83,
+      "left": 24,
+      "width": 327
+    },
+    "h1Font": "38.4px",
+    "ctas": {
+      "top": 659,
+      "bottom": 710,
+      "height": 50,
+      "left": 24,
+      "width": 327
+    },
+    "note": {
+      "top": 738,
+      "bottom": 759,
+      "height": 22,
+      "left": 24,
+      "width": 327
+    },
+    "faixa": null,
+    "strip": {
+      "top": 1305,
+      "bottom": 1545,
+      "height": 240,
+      "left": 0,
+      "width": 375
+    },
+    "lastChildOfHeroIsStrip": true,
+    "nextSectionTop": 1545
+  },
+  {
+    "page": "/investors",
+    "size": "1280x720",
+    "errors": [],
+    "viewport": {
+      "w": 1280,
+      "h": 720
+    },
+    "docScrollHeight": 9383,
+    "scrollbarX": false,
+    "nav": {
+      "top": 0,
+      "bottom": 72,
+      "height": 72,
+      "left": 0,
+      "width": 1280
+    },
+    "hero": {
+      "top": 0,
+      "bottom": 777,
+      "height": 777,
+      "left": 0,
+      "width": 1280
+    },
+    "heroPaddingTop": "170px",
+    "wrap": {
+      "top": 170,
+      "bottom": 777,
+      "height": 607,
+      "left": 70,
+      "width": 1140
+    },
+    "wrapPaddingBottom": "110px",
+    "leftCol": {
+      "top": 170,
+      "bottom": 667,
+      "height": 497,
+      "left": 94,
+      "width": 548,
+      "layout": {
+        "offsetTop": 170,
+        "offsetHeight": 497
+      }
+    },
+    "rightCol": {
+      "top": 222,
+      "bottom": 615,
+      "height": 393,
+      "left": 690,
+      "width": 496,
+      "layout": {
+        "offsetTop": 222,
+        "offsetHeight": 393
+      }
+    },
+    "h1": {
+      "top": 229,
+      "bottom": 421,
+      "height": 192,
+      "left": 94,
+      "width": 548
+    },
+    "h1Font": "59.2px",
+    "ctas": {
+      "top": 589,
+      "bottom": 639,
+      "height": 50,
+      "left": 94,
+      "width": 548
+    },
+    "note": null,
+    "faixa": null,
+    "strip": null,
+    "lastChildOfHeroIsStrip": false,
+    "nextSectionTop": 777
+  },
+  {
+    "page": "/investors",
+    "size": "1366x768",
+    "errors": [],
+    "viewport": {
+      "w": 1366,
+      "h": 768
+    },
+    "docScrollHeight": 8824,
+    "scrollbarX": false,
+    "nav": {
+      "top": 0,
+      "bottom": 72,
+      "height": 72,
+      "left": 0,
+      "width": 1366
+    },
+    "hero": {
+      "top": 0,
+      "bottom": 777,
+      "height": 777,
+      "left": 0,
+      "width": 1366
+    },
+    "heroPaddingTop": "170px",
+    "wrap": {
+      "top": 170,
+      "bottom": 777,
+      "height": 607,
+      "left": 113,
+      "width": 1140
+    },
+    "wrapPaddingBottom": "110px",
+    "leftCol": {
+      "top": 170,
+      "bottom": 667,
+      "height": 497,
+      "left": 137,
+      "width": 548,
+      "layout": {
+        "offsetTop": 170,
+        "offsetHeight": 497
+      }
+    },
+    "rightCol": {
+      "top": 222,
+      "bottom": 615,
+      "height": 393,
+      "left": 733,
+      "width": 496,
+      "layout": {
+        "offsetTop": 222,
+        "offsetHeight": 393
+      }
+    },
+    "h1": {
+      "top": 229,
+      "bottom": 421,
+      "height": 192,
+      "left": 137,
+      "width": 548
+    },
+    "h1Font": "59.2px",
+    "ctas": {
+      "top": 589,
+      "bottom": 639,
+      "height": 50,
+      "left": 137,
+      "width": 548
+    },
+    "note": null,
+    "faixa": null,
+    "strip": null,
+    "lastChildOfHeroIsStrip": false,
+    "nextSectionTop": 777
+  },
+  {
+    "page": "/investors",
+    "size": "1440x900",
+    "errors": [],
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "docScrollHeight": 8801,
+    "scrollbarX": false,
+    "nav": {
+      "top": 0,
+      "bottom": 72,
+      "height": 72,
+      "left": 0,
+      "width": 1440
+    },
+    "hero": {
+      "top": 0,
+      "bottom": 777,
+      "height": 777,
+      "left": 0,
+      "width": 1440
+    },
+    "heroPaddingTop": "170px",
+    "wrap": {
+      "top": 170,
+      "bottom": 777,
+      "height": 607,
+      "left": 150,
+      "width": 1140
+    },
+    "wrapPaddingBottom": "110px",
+    "leftCol": {
+      "top": 170,
+      "bottom": 667,
+      "height": 497,
+      "left": 174,
+      "width": 548,
+      "layout": {
+        "offsetTop": 170,
+        "offsetHeight": 497
+      }
+    },
+    "rightCol": {
+      "top": 222,
+      "bottom": 615,
+      "height": 393,
+      "left": 770,
+      "width": 496,
+      "layout": {
+        "offsetTop": 222,
+        "offsetHeight": 393
+      }
+    },
+    "h1": {
+      "top": 229,
+      "bottom": 421,
+      "height": 192,
+      "left": 174,
+      "width": 548
+    },
+    "h1Font": "59.2px",
+    "ctas": {
+      "top": 589,
+      "bottom": 639,
+      "height": 50,
+      "left": 174,
+      "width": 548
+    },
+    "note": null,
+    "faixa": null,
+    "strip": null,
+    "lastChildOfHeroIsStrip": false,
+    "nextSectionTop": 777
+  },
+  {
+    "page": "/investors",
+    "size": "1920x1080",
+    "errors": [],
+    "viewport": {
+      "w": 1920,
+      "h": 1080
+    },
+    "docScrollHeight": 8801,
+    "scrollbarX": false,
+    "nav": {
+      "top": 0,
+      "bottom": 72,
+      "height": 72,
+      "left": 0,
+      "width": 1920
+    },
+    "hero": {
+      "top": 0,
+      "bottom": 777,
+      "height": 777,
+      "left": 0,
+      "width": 1920
+    },
+    "heroPaddingTop": "170px",
+    "wrap": {
+      "top": 170,
+      "bottom": 777,
+      "height": 607,
+      "left": 390,
+      "width": 1140
+    },
+    "wrapPaddingBottom": "110px",
+    "leftCol": {
+      "top": 170,
+      "bottom": 667,
+      "height": 497,
+      "left": 414,
+      "width": 548,
+      "layout": {
+        "offsetTop": 170,
+        "offsetHeight": 497
+      }
+    },
+    "rightCol": {
+      "top": 222,
+      "bottom": 615,
+      "height": 393,
+      "left": 1010,
+      "width": 496,
+      "layout": {
+        "offsetTop": 222,
+        "offsetHeight": 393
+      }
+    },
+    "h1": {
+      "top": 229,
+      "bottom": 421,
+      "height": 192,
+      "left": 414,
+      "width": 548
+    },
+    "h1Font": "59.2px",
+    "ctas": {
+      "top": 589,
+      "bottom": 639,
+      "height": 50,
+      "left": 414,
+      "width": 548
+    },
+    "note": null,
+    "faixa": null,
+    "strip": null,
+    "lastChildOfHeroIsStrip": false,
+    "nextSectionTop": 777
+  },
+  {
+    "page": "/investors",
+    "size": "375x812",
+    "errors": [],
+    "viewport": {
+      "w": 375,
+      "h": 812
+    },
+    "docScrollHeight": 15225,
+    "scrollbarX": false,
+    "nav": {
+      "top": 0,
+      "bottom": 72,
+      "height": 72,
+      "left": 0,
+      "width": 375
+    },
+    "hero": {
+      "top": 0,
+      "bottom": 1239,
+      "height": 1239,
+      "left": 0,
+      "width": 375
+    },
+    "heroPaddingTop": "170px",
+    "wrap": {
+      "top": 170,
+      "bottom": 1239,
+      "height": 1069,
+      "left": 0,
+      "width": 375
+    },
+    "wrapPaddingBottom": "80px",
+    "leftCol": {
+      "top": 170,
+      "bottom": 720,
+      "height": 550,
+      "left": 24,
+      "width": 327,
+      "layout": {
+        "offsetTop": 170,
+        "offsetHeight": 550
+      }
+    },
+    "rightCol": {
+      "top": 768,
+      "bottom": 1159,
+      "height": 391,
+      "left": 24,
+      "width": 327,
+      "layout": {
+        "offsetTop": 768,
+        "offsetHeight": 391
+      }
+    },
+    "h1": {
+      "top": 229,
+      "bottom": 353,
+      "height": 124,
+      "left": 24,
+      "width": 327
+    },
+    "h1Font": "38.4px",
+    "ctas": {
+      "top": 579,
+      "bottom": 692,
+      "height": 113,
+      "left": 24,
+      "width": 327
+    },
+    "note": null,
+    "faixa": null,
+    "strip": null,
+    "lastChildOfHeroIsStrip": false,
+    "nextSectionTop": 1239
+  }
+]

@@ -1,0 +1,10 @@
+A1 logos allowed: perf 91 | FCP 1819 (observed 171) LCP 3397 (observed 171) TBT 0 CLS 0.0009 | logo requests 8 [Low] 470555 B | requests 53
+B1 logos BLOCKED: perf 91 | FCP 1360 (observed 252) LCP 3470 (observed 252) TBT 26 CLS 0.0009 | logo requests 24 [Low] 0 B | requests 69
+A2 logos allowed: perf 91 | FCP 1362 (observed 204) LCP 3474 (observed 204) TBT 0 CLS 0.0009 | logo requests 8 [Low] 470555 B | requests 53
+B2 logos BLOCKED: perf 92 | FCP 1360 (observed 199) LCP 3320 (observed 199) TBT 11 CLS 0.0009 | logo requests 24 [Low] 0 B | requests 69
+A3 logos allowed: perf 82 | FCP 2265 (observed 213) LCP 4370 (observed 213) TBT 43 CLS 0.0009 | logo requests 8 [Low] 470555 B | requests 53
+B3 logos BLOCKED: perf 92 | FCP 1359 (observed 210) LCP 3392 (observed 210) TBT 32 CLS 0.0009 | logo requests 24 [Low] 0 B | requests 69
+A4 logos allowed: perf 95 | FCP 1360 (observed 225) LCP 2940 (observed 225) TBT 19 CLS 0.0009 | logo requests 8 [Low] 470555 B | requests 53
+B4 logos BLOCKED: perf 93 | FCP 1361 (observed 221) LCP 3247 (observed 221) TBT 29 CLS 0.0009 | logo requests 24 [Low] 0 B | requests 69
+MEDIAN A (logos allowed): perf 91 FCP 1591 LCP 3436 TBT 10
+MEDIAN B (logos blocked): perf 92 FCP 1360 LCP 3356 TBT 28

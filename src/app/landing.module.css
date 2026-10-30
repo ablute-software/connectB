@@ -328,3 +328,57 @@
   .navLinks a.link { display: none; }
   .c2 { left: -6px; }
 }
+
+/* ---------- hero with the logo strip under it (Prompt 926, 30/10/2026) ----------
+   With the strip of logos under it the hero moves up, so the whole strip is in the first screen of a laptop (1280x720 and up). Only vertical space changes: the gap
+   under the nav (which is 72 px tall), the gap under the content, and the margins between the lines of the left column. No font size, no text, no width and no part of
+   the pipeline picture is touched. heroWithLogos is added only while the strip is drawn, so the hero keeps its old spacing whenever it is not (fewer than six
+   authorized logos). Written with the hero's own class in front of each selector so it wins over the rules above whatever their order; the bottom padding is on
+   the hero's DIRECT .wrap only, because the dark bar of checks inside the hero has a .wrap of its own (".strip .wrap", 18 px) that a plain ".wrap" would also reach. */
+.hero.heroWithLogos { padding-top: 96px; }
+.hero.heroWithLogos > .wrap { padding-bottom: 28px; }
+.hero.heroWithLogos .badge { margin-bottom: 14px; }
+.hero.heroWithLogos h1 { margin-bottom: 12px; }
+.hero.heroWithLogos .lead { margin-bottom: 20px; }
+.hero.heroWithLogos .heroCtas { margin-bottom: 16px; }
+@media (max-width: 900px) {
+  .hero.heroWithLogos > .wrap { padding-bottom: 48px; }
+}
+
+/* ---------- logo strip (Prompt 926, 30/10/2026) ----------
+   The white band of logos between the hero and what follows it (LogoStrip.tsx). The sizes, the loop time and the number of copies of the list arrive as custom
+   properties on the <section> (--logo-h, --logo-gap, --logo-maxw and their -phone twins, --logo-loop, --logo-copies); their source is src/content/site/logo-strip.ts, so no
+   number Nuno may want to change is written twice. Every rule is under .logoStrip: ".landing *" resets margin and padding at (0,1,0), which a lone class would tie with
+   and lose to by the order of the files. The motion is transform only: it never touches layout, so it cannot move anything else on the page. */
+.logoStrip { --h: var(--logo-h); --gap: var(--logo-gap); --maxw: var(--logo-maxw); background: #fff; }
+.logoStrip .logoInner { max-width: 1140px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; gap: 28px; }
+.logoStrip .logoLabel { flex: 0 1 200px; font-size: .78rem; line-height: 1.35; font-weight: 500; color: var(--muted); }
+.logoStrip .logoWindow { position: relative; flex: 1 1 0; min-width: 0; overflow: hidden; }
+/* the two ends fade into the band, so a logo is never cut off by a hard edge */
+.logoStrip .logoWindow::before, .logoStrip .logoWindow::after { content: ''; position: absolute; top: 0; bottom: 0; width: 64px; z-index: 1; pointer-events: none; }
+.logoStrip .logoWindow::before { left: 0; background: linear-gradient(to right, #fff, rgba(255, 255, 255, 0)); }
+.logoStrip .logoWindow::after { right: 0; background: linear-gradient(to left, #fff, rgba(255, 255, 255, 0)); }
+.logoStrip .logoTrack { display: flex; width: max-content; animation: logoLoop var(--logo-loop) linear infinite; will-change: transform; }
+.logoStrip .logoWindow:hover .logoTrack { animation-play-state: paused; }
+/* every copy ends with one gap of padding, so the seam between copies is the same width as the space between two logos */
+.logoStrip .logoList { display: flex; flex: 0 0 auto; align-items: center; gap: var(--gap); padding-right: var(--gap); list-style: none; }
+.logoStrip .logoItem { display: flex; flex: 0 0 auto; align-items: center; }
+/* a fixed height and a largest width: a long logo is shrunk to fit its box instead of dominating the row */
+.logoStrip .logoImg { display: block; height: var(--h); width: auto; max-width: var(--maxw); object-fit: contain; }
+@keyframes logoLoop { from { transform: translateX(0); } to { transform: translateX(calc(-100% / var(--logo-copies))); } }
+
+@media (max-width: 760px) {
+  .logoStrip { --h: var(--logo-h-phone); --gap: var(--logo-gap-phone); --maxw: var(--logo-maxw-phone); }
+  .logoStrip .logoInner { flex-direction: column; align-items: stretch; gap: 6px; padding: 12px 0 10px; }
+  .logoStrip .logoLabel { flex: none; padding: 0 24px; text-align: center; }
+  .logoStrip .logoWindow { flex: none; }
+  .logoStrip .logoWindow::before, .logoStrip .logoWindow::after { width: 28px; }
+}
+
+/* "Reduce motion": the strip stands still and shows the logos that fit in one row, none of them cut (the rest wrap out of sight); the copies that only exist for the
+   seam are not drawn (the global rule above already stops the animation, this one makes the still picture right). */
+@media (prefers-reduced-motion: reduce) {
+  .logoStrip .logoTrack { animation: none; width: auto; will-change: auto; }
+  .logoStrip .logoList { flex: 1 1 100%; flex-wrap: wrap; justify-content: center; height: var(--h); overflow: hidden; padding-right: 0; }
+  .logoStrip .logoList[aria-hidden='true'] { display: none; }
+}

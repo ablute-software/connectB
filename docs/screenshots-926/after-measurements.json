@@ -1,0 +1,882 @@
+[
+  {
+    "page": "/",
+    "size": "1280x720",
+    "errors": [],
+    "viewport": {
+      "w": 1280,
+      "h": 720
+    },
+    "docScrollHeight": 5609,
+    "scrollbarX": false,
+    "nav": {
+      "top": 0,
+      "bottom": 72,
+      "height": 72,
+      "left": 0,
+      "width": 1280
+    },
+    "hero": {
+      "top": 0,
+      "bottom": 753,
+      "height": 753,
+      "left": 0,
+      "width": 1280
+    },
+    "heroPaddingTop": "96px",
+    "wrap": {
+      "top": 96,
+      "bottom": 606,
+      "height": 510,
+      "left": 70,
+      "width": 1140
+    },
+    "wrapPaddingBottom": "28px",
+    "leftCol": {
+      "top": 96,
+      "bottom": 578,
+      "height": 482,
+      "left": 94,
+      "width": 548,
+      "layout": {
+        "offsetTop": 96,
+        "offsetHeight": 482
+      }
+    },
+    "rightCol": {
+      "top": 174,
+      "bottom": 500,
+      "height": 327,
+      "left": 690,
+      "width": 496,
+      "layout": {
+        "offsetTop": 174,
+        "offsetHeight": 327
+      }
+    },
+    "h1": {
+      "top": 147,
+      "bottom": 275,
+      "height": 128,
+      "left": 94,
+      "width": 548
+    },
+    "h1Font": "59.2px",
+    "ctas": {
+      "top": 490,
+      "bottom": 541,
+      "height": 50,
+      "left": 94,
+      "width": 548
+    },
+    "note": {
+      "top": 557,
+      "bottom": 578,
+      "height": 22,
+      "left": 94,
+      "width": 548
+    },
+    "faixa": {
+      "top": 606,
+      "bottom": 694,
+      "height": 88,
+      "left": 0,
+      "width": 1280
+    },
+    "strip": {
+      "top": 694,
+      "bottom": 753,
+      "height": 59,
+      "left": 0,
+      "width": 1280
+    },
+    "lastChildOfHeroIsStrip": true,
+    "nextSectionTop": 753
+  },
+  {
+    "page": "/",
+    "size": "1366x768",
+    "errors": [],
+    "viewport": {
+      "w": 1366,
+      "h": 768
+    },
+    "docScrollHeight": 5176,
+    "scrollbarX": false,
+    "nav": {
+      "top": 0,
+      "bottom": 72,
+      "height": 72,
+      "left": 0,
+      "width": 1366
+    },
+    "hero": {
+      "top": 0,
+      "bottom": 753,
+      "height": 753,
+      "left": 0,
+      "width": 1366
+    },
+    "heroPaddingTop": "96px",
+    "wrap": {
+      "top": 96,
+      "bottom": 606,
+      "height": 510,
+      "left": 113,
+      "width": 1140
+    },
+    "wrapPaddingBottom": "28px",
+    "leftCol": {
+      "top": 96,
+      "bottom": 578,
+      "height": 482,
+      "left": 137,
+      "width": 548,
+      "layout": {
+        "offsetTop": 96,
+        "offsetHeight": 482
+      }
+    },
+    "rightCol": {
+      "top": 174,
+      "bottom": 500,
+      "height": 327,
+      "left": 733,
+      "width": 496,
+      "layout": {
+        "offsetTop": 174,
+        "offsetHeight": 327
+      }
+    },
+    "h1": {
+      "top": 147,
+      "bottom": 275,
+      "height": 128,
+      "left": 137,
+      "width": 548
+    },
+    "h1Font": "59.2px",
+    "ctas": {
+      "top": 490,
+      "bottom": 541,
+      "height": 50,
+      "left": 137,
+      "width": 548
+    },
+    "note": {
+      "top": 557,
+      "bottom": 578,
+      "height": 22,
+      "left": 137,
+      "width": 548
+    },
+    "faixa": {
+      "top": 606,
+      "bottom": 694,
+      "height": 88,
+      "left": 0,
+      "width": 1366
+    },
+    "strip": {
+      "top": 694,
+      "bottom": 753,
+      "height": 59,
+      "left": 0,
+      "width": 1366
+    },
+    "lastChildOfHeroIsStrip": true,
+    "nextSectionTop": 753
+  },
+  {
+    "page": "/",
+    "size": "1440x900",
+    "errors": [],
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "docScrollHeight": 5161,
+    "scrollbarX": false,
+    "nav": {
+      "top": 0,
+      "bottom": 72,
+      "height": 72,
+      "left": 0,
+      "width": 1440
+    },
+    "hero": {
+      "top": 0,
+      "bottom": 753,
+      "height": 753,
+      "left": 0,
+      "width": 1440
+    },
+    "heroPaddingTop": "96px",
+    "wrap": {
+      "top": 96,
+      "bottom": 606,
+      "height": 510,
+      "left": 150,
+      "width": 1140
+    },
+    "wrapPaddingBottom": "28px",
+    "leftCol": {
+      "top": 96,
+      "bottom": 578,
+      "height": 482,
+      "left": 174,
+      "width": 548,
+      "layout": {
+        "offsetTop": 96,
+        "offsetHeight": 482
+      }
+    },
+    "rightCol": {
+      "top": 174,
+      "bottom": 500,
+      "height": 327,
+      "left": 770,
+      "width": 496,
+      "layout": {
+        "offsetTop": 174,
+        "offsetHeight": 327
+      }
+    },
+    "h1": {
+      "top": 147,
+      "bottom": 275,
+      "height": 128,
+      "left": 174,
+      "width": 548
+    },
+    "h1Font": "59.2px",
+    "ctas": {
+      "top": 490,
+      "bottom": 541,
+      "height": 50,
+      "left": 174,
+      "width": 548
+    },
+    "note": {
+      "top": 557,
+      "bottom": 578,
+      "height": 22,
+      "left": 174,
+      "width": 548
+    },
+    "faixa": {
+      "top": 606,
+      "bottom": 694,
+      "height": 88,
+      "left": 0,
+      "width": 1440
+    },
+    "strip": {
+      "top": 694,
+      "bottom": 753,
+      "height": 59,
+      "left": 0,
+      "width": 1440
+    },
+    "lastChildOfHeroIsStrip": true,
+    "nextSectionTop": 753
+  },
+  {
+    "page": "/",
+    "size": "1920x1080",
+    "errors": [],
+    "viewport": {
+      "w": 1920,
+      "h": 1080
+    },
+    "docScrollHeight": 5161,
+    "scrollbarX": false,
+    "nav": {
+      "top": 0,
+      "bottom": 72,
+      "height": 72,
+      "left": 0,
+      "width": 1920
+    },
+    "hero": {
+      "top": 0,
+      "bottom": 753,
+      "height": 753,
+      "left": 0,
+      "width": 1920
+    },
+    "heroPaddingTop": "96px",
+    "wrap": {
+      "top": 96,
+      "bottom": 606,
+      "height": 510,
+      "left": 390,
+      "width": 1140
+    },
+    "wrapPaddingBottom": "28px",
+    "leftCol": {
+      "top": 96,
+      "bottom": 578,
+      "height": 482,
+      "left": 414,
+      "width": 548,
+      "layout": {
+        "offsetTop": 96,
+        "offsetHeight": 482
+      }
+    },
+    "rightCol": {
+      "top": 174,
+      "bottom": 500,
+      "height": 327,
+      "left": 1010,
+      "width": 496,
+      "layout": {
+        "offsetTop": 174,
+        "offsetHeight": 327
+      }
+    },
+    "h1": {
+      "top": 147,
+      "bottom": 275,
+      "height": 128,
+      "left": 414,
+      "width": 548
+    },
+    "h1Font": "59.2px",
+    "ctas": {
+      "top": 490,
+      "bottom": 541,
+      "height": 50,
+      "left": 414,
+      "width": 548
+    },
+    "note": {
+      "top": 557,
+      "bottom": 578,
+      "height": 22,
+      "left": 414,
+      "width": 548
+    },
+    "faixa": {
+      "top": 606,
+      "bottom": 694,
+      "height": 88,
+      "left": 0,
+      "width": 1920
+    },
+    "strip": {
+      "top": 694,
+      "bottom": 753,
+      "height": 59,
+      "left": 0,
+      "width": 1920
+    },
+    "lastChildOfHeroIsStrip": true,
+    "nextSectionTop": 753
+  },
+  {
+    "page": "/",
+    "size": "375x812",
+    "errors": [],
+    "viewport": {
+      "w": 375,
+      "h": 812
+    },
+    "docScrollHeight": 10323,
+    "scrollbarX": false,
+    "nav": {
+      "top": 0,
+      "bottom": 72,
+      "height": 72,
+      "left": 0,
+      "width": 375
+    },
+    "hero": {
+      "top": 0,
+      "bottom": 1484,
+      "height": 1484,
+      "left": 0,
+      "width": 375
+    },
+    "heroPaddingTop": "96px",
+    "wrap": {
+      "top": 96,
+      "bottom": 1155,
+      "height": 1059,
+      "left": 0,
+      "width": 375
+    },
+    "wrapPaddingBottom": "48px",
+    "leftCol": {
+      "top": 96,
+      "bottom": 641,
+      "height": 545,
+      "left": 24,
+      "width": 327,
+      "layout": {
+        "offsetTop": 96,
+        "offsetHeight": 545
+      }
+    },
+    "rightCol": {
+      "top": 689,
+      "bottom": 1107,
+      "height": 418,
+      "left": 24,
+      "width": 327,
+      "layout": {
+        "offsetTop": 689,
+        "offsetHeight": 418
+      }
+    },
+    "h1": {
+      "top": 168,
+      "bottom": 251,
+      "height": 83,
+      "left": 24,
+      "width": 327
+    },
+    "h1Font": "38.4px",
+    "ctas": {
+      "top": 553,
+      "bottom": 604,
+      "height": 50,
+      "left": 24,
+      "width": 327
+    },
+    "note": {
+      "top": 620,
+      "bottom": 641,
+      "height": 22,
+      "left": 24,
+      "width": 327
+    },
+    "faixa": {
+      "top": 1155,
+      "bottom": 1244,
+      "height": 89,
+      "left": 0,
+      "width": 375
+    },
+    "strip": {
+      "top": 1244,
+      "bottom": 1484,
+      "height": 240,
+      "left": 0,
+      "width": 375
+    },
+    "lastChildOfHeroIsStrip": true,
+    "nextSectionTop": 1484
+  },
+  {
+    "page": "/investors",
+    "size": "1280x720",
+    "errors": [],
+    "viewport": {
+      "w": 1280,
+      "h": 720
+    },
+    "docScrollHeight": 9275,
+    "scrollbarX": false,
+    "nav": {
+      "top": 0,
+      "bottom": 72,
+      "height": 72,
+      "left": 0,
+      "width": 1280
+    },
+    "hero": {
+      "top": 0,
+      "bottom": 669,
+      "height": 669,
+      "left": 0,
+      "width": 1280
+    },
+    "heroPaddingTop": "96px",
+    "wrap": {
+      "top": 96,
+      "bottom": 581,
+      "height": 485,
+      "left": 70,
+      "width": 1140
+    },
+    "wrapPaddingBottom": "28px",
+    "leftCol": {
+      "top": 96,
+      "bottom": 553,
+      "height": 457,
+      "left": 94,
+      "width": 548,
+      "layout": {
+        "offsetTop": 96,
+        "offsetHeight": 457
+      }
+    },
+    "rightCol": {
+      "top": 128,
+      "bottom": 521,
+      "height": 393,
+      "left": 690,
+      "width": 496,
+      "layout": {
+        "offsetTop": 128,
+        "offsetHeight": 393
+      }
+    },
+    "h1": {
+      "top": 147,
+      "bottom": 339,
+      "height": 192,
+      "left": 94,
+      "width": 548
+    },
+    "h1Font": "59.2px",
+    "ctas": {
+      "top": 487,
+      "bottom": 537,
+      "height": 50,
+      "left": 94,
+      "width": 548
+    },
+    "note": null,
+    "faixa": {
+      "top": 581,
+      "bottom": 669,
+      "height": 88,
+      "left": 0,
+      "width": 1280
+    },
+    "strip": null,
+    "lastChildOfHeroIsStrip": false,
+    "nextSectionTop": 669
+  },
+  {
+    "page": "/investors",
+    "size": "1366x768",
+    "errors": [],
+    "viewport": {
+      "w": 1366,
+      "h": 768
+    },
+    "docScrollHeight": 8716,
+    "scrollbarX": false,
+    "nav": {
+      "top": 0,
+      "bottom": 72,
+      "height": 72,
+      "left": 0,
+      "width": 1366
+    },
+    "hero": {
+      "top": 0,
+      "bottom": 669,
+      "height": 669,
+      "left": 0,
+      "width": 1366
+    },
+    "heroPaddingTop": "96px",
+    "wrap": {
+      "top": 96,
+      "bottom": 581,
+      "height": 485,
+      "left": 113,
+      "width": 1140
+    },
+    "wrapPaddingBottom": "28px",
+    "leftCol": {
+      "top": 96,
+      "bottom": 553,
+      "height": 457,
+      "left": 137,
+      "width": 548,
+      "layout": {
+        "offsetTop": 96,
+        "offsetHeight": 457
+      }
+    },
+    "rightCol": {
+      "top": 128,
+      "bottom": 521,
+      "height": 393,
+      "left": 733,
+      "width": 496,
+      "layout": {
+        "offsetTop": 128,
+        "offsetHeight": 393
+      }
+    },
+    "h1": {
+      "top": 147,
+      "bottom": 339,
+      "height": 192,
+      "left": 137,
+      "width": 548
+    },
+    "h1Font": "59.2px",
+    "ctas": {
+      "top": 487,
+      "bottom": 537,
+      "height": 50,
+      "left": 137,
+      "width": 548
+    },
+    "note": null,
+    "faixa": {
+      "top": 581,
+      "bottom": 669,
+      "height": 88,
+      "left": 0,
+      "width": 1366
+    },
+    "strip": null,
+    "lastChildOfHeroIsStrip": false,
+    "nextSectionTop": 669
+  },
+  {
+    "page": "/investors",
+    "size": "1440x900",
+    "errors": [],
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "docScrollHeight": 8693,
+    "scrollbarX": false,
+    "nav": {
+      "top": 0,
+      "bottom": 72,
+      "height": 72,
+      "left": 0,
+      "width": 1440
+    },
+    "hero": {
+      "top": 0,
+      "bottom": 669,
+      "height": 669,
+      "left": 0,
+      "width": 1440
+    },
+    "heroPaddingTop": "96px",
+    "wrap": {
+      "top": 96,
+      "bottom": 581,
+      "height": 485,
+      "left": 150,
+      "width": 1140
+    },
+    "wrapPaddingBottom": "28px",
+    "leftCol": {
+      "top": 96,
+      "bottom": 553,
+      "height": 457,
+      "left": 174,
+      "width": 548,
+      "layout": {
+        "offsetTop": 96,
+        "offsetHeight": 457
+      }
+    },
+    "rightCol": {
+      "top": 128,
+      "bottom": 521,
+      "height": 393,
+      "left": 770,
+      "width": 496,
+      "layout": {
+        "offsetTop": 128,
+        "offsetHeight": 393
+      }
+    },
+    "h1": {
+      "top": 147,
+      "bottom": 339,
+      "height": 192,
+      "left": 174,
+      "width": 548
+    },
+    "h1Font": "59.2px",
+    "ctas": {
+      "top": 487,
+      "bottom": 537,
+      "height": 50,
+      "left": 174,
+      "width": 548
+    },
+    "note": null,
+    "faixa": {
+      "top": 581,
+      "bottom": 669,
+      "height": 88,
+      "left": 0,
+      "width": 1440
+    },
+    "strip": null,
+    "lastChildOfHeroIsStrip": false,
+    "nextSectionTop": 669
+  },
+  {
+    "page": "/investors",
+    "size": "1920x1080",
+    "errors": [],
+    "viewport": {
+      "w": 1920,
+      "h": 1080
+    },
+    "docScrollHeight": 8693,
+    "scrollbarX": false,
+    "nav": {
+      "top": 0,
+      "bottom": 72,
+      "height": 72,
+      "left": 0,
+      "width": 1920
+    },
+    "hero": {
+      "top": 0,
+      "bottom": 669,
+      "height": 669,
+      "left": 0,
+      "width": 1920
+    },
+    "heroPaddingTop": "96px",
+    "wrap": {
+      "top": 96,
+      "bottom": 581,
+      "height": 485,
+      "left": 390,
+      "width": 1140
+    },
+    "wrapPaddingBottom": "28px",
+    "leftCol": {
+      "top": 96,
+      "bottom": 553,
+      "height": 457,
+      "left": 414,
+      "width": 548,
+      "layout": {
+        "offsetTop": 96,
+        "offsetHeight": 457
+      }
+    },
+    "rightCol": {
+      "top": 128,
+      "bottom": 521,
+      "height": 393,
+      "left": 1010,
+      "width": 496,
+      "layout": {
+        "offsetTop": 128,
+        "offsetHeight": 393
+      }
+    },
+    "h1": {
+      "top": 147,
+      "bottom": 339,
+      "height": 192,
+      "left": 414,
+      "width": 548
+    },
+    "h1Font": "59.2px",
+    "ctas": {
+      "top": 487,
+      "bottom": 537,
+      "height": 50,
+      "left": 414,
+      "width": 548
+    },
+    "note": null,
+    "faixa": {
+      "top": 581,
+      "bottom": 669,
+      "height": 88,
+      "left": 0,
+      "width": 1920
+    },
+    "strip": null,
+    "lastChildOfHeroIsStrip": false,
+    "nextSectionTop": 669
+  },
+  {
+    "page": "/investors",
+    "size": "375x812",
+    "errors": [],
+    "viewport": {
+      "w": 375,
+      "h": 812
+    },
+    "docScrollHeight": 15168,
+    "scrollbarX": false,
+    "nav": {
+      "top": 0,
+      "bottom": 72,
+      "height": 72,
+      "left": 0,
+      "width": 375
+    },
+    "hero": {
+      "top": 0,
+      "bottom": 1182,
+      "height": 1182,
+      "left": 0,
+      "width": 375
+    },
+    "heroPaddingTop": "96px",
+    "wrap": {
+      "top": 96,
+      "bottom": 1093,
+      "height": 997,
+      "left": 0,
+      "width": 375
+    },
+    "wrapPaddingBottom": "48px",
+    "leftCol": {
+      "top": 96,
+      "bottom": 606,
+      "height": 510,
+      "left": 24,
+      "width": 327,
+      "layout": {
+        "offsetTop": 96,
+        "offsetHeight": 510
+      }
+    },
+    "rightCol": {
+      "top": 654,
+      "bottom": 1045,
+      "height": 391,
+      "left": 24,
+      "width": 327,
+      "layout": {
+        "offsetTop": 654,
+        "offsetHeight": 391
+      }
+    },
+    "h1": {
+      "top": 147,
+      "bottom": 271,
+      "height": 124,
+      "left": 24,
+      "width": 327
+    },
+    "h1Font": "38.4px",
+    "ctas": {
+      "top": 477,
+      "bottom": 590,
+      "height": 113,
+      "left": 24,
+      "width": 327
+    },
+    "note": null,
+    "faixa": {
+      "top": 1093,
+      "bottom": 1182,
+      "height": 89,
+      "left": 0,
+      "width": 375
+    },
+    "strip": null,
+    "lastChildOfHeroIsStrip": false,
+    "nextSectionTop": 1182
+  }
+]
