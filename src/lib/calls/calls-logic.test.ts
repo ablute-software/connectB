@@ -129,8 +129,8 @@ describe('answers per type', () => {
     const file = f({ id: 'f', kind: 'file', validations: { maxFileMb: 2 } });
     expect(validateAnswer(file, { fileName: 'deck.pdf', size: 1024 })).toBeNull();
     expect(validateAnswer(file, { fileName: 'DECK.PDF', size: 1024 })).toBeNull();
-    expect(validateAnswer(file, { fileName: 'deck.docx', size: 1024 })).toBe('Only PDF files are accepted.');
-    expect(validateAnswer(file, { fileName: 'deck.pdf', size: 1024, mime: 'image/png' })).toBe('Only PDF files are accepted.');
+    expect(validateAnswer(file, { fileName: 'deck.docx', size: 1024 })).toBe('“deck.docx” is not an accepted file type. This question accepts PDF files (.pdf).');
+    expect(validateAnswer(file, { fileName: 'deck.pdf', size: 1024, mime: 'image/png' })).toBe('The type declared for “deck.pdf” (image/png) is not an accepted one. This question accepts PDF files (.pdf).');
     expect(validateAnswer(file, { fileName: 'deck.pdf', size: 3 * 1024 * 1024 })).toContain('2 MB');
   });
 });

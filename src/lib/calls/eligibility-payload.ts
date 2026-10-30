@@ -1,6 +1,6 @@
 // Prompt 918 (I3) — what the Applications tab shows about the eligibility of an application, built in one place (pure) from the current result and the state of its task, so the list, the detail and the
 // tests read the same thing. "Processing" is an application that has no result yet; "Technical failure" is one whose evaluation could not run (never an incumprimento).
-import type { Outcome } from './eligibility';
+import { RECLASSIFIED_BY_A_PERSON, aggregateRules, type Outcome } from './eligibility';
 import type { CurrentEligibility } from './eligibility-review';
 
 export type EligibilityView = 'fit' | 'not_fit' | 'to_validate' | 'processing';
@@ -38,8 +38,11 @@ export function buildInfo(current: CurrentEligibility | null, task: { status: st
     return { state, reason: state === 'technical_failure' ? 'The automatic check could not run. It was not counted against the applicant; a person can retry it.' : 'The automatic check has not finished yet.', source: null, rulesVersion: null, rules: [], reclassified: null, error: task?.lastError ?? null };
   }
   const app = current.overrides._application ?? null;
+  // A result a person corrected shows THEIR reason, not the engine's — also for what was saved before this was so (Prompt 922, Adenda 1): it is recomputed from the rules and what the person decided.
+  const ruleOverrides = Object.fromEntries(Object.entries(current.overrides).filter(([k, v]) => k !== '_application' && v.outcome).map(([k, v]) => [k, { outcome: v.outcome as Outcome, why: v.why }]));
+  const reason = app?.status ? `${RECLASSIFIED_BY_A_PERSON}${app.why}` : current.source === 'human' && Object.keys(ruleOverrides).length > 0 ? aggregateRules(current.ruleResults, ruleOverrides).reason : current.reason;
   return {
-    state: current.status, reason: current.reason, source: current.source, rulesVersion: current.rulesVersion, error: null,
+    state: current.status, reason, source: current.source, rulesVersion: current.rulesVersion, error: null,
     reclassified: app && app.status ? { status: app.status, by: app.by, why: app.why, at: app.at } : null,
     rules: current.ruleResults.map((r) => {
       const ov = current.overrides[r.ruleId];

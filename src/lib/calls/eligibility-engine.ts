@@ -9,7 +9,7 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { analyzeAuthentic, analyzeRight, analyzeValid, SCANNED_REASON, type DocText } from './doc-analysis';
 import type { DocRecipe } from './doc-recipe';
-import { evaluateObjective, isDocKind, ruleSentence, type EligibilityRule, type Outcome, type RuleResult } from './eligibility';
+import { aggregateRules, evaluateObjective, isDocKind, ruleSentence, type EligibilityRule, type Outcome, type RuleResult } from './eligibility';
 import { syncApplication } from './eval-assign-store';
 import { loadRecipes, loadRules } from './eligibility-store';
 import { extractDocument } from './ai-import/extract';
@@ -32,13 +32,8 @@ const SUBMISSION_BUCKET = 'data-room';
 // --- Putting the verdicts of the rules together ----------------------------------------------------------------------------------------------------
 
 /** Any clear failure → Not a fit; else any doubt → To validate; else Fit. `overrides` are what a person decided on a rule (they replace the engine's verdict of that rule). */
-export function aggregate(results: Pick<RuleResult, 'ruleId' | 'outcome' | 'reason'>[], overrides: Record<string, { outcome: Outcome }> = {}): { status: EligibilityStatus; reason: string } {
-  const final = results.map((r) => ({ ...r, outcome: overrides[r.ruleId]?.outcome ?? r.outcome }));
-  const failed = final.filter((r) => r.outcome === 'fail');
-  if (failed.length > 0) return { status: 'not_fit', reason: failed.map((r) => r.reason).join(' ') };
-  const doubts = final.filter((r) => r.outcome === 'validate');
-  if (doubts.length > 0) return { status: 'to_validate', reason: doubts.map((r) => r.reason).join(' ') };
-  return { status: 'fit', reason: final.length === 0 ? 'There are no eligibility rules: every submitted application is a Fit.' : 'Meets every eligibility rule.' };
+export function aggregate(results: Pick<RuleResult, 'ruleId' | 'outcome' | 'reason'>[], overrides: Record<string, { outcome: Outcome; why?: string }> = {}): { status: EligibilityStatus; reason: string } {
+  return aggregateRules(results, overrides);
 }
 
 // --- One submission ------------------------------------------------------------------------------------------------------------------------------------

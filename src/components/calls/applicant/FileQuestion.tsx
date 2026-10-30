@@ -10,7 +10,7 @@
 // once per entry (`entryId`), and the files shown are that entry's only.
 import { useRef, useState } from 'react';
 import { browserClient } from '@/lib/supabase';
-import { acceptAttr, fileFormatsOf, formatOfName, formatsText, maxFileMbOf, maxFilesOf } from '@/lib/calls/field-config';
+import { MACROS_REFUSED, acceptAttr, fileFormatsOf, formatOfName, formatsText, isMacroName, maxFileMbOf, maxFilesOf, notAcceptedMessage } from '@/lib/calls/field-config';
 import type { FormField } from '@/lib/calls/types';
 import { applicantApi } from '@/lib/calls/applicant/client';
 import type { FileRef } from '@/lib/calls/applicant/answers';
@@ -37,7 +37,8 @@ export function FileQuestion({ field, entryId, applicationId, orgId, files, disa
   async function upload(f: File) {
     setError('');
     if (/\.zip$/i.test(f.name)) { setError('ZIP files are not accepted: their content cannot be checked. Attach the documents one by one.'); return; }
-    if (!formatOfName(f.name, formats)) { setError(`Only ${formatsText(formats)} files are accepted.`); return; }
+    if (isMacroName(f.name)) { setError(MACROS_REFUSED); return; }
+    if (!formatOfName(f.name, formats)) { setError(notAcceptedMessage(formats, f.name)); return; }
     if (f.size > maxMb * 1024 * 1024) { setError(`The file is too large (maximum ${maxMb} MB).`); return; }
     setBusy('Uploading…');
     try {

@@ -126,6 +126,43 @@ describe('saving and reading the grid', () => {
     expect((await read(await oneGet(json('GET'), params(id)))).body.issues.filter((i: { tab: string }) => i.tab === 'grid')).toEqual([]);
   });
 
+  it('an EMPTY grid is built step by step, the way the editor saves it: 3 criteria (40/30/30), an edit, a removal, a reorder — each save is what the database holds, and the weights adding up to something else never stop it (Prompt 922, Adenda 1, A)', async () => {
+    const id = await newCall();
+    expect(criteriaOf(id)).toHaveLength(0);
+    const names = () => criteriaOf(id).sort((x, y) => Number(x.position) - Number(y.position)).map((c) => [c.name, Number(c.weight)]);
+    // the first criterion alone, 10 % — a warning in the step, never a refusal
+    const first = await put(id, [{ name: 'Team', weight: 10, scaleMin: 1, scaleMax: 5 }]);
+    expect(first.status).toBe(200);
+    expect(names()).toEqual([['Team', 10]]);
+    expect(first.body.weights).toMatchObject({ ok: false });
+    // 40 / 30 / 30
+    const three = await put(id, [{ name: 'Team', weight: 40, scaleMin: 1, scaleMax: 5 }, { name: 'Market', weight: 30, scaleMin: 1, scaleMax: 5 }, { name: 'Traction', weight: 30, scaleMin: 1, scaleMax: 5 }]);
+    expect(three.status).toBe(200);
+    expect(names()).toEqual([['Team', 40], ['Market', 30], ['Traction', 30]]);
+    expect(three.body.weights).toMatchObject({ ok: true });
+    // an edit (the ids the server gave are sent back, as the editor does), then the weights stop adding up: saved all the same
+    const ids = three.body.criteria.map((c: { id: string }) => c.id);
+    const edited = await put(id, three.body.criteria.map((c: { name: string }) => (c.name === 'Market' ? { ...c, name: 'Market size', weight: 25 } : c)));
+    expect(edited.status).toBe(200);
+    expect(names()).toEqual([['Team', 40], ['Market size', 25], ['Traction', 30]]);
+    expect(edited.body.criteria.map((c: { id: string }) => c.id)).toEqual(ids);              // the same criteria, not new ones
+    expect(edited.body.weights).toMatchObject({ ok: false });
+    // one removed
+    const removed = await put(id, edited.body.criteria.filter((c: { name: string }) => c.name !== 'Market size'));
+    expect(removed.status).toBe(200);
+    expect(names()).toEqual([['Team', 40], ['Traction', 30]]);
+    // reordered
+    const reordered = await put(id, [...removed.body.criteria].reverse());
+    expect(reordered.status).toBe(200);
+    expect(names()).toEqual([['Traction', 30], ['Team', 40]]);
+    expect(criteriaOf(id).map((c) => c.position).sort()).toEqual([0, 1]);
+    expect(criteriaOf(id)).toHaveLength(2);
+    // reading the grid never writes a criterion (the editor reads it more than once)
+    const before = JSON.stringify(db.tables.call_eval_criteria);
+    await view(id); await view(id);
+    expect(JSON.stringify(db.tables.call_eval_criteria)).toBe(before);
+  });
+
   it('refuses what does not fit, with the sentence, and stores nothing', async () => {
     const id = await newCall();
     expect((await put(id, [{ name: '', weight: 10, scaleMin: 1, scaleMax: 5 }])).body.error).toMatch(/give it a name/);

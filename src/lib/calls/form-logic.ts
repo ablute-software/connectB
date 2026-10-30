@@ -3,7 +3,7 @@
 // (spec §6.2: "as condições são verificadas também no servidor"). No I/O, no React.
 import { MAX_NUMBER_DIGITS, type AnswerValue, type Answers, type FieldCondition, type FormField } from './types';
 import {
-  FILE_FORMATS, MAX_URL_LENGTH, entriesOf, fileFormatsOf, fileValues, formatOfName, formatsText, groupMin, groupOf, groupStarted, isEmail, isFileValue, isGroupEntry, isHttpUrl,
+  FILE_FORMATS, MACROS_REFUSED, MAX_URL_LENGTH, entriesOf, fileFormatsOf, fileValues, formatOfName, groupMin, declaredTypeMessage, isMacroName, notAcceptedMessage, groupOf, groupStarted, isEmail, isFileValue, isGroupEntry, isHttpUrl,
   maxFileMbOf, maxFilesOf, presetEntriesFor, subFieldAsField,
 } from './field-config';
 import { isTableAnswer, isTableAnswered, tableIssues } from './table';
@@ -202,7 +202,9 @@ export function validateAnswer(field: FormField, value: AnswerValue): string | n
       const allowedMime = formats.flatMap((f) => FILE_FORMATS[f].mime);
       const maxMb = maxFileMbOf(field.validations);
       for (const f of files) {
-        if (!formatOfName(f.fileName, formats) || (f.mime && !allowedMime.includes(f.mime))) return `Only ${formatsText(formats)} files are accepted.`;
+        if (isMacroName(f.fileName)) return MACROS_REFUSED;
+        if (!formatOfName(f.fileName, formats)) return notAcceptedMessage(formats, f.fileName);
+        if (f.mime && !allowedMime.includes(f.mime)) return declaredTypeMessage(formats, f.fileName, f.mime);
         if (f.size > maxMb * 1024 * 1024) return `The file is too large (maximum ${maxMb} MB).`;
       }
       return null;

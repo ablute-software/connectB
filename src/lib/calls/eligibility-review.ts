@@ -3,7 +3,7 @@
 // who, why, when, and whether it is an exception of this call or a recognition error. Nothing here crosses to another call. Server only.
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Outcome } from './eligibility';
+import { RECLASSIFIED_BY_A_PERSON, type Outcome } from './eligibility';
 import { aggregate, saveEvaluation, type EligibilityStatus, type Evaluation, type RuleResultRecord } from './eligibility-engine';
 import { loadRecipes } from './eligibility-store';
 import type { Call } from './types';
@@ -28,10 +28,10 @@ export async function loadCurrent(admin: SupabaseClient, applicationId: string):
 
 /** The verdict of each rule with what a person decided on top, and the application's own status after any reclassification. */
 export function effective(cur: CurrentEligibility): { status: EligibilityStatus; reason: string } {
-  const ov = Object.fromEntries(Object.entries(cur.overrides).filter(([k, v]) => k !== '_application' && v.outcome).map(([k, v]) => [k, { outcome: v.outcome as Outcome }]));
+  const ov = Object.fromEntries(Object.entries(cur.overrides).filter(([k, v]) => k !== '_application' && v.outcome).map(([k, v]) => [k, { outcome: v.outcome as Outcome, why: v.why }]));
   const computed = aggregate(cur.ruleResults, ov);
   const app = cur.overrides._application;
-  return app?.status ? { status: app.status, reason: `Reclassified by a person: ${app.why}` } : computed;
+  return app?.status ? { status: app.status, reason: `${RECLASSIFIED_BY_A_PERSON}${app.why}` } : computed;
 }
 
 export type ReviewResult = { ok: true; status: EligibilityStatus; reason: string } | { ok: false; error: string; code: 'not_ready' | 'unknown_rule' | 'bad_request' };
