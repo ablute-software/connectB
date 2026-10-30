@@ -10,8 +10,16 @@ import type { AppFacts } from '@/lib/calls/results';
 const CHROME = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/chromium']
   .filter((p): p is string => !!p).find((p) => fs.existsSync(p));
 
-const app = (id: string, name: string, over: Partial<AppFacts> = {}): AppFacts => ({ applicationId: id, reference: `REF-${id}`, startupName: name, applicantUserId: `u-${id}`, decision: null, eligibility: 'fit', eligibilityReason: null, feedback: null, grade: null, ...over });
-const APPS = [app('1', 'Blue Health', { decision: 'advance' }), app('2', 'Cyan Labs', { decision: 'reject' }), app('3', 'Green Tech', { decision: 'waitlist' }), app('4', 'Grey Co'), app('5', 'Red Ltd', { eligibility: 'not_fit', eligibilityReason: 'Founded after 2024.' })];
+const app = (id: string, name: string, over: Partial<AppFacts> = {}): AppFacts => ({ applicationId: id, reference: `REF-${id}`, startupName: name, applicantUserId: `u-${id}`, decision: null, eligibility: 'fit', failedRules: [], feedback: null, grade: null, ...over });
+const APPS = [app('1', 'Blue Health', { decision: 'advance' }), app('2', 'Cyan Labs', { decision: 'reject' }), app('3', 'Green Tech', { decision: 'waitlist' }), app('4', 'Grey Co'), app('5', 'Red Ltd', { eligibility: 'not_fit', failedRules: ['The company was founded in 2024 or earlier.'] })];
+/** A paste into an editor, as the browser delivers it: the clipboard carries one format and the editor reads it. */
+async function pasteInto(page: import('playwright').Page, selector: string, type: string, data: string) {
+  await page.evaluate(([sel, t, d]) => {
+    const el = document.querySelector(sel) as HTMLElement; el.focus();
+    const dt = new DataTransfer(); dt.setData(t, d);
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  }, [selector, type, data]);
+}
 const DECIDED = APPS.map((a) => (a.decision || a.eligibility === 'not_fit' ? a : { ...a, decision: 'waitlist' as const }));
 
 describe.skipIf(!CHROME)('Results → Prepare (real browser)', () => {
@@ -95,12 +103,15 @@ describe.skipIf(!CHROME)('Results → Prepare (real browser)', () => {
     await editor.click();
     await page.keyboard.press('Control+A');
     await page.keyboard.type('Hello ');
-    await page.locator('[data-testid="field-reject-applicant_name"]').click();
+    await page.locator('[data-testid="result-reject"] [data-testid="merge-add-applicant_name"]').click();
     await page.keyboard.type(', thank you.');
     await page.waitForFunction(() => document.querySelector('[data-testid="save-status"]')?.getAttribute('data-state') === 'saved', null, { timeout: 8000 });
     const put = (await requests()).filter((r) => r.method === 'PUT').pop()!;
     const html = (put.body as { messages: { reject: string } }).messages.reject;
     expect(html).toContain('Hello {applicant_name}, thank you.');
+    // on the screen it is a tag with the name of the field, never the code; what was stored is the code
+    expect(await editor.locator('.merge-tag').allInnerTexts()).toEqual(['Applicant name']);
+    expect(await editor.innerText()).not.toContain('{');
     await page.close();
   }, 120_000);
 
@@ -109,9 +120,62 @@ describe.skipIf(!CHROME)('Results → Prepare (real browser)', () => {
     const editor = page.locator('#msg-waitlist');
     await editor.click();
     await page.keyboard.press('Control+A');
-    await page.keyboard.type('Hi {applicant}');
+    await page.keyboard.type('Hi ');
+    // a field that does not exist can only come from a paste (typing { opens the list of fields): it is a red tag, and the save says why it was refused
+    await pasteInto(page, '#msg-waitlist', 'text/plain', '{applicant}');
     await page.waitForFunction(() => document.querySelector('[data-testid="save-status"]')?.getAttribute('data-state') === 'error', null, { timeout: 8000 });
     expect(await page.locator('[data-testid="save-status"]').innerText()).toContain('{applicant} does not exist');
+    expect(await editor.locator('.merge-tag-unknown').allInnerTexts()).toEqual(['Unknown field']);
+    await page.close();
+  }, 120_000);
+
+  it('merge tags: the messages open with the fields as tags; { opens the list; one Backspace removes a tag; copy and paste keep it; what is stored is the code', async () => {
+    const { page, requests } = await open(DECIDED);
+    const editor = page.locator('#msg-advance');
+    // the default message is stored with {applicant_name}, {call_title}…; on screen only tags
+    expect(await editor.locator('.merge-tag').count()).toBeGreaterThan(1);
+    expect(await editor.innerText()).not.toMatch(/[{}]/);
+    expect(await editor.locator('.merge-tag').first().evaluate((e) => e.getAttribute('contenteditable'))).toBe('false');
+    await editor.click();
+    await page.keyboard.press('Control+A');
+    await page.keyboard.press('Delete');
+    await page.keyboard.type('Hi ');
+    // { opens the list of fields instead of a bracket; the arrows and Enter choose
+    await page.keyboard.type('{');
+    await page.waitForSelector('[data-testid="merge-menu"]');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    expect(await page.locator('[data-testid="merge-menu"]').count()).toBe(0);
+    expect(await editor.locator('.merge-tag').allInnerTexts()).toEqual(['Startup name']);
+    expect(await editor.innerText()).not.toContain('{');
+    // one Backspace takes the whole tag away
+    await page.keyboard.press('Backspace');
+    expect(await editor.locator('.merge-tag').count()).toBe(0);
+    // a field from the list under the editor
+    await page.locator('[data-testid="result-advance"] [data-testid="merge-add-call_title"]').click();
+    await page.locator('[data-testid="result-advance"] [data-testid="merge-add-reference"]').click();
+    expect(await editor.locator('.merge-tag').allInnerTexts()).toEqual(['Call title', 'Reference']);
+    // copy and paste: the tags come back as tags
+    const copied = await page.evaluate(() => {
+      const el = document.querySelector('#msg-advance') as HTMLElement;
+      el.focus();
+      const sel = window.getSelection()!; const r = document.createRange(); r.selectNodeContents(el); sel.removeAllRanges(); sel.addRange(r);
+      const dt = new DataTransfer();
+      el.dispatchEvent(new ClipboardEvent('copy', { clipboardData: dt, bubbles: true, cancelable: true }));
+      r.collapse(false); sel.removeAllRanges(); sel.addRange(r);
+      return { html: dt.getData('text/html'), plain: dt.getData('text/plain') };
+    });
+    expect(copied.plain).toContain('{call_title}');
+    expect(copied.plain).toContain('{reference}');
+    await pasteInto(page, '#msg-advance', 'text/html', copied.html);
+    expect(await editor.locator('.merge-tag').allInnerTexts()).toEqual(['Call title', 'Reference', 'Call title', 'Reference']);
+    // what was stored is the code
+    await page.waitForFunction(() => document.querySelector('[data-testid="save-status"]')?.getAttribute('data-state') === 'saved', null, { timeout: 8000 });
+    const html = ((await requests()).filter((r) => r.method === 'PUT').pop()!.body as { messages: { advance: string } }).messages.advance;
+    expect(html).toContain('{call_title}');
+    expect(html).toContain('{reference}');
+    expect(html).not.toContain('merge-tag');
+    expect(html).not.toContain('Call title');
     await page.close();
   }, 120_000);
 

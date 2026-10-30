@@ -6,11 +6,11 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SETTINGS, MAX_SEND_ATTEMPTS, PLACEHOLDERS, backoffMs, blockersOf, buildMessage, classifyEmailFailure, cleanFeedback, cleanGrade, confirmationMatches, defaultMessage, fillPlaceholders, formatGrade, labelOf, nextStepsText, outcomeOf, parseSettingsPatch, roundOf,
-  scheduleProblem, summarise, unknownPlaceholders,
+  scheduleProblem, summarise, unknownPlaceholders, unknownFieldsFor, failedRuleSentences,
   type AppFacts, type ResultSettings,
 } from './results';
 
-const app = (over: Partial<AppFacts> = {}): AppFacts => ({ applicationId: 'a1', reference: 'REF-001', startupName: 'Blue Health', applicantUserId: 'u1', decision: null, eligibility: 'fit', eligibilityReason: null, feedback: null, grade: null, ...over });
+const app = (over: Partial<AppFacts> = {}): AppFacts => ({ applicationId: 'a1', reference: 'REF-001', startupName: 'Blue Health', applicantUserId: 'u1', decision: null, eligibility: 'fit', failedRules: [], feedback: null, grade: null, ...over });
 const settings = (over: Partial<ResultSettings> = {}): ResultSettings => ({ ...DEFAULT_SETTINGS, labels: {}, messages: {}, ...over });
 const input = (over: Partial<Parameters<typeof buildMessage>[0]> = {}): Parameters<typeof buildMessage>[0] => ({
   settings: settings(), call: { name: 'Seed Call 2027', contentLanguage: 'en' }, entityName: 'Portugal Ventures', app: app({ decision: 'advance' }), applicantName: 'Ana Silva', hasNextPhase: false, formatDay: (d) => `on ${d}`, ...over,
@@ -18,7 +18,7 @@ const input = (over: Partial<Parameters<typeof buildMessage>[0]> = {}): Paramete
 
 describe('the defaults Nuno decided (28/10/2026)', () => {
   it('feedback off, contestations off with 10 calendar days once on, the data kept 24 months after the call is completed', () => {
-    expect(DEFAULT_SETTINGS).toMatchObject({ feedbackEnabled: false, contestationsEnabled: false, contestationDays: 10, retentionMonths: 24, includeEligibilityReason: false });
+    expect(DEFAULT_SETTINGS).toMatchObject({ feedbackEnabled: false, contestationsEnabled: false, contestationDays: 10, retentionMonths: 24, eligibilityReasonMode: 'none' });
   });
 });
 
@@ -80,8 +80,8 @@ describe('the phases: which one is being prepared, and whether "Selected" moves 
 });
 
 describe('the fields of a message fill themselves in', () => {
-  it('applicant_name, startup_name, call_title, entity_name, next_steps and reference — all six exist', () => {
-    expect(PLACEHOLDERS.map((p) => p.key)).toEqual(['applicant_name', 'startup_name', 'call_title', 'entity_name', 'next_steps', 'reference']);
+  it('applicant_name, startup_name, call_title, entity_name, next_steps and reference — reference and eligibility_reason — all seven exist', () => {
+    expect(PLACEHOLDERS.map((p) => p.key)).toEqual(['applicant_name', 'startup_name', 'call_title', 'entity_name', 'next_steps', 'reference', 'eligibility_reason']);
     const html = '<p>{applicant_name} / {startup_name} / {call_title} / {entity_name} / {next_steps} / {reference}</p>';
     expect(fillPlaceholders(html, { applicant_name: 'Ana', startup_name: 'Blue', call_title: 'Call', entity_name: 'Fund', next_steps: 'Soon', reference: 'R-1' })).toBe('<p>Ana / Blue / Call / Fund / Soon / R-1</p>');
   });
@@ -148,11 +148,36 @@ describe('the message one applicant receives', () => {
     expect(withFb({ feedbackEnabled: false }, 'written but the option is off').html).not.toContain('written but');
     expect(withFb({ feedbackEnabled: true }, '<b>x</b>\nsecond line').html).toContain('&lt;b&gt;x&lt;/b&gt;<br>second line');
   });
-  it('the eligibility reason is added only for a "Not a fit" without a decision, and only if the entity asked for it', () => {
-    const notFit = app({ eligibility: 'not_fit', eligibilityReason: 'The company was founded after 2024.' });
-    expect(buildMessage(input({ app: notFit }))!.html).not.toContain('founded after');
-    expect(buildMessage(input({ settings: settings({ includeEligibilityReason: true }), app: notFit }))!.html).toContain('<strong>Reason:</strong> The company was founded after 2024.');
-    expect(buildMessage(input({ settings: settings({ includeEligibilityReason: true }), app: { ...notFit, decision: 'reject' } }))!.html).not.toContain('founded after');
+  it('the eligibility reason goes where {eligibility_reason} is, before the farewell, in the way the entity chose; a decision by a person means no reason', () => {
+    const notFit = app({ eligibility: 'not_fit', failedRules: ['The company was founded in 2024 or earlier.', 'At least 2 founders.'] });
+    const html = (mode: ResultSettings['eligibilityReasonMode'], a: AppFacts) => buildMessage(input({ settings: settings({ eligibilityReasonMode: mode }), app: a }))!.html;
+    expect(html('none', notFit)).not.toContain('founded in 2024');
+    expect(html('none', notFit)).not.toContain('eligibility requirements');
+    expect(html('none', notFit)).not.toContain('<p></p>');
+    expect(html('general', notFit)).toContain('<p>Your application did not meet the eligibility requirements of this call.</p>');
+    expect(html('general', notFit)).not.toContain('founded in 2024');
+    expect(html('rule', notFit)).toContain('The requirement that was not met: The company was founded in 2024 or earlier.; At least 2 founders.');
+    expect(html('rule', notFit).indexOf('The requirement')).toBeLessThan(html('rule', notFit).indexOf('Kind regards'));
+    // a person decided: the application is not told about the eligibility at all
+    expect(html('rule', { ...notFit, decision: 'reject' })).not.toContain('founded in 2024');
+    expect(html('general', { ...notFit, decision: 'reject' })).not.toContain('eligibility requirements');
+    // "rule" with no sentence to quote falls back to the general one
+    expect(html('rule', app({ eligibility: 'not_fit', failedRules: [] }))).toContain('did not meet the eligibility requirements');
+  });
+  it('the field exists, and a message with a field that does not exist blocks publishing', () => {
+    expect(PLACEHOLDERS.map((p) => p.key)).toContain('eligibility_reason');
+    expect(defaultMessage('reject', 'en', false)).toContain('{eligibility_reason}');
+    expect(unknownFieldsFor({ messages: { reject: '<p>Hi {applicant_nam}</p>' } }, 'en', false)).toEqual(['applicant_nam']);
+    expect(unknownFieldsFor({ messages: {} }, 'en', false)).toEqual([]);
+    const summary = summarise([app({ decision: 'advance' })]);
+    expect(blockersOf({ summary, callStatus: 'closed', alreadyPublished: false, unknownFields: ['applicant_nam'] }).map((b) => b.code)).toContain('unknown_fields');
+    expect(blockersOf({ summary, callStatus: 'closed', alreadyPublished: false, unknownFields: [] }).map((b) => b.code)).not.toContain('unknown_fields');
+  });
+  it('the sentences of the rules not met are those that still fail after a decision by a person, never the engine reason', () => {
+    const results = [{ ruleId: 'a', outcome: 'fail', sentence: 'Sentence A.' }, { ruleId: 'b', outcome: 'fail', sentence: 'Sentence B.' }, { ruleId: 'c', outcome: 'pass', sentence: 'Sentence C.' }];
+    expect(failedRuleSentences(results)).toEqual(['Sentence A.', 'Sentence B.']);
+    expect(failedRuleSentences(results, { a: { outcome: 'pass' } })).toEqual(['Sentence B.']);
+    expect(failedRuleSentences(results, { c: { outcome: 'fail' } })).toEqual(['Sentence A.', 'Sentence B.', 'Sentence C.']);
   });
 });
 

@@ -6,7 +6,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { formatDayInZone } from './tz';
 import { loadPhases, promoterName } from './store';
 import {
-  DEFAULT_SETTINGS, PLACEHOLDERS, RESULT_KEYS, blockersOf, buildMessage, cleanFeedback, cleanGrade, defaultMessage, labelOf, messageOf, outcomeOf, parseSettingsPatch, roundOf, summarise,
+  DEFAULT_SETTINGS, ELIGIBILITY_REASON_MODES, PLACEHOLDERS, RESULT_KEYS, failedRuleSentences, unknownFieldsFor, blockersOf, buildMessage, cleanFeedback, cleanGrade, defaultMessage, labelOf, messageOf, outcomeOf, parseSettingsPatch, roundOf, summarise,
   type AppFacts, type BatchInfo, type BuiltMessage, type PrepareView, type ResultKey, type ResultSettings,
 } from './results';
 import type { Decision } from './eval-board';
@@ -28,7 +28,7 @@ export async function loadSettings(admin: SupabaseClient, callId: string): Promi
   if (!r) return { ...DEFAULT_SETTINGS, labels: {}, messages: {} };
   return {
     labels: (r.labels as ResultSettings['labels']) ?? {}, messages: (r.messages as ResultSettings['messages']) ?? {},
-    includeEligibilityReason: r.include_eligibility_reason === true, feedbackEnabled: r.feedback_enabled === true, contestationsEnabled: r.contestations_enabled === true,
+    eligibilityReasonMode: ((ELIGIBILITY_REASON_MODES as readonly string[]).includes(String(r.eligibility_reason_mode)) ? r.eligibility_reason_mode : 'none') as ResultSettings['eligibilityReasonMode'], feedbackEnabled: r.feedback_enabled === true, contestationsEnabled: r.contestations_enabled === true,
     contestationDays: Number(r.contestation_days ?? 10), retentionMonths: Number(r.retention_months ?? 24),
     nextStepsText: String(r.next_steps_text ?? ''), nextStepsDate: (r.next_steps_date as string | null) ?? null, shareGrade: r.share_grade === true,
   };
@@ -43,7 +43,7 @@ export async function saveSettings(admin: SupabaseClient, call: Call, raw: unkno
   if (state.locked && !afterResults) return { ok: false, status: 409, error: state.lockedReason ?? 'This cannot be changed now.' };
   const next: ResultSettings = { ...(await loadSettings(admin, call.id)), ...parsed.patch };
   const res = await admin.from('call_result_settings').upsert({
-    call_id: call.id, labels: next.labels, messages: next.messages, include_eligibility_reason: next.includeEligibilityReason, feedback_enabled: next.feedbackEnabled,
+    call_id: call.id, labels: next.labels, messages: next.messages, eligibility_reason_mode: next.eligibilityReasonMode, feedback_enabled: next.feedbackEnabled,
     contestations_enabled: next.contestationsEnabled, contestation_days: next.contestationDays, retention_months: next.retentionMonths, next_steps_text: next.nextStepsText,
     next_steps_date: next.nextStepsDate, share_grade: next.shareGrade, updated_by: actor, updated_at: new Date().toISOString(),
   }, { onConflict: 'call_id' });
@@ -109,7 +109,7 @@ export async function loadFacts(admin: SupabaseClient, call: Call, phases: CallP
   if (rows.length === 0) return [];
   const [decRes, eligRes, fbRes, gradeRes] = await Promise.all([
     admin.from('call_eval_decisions').select('application_id, decision').eq('call_id', call.id).eq('is_current', true),
-    admin.from('call_application_eligibility').select('application_id, status, reason').eq('call_id', call.id).eq('is_current', true),
+    admin.from('call_application_eligibility').select('application_id, status, rule_results, overrides').eq('call_id', call.id).eq('is_current', true),
     admin.from('call_result_feedback').select('application_id, body, phase_id').eq('call_id', call.id),
     admin.from('call_result_grades').select('application_id, grade, phase_id').eq('call_id', call.id),
   ]);
@@ -125,7 +125,9 @@ export async function loadFacts(admin: SupabaseClient, call: Call, phases: CallP
     const e = elig.get(r.id as string);
     return {
       applicationId: r.id as string, reference: (r.reference as string | null) ?? null, startupName: r.startup_org_id ? names.get(r.startup_org_id as string) ?? null : null, applicantUserId: r.applicant_user_id as string,
-      decision: decisions.get(r.id as string) ?? null, eligibility: (e?.status as AppFacts['eligibility']) ?? null, eligibilityReason: (e?.reason as string | null) ?? null,
+      decision: decisions.get(r.id as string) ?? null, eligibility: (e?.status as AppFacts['eligibility']) ?? null,
+      // The sentences of the requirements NOT met, once what a person decided is applied: what the entity wrote for each rule, never the engine's reason and never a person's justification.
+      failedRules: failedRuleSentences(Array.isArray(e?.rule_results) ? (e?.rule_results as { ruleId: string; outcome: string; sentence?: string }[]) : [], (e?.overrides && typeof e.overrides === 'object' ? e.overrides : {}) as Record<string, { outcome?: string }>),
       feedback: feedback.get(r.id as string) ?? null, grade: grades.get(r.id as string) ?? null,
     };
   }).sort((a, b) => ((a.reference ?? a.applicationId) < (b.reference ?? b.applicationId) ? -1 : 1));
@@ -163,7 +165,7 @@ export async function loadPrepare(admin: SupabaseClient, call: Call): Promise<Pr
   return {
     ok: true, settings, labels, messages, defaults, placeholders: PLACEHOLDERS, phase: { id: round.phaseId, name: phase?.name ?? null, hasNext },
     summary: { total: summary.total, counts: summary.counts, byEligibility: summary.byEligibility, pending: summary.pending.map((p) => ({ applicationId: p.applicationId, reference: p.reference, startupName: p.startupName })) },
-    blockers: blockersOf({ summary, callStatus: call.status, alreadyPublished: round.allPublished, shareGrade: settings.shareGrade }),
+    blockers: blockersOf({ summary, callStatus: call.status, alreadyPublished: round.allPublished, shareGrade: settings.shareGrade, unknownFields: unknownFieldsFor(settings, call.contentLanguage, hasNext) }),
     applications: facts.map((a) => {
       const o = outcomeOf(a);
       return { applicationId: a.applicationId, reference: a.reference, startupName: a.startupName, result: o.result, label: o.result ? labels[o.result] : null, source: o.source, feedback: a.feedback ?? '', grade: a.grade };

@@ -34,6 +34,7 @@ import { SourceDocumentsPanel } from './SourceDocumentsPanel';
 import type { ProposalFieldItem, ProposalGeneral, ProposalPhaseItem } from '@/lib/calls/ai-import/proposal';
 import type { ImportOutcome } from './ImportFormDialog';
 import type { ImportMode } from '@/lib/calls/form-import';
+import { ScrollTabs } from '@/components/ScrollTabs';
 
 type Section = 'general' | 'phases' | 'form';
 const DEBOUNCE_MS = 700;
@@ -289,14 +290,14 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
         <SaveStatus state={save.state} message={save.message} onRetry={() => void flush()} onReload={() => void load()} />
       </div>
 
-      <div role="tablist" aria-label="Call" className="mb-5 flex gap-1 overflow-x-auto whitespace-nowrap border-b border-gray-200" data-testid="main-tabs">
+      <ScrollTabs label="Call" className="mb-5 flex gap-1 overflow-x-auto whitespace-nowrap border-b border-gray-200" testId="main-tabs">
         {mainTabsFor({ configure: server.canManage, viewApplications: server.canViewApplications === true, evaluate: server.canEvaluate === true, publishResults: server.canPublishResults === true, handleContestations: server.canHandleContestations === true }).map((t) => (
           <button key={t.key} type="button" role="tab" aria-selected={nav.main === t.key} data-testid={`tab-${t.key}`} onClick={() => goTab(t.key)}
             className={`-mb-px min-h-[44px] shrink-0 border-b-2 px-4 py-2 text-sm ${nav.main === t.key ? 'border-[#0E7490] font-semibold text-[#0E7490]' : 'border-transparent text-gray-600 hover:text-gray-900'}`}>
             {t.label}
           </button>
         ))}
-      </div>
+      </ScrollTabs>
 
       {setupNote && nav.main !== 'setup' && <p role="status" className="mb-4 rounded-lg bg-sky-50 px-4 py-2.5 text-xs text-sky-900" data-testid="setup-restricted-note">{setupNote}</p>}
       {nav.main === 'setup' && server.canManage && reason && <p role="status" className="mb-4 rounded-lg bg-sky-50 px-4 py-2.5 text-xs text-sky-900" data-testid="lock-reason">{reason}</p>}

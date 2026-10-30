@@ -15,7 +15,7 @@ import { applicantNameOf, liveBatches, loadFacts, loadRoundState, loadSettings, 
 import { sendResultEmail } from './results-email';
 import { emailOf } from './applicant/notices';
 import {
-  MAX_SEND_ATTEMPTS, RESULT_KEYS, backoffMs, blockersOf, buildMessage, classifyEmailFailure, confirmationMatches, labelOf, messageOf, outcomeOf, scheduleProblem, summarise,
+  MAX_SEND_ATTEMPTS, RESULT_KEYS, backoffMs, blockersOf, buildMessage, classifyEmailFailure, confirmationMatches, labelOf, messageOf, outcomeOf, scheduleProblem, summarise, unknownFieldsFor,
   type AppFacts, type BuiltMessage, type PublicationView, type ResultKey, type ResultSettings, type SendRow, type SendStatus,
 } from './results';
 import type { Call } from './types';
@@ -66,7 +66,7 @@ export async function loadPublication(admin: SupabaseClient, call: Call): Promis
     ok: true,
     phase: { id: state.round.phaseId, name: state.phase?.name ?? null, hasNext },
     summary: { total: summary.total, counts: summary.counts, emails: summary.total - summary.pending.length },
-    blockers: blockersOf({ summary, callStatus: call.status, alreadyPublished: state.round.allPublished, shareGrade: settings.shareGrade }),
+    blockers: blockersOf({ summary, callStatus: call.status, alreadyPublished: state.round.allPublished, shareGrade: settings.shareGrade, unknownFields: unknownFieldsFor(settings, call.contentLanguage, hasNext) }),
     labels,
     subjects: Object.fromEntries(RESULT_KEYS.map((k) => [k, `${call.name}: ${labels[k]}`])) as Record<ResultKey, string>,
     messages: Object.fromEntries(RESULT_KEYS.map((k) => [k, messageOf(k, settings, call.contentLanguage, hasNext)])) as Record<ResultKey, string>,
@@ -86,7 +86,7 @@ async function readiness(admin: SupabaseClient, call: Call, confirmName: unknown
   const settings = await loadSettings(admin, call.id);
   const state = await loadRoundState(admin, call);
   const facts = await loadFacts(admin, call, state.phases, state.round.phaseId);
-  const blockers = blockersOf({ summary: summarise(facts), callStatus: call.status, alreadyPublished: state.round.allPublished, shareGrade: settings.shareGrade });
+  const blockers = blockersOf({ summary: summarise(facts), callStatus: call.status, alreadyPublished: state.round.allPublished, shareGrade: settings.shareGrade, unknownFields: unknownFieldsFor(settings, call.contentLanguage, state.round.hasNextPhase) });
   if (blockers.length > 0) return { ok: false, status: 409, error: blockers[0].text };
   return { ok: true, state, settings };
 }
@@ -129,7 +129,7 @@ export async function cancelSchedule(admin: SupabaseClient, call: Call, actor: s
 }
 
 /** What the batch went out with: the names and messages are FIXED from here on (editing the settings afterwards changes nothing that was sent). */
-const snapshot = (s: ResultSettings): Record<string, unknown> => ({ labels: s.labels, messages: s.messages, includeEligibilityReason: s.includeEligibilityReason, feedbackEnabled: s.feedbackEnabled, shareGrade: s.shareGrade, nextStepsText: s.nextStepsText, nextStepsDate: s.nextStepsDate });
+const snapshot = (s: ResultSettings): Record<string, unknown> => ({ labels: s.labels, messages: s.messages, eligibilityReasonMode: s.eligibilityReasonMode, feedbackEnabled: s.feedbackEnabled, shareGrade: s.shareGrade, nextStepsText: s.nextStepsText, nextStepsDate: s.nextStepsDate });
 
 async function mapLimit<T, R>(list: T[], limit: number, fn: (x: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(list.length);
@@ -277,7 +277,7 @@ export async function sendTestEmails(admin: SupabaseClient, call: Call, actor: s
   let sent = 0;
   for (const key of RESULT_KEYS) {
     const app: AppFacts = {
-      applicationId: 'example', reference: 'EXAMPLE-001', startupName: 'Acme Robotics', applicantUserId: 'example', eligibility: 'fit', eligibilityReason: null,
+      applicationId: 'example', reference: 'EXAMPLE-001', startupName: 'Acme Robotics', applicantUserId: 'example', eligibility: 'fit', failedRules: [],
       decision: key, feedback: settings.feedbackEnabled ? 'This is an example of the feedback you write for an applicant.' : null, grade: settings.shareGrade ? 82 : null,
     };
     const message = buildMessage({ settings, call, entityName, app, applicantName: 'Alex Example', hasNextPhase: state.round.hasNextPhase, formatDay: (iso) => formatDayInZone(`${iso}T12:00:00Z`, call.timezone) });

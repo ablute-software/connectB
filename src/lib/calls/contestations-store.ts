@@ -197,7 +197,7 @@ export async function answerContestation(admin: SupabaseClient, call: Call, id: 
   const hasNext = nextPhaseId !== null;
   const grade = old.grade === null || old.grade === undefined ? null : Number(old.grade);
   const built = buildMessage({
-    settings, call, entityName, app: { applicationId, reference: (app.reference as string | null) ?? null, startupName: await startupNameOf(admin, (app.startup_org_id as string | null) ?? null), applicantUserId: userId, decision: answer.newResult, eligibility: 'fit', eligibilityReason: null, feedback: null, grade },
+    settings, call, entityName, app: { applicationId, reference: (app.reference as string | null) ?? null, startupName: await startupNameOf(admin, (app.startup_org_id as string | null) ?? null), applicantUserId: userId, decision: answer.newResult, eligibility: 'fit', failedRules: [], feedback: null, grade },
     applicantName: name, hasNextPhase: hasNext, formatDay: (iso) => formatDayInZone(`${iso}T12:00:00Z`, call.timezone),
   });
   if (!built) return { ok: false, status: 500, error: 'The new message could not be built.' };

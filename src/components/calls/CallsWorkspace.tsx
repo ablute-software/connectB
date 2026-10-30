@@ -9,6 +9,7 @@ import { CallEditor } from './CallEditor';
 import { CallsList } from './CallsList';
 import { EvaluationScreen } from './EvaluationScreen';
 import { MyEvaluations } from './MyEvaluations';
+import { ScrollTabs } from '@/components/ScrollTabs';
 
 export function CallsWorkspace({ kind }: { kind: PromoterKind }) {
   // `importFirst`: the call was just created "from documents", so the editor opens on the import dialog.
@@ -29,10 +30,10 @@ export function CallsWorkspace({ kind }: { kind: PromoterKind }) {
   return (
     <div className="min-w-0">
       {(mine > 0 || view === 'evaluations') && (
-        <div role="tablist" aria-label="Calls or my evaluations" className="mb-4 flex gap-1 border-b border-gray-200" data-testid="calls-views">
+        <ScrollTabs label="Calls or my evaluations" className="mb-4 flex gap-1 border-b border-gray-200" testId="calls-views">
           <button type="button" role="tab" aria-selected={view === 'calls'} data-testid="view-calls" onClick={() => setView('calls')} className={`-mb-px min-h-[44px] border-b-2 px-4 py-2 text-sm ${view === 'calls' ? 'border-[#0E7490] font-semibold text-[#0E7490]' : 'border-transparent text-gray-600 hover:text-gray-900'}`}>Calls</button>
           <button type="button" role="tab" aria-selected={view === 'evaluations'} data-testid="view-evaluations" onClick={() => setView('evaluations')} className={`-mb-px min-h-[44px] border-b-2 px-4 py-2 text-sm ${view === 'evaluations' ? 'border-[#0E7490] font-semibold text-[#0E7490]' : 'border-transparent text-gray-600 hover:text-gray-900'}`}>My evaluations{mine > 0 ? ` (${mine})` : ''}</button>
-        </div>
+        </ScrollTabs>
       )}
       {view === 'evaluations'
         ? <MyEvaluations onOpen={(callId, applicationId) => setEvaluating({ callId, applicationId })} onCount={setMine} />

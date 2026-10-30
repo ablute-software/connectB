@@ -6,6 +6,7 @@ import { callsApi } from './api';
 import { EvaluationBoard } from './EvaluationBoard';
 import { EvaluationScreen } from './EvaluationScreen';
 import { MyEvaluations } from './MyEvaluations';
+import { ScrollTabs } from '@/components/ScrollTabs';
 
 export function EvaluationTab({ callId }: { callId: string }) {
   const [open, setOpen] = useState<string | null>(null);
@@ -22,11 +23,11 @@ export function EvaluationTab({ callId }: { callId: string }) {
   return (
     <div className="min-w-0 space-y-4" data-testid="evaluation-tab">
       {both && (
-        <div role="tablist" aria-label="Board or my evaluations" className="flex gap-1 border-b border-gray-200">
+        <ScrollTabs label="Board or my evaluations" className="flex gap-1 border-b border-gray-200">
           {([['board', 'Board'], ['mine', `My evaluations (${mine})`]] as const).map(([k, label]) => (
             <button key={k} type="button" role="tab" aria-selected={view === k} data-testid={`evaluation-view-${k}`} onClick={() => setView(k)} className={`-mb-px min-h-[44px] border-b-2 px-4 py-2 text-sm ${view === k ? 'border-[#0E7490] font-semibold text-[#0E7490]' : 'border-transparent text-gray-600 hover:text-gray-900'}`}>{label}</button>
           ))}
-        </div>
+        </ScrollTabs>
       )}
       {showBoard ? <EvaluationBoard callId={callId} onOpen={setOpen} /> : <MyEvaluations callId={callId} onOpen={(_c, a) => setOpen(a)} />}
     </div>

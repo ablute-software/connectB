@@ -2,7 +2,7 @@
 // default messages, cleaning of a patch, the message of an application), so what the screen shows is what the routes would answer. Test-only: nothing in the app imports it.
 import { createRoot } from 'react-dom/client';
 import {
-  DEFAULT_SETTINGS, PLACEHOLDERS, RESULT_KEYS, blockersOf, buildMessage, cleanFeedback, defaultMessage, labelOf, messageOf, outcomeOf, parseSettingsPatch, summarise,
+  DEFAULT_SETTINGS, PLACEHOLDERS, RESULT_KEYS, blockersOf, buildMessage, cleanFeedback, defaultMessage, labelOf, messageOf, outcomeOf, parseSettingsPatch, summarise, unknownFieldsFor,
   type AppFacts, type PrepareView, type ResultKey, type ResultSettings,
 } from '@/lib/calls/results';
 import { PrepareResults } from './PrepareResults';
@@ -25,7 +25,7 @@ window.__startPrepare = ({ apps: initial, hasNext = false, status = 'closed' }) 
       defaults: { labels: Object.fromEntries(RESULT_KEYS.map((k) => [k, labelOf(k, { labels: {} }, hasNext)])) as Record<ResultKey, string>, messages: Object.fromEntries(RESULT_KEYS.map((k) => [k, defaultMessage(k, 'en', hasNext)])) as Record<ResultKey, string> },
       placeholders: PLACEHOLDERS, phase: { id: 'p1', name: 'Phase 1', hasNext },
       summary: { total: s.total, counts: s.counts, byEligibility: s.byEligibility, pending: s.pending.map((p) => ({ applicationId: p.applicationId, reference: p.reference, startupName: p.startupName })) },
-      blockers: blockersOf({ summary: s, callStatus: status, alreadyPublished: false }),
+      blockers: blockersOf({ summary: s, callStatus: status, alreadyPublished: false, unknownFields: unknownFieldsFor(settings, 'en', hasNext) }),
       applications: apps.map((a) => { const o = outcomeOf(a); return { applicationId: a.applicationId, reference: a.reference, startupName: a.startupName, result: o.result, label: o.result ? labels[o.result] : null, source: o.source, feedback: a.feedback ?? '', grade: a.grade }; }),
       callStatus: status, language: 'en', timezone: 'Europe/Lisbon', locked: false, lockedReason: null,
     };

@@ -6,6 +6,7 @@ import { PreflightCheck, preflightSummary } from '@/lib/rules';
 import { useStore } from '@/lib/store';
 import { useConfirm } from '@/lib/confirm';
 import { ReportFraudModal } from './ReportFraudModal';
+import { ScrollTabs } from './ScrollTabs';
 
 export const BRAND = '#0E7490';
 
@@ -603,7 +604,7 @@ export function Tabs({ items, active, onChange }: {
   // overlay is anchored to these buttons, and the badge and glow marker are
   // ordinary inline children well inside the box.
   return (
-    <div role="tablist" aria-label="Sections" className="mb-4 flex gap-1 overflow-x-auto border-b border-gray-100">
+    <ScrollTabs label="Sections" className="mb-4 flex gap-1 overflow-x-auto border-b border-gray-100">
       {items.map((it, idx) => {
         const selected = it.key === active;
         return (
@@ -619,7 +620,7 @@ export function Tabs({ items, active, onChange }: {
           </button>
         );
       })}
-    </div>
+    </ScrollTabs>
   );
 }
 

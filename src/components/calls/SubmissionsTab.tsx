@@ -13,6 +13,7 @@ import { TableInput } from './TableInput';
 import { ApplicationEligibility } from './ApplicationEligibility';
 import { ELIGIBILITY_LABEL, type EligibilityInfo, type EligibilityState, type EligibilityView } from '@/lib/calls/eligibility-payload';
 import { duplicateSentence, type PossibleDuplicate } from '@/lib/calls/duplicates';
+import { ScrollTabs } from '@/components/ScrollTabs';
 
 interface Item { applicationId: string; reference: string | null; startup: string; submittedAt: string; eligibility?: { state: EligibilityState; view: EligibilityView; reason: string; source: string | null }; duplicates?: number }
 interface Detail {
@@ -110,7 +111,7 @@ export const shown = (items: Item[], view: EligibilityView | 'all'): Item[] => (
 
 function SubViews({ view, counts, total, onView }: { view: EligibilityView | 'all'; counts: Record<EligibilityView, number> | null; total: number; onView: (v: EligibilityView | 'all') => void }) {
   return (
-    <div role="tablist" aria-label="Eligibility" className="mt-3 flex gap-1 overflow-x-auto whitespace-nowrap border-b border-gray-200" data-testid="eligibility-views">
+    <ScrollTabs label="Eligibility" className="mt-3 flex gap-1 overflow-x-auto whitespace-nowrap border-b border-gray-200" testId="eligibility-views">
       {VIEWS.map((v) => {
         const n = v.key === 'all' ? total : counts?.[v.key] ?? 0;
         return (
@@ -118,7 +119,7 @@ function SubViews({ view, counts, total, onView }: { view: EligibilityView | 'al
             className={`-mb-px min-h-[44px] shrink-0 border-b-2 px-3 py-2 text-sm sm:min-h-0 ${view === v.key ? 'border-[#0E7490] font-semibold text-[#0E7490]' : 'border-transparent text-gray-600 hover:text-gray-900'}`}>{v.label} <span className="text-xs text-gray-400">{n}</span></button>
         );
       })}
-    </div>
+    </ScrollTabs>
   );
 }
 

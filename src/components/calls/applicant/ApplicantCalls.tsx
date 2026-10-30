@@ -9,6 +9,7 @@ import { richTextToPlain } from '@/lib/rich-text';
 import { STAGE_LABELS, type CardAction, type Overview } from '@/lib/calls/applicant/overview';
 import { CallNotices } from './CallNotices';
 import { EntityLogo } from './CallHeader';
+import { ScrollTabs } from '@/components/ScrollTabs';
 
 type Tab = 'open' | 'mine' | 'past';
 
@@ -45,12 +46,12 @@ export function ApplicantCalls() {
       <h1 className="text-lg font-semibold text-gray-900">Calls</h1>
       <p className="mt-1 text-sm text-gray-500">Open calls from investors and ecosystem organisations, and your applications.</p>
       <CallNotices onSeen={() => void load()} />
-      <div className="mt-4 flex gap-1 border-b border-gray-200" role="tablist">
+      <ScrollTabs label="Calls" className="mt-4 flex gap-1 border-b border-gray-200">
         {([['open', 'Open calls', data.openCalls.length], ['mine', 'My applications', data.mine.length], ['past', 'Past applications', data.past.length]] as const).map(([id, label, n]) => (
           <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)} data-testid={`tab-${id}`}
             className={`-mb-px border-b-2 px-3 py-2 text-sm ${tab === id ? 'border-[#0E7490] font-semibold text-[#0E7490]' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>{label} <span className="text-xs text-gray-400">{n}</span></button>
         ))}
-      </div>
+      </ScrollTabs>
 
       {tab === 'open' && (
         <div className="mt-4">

@@ -12,10 +12,14 @@ import type { Call } from './types';
 export const RESULT_KEYS = ['advance', 'reject', 'waitlist'] as const;
 export type ResultKey = (typeof RESULT_KEYS)[number];
 
+export const ELIGIBILITY_REASON_MODES = ['none', 'general', 'rule'] as const;
+export type EligibilityReasonMode = (typeof ELIGIBILITY_REASON_MODES)[number];
+
 export interface ResultSettings {
   labels: Partial<Record<ResultKey, string>>;
   messages: Partial<Record<ResultKey, string>>;
-  includeEligibilityReason: boolean;
+  /** What a "Not a fit" is told about WHY (Nuno, 29/10/2026): nothing, one general sentence, or the sentence of the requirement that was not met. NEVER the engine's text or an internal justification. It goes where the message has the field {eligibility_reason}. */
+  eligibilityReasonMode: EligibilityReasonMode;
   feedbackEnabled: boolean;
   contestationsEnabled: boolean;
   contestationDays: number;
@@ -28,7 +32,7 @@ export interface ResultSettings {
 
 /** The defaults Nuno decided (28/10/2026): no feedback, no contestations (10 calendar days once on), data kept 24 months after the call is completed. */
 export const DEFAULT_SETTINGS: ResultSettings = {
-  labels: {}, messages: {}, includeEligibilityReason: false, feedbackEnabled: false, contestationsEnabled: false, contestationDays: 10, retentionMonths: 24, nextStepsText: '', nextStepsDate: null, shareGrade: false,
+  labels: {}, messages: {}, eligibilityReasonMode: 'none', feedbackEnabled: false, contestationsEnabled: false, contestationDays: 10, retentionMonths: 24, nextStepsText: '', nextStepsDate: null, shareGrade: false,
 };
 
 export const MAX_LABEL = 60;
@@ -43,6 +47,7 @@ export const PLACEHOLDERS = [
   { key: 'entity_name', label: 'Entity name' },
   { key: 'next_steps', label: 'Next steps' },
   { key: 'reference', label: 'Reference' },
+  { key: 'eligibility_reason', label: 'Eligibility reason' },
 ] as const;
 export type PlaceholderKey = (typeof PLACEHOLDERS)[number]['key'];
 const PLACEHOLDER_KEYS = new Set<string>(PLACEHOLDERS.map((p) => p.key));
@@ -59,45 +64,45 @@ export function labelOf(key: ResultKey, settings: Pick<ResultSettings, 'labels'>
 // --- The words each result starts with, in the language of the call ---------------------------------------------------------------------------------------
 
 type Lang = 'en' | 'pt' | 'es' | 'fr' | 'de' | 'it';
-interface Words { dear: string; advance: string; advanceNext: string; reject: string; waitlist: string; regards: string; feedback: string; reason: string; score: string }
+interface Words { dear: string; advance: string; advanceNext: string; reject: string; waitlist: string; regards: string; feedback: string; eligibilityGeneral: string; eligibilityRule: string; score: string }
 const WORDS: Record<Lang, Words> = {
   en: {
-    dear: 'Dear {applicant_name},', regards: 'Kind regards,', feedback: 'Feedback', reason: 'Reason', score: 'Score',
+    dear: 'Dear {applicant_name},', regards: 'Kind regards,', feedback: 'Feedback', eligibilityGeneral: 'Your application did not meet the eligibility requirements of this call.', eligibilityRule: 'The requirement that was not met:', score: 'Score',
     advance: '<p>We are pleased to tell you that {startup_name} has been selected in “{call_title}”.</p><p>{next_steps}</p>',
     advanceNext: '<p>We are pleased to tell you that {startup_name} moves to the next phase of “{call_title}”.</p><p>{next_steps}</p>',
     reject: '<p>Thank you for applying to “{call_title}”. After careful consideration, {startup_name} was not selected this time.</p>',
     waitlist: '<p>Thank you for applying to “{call_title}”. {startup_name} is on the waiting list: if a place becomes available, we will contact you.</p>',
   },
   pt: {
-    dear: 'Caro(a) {applicant_name},', regards: 'Com os melhores cumprimentos,', feedback: 'Comentários', reason: 'Motivo', score: 'Pontuação',
+    dear: 'Caro(a) {applicant_name},', regards: 'Com os melhores cumprimentos,', feedback: 'Comentários', eligibilityGeneral: 'A sua candidatura não cumpriu os requisitos de elegibilidade desta chamada.', eligibilityRule: 'O requisito que não foi cumprido:', score: 'Pontuação',
     advance: '<p>Temos o prazer de informar que {startup_name} foi selecionada em “{call_title}”.</p><p>{next_steps}</p>',
     advanceNext: '<p>Temos o prazer de informar que {startup_name} passa à fase seguinte de “{call_title}”.</p><p>{next_steps}</p>',
     reject: '<p>Obrigado pela sua candidatura a “{call_title}”. Depois de uma análise cuidada, {startup_name} não foi selecionada desta vez.</p>',
     waitlist: '<p>Obrigado pela sua candidatura a “{call_title}”. {startup_name} está em lista de espera: se surgir uma vaga, entraremos em contacto.</p>',
   },
   es: {
-    dear: 'Estimado/a {applicant_name}:', regards: 'Un cordial saludo,', feedback: 'Comentarios', reason: 'Motivo', score: 'Puntuación',
+    dear: 'Estimado/a {applicant_name}:', regards: 'Un cordial saludo,', feedback: 'Comentarios', eligibilityGeneral: 'Su candidatura no cumplió los requisitos de elegibilidad de esta convocatoria.', eligibilityRule: 'El requisito que no se cumplió:', score: 'Puntuación',
     advance: '<p>Nos complace informarle de que {startup_name} ha sido seleccionada en «{call_title}».</p><p>{next_steps}</p>',
     advanceNext: '<p>Nos complace informarle de que {startup_name} pasa a la siguiente fase de «{call_title}».</p><p>{next_steps}</p>',
     reject: '<p>Gracias por presentarse a «{call_title}». Tras un estudio cuidadoso, {startup_name} no ha sido seleccionada esta vez.</p>',
     waitlist: '<p>Gracias por presentarse a «{call_title}». {startup_name} está en lista de espera: si queda una plaza libre, nos pondremos en contacto.</p>',
   },
   fr: {
-    dear: 'Bonjour {applicant_name},', regards: 'Cordialement,', feedback: 'Commentaires', reason: 'Motif', score: 'Note',
+    dear: 'Bonjour {applicant_name},', regards: 'Cordialement,', feedback: 'Commentaires', eligibilityGeneral: 'Votre candidature ne remplissait pas les conditions d’éligibilité de cet appel.', eligibilityRule: 'La condition qui n’était pas remplie :', score: 'Note',
     advance: '<p>Nous avons le plaisir de vous informer que {startup_name} a été sélectionnée dans « {call_title} ».</p><p>{next_steps}</p>',
     advanceNext: '<p>Nous avons le plaisir de vous informer que {startup_name} passe à la phase suivante de « {call_title} ».</p><p>{next_steps}</p>',
     reject: '<p>Merci d’avoir candidaté à « {call_title} ». Après un examen attentif, {startup_name} n’a pas été sélectionnée cette fois.</p>',
     waitlist: '<p>Merci d’avoir candidaté à « {call_title} ». {startup_name} est sur liste d’attente : si une place se libère, nous vous contacterons.</p>',
   },
   de: {
-    dear: 'Guten Tag {applicant_name},', regards: 'Mit freundlichen Grüßen', feedback: 'Rückmeldung', reason: 'Grund', score: 'Punktzahl',
+    dear: 'Guten Tag {applicant_name},', regards: 'Mit freundlichen Grüßen', feedback: 'Rückmeldung', eligibilityGeneral: 'Ihre Bewerbung hat die Teilnahmevoraussetzungen dieses Aufrufs nicht erfüllt.', eligibilityRule: 'Die nicht erfüllte Voraussetzung:', score: 'Punktzahl',
     advance: '<p>Wir freuen uns, Ihnen mitzuteilen, dass {startup_name} bei „{call_title}“ ausgewählt wurde.</p><p>{next_steps}</p>',
     advanceNext: '<p>Wir freuen uns, Ihnen mitzuteilen, dass {startup_name} in die nächste Phase von „{call_title}“ übergeht.</p><p>{next_steps}</p>',
     reject: '<p>Vielen Dank für Ihre Bewerbung bei „{call_title}“. Nach sorgfältiger Prüfung wurde {startup_name} diesmal nicht ausgewählt.</p>',
     waitlist: '<p>Vielen Dank für Ihre Bewerbung bei „{call_title}“. {startup_name} steht auf der Warteliste: Wenn ein Platz frei wird, melden wir uns.</p>',
   },
   it: {
-    dear: 'Gentile {applicant_name},', regards: 'Cordiali saluti,', feedback: 'Commenti', reason: 'Motivo', score: 'Punteggio',
+    dear: 'Gentile {applicant_name},', regards: 'Cordiali saluti,', feedback: 'Commenti', eligibilityGeneral: 'La sua candidatura non rispettava i requisiti di ammissibilità di questo bando.', eligibilityRule: 'Il requisito non soddisfatto:', score: 'Punteggio',
     advance: '<p>Siamo lieti di comunicarle che {startup_name} è stata selezionata in «{call_title}».</p><p>{next_steps}</p>',
     advanceNext: '<p>Siamo lieti di comunicarle che {startup_name} passa alla fase successiva di «{call_title}».</p><p>{next_steps}</p>',
     reject: '<p>Grazie per aver partecipato a «{call_title}». Dopo un attento esame, {startup_name} non è stata selezionata questa volta.</p>',
@@ -110,7 +115,8 @@ const langOf = (code: string | null | undefined): Lang => (code && code in WORDS
 export function defaultMessage(key: ResultKey, language: string | null | undefined, hasNextPhase: boolean): string {
   const w = WORDS[langOf(language)];
   const body = key === 'advance' ? (hasNextPhase ? w.advanceNext : w.advance) : w[key];
-  return `<p>${w.dear}</p>${body}<p>${w.regards}<br>{entity_name}</p>`;
+  // A "Not selected" has the field for the eligibility reason, before the farewell: it is empty (and the paragraph disappears) unless the call chose to say why.
+  return `<p>${w.dear}</p>${body}${key === 'reject' ? '<p>{eligibility_reason}</p>' : ''}<p>${w.regards}<br>{entity_name}</p>`;
 }
 
 /** The message of a result as the editor shows it: the entity's own, or the default text to start from. */
@@ -149,7 +155,9 @@ export function nextStepsText(settings: Pick<ResultSettings, 'nextStepsText' | '
 export type EligibilityStatus = 'fit' | 'not_fit' | 'to_validate';
 export interface AppFacts {
   applicationId: string; reference: string | null; startupName: string | null; applicantUserId: string;
-  decision: Decision | null; eligibility: EligibilityStatus | null; eligibilityReason: string | null;
+  decision: Decision | null; eligibility: EligibilityStatus | null;
+  /** The sentences of the requirements that were NOT met (what the entity wrote for each rule, as the applicant can read it) — never the engine's reason and never what a person wrote as justification. */
+  failedRules: string[];
   feedback: string | null;
   /** The grade an administrator validated for this application (0–100 %), or none. Never computed from the evaluations. */
   grade: number | null;
@@ -191,10 +199,10 @@ export function roundOf(phases: { id: string }[], publishedPhaseIds: string[]): 
   return { phaseId: phases[i].id, hasNextPhase: i < phases.length - 1, allPublished: false };
 }
 
-export type PublishBlocker = { code: 'no_applications' | 'pending' | 'call_not_closed' | 'call_completed' | 'already_published' | 'missing_grade' | 'scheduled'; text: string };
+export type PublishBlocker = { code: 'no_applications' | 'pending' | 'call_not_closed' | 'call_completed' | 'already_published' | 'missing_grade' | 'scheduled' | 'unknown_fields'; text: string };
 
 /** Why the results cannot be published yet — every reason, in words. Empty means they can. */
-export function blockersOf(input: { summary: Summary; callStatus: string; alreadyPublished: boolean; shareGrade?: boolean }): PublishBlocker[] {
+export function blockersOf(input: { summary: Summary; callStatus: string; alreadyPublished: boolean; shareGrade?: boolean; unknownFields?: string[] }): PublishBlocker[] {
   const out: PublishBlocker[] = [];
   const { summary } = input;
   if (input.callStatus === 'completed') out.push({ code: 'call_completed', text: 'The call is completed: nothing can be published.' });
@@ -202,9 +210,37 @@ export function blockersOf(input: { summary: Summary; callStatus: string; alread
   if (input.alreadyPublished) out.push({ code: 'already_published', text: 'The results of this phase were already published.' });
   if (summary.total === 0) out.push({ code: 'no_applications', text: 'There are no submitted applications to publish a result for.' });
   if (summary.pending.length > 0) out.push({ code: 'pending', text: `${summary.pending.length} application${summary.pending.length === 1 ? ' has' : 's have'} no decision yet. Every application needs one before the results can be published.` });
+  // A message that uses a field that does not exist would go out with the code in it: nothing is published until it is fixed.
+  if (input.unknownFields && input.unknownFields.length > 0) out.push({ code: 'unknown_fields', text: `A message uses a field that does not exist (${input.unknownFields.map((f) => `{${f}}`).join(', ')}). Fix it in Prepare before publishing.` });
   // The grade is shared only if the entity asked for it, and then every evaluated application needs the one an administrator validated: a score is never left to be guessed.
   if (input.shareGrade && summary.needGrade.length > 0) out.push({ code: 'missing_grade', text: `${summary.needGrade.length} application${summary.needGrade.length === 1 ? ' has' : 's have'} no validated grade yet. The grade is shared with the applicants, so each one needs it before the results can be published.` });
   return out;
+}
+
+// --- The eligibility reason ({eligibility_reason}) ----------------------------------------------------------------------------------------------------
+
+/** What fills {eligibility_reason}: nothing, one general sentence, or the sentence(s) of the requirement(s) that were not met. Never the engine's text, never a person's internal justification. */
+function eligibilityReasonText(mode: EligibilityReasonMode, failedRules: string[], w: { eligibilityGeneral: string; eligibilityRule: string }): string {
+  if (mode === 'none') return '';
+  if (mode === 'rule' && failedRules.length > 0) return `${w.eligibilityRule} ${failedRules.map((r) => r.trim()).filter(Boolean).join('; ')}`;
+  return w.eligibilityGeneral;
+}
+
+/** The sentences of the rules that fail once what a person decided is applied (a rule a person passed is not "not met"). */
+export function failedRuleSentences(results: { ruleId: string; outcome: string; sentence?: string | null }[], overrides: Record<string, { outcome?: string }> = {}): string[] {
+  return results.filter((r) => (overrides[r.ruleId]?.outcome ?? r.outcome) === 'fail').map((r) => (r.sentence ?? '').trim()).filter(Boolean);
+}
+
+/** The unknown fields of the messages as they stand for this call (the entity's own, or the default text). */
+export function unknownFieldsFor(settings: Pick<ResultSettings, 'messages'>, language: string | null | undefined, hasNextPhase: boolean): string[] {
+  return unknownFieldsOf(Object.fromEntries(RESULT_KEYS.map((k) => [k, messageOf(k, settings, language, hasNextPhase)])) as Partial<Record<ResultKey, string>>);
+}
+
+/** The fields of the messages (the ones as the editor shows them) that are not fields of the platform. */
+export function unknownFieldsOf(messages: Partial<Record<ResultKey, string>>): string[] {
+  const found: string[] = [];
+  for (const k of RESULT_KEYS) for (const u of unknownPlaceholders(messages[k] ?? '')) if (!found.includes(u)) found.push(u);
+  return found;
 }
 
 // --- The message of one application --------------------------------------------------------------------------------------------------------------------
@@ -234,9 +270,9 @@ export function buildMessage(input: MessageInput): BuiltMessage | null {
     applicant_name: input.applicantName, startup_name: app.startupName ?? '', call_title: call.name, entity_name: input.entityName, reference: app.reference ?? '',
     // Next steps are only told to those who move on: a "Not selected" does not hear about a date it is not part of.
     next_steps: key === 'advance' ? nextStepsText(settings, input.formatDay) : '',
+    eligibility_reason: outcome.source === 'eligibility' ? eligibilityReasonText(settings.eligibilityReasonMode, app.failedRules, w) : '',
   };
   let html = fillPlaceholders(sanitizeRichText(messageOf(key, settings, call.contentLanguage, input.hasNextPhase)), values);
-  if (outcome.source === 'eligibility' && settings.includeEligibilityReason && app.eligibilityReason?.trim()) html += `<p><strong>${esc(w.reason)}:</strong> ${esc(app.eligibilityReason.trim())}</p>`;
   // The validated grade, and only that: shared if the call says so, only for a result that comes from a decision (an eligibility "Not a fit" was never evaluated).
   const grade = settings.shareGrade && outcome.source === 'decision' && typeof app.grade === 'number' ? app.grade : null;
   if (grade !== null) html += `<p><strong>${esc(w.score)}:</strong> ${esc(formatGrade(grade))}</p>`;
@@ -280,7 +316,11 @@ export function parseSettingsPatch(raw: unknown): ParsedSettings {
     }
     patch.messages = messages;
   }
-  for (const k of ['includeEligibilityReason', 'feedbackEnabled', 'contestationsEnabled', 'shareGrade'] as const) {
+  if (b.eligibilityReasonMode !== undefined) {
+    if (!ELIGIBILITY_REASON_MODES.includes(b.eligibilityReasonMode as EligibilityReasonMode)) return { ok: false, error: 'Choose how the eligibility reason is told: not at all, a general sentence, or the requirement that was not met.' };
+    patch.eligibilityReasonMode = b.eligibilityReasonMode as EligibilityReasonMode;
+  }
+  for (const k of ['feedbackEnabled', 'contestationsEnabled', 'shareGrade'] as const) {
     if (b[k] === undefined) continue;
     if (typeof b[k] !== 'boolean') return { ok: false, error: 'Invalid setting.' };
     patch[k] = b[k] as boolean;
