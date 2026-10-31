@@ -410,6 +410,8 @@ export default async function InvestorLandingPage() {
             {/* Prompt 920 §F.2 (Nuno's "sim") — the minimum: two links on the row that already exists. */}
             <Link href="/about">About</Link>
             <Link href="/faq">FAQ</Link>
+            {/* 31/10/2026 — the editorial answer page keeps its URL and its link; the toggle in the nav no longer leads to it. */}
+            <Link href="/for-startups">How to find investors</Link>
             <Link href="/contact?from=investors">Contact</Link>
             <Link href="/login?as=investor">Sign in</Link>
           </div>

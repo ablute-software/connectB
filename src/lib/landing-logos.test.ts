@@ -12,7 +12,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import data from '@/content/site/landing-logos.json';
 import * as buildCheck from '../../scripts/check-landing-logos.mjs';
 import {
-  AUTHORIZATION_FORMS, LOGO_FILE_PATTERN, LOGO_PAGES, LOGO_STRIP_MIN, authorizationProblem, isAuthorized, logosForPage,
+  AUTHORIZATION_FORMS, LOGO_FILE_PATTERN, LOGO_PAGES, LOGO_STRIP_MIN, LOGO_WEIGHT_MAX, LOGO_WEIGHT_MIN, authorizationProblem, isAuthorized, isValidLogoWeight, logosForPage,
   parseLogos, stripVisible, type LandingLogo,
 } from './landing-logos';
 
@@ -144,14 +144,42 @@ describe('what the file may hold', () => {
     ['a size given as text', { ...good, width: '120' }],
     ['a page that does not exist', { ...good, pages: 'everyone' }],
     ['an order that is not a number', { ...good, order: 'first' }],
+    ['an optical weight under the range (it is a nudge, never a different size)', { ...good, weight: 0.4 }],
+    ['an optical weight over the range', { ...good, weight: 1.7 }],
+    ['an optical weight given as text', { ...good, weight: '1.2' }],
+    ['an optical weight of null', { ...good, weight: null }],
     ['null', null],
   ])('drops a row with %s', (_n, row) => {
     expect(parseLogos([row, good])).toEqual([good]);
+  });
+
+  it('keeps an optical weight inside the range (a multiplier on the area; 31/10/2026) and gives a row without one no weight at all', () => {
+    for (const weight of [LOGO_WEIGHT_MIN, 0.62, 1, 1.2, LOGO_WEIGHT_MAX]) expect(parseLogos([{ ...good, weight }])).toEqual([{ ...good, weight }]);
+    expect(Object.keys(parseLogos([good])[0])).not.toContain('weight');
+    expect(isValidLogoWeight(1)).toBe(true);
+    expect(isValidLogoWeight(Number.NaN)).toBe(false);
+    expect(isValidLogoWeight(Infinity)).toBe(false);
   });
 });
 
 describe('scripts/check-landing-logos.mjs says the same as the page, in words a person can act on', () => {
   const FOLDER_FILES = (rows: LandingLogo[]) => rows.map((r) => r.file);
+
+  it('states the same range for the optical weight as the page: inside it is fine, outside it (or not a number) is an ERROR, exactly the rows the page drops', () => {
+    expect([buildCheck.WEIGHT_MIN, buildCheck.WEIGHT_MAX]).toEqual([LOGO_WEIGHT_MIN, LOGO_WEIGHT_MAX]);
+    for (const weight of [LOGO_WEIGHT_MIN, 0.85, 1, 1.15, LOGO_WEIGHT_MAX]) {
+      const rows = [logo(1, { weight })];
+      expect(buildCheck.checkLogos(rows, { folderFiles: FOLDER_FILES(rows), today: TODAY }).errors, `${weight}`).toEqual([]);
+      expect(parseLogos(rows)).toHaveLength(1);
+    }
+    for (const weight of [0.4, 1.7, '1.2', null]) {
+      const rows = [logo(1, { weight: weight as unknown as number })];
+      const r = buildCheck.checkLogos(rows, { folderFiles: FOLDER_FILES(rows), today: TODAY });
+      expect(r.errors, `${String(weight)}`).toHaveLength(1);
+      expect(r.errors[0]).toContain('weight, when given, must be a number from 0.5 to 1.6');
+      expect(parseLogos(rows), `${String(weight)}`).toEqual([]);
+    }
+  });
 
   it('a logo with no authorization is a WARNING that names it and the reason, not an error; and it is not counted', () => {
     const rows = [logo(1), logo(2, { authorization: 'pending' }), logo(3, { authorization: { date: '2026-10-31', form: 'email' } })];

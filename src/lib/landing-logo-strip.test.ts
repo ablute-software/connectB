@@ -6,6 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { LOGO_STRIP_FADE } from '@/content/site/logo-strip';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8');
 const count = (s: string, re: RegExp) => (s.match(re) ?? []).length;
@@ -102,10 +103,14 @@ describe('the hero keeps the compact spacing it had on the live site (31/10/2026
     for (const r of compact) expect(r.selector.startsWith('.hero.heroCompact'), r.selector).toBe(true);
   });
 
-  it('they set only a top padding, a bottom padding or a bottom margin: no font size, text, width, column, gap or picture is touched, and nothing is stretched or centred to fill a height', () => {
+  it('they set only vertical space — a top padding, a bottom padding, a bottom margin, the gap between rows — and, on a phone, the lead\'s line height: no font size, text, width, column or picture is touched, and nothing is stretched or centred to fill a height', () => {
     const props = new Set<string>();
     for (const r of compact) for (const k of Object.keys(declarations(r.body))) props.add(k);
-    expect([...props].sort()).toEqual(['margin-bottom', 'padding-bottom', 'padding-top', 'row-gap']);
+    expect([...props].sort()).toEqual(['line-height', 'margin-bottom', 'padding-bottom', 'padding-top', 'row-gap']);
+    // the line height is the one thing about text, it is only ever the lead's, only on a phone, and never tighter than 1.5
+    const withLine = compact.filter((r) => 'line-height' in declarations(r.body));
+    expect(withLine.map((r) => [r.selector, r.media])).toEqual([['.hero.heroCompact .lead', '@media (max-width: 900px)']]);
+    expect(parseFloat(decl('.hero.heroCompact .lead', '@media (max-width: 900px)')['line-height'])).toBeGreaterThanOrEqual(1.5);
     // no min-height and no 100vh in the hero's rules, base or compact
     for (const r of css.filter((x) => x.selector.startsWith('.hero') || x.selector.startsWith('.mock'))) {
       expect(r.body, r.selector).not.toMatch(/min-height|100vh|100dvh|(?<![\w-])height\s*:/);
@@ -128,6 +133,22 @@ describe('the hero keeps the compact spacing it had on the live site (31/10/2026
     // on a phone: less space between the text and the picture (one column: the grid gap is vertical), and the bar of checks keeps its own 18 px (".hero .wrap" with 80 px used to reach it too)
     expect(px(decl('.hero.heroCompact > .wrap', '@media (max-width: 900px)')['row-gap'])).toBeLessThan(48);
     expect(decl('.hero.heroCompact .strip .wrap', '@media (max-width: 900px)')).toEqual({ 'padding-bottom': '18px' });
+  });
+
+  it('on a phone the first screen starts higher and no further than the nav allows: 84 px of top padding (12 px clear of the 72 px nav), a little less between badge, title, lead and buttons, 10 px between buttons that wrap (Nuno, 31/10/2026)', () => {
+    const phone = '@media (max-width: 900px)';
+    expect(px(decl('.hero.heroCompact', phone)['padding-top'])).toBe(84);
+    expect(px(decl('.hero.heroCompact', phone)['padding-top'])).toBeGreaterThanOrEqual(72 + 12);
+    expect(px(decl('.hero.heroCompact', phone)['padding-top'])).toBeLessThan(px(decl('.hero.heroCompact')['padding-top']));
+    for (const [sel, prop, value] of [['.hero.heroCompact .badge', 'margin-bottom', 12], ['.hero.heroCompact h1', 'margin-bottom', 10], ['.hero.heroCompact .lead', 'margin-bottom', 16]] as const) {
+      expect(px(decl(sel, phone)[prop]), sel).toBe(value);
+      expect(px(decl(sel, phone)[prop]), sel).toBeLessThan(px(decl(sel)[prop])); // each is a little less than the laptop's compact value
+    }
+    // The 28 px between the text and the picture are kept: the picture's floating "Fact confirmed" chip sits ~30 px above it, over the text block; with 20 px it came down onto "Free to start" (measured)
+    expect(px(decl('.hero.heroCompact > .wrap', phone)['row-gap'])).toBe(28);
+    expect(decl('.hero.heroCompact .heroCtas', phone)).toEqual({ 'row-gap': '10px' }); // only the row gap: two buttons side by side keep their 14 px
+    // nothing here fixes a height or scales the hero
+    expect(read('src/app/landing.module.css')).not.toMatch(/\.hero[^{]*\{[^}]*(min-height|(?<![\w-])height\s*:|transform:\s*scale|zoom\s*:)/);
   });
 
   it('the base rules are untouched (170 px under the nav, 110 px under the content, the same margins and sizes), so the other public pages that share the stylesheet keep their hero', () => {
@@ -228,7 +249,7 @@ describe('the carousel\'s stylesheet', () => {
         : r.selector === '.logoStrip + .claimSec' ? ['border-top'] : []; // the claim section's own top line is REMOVED while the carousel sits right above it
       expect(bad.filter((k) => !allowed.includes(k)), r.selector).toEqual([]);
     }
-    expect(decl('.logoStrip')).toEqual({ '--gap': 'var(--logo-gap)', '--maxh': 'var(--logo-maxh)', padding: '40px 0 0' });
+    expect(decl('.logoStrip')).toEqual({ '--gap': 'var(--logo-gap)', '--maxh': 'var(--logo-maxh)', '--win': 'var(--logo-window)', '--fade': 'var(--logo-fade)', padding: '40px 0 0' });
     const img = decl('.logoStrip .logoImg');
     expect(img.width).toBe('calc(var(--w) * 1px)');
     expect(img.height).toBe('auto');
@@ -260,11 +281,27 @@ describe('the carousel\'s stylesheet', () => {
     expect(ratio(tokens.ink, tokens.bg)).toBeGreaterThanOrEqual(7);
   });
 
-  it('on a phone the logos use the phone\'s gap and widths, the fade is narrower and the carousel keeps its single row', () => {
+  it('the window is as wide as the real logos allow and no wider, centred, and everything past it is cut off: its width and the fade come from custom properties that LogoStrip works out from the logos, never a number written in the stylesheet', () => {
+    const win = decl('.logoStrip .logoWindow');
+    expect(win['max-width']).toBe('var(--win)');
+    expect(win.margin).toBe('0 auto');
+    expect(win.overflow).toBe('hidden');
+    expect(decl('.logoStrip .logoWindow::before, .logoStrip .logoWindow::after').width).toBe('var(--fade)');
+    // no fixed window width (the old 1600 px) and no fixed fade anywhere in the logo rules
+    for (const r of css.filter((x) => x.selector.startsWith('.logoStrip'))) expect(r.body, r.selector).not.toMatch(/(max-)?width\s*:\s*\d{3,}px|width\s*:\s*\d+px/);
+    expect(read('src/components/landing/LogoStrip.tsx')).toContain("'--logo-window': `${windows.desktop}px`");
+    expect(read('src/components/landing/LogoStrip.tsx')).toContain("'--logo-fade': `${fade.desktop}px`");
+  });
+
+  it('on a phone the logos use the phone\'s gap, widths, window and fade, and the carousel keeps its single row', () => {
     const phone = '@media (max-width: 760px)';
     expect(decl('.logoStrip', phone)['--gap']).toBe('var(--logo-gap-phone)');
     expect(decl('.logoStrip', phone)['--maxh']).toBe('var(--logo-maxh-phone)');
-    expect(px(decl('.logoStrip .logoWindow::before, .logoStrip .logoWindow::after', phone).width)).toBeLessThan(px(decl('.logoStrip .logoWindow::before, .logoStrip .logoWindow::after').width));
+    expect(decl('.logoStrip', phone)['--win']).toBe('var(--logo-window-phone)');
+    expect(decl('.logoStrip', phone)['--fade']).toBe('var(--logo-fade-phone)');
+    // the fade is narrower on a phone (the constants), and the phone does not override the pseudo-elements' width: it follows --fade
+    expect(LOGO_STRIP_FADE.phone).toBeLessThan(LOGO_STRIP_FADE.desktop);
+    expect(find('.logoStrip .logoWindow::before, .logoStrip .logoWindow::after', phone)).toEqual([]);
     expect(find('.logoStrip .logoList', phone)).toEqual([]); // nothing about the list changes: still one flex row
     expect(decl('.logoStrip .logoList').display).toBe('flex');
   });

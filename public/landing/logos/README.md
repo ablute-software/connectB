@@ -16,8 +16,8 @@ A autorização é tratada pelo Nuno, fora do código. Quem mexe aqui não a inv
 | --- | --- |
 | Os ficheiros dos logos | esta pasta, `public/landing/logos/` |
 | A lista (uma linha por logo, com a autorização) | `src/content/site/landing-logos.json` |
-| O título por cima do carrossel, a velocidade, o tamanho que cada logo ocupa e o espaço entre eles | `src/content/site/logo-strip.ts` |
-| A regra «só com autorização, mínimo de 6», o tamanho de cada logo (`logoBoxes`), as cópias do loop e a duração de cada volta | `src/lib/landing-logos.ts` |
+| O título por cima do carrossel, a velocidade, o tamanho que cada logo ocupa, o espaço entre eles e o comprimento do desvanecimento (`LOGO_STRIP_FADE`) | `src/content/site/logo-strip.ts` |
+| A regra «só com autorização, mínimo de 6», o tamanho de cada logo (`logoBoxes`), a largura da janela (`noRepeatWindow`), as cópias do loop e a duração de cada volta | `src/lib/landing-logos.ts` |
 | O aviso do build | `scripts/check-landing-logos.mjs` (`npm run verify:landing-logos` corre-o sozinho) |
 
 ## Juntar um logo
@@ -36,9 +36,12 @@ A autorização é tratada pelo Nuno, fora do código. Quem mexe aqui não a inv
      "height": 48,
      "pages": "both",
      "order": 10,
+     "weight": 1,
      "authorization": { "date": "2026-11-05", "form": "email", "note": "pasta «Autorizações logos», conversa de 05/11" }
    }
    ```
+
+   (`weight` é opcional; ver a tabela.)
 
    | Campo | O que é |
    | --- | --- |
@@ -47,6 +50,7 @@ A autorização é tratada pelo Nuno, fora do código. Quem mexe aqui não a inv
    | `width`, `height` | o tamanho do próprio ficheiro, em píxeis (num SVG, o `viewBox`); reserva o espaço antes de a imagem chegar, para a página não saltar. Um teste confere-os com o ficheiro |
    | `pages` | `"startups"`, `"investors"` ou `"both"`: em que página aparece |
    | `order` | a posição entre os logos, do menor para o maior; empate desfaz-se pelo nome |
+   | `weight` | opcional, de 0,5 a 1,6 (1 se faltar): o ajuste ótico, um multiplicador da **área** em que o logo é desenhado (Nuno, 31/10/2026). Um bloco cheio ou uma marca escura e compacta pesa mais ao olho do que um nome fino da mesma área, por isso leva menos de 1 (0,85, 0,62…) e o fino leva mais (1,1, 1,2…). É um empurrão, nunca outro tamanho: o logo mantém a forma do ficheiro e continua limitado pela largura e pela altura máximas (um marco já na altura máxima só encolhe com um valor mais baixo). Vê-se numa folha de contactos antes de se fixar |
    | `authorization` | `"pending"` enquanto a empresa não autorizou; depois `{ "date": "aaaa-mm-dd", "form": "email", "terms" ou "owner", "note": "..." }` |
 
    `form` é `"email"` (a empresa autorizou por email), `"terms"` (aceitou uns termos) ou `"owner"` (decisão do dono da plataforma, sem prova da empresa em arquivo: o build escreve uma
@@ -60,7 +64,11 @@ São ficheiros `vc-*.png`: o logótipo de cada firma tal como está no site da p
 
 ## Como se move
 
-Uma só linha, sempre, em qualquer resolução: os logos entram e saem pelas pontas, que se desvanecem na cor da página. A velocidade é a mesma em CSS px por segundo em todos os ecrãs (`LOGO_STRIP_SPEED`, 32 px/s): o portátil e o telemóvel têm cada um a sua duração de volta, calculada a partir da largura da sua própria lista, porque no telemóvel os logos são mais pequenos e a lista é mais curta. O rato em cima (ou um dedo) pára-o; com «reduzir movimento» no sistema fica parado, numa só linha de logos inteiros. As cópias da lista que o loop usa para não ter saltos são os mesmos logos outra vez, escondidas dos leitores de ecrã (cada empresa é lida uma vez) e sem texto alternativo; não se inventa nenhuma marca.
+Uma só linha, sempre, em qualquer resolução: os logos entram e saem pelas pontas, que se desvanecem na cor da página.
+
+**A largura da janela** (Nuno, 31/10/2026) é a do ecrã até ao máximo que os logos reais permitem, e centrada a partir daí; o que fica fora dela não se vê. O máximo é **uma volta da lista menos o logo mais largo** (`noRepeatWindow`): numa janela maior, uma marca apareceria ao mesmo tempo nas duas pontas (com 8 startups, uma volta tem ~1370 px, e a janela fica em ~1230 px; com 17 investidores a volta tem ~2900 px e a janela é o ecrã inteiro). Não é um número para manter: **com mais logos a janela alarga-se sozinha**, com menos estreita-se. Não se aumenta o espaço entre logos nem a velocidade para esconder repetições, e não se inventa nenhuma marca: cada startup a mais acrescenta ~170 px à janela, e com 11 startups a janela já chega aos 1600 px sem repetição. Um teste em Chrome percorre 360 pontos de uma volta, em 12 combinações de ecrã e página, e falha se uma marca aparecer duas vezes ao mesmo tempo (e outro prova que o teste vê a falha, forçando uma janela de 1600 px).
+
+A velocidade é a mesma em CSS px por segundo em todos os ecrãs (`LOGO_STRIP_SPEED`, 32 px/s): o portátil e o telemóvel têm cada um a sua duração de volta, calculada a partir da largura da sua própria lista, porque no telemóvel os logos são mais pequenos e a lista é mais curta. O rato em cima (ou um dedo) pára-o; com «reduzir movimento» no sistema fica parado, numa só linha de logos inteiros. As cópias da lista que o loop usa para não ter saltos são os mesmos logos outra vez, escondidas dos leitores de ecrã (cada empresa é lida uma vez) e sem texto alternativo; não se inventa nenhuma marca.
 
 ## Retirar um logo
 

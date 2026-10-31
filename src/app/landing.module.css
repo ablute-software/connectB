@@ -341,25 +341,37 @@
 .hero.heroCompact h1 { margin-bottom: 12px; }
 .hero.heroCompact .lead { margin-bottom: 20px; }
 .hero.heroCompact .heroCtas { margin-bottom: 16px; }
+/* A phone's first screen (Nuno, 31/10/2026: "a stronger first impression, no aggressive compression"): the same vertical-only changes, a little further. 12 px under the 72 px nav instead of 24 (the badge still
+   sits clear of it), a little less between badge, title, lead and buttons (12 / 10 / 16 px instead of 14 / 12 / 20), the lead's lines at 1.5 instead of the page's 1.6 (still the comfortable reading measure,
+   nine lines on the startups page), and 10 px between two buttons that wrap onto separate rows. The 28 px between the text and the picture are KEPT: the picture's floating "Fact confirmed" chip sits
+   30 px above it, over the text block, and with 20 px it came down onto the line "Free to start" (12 px into its box; 2 px on the live page). No height, no min-height, no scale, no font size and nothing
+   about the picture is touched: it keeps its size and only starts higher. */
 @media (max-width: 900px) {
+  .hero.heroCompact { padding-top: 84px; }
   .hero.heroCompact > .wrap { padding-bottom: 48px; row-gap: 28px; }
+  .hero.heroCompact .badge { margin-bottom: 12px; }
+  .hero.heroCompact h1 { margin-bottom: 10px; }
+  .hero.heroCompact .lead { margin-bottom: 16px; line-height: 1.5; }
+  .hero.heroCompact .heroCtas { row-gap: 10px; }
   /* On a phone the rule ".hero .wrap { padding-bottom: 80px }" (further down the file) also reaches the .wrap of the bar of checks inside the hero and beats ".strip .wrap" (18 px) by coming later:
      the bar was 62 px taller than its own padding says, an empty dark strip under the four checks. The bar gets its 18 px back; and the 48 px between the text and the picture, which is a grid gap
-     once the two columns become one, is 28 px (Nuno, 31/10/2026: no unnecessary gaps between the elements on a phone). */
+     once the two columns become one, is 28 px (Nuno, 31/10/2026: no unnecessary gaps between the elements on a phone; see the note above for why it is not less). */
   .hero.heroCompact .strip .wrap { padding-bottom: 18px; }
 }
 
 /* ---------- logos of the companies: a carousel (Prompt 926, 30/10/2026; out of the hero and without discs 31/10/2026) ----------
    The first thing of the light area, right under the hero: a centred title and ONE row of logos that slides left on its own, on the page's own colour. No band, no border, no card, no circle: the area goes on,
-   unbroken, into the section that follows. LogoStrip.tsx writes, on the <section>, the sizes it worked out (--logo-gap, --logo-maxh and their -phone twins, --logo-copies, --logo-loop and --logo-loop-phone:
+   unbroken, into the section that follows. LogoStrip.tsx writes, on the <section>, the sizes it worked out (--logo-gap, --logo-maxh, --logo-window, --logo-fade and their -phone twins, --logo-copies, --logo-loop and --logo-loop-phone:
    one duration for each layout, so the speed in px per second is the same on every screen) and, on each <li>, --w and --wp (the width of its logo on a laptop and on a phone). Their source is
    src/content/site/logo-strip.ts, so no number Nuno may want to change is written twice. Every rule is under .logoStrip: ".landing *" resets margin and padding at (0,1,0), which a lone class would tie with
    and win or lose by the order of the files. The motion is transform only: it never touches layout, so it cannot move anything else on the page. */
-.logoStrip { --gap: var(--logo-gap); --maxh: var(--logo-maxh); padding: 40px 0 0; }
+.logoStrip { --gap: var(--logo-gap); --maxh: var(--logo-maxh); --win: var(--logo-window); --fade: var(--logo-fade); padding: 40px 0 0; }
 .logoStrip .logoTitle { text-align: center; font-size: clamp(1.15rem, 1.4vw + .75rem, 1.5rem); font-weight: 600; line-height: 1.25; margin-bottom: 10px; text-wrap: balance; }
-/* the window is the whole width of the page up to 1600 px, then centred; the logos enter and leave at its ends, which fade into the page's own colour so a logo is never cut by a hard edge */
-.logoStrip .logoWindow { position: relative; max-width: 1600px; margin: 0 auto; overflow: hidden; padding: 10px 0; }
-.logoStrip .logoWindow::before, .logoStrip .logoWindow::after { content: ''; position: absolute; top: 0; bottom: 0; width: 72px; z-index: 1; pointer-events: none; }
+/* the window is the whole width of the page up to --win, then centred; everything past it is cut off (overflow hidden). --win is the widest window in which no logo can show twice at once (landing-logos.ts:
+   `noRepeatWindow`: one turn of the list minus its widest logo, ~1.2k px for eight startups, the whole screen for seventeen investors). The logos enter and leave at its ends, which fade into the page's own
+   colour over --fade px, so a logo is never cut by a hard edge and there is no frame or background of the window's own: the area outside it is the same colour as the area inside. */
+.logoStrip .logoWindow { position: relative; max-width: var(--win); margin: 0 auto; overflow: hidden; padding: 10px 0; }
+.logoStrip .logoWindow::before, .logoStrip .logoWindow::after { content: ''; position: absolute; top: 0; bottom: 0; width: var(--fade); z-index: 1; pointer-events: none; }
 .logoStrip .logoWindow::before { left: 0; background: linear-gradient(to right, var(--bg), rgba(247, 250, 250, 0)); }
 .logoStrip .logoWindow::after { right: 0; background: linear-gradient(to left, var(--bg), rgba(247, 250, 250, 0)); }
 .logoStrip .logoTrack { display: flex; width: max-content; animation: logoLoop var(--logo-loop) linear infinite; will-change: transform; }
@@ -375,10 +387,9 @@
 .logoStrip + .claimSec { border-top: 0; }
 
 @media (max-width: 760px) {
-  .logoStrip { --gap: var(--logo-gap-phone); --maxh: var(--logo-maxh-phone); padding-top: 32px; }
+  .logoStrip { --gap: var(--logo-gap-phone); --maxh: var(--logo-maxh-phone); --win: var(--logo-window-phone); --fade: var(--logo-fade-phone); padding-top: 32px; }
   .logoStrip .logoTrack { animation-duration: var(--logo-loop-phone); }
   .logoStrip .logoImg { width: calc(var(--wp) * 1px); }
-  .logoStrip .logoWindow::before, .logoStrip .logoWindow::after { width: 32px; }
   .logoStrip + .sec { padding-top: 36px; }
 }
 

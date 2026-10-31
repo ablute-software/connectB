@@ -144,12 +144,15 @@ describe('how the existing pages carry the additions (the pages themselves need 
     }
   });
 
-  it('the home gained exactly the three approved visible touches: the toggle target, one line under the H1, two footer links', () => {
-    expect(toggle).toContain('href="/for-startups"');
-    expect(toggle).toContain('href="/investors"');
+  it('the home gained the approved visible touches: one line under the H1 and the footer links — and the toggle switches between the two landing pages only (Nuno, 31/10/2026), never to the article', () => {
+    expect([...toggle.matchAll(/href="([^"]+)"/g)].map((m) => m[1])).toEqual(['/', '/investors']);
     expect(home).toContain('matches startups with the investors that fit them, and puts startups that match their mandate in front of investors.');
     expect(home).toContain('<Link href="/about">About</Link>');
     expect(home).toContain('<Link href="/faq">FAQ</Link>');
+    // the article keeps its URL and is reached from the footer of both landing pages (the toggle used to be its only internal link from them)
+    expect(home).toContain('<Link href="/for-startups">How to find investors</Link>');
+    expect(investors).toContain('<Link href="/for-startups">How to find investors</Link>');
+    expect(home).toContain('<Link href="/">For Startups</Link>');
   });
 
   it('/investors keeps its four questions, adds the three, and builds the FAQPage from the whole list', () => {

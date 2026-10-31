@@ -24,6 +24,9 @@ export const LOGO_STRIP_MIN = 6;
 export const PAGES = ['startups', 'investors', 'both'];
 export const FORMS = ['email', 'terms', 'owner'];
 export const FILE_PATTERN = /^[a-z0-9][a-z0-9._-]*\.(svg|png|webp)$/i;
+// The optical weight a logo may carry (31/10/2026): the same range as LOGO_WEIGHT_MIN / LOGO_WEIGHT_MAX in src/lib/landing-logos.ts.
+export const WEIGHT_MIN = 0.5;
+export const WEIGHT_MAX = 1.6;
 
 export function isRealIsoDate(v) {
   if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
@@ -71,6 +74,7 @@ export function checkLogos(entries, { folderFiles, today = new Date() }) {
     if (!positive(e.width) || !positive(e.height)) shape.push('width and height must be whole numbers above zero (the file\'s own size in pixels)');
     if (!PAGES.includes(e.pages)) shape.push(`pages must be one of: ${PAGES.join(', ')}`);
     if (typeof e.order !== 'number' || !Number.isFinite(e.order)) shape.push('order must be a number');
+    if (e.weight !== undefined && !(typeof e.weight === 'number' && Number.isFinite(e.weight) && e.weight >= WEIGHT_MIN && e.weight <= WEIGHT_MAX)) shape.push(`weight, when given, must be a number from ${WEIGHT_MIN} to ${WEIGHT_MAX} (a multiplier on the logo's area)`);
     if (shape.length) { errors.push(`${who}: ${shape.join('; ')}`); return; }
     if (seen.has(e.file)) { errors.push(`${who}: the file is listed twice`); return; }
     seen.add(e.file);

@@ -35,8 +35,10 @@ export const FOOTER_COLUMNS: { title: string; links: { label: string; href: stri
       { label: 'Features', href: '/#features' },
       { label: 'How it works', href: '/#how' },
       { label: 'Pricing', href: '/#pricing' },
-      { label: 'For startups', href: '/for-startups' },
+      { label: 'For startups', href: '/' },
       { label: 'For investors', href: '/investors' },
+      // The editorial answer page keeps its own URL and its own link (31/10/2026): "For startups" is the landing, like the toggle in the nav.
+      { label: 'How to find investors', href: '/for-startups' },
     ],
   },
   {

@@ -112,8 +112,27 @@ describe('/for-startups', () => {
     expect((g['@graph'].find((n) => n['@type'] === 'FAQPage') as { mainEntity: unknown[] }).mainEntity).toHaveLength(5);
   });
 
-  it('marks "For Startups" as the current side in the toggle', () => {
-    expect(forStartups).toMatch(/aria-selected="true"[^>]*href="\/for-startups"/);
+  it('marks "For Startups" as the current side in the toggle (the article is on the startup side), and that tab leads to the startups LANDING, not back to this article', () => {
+    expect(forStartups).toMatch(/aria-selected="true"[^>]*href="\/"/);
+    expect(forStartups).not.toMatch(/aria-selected="true"[^>]*href="\/for-startups"/);
+  });
+});
+
+// Nuno, 31/10/2026: the "For Startups / For Investors" toggle switches between the TWO landing pages and nothing else. It used to send "For Startups" to this editorial article, so a visitor who went
+// to Investors and pressed Startups again landed on a long article. The article keeps its URL (and its place in the sitemap, its canonical and its schema) and stays reachable from the footers.
+describe('the audience toggle only switches between the two landing pages', () => {
+  const toggleHrefs = (h: string) => [...(/role="tablist"[\s\S]*?<\/div>/.exec(h)?.[0] ?? '').matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
+
+  it.each([['/faq', faq], ['/for-startups', forStartups], ['/about', about]] as const)('%s: the two tabs go to "/" and "/investors", never to an editorial page', (_p, h) => {
+    expect(toggleHrefs(h)).toEqual(['/', '/investors']);
+  });
+
+  it('the article is still linked from the footer of the public pages, under its own name, and its footer "For startups" is the landing like the toggle', () => {
+    for (const h of [faq, about]) {
+      expect(h).toMatch(/<a [^>]*href="\/for-startups"[^>]*>How to find investors<\/a>/);
+      expect(h).toMatch(/<a [^>]*href="\/"[^>]*>For startups<\/a>/);
+      expect(h).not.toMatch(/<a [^>]*href="\/for-startups"[^>]*>For startups<\/a>/);
+    }
   });
 });
 

@@ -13,8 +13,8 @@ const realError = console.error;
 beforeAll(() => { console.error = (...args: unknown[]) => { if (typeof args[0] === 'string' && args[0].includes('fetchPriority')) return; realError(...args); }; });
 afterAll(() => { console.error = realError; });
 
-import { LOGO_STRIP_LABEL, LOGO_STRIP_SIZES, LOGO_STRIP_SPEED } from '@/content/site/logo-strip';
-import { LOGO_STRIP_MIN, LOGO_STRIP_WINDOW, listWidth, logoBoxes, loopCopies, loopSeconds, type LandingLogo } from '@/lib/landing-logos';
+import { LOGO_STRIP_FADE, LOGO_STRIP_LABEL, LOGO_STRIP_SIZES, LOGO_STRIP_SPEED } from '@/content/site/logo-strip';
+import { LOGO_STRIP_MIN, LOOP_COPIES, listWidth, logoBoxes, logoWindows, loopSeconds, noRepeatWindow, type LandingLogo, type LogoSizing } from '@/lib/landing-logos';
 import { LOGO_FOLDER, LogoStrip } from './LogoStrip';
 
 const logo = (n: number, over: Partial<LandingLogo> = {}): LandingLogo => ({
@@ -72,8 +72,8 @@ describe('what the section says', () => {
   });
 
   it('every other copy (the same logos again, only so the movement has no seam and no jump) is aria-hidden and its images have empty alternative text, so nothing is read twice and no company is invented', () => {
-    const copies = loopCopies(many(8), LOGO_STRIP_SIZES);
-    expect(copies).toBeGreaterThanOrEqual(2);
+    const copies = LOOP_COPIES;
+    expect(copies).toBe(2);
     expect(count(html, /<ul\b/g)).toBe(copies);
     expect(count(html, /<ul[^>]*aria-hidden="true"/g)).toBe(copies - 1);
     const hidden = html.split('<ul').slice(2).join('<ul');
@@ -110,12 +110,17 @@ describe('what the section says', () => {
     }
   });
 
-  it('hands the gaps, the copies and the time of one turn at each layout to the stylesheet as custom properties, from the constants Nuno can edit; every logo carries its width on a laptop (--w) and on a phone (--wp)', () => {
+  it('hands the gaps, the window, the fade, the copies and the time of one turn at each layout to the stylesheet as custom properties, from the constants Nuno can edit; every logo carries its width on a laptop (--w) and on a phone (--wp)', () => {
     expect(html).toContain(`--logo-gap:${LOGO_STRIP_SIZES.desktop.gap}px`);
     expect(html).toContain(`--logo-gap-phone:${LOGO_STRIP_SIZES.phone.gap}px`);
     expect(html).toContain(`--logo-maxh:${LOGO_STRIP_SIZES.desktop.maxHeight}px`);
     expect(html).toContain(`--logo-maxh-phone:${LOGO_STRIP_SIZES.phone.maxHeight}px`);
-    expect(html).toContain(`--logo-copies:${loopCopies(many(8), LOGO_STRIP_SIZES)}`);
+    expect(html).toContain(`--logo-window:${noRepeatWindow(many(8), LOGO_STRIP_SIZES.desktop)}px`);
+    expect(html).toContain(`--logo-window-phone:${noRepeatWindow(many(8), LOGO_STRIP_SIZES.phone)}px`);
+    expect(html).toContain(`--logo-fade:${LOGO_STRIP_FADE.desktop}px`);
+    expect(html).toContain(`--logo-fade-phone:${LOGO_STRIP_FADE.phone}px`);
+    expect(render({ logos: many(8), fade: { desktop: 30, phone: 10 } })).toContain('--logo-fade:30px;--logo-fade-phone:10px');
+    expect(html).toContain(`--logo-copies:${LOOP_COPIES}`);
     expect(html).toContain(`--logo-loop:${loopSeconds(many(8), LOGO_STRIP_SIZES.desktop, LOGO_STRIP_SPEED)}s`);
     expect(html).toContain(`--logo-loop-phone:${loopSeconds(many(8), LOGO_STRIP_SIZES.phone, LOGO_STRIP_SPEED)}s`);
     expect(render({ logos: many(8), pxPerSecond: 64 })).toContain(`--logo-loop:${loopSeconds(many(8), LOGO_STRIP_SIZES.desktop, 64)}s`);
@@ -162,23 +167,75 @@ describe('the same constant speed on every screen (Nuno, 31/10/2026: "velocidade
   });
 });
 
-describe('copies of the list for a seamless loop', () => {
-  const shapes = [{ width: 405, height: 162 }, { width: 246, height: 35 }, { width: 146, height: 146 }, { width: 405, height: 80 }];
+describe('the window the logos move in: as wide as the real logos allow, never wide enough to show a brand twice at once (Nuno, 31/10/2026)', () => {
+  const shapes = [{ width: 405, height: 162 }, { width: 246, height: 35 }, { width: 146, height: 146 }, { width: 405, height: 80 }, { width: 404, height: 97 }, { width: 374, height: 253 }];
+  const listOf = (n: number, weight?: (i: number) => number) => Array.from({ length: n }, (_, i) => ({ ...shapes[i % shapes.length], weight: weight?.(i) }));
 
-  it('whatever the number and shape of the logos, K-1 copies are wider than the widest window at BOTH layouts, so the end of the track is never empty', () => {
-    for (const n of [6, 7, 8, 10, 14, 17, 20, 40]) {
-      const logos = Array.from({ length: n }, (_, i) => shapes[i % shapes.length]);
-      const k = loopCopies(logos, LOGO_STRIP_SIZES);
-      expect(k).toBeGreaterThanOrEqual(2);
-      for (const sizing of [LOGO_STRIP_SIZES.desktop, LOGO_STRIP_SIZES.phone]) expect((k - 1) * listWidth(logos, sizing), `${n} logos`).toBeGreaterThanOrEqual(LOGO_STRIP_WINDOW);
+  /**
+   * The brute-force picture of the loop: copies of the list sit exactly one list-width apart and the whole track slides left, so at any offset a logo and its copy are one list apart. Returns how many logos
+   * have a PIECE of themselves in view twice at once (both copies overlap the window by more than a hair) over every offset of one full turn, in steps of a quarter of a pixel.
+   */
+  function logosShownTwice(logos: ReturnType<typeof listOf>, sizing: LogoSizing, windowWidth: number): number {
+    const boxes = logoBoxes(logos, sizing);
+    const cycle = listWidth(logos, sizing);
+    let left = 0;
+    const lefts = boxes.map((b) => { const x = left; left += b.width + sizing.gap; return x; });
+    const twice = new Set<number>();
+    for (let offset = 0; offset < cycle; offset += 0.25) {
+      boxes.forEach((b, i) => {
+        const first = [lefts[i] - offset, lefts[i] - offset + b.width];
+        const second = [first[0] + cycle, first[1] + cycle];
+        const inView = (r: number[]) => r[1] > 0.001 && r[0] < windowWidth - 0.001;
+        if (inView(first) && inView(second)) twice.add(i);
+      });
+    }
+    return twice.size;
+  }
+
+  it('is one turn of the list minus its widest logo: the first width at which any logo shows twice', () => {
+    for (const n of [6, 8, 12, 17, 25]) {
+      for (const sizing of [LOGO_STRIP_SIZES.desktop, LOGO_STRIP_SIZES.phone]) {
+        const logos = listOf(n);
+        const widest = Math.max(...logoBoxes(logos, sizing).map((b) => b.width));
+        expect(noRepeatWindow(logos, sizing), `${n} logos`).toBe(Math.floor(listWidth(logos, sizing) - widest));
+      }
+    }
+    expect(noRepeatWindow([], LOGO_STRIP_SIZES.desktop)).toBe(0);
+  });
+
+  it('at that width no logo has two copies in view at any point of the loop, and one pixel wider the widest one does: the rule is tight, not only safe', () => {
+    for (const n of [6, 8, 11, 17, 20]) {
+      for (const sizing of [LOGO_STRIP_SIZES.desktop, LOGO_STRIP_SIZES.phone]) {
+        const logos = listOf(n);
+        const cap = noRepeatWindow(logos, sizing);
+        expect(logosShownTwice(logos, sizing, cap), `${n} logos at the cap (${cap} px)`).toBe(0);
+        expect(logosShownTwice(logos, sizing, cap + 3), `${n} logos 3 px past the cap`).toBeGreaterThan(0);
+      }
     }
   });
 
-  it('a short list gets more copies than a long one, and never fewer than two (the second is what scrolls in)', () => {
-    const six = Array.from({ length: 6 }, (_, i) => shapes[i % shapes.length]);
-    const forty = Array.from({ length: 40 }, (_, i) => shapes[i % shapes.length]);
-    expect(loopCopies(six, LOGO_STRIP_SIZES)).toBeGreaterThan(loopCopies(forty, LOGO_STRIP_SIZES));
-    expect(loopCopies(forty, LOGO_STRIP_SIZES)).toBe(2);
+  it('holds with optical weights too (a heavier or a lighter logo changes the list, and the window follows it)', () => {
+    const logos = listOf(8, (i) => [1, 1.2, 0.85, 1, 0.62, 1.1, 1, 1][i]);
+    for (const sizing of [LOGO_STRIP_SIZES.desktop, LOGO_STRIP_SIZES.phone]) {
+      expect(logosShownTwice(logos, sizing, noRepeatWindow(logos, sizing))).toBe(0);
+    }
+    expect(noRepeatWindow(logos, LOGO_STRIP_SIZES.desktop)).not.toBe(noRepeatWindow(listOf(8), LOGO_STRIP_SIZES.desktop));
+  });
+
+  it('more logos widen the window by themselves and fewer narrow it: it is not a number to maintain', () => {
+    expect(noRepeatWindow(listOf(17), LOGO_STRIP_SIZES.desktop)).toBeGreaterThan(noRepeatWindow(listOf(8), LOGO_STRIP_SIZES.desktop));
+    expect(noRepeatWindow(listOf(8), LOGO_STRIP_SIZES.desktop)).toBeGreaterThan(noRepeatWindow(listOf(6), LOGO_STRIP_SIZES.desktop));
+    const w = logoWindows(listOf(8), LOGO_STRIP_SIZES);
+    expect(w).toEqual({ desktop: noRepeatWindow(listOf(8), LOGO_STRIP_SIZES.desktop), phone: noRepeatWindow(listOf(8), LOGO_STRIP_SIZES.phone) });
+  });
+
+  it('is always shorter than one turn of the list, so two copies of it are enough for the loop never to show an empty end, whatever the logos', () => {
+    expect(LOOP_COPIES).toBe(2);
+    for (const n of [1, 6, 7, 8, 10, 14, 17, 20, 40]) {
+      for (const sizing of [LOGO_STRIP_SIZES.desktop, LOGO_STRIP_SIZES.phone]) {
+        expect(noRepeatWindow(listOf(n), sizing), `${n} logos`).toBeLessThan(listWidth(listOf(n), sizing));
+      }
+    }
   });
 });
 

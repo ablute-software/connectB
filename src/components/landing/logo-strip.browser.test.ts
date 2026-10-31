@@ -16,8 +16,8 @@ vi.mock('@/app/landing.module.css', () => ({ default: new Proxy({}, { get: (_t, 
 const realError = console.error;
 console.error = (...args: unknown[]) => { if (typeof args[0] === 'string' && args[0].includes('fetchPriority')) return; realError(...args); };
 
-import { LANDING_LOGOS, LOGO_STRIP_SIZES, LOGO_STRIP_SPEED } from '@/content/site/logo-strip';
-import { LOGO_STRIP_WINDOW, logosForPage, type LandingLogo } from '@/lib/landing-logos';
+import { LANDING_LOGOS, LOGO_STRIP_FADE, LOGO_STRIP_SIZES, LOGO_STRIP_SPEED } from '@/content/site/logo-strip';
+import { LOGO_STRIP_PHONE_MAX, logosForPage, noRepeatWindow, type LandingLogo } from '@/lib/landing-logos';
 import { LogoStrip } from './LogoStrip';
 
 const CHROME = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/chromium']
@@ -209,21 +209,70 @@ describe.skipIf(!CHROME)('Logo carousel (real browser)', () => {
     for (const side of [m.before, m.after]) {
       expect(side.bgImage).toContain('linear-gradient');
       expect(side.pointer).toBe('none');
-      expect(side.width).toBe('72px');
+      expect(side.width).toBe(`${LOGO_STRIP_FADE.desktop}px`);
     }
     // the fade is the PAGE's colour (#f7fafa) at its outer edge, not white
     expect(m.before.bgImage).toMatch(/rgb\(247, 250, 250\)/);
     await ctx.close();
   }, 60_000);
 
-  it('the window is the whole width of the page up to 1600 px, then centred: the logos run edge to edge on a laptop and a phone', async () => {
-    for (const [w, expected] of [[390, 390], [1280, 1280], [1440, 1440], [1920, LOGO_STRIP_WINDOW], [2560, LOGO_STRIP_WINDOW]] as const) {
-      const { page, ctx } = await open(w);
+  // The widest window each page may have: one turn of its own list minus its widest logo (landing-logos.ts: noRepeatWindow), at the layout the width picks.
+  const capFor = (which: Which, w: number) => noRepeatWindow(which === 'startups' ? STARTUPS : INVESTORS, w <= LOGO_STRIP_PHONE_MAX ? LOGO_STRIP_SIZES.phone : LOGO_STRIP_SIZES.desktop);
+
+  it('the window is the whole width of the page up to the widest the real logos allow, then CENTRED and everything past it cut off: ~1.2k px for the eight startups, the whole screen for the investors', async () => {
+    // Nuno, 31/10/2026: "limit the visible window to about 1200-1220 px on a desktop, adjusting to the real geometry" — the real geometry of the eight startup logos gives this
+    expect(capFor('startups', 1440)).toBeGreaterThanOrEqual(1200);
+    expect(capFor('startups', 1440)).toBeLessThanOrEqual(1260);
+    expect(capFor('investors', 1440)).toBeGreaterThan(2000);
+    for (const [w, which] of [[390, 'startups'], [760, 'startups'], [1024, 'startups'], [1280, 'startups'], [1440, 'startups'], [1920, 'startups'], [2560, 'startups'], [1440, 'investors'], [1920, 'investors'], [2560, 'investors']] as const) {
+      const { page, ctx } = await open(w, which);
       const m = await page.evaluate(measure);
-      expect(m.window.width, `${w}`).toBe(expected);
-      expect(Math.abs(m.window.cx - w / 2), `${w}`).toBeLessThanOrEqual(1);
+      expect(m.window.width, `${which} ${w}`).toBe(Math.min(w, capFor(which, w)));
+      expect(Math.abs(m.window.cx - w / 2), `${which} ${w}: centred`).toBeLessThanOrEqual(1);
+      // what is outside the window is not drawn: the window clips the track, and no logo sticks out of it onto the page
+      expect(m.overflow, `${which} ${w}`).toBe('hidden');
+      expect(m.pageOverflow, `${which} ${w}`).toBe(0);
       await ctx.close();
     }
+  }, 120_000);
+
+  /**
+   * The brute-force picture in the real browser: the animation is paused at 360 points of one turn and, at each, every <img> (both copies of the list) is measured against the window. A brand is "shown twice" when
+   * two images of the same file both have more than a hair of themselves inside the window.
+   */
+  const brandsShownTwice = (page: import('playwright').Page, steps = 360) => page.evaluate((n) => {
+    const strip = document.querySelector('[data-logo-strip]')!;
+    const track = strip.querySelector('[class="logoTrack"]')!;
+    const win = strip.querySelector('[class="logoWindow"]')!.getBoundingClientRect();
+    const anim = track.getAnimations()[0]; anim.pause();
+    const duration = Number(anim.effect!.getTiming().duration);
+    const twice = new Set<string>(); let worst = 0;
+    for (let i = 0; i < n; i++) {
+      anim.currentTime = (duration * i) / n;
+      const seen = new Map<string, number>();
+      for (const img of strip.querySelectorAll('img')) {
+        const b = img.getBoundingClientRect();
+        if (b.right > win.left + 0.5 && b.left < win.right - 0.5) seen.set(img.getAttribute('src')!, (seen.get(img.getAttribute('src')!) ?? 0) + 1);
+      }
+      for (const [src, k] of seen) { if (k > 1) twice.add(src); worst = Math.max(worst, k); }
+    }
+    return { twice: [...twice], worst };
+  }, steps);
+
+  it.each([[1280, 'startups'], [1366, 'startups'], [1440, 'startups'], [1536, 'startups'], [1920, 'startups'], [2560, 'startups'], [390, 'startups'], [760, 'startups'], [1440, 'investors'], [1920, 'investors'], [2560, 'investors'], [320, 'investors']] as const)('%i px, %s: at no point of the loop is a brand in view twice (Nuno, 31/10/2026: "no two clearly visible copies of the same brand at once")', async (w, which) => {
+    const { page, ctx } = await open(w, which);
+    const r = await brandsShownTwice(page);
+    expect(r.twice, `${which} ${w}`).toEqual([]);
+    expect(r.worst).toBe(1);
+    await ctx.close();
+  }, 120_000);
+
+  it('the instrument can see the failure: the same page with the window forced to 1600 px DOES show a brand twice (so the check above is not blind)', async () => {
+    const { page, ctx } = await open(1920, 'startups');
+    await page.addStyleTag({ content: '[data-logo-strip] [class="logoWindow"] { max-width: 1600px !important; }' });
+    const r = await brandsShownTwice(page);
+    expect(r.twice.length).toBeGreaterThan(0);
+    await ctx.close();
   }, 60_000);
 
   it('the pointer on the carousel stops it, and taking it away starts it again', async () => {
@@ -279,9 +328,11 @@ describe.skipIf(!CHROME)('Logo carousel (real browser)', () => {
     // the title is outside the track: it does not move with it
     expect(m.title.top).toBeLessThan(m.window.top);
     const sizing = w <= 760 ? LOGO_STRIP_SIZES.phone : LOGO_STRIP_SIZES.desktop;
+    // every logo gets the same AREA times its own optical weight (1 when it has none; Nuno, 31/10/2026: a slight increase for some, a slight reduction for others), inside the widest and the tallest allowed
     const areas = m.firstImgs.map((i) => i.w * i.h);
-    for (const a of areas) expect(a).toBeLessThanOrEqual(sizing.area * 1.03);
-    expect(areas.filter((a) => a >= sizing.area * 0.97).length).toBeGreaterThanOrEqual(Math.ceil(areas.length * 0.6));
+    const targets = STARTUPS.map((l) => sizing.area * (l.weight ?? 1));
+    areas.forEach((a, i) => expect(a, STARTUPS[i].name).toBeLessThanOrEqual(targets[i] * 1.03));
+    expect(areas.filter((a, i) => a >= targets[i] * 0.97).length).toBeGreaterThanOrEqual(Math.ceil(areas.length * 0.6));
     STARTUPS.forEach((l, i) => expect(m.firstImgs[i].w / m.firstImgs[i].h, l.name).toBeCloseTo(l.width / l.height, 1));
     for (const im of m.firstImgs) { expect(im.w).toBeLessThanOrEqual(sizing.maxWidth + 0.5); expect(im.h).toBeLessThanOrEqual(sizing.maxHeight + 0.5); }
     await ctx.close();
@@ -328,8 +379,8 @@ describe.skipIf(!CHROME)('Logo carousel (real browser)', () => {
     const read = () => page.evaluate(() => {
       const css = (sel: string) => getComputedStyle(document.querySelector(sel)!);
       return {
-        compact: { top: css('#compact').paddingTop, bottom: css('#compact > .wrap').paddingBottom, badge: css('#compact .badge').marginBottom, h1: css('#compact h1').marginBottom, lead: css('#compact .lead').marginBottom, ctas: css('#compact .heroCtas').marginBottom, gap: css('#compact > .wrap').rowGap, minH: css('#compact').minHeight, h1Size: css('#compact h1').fontSize, bar: css('#compact .strip .wrap').padding },
-        plain: { top: css('#plain').paddingTop, bottom: css('#plain > .wrap').paddingBottom, badge: css('#plain .badge').marginBottom, h1: css('#plain h1').marginBottom, lead: css('#plain .lead').marginBottom, ctas: css('#plain .heroCtas').marginBottom, h1Size: css('#plain h1').fontSize },
+        compact: { top: css('#compact').paddingTop, bottom: css('#compact > .wrap').paddingBottom, badge: css('#compact .badge').marginBottom, h1: css('#compact h1').marginBottom, lead: css('#compact .lead').marginBottom, ctas: css('#compact .heroCtas').marginBottom, gap: css('#compact > .wrap').rowGap, minH: css('#compact').minHeight, h1Size: css('#compact h1').fontSize, bar: css('#compact .strip .wrap').padding, leadSize: css('#compact .lead').fontSize, leadLine: css('#compact .lead').lineHeight, ctaRowGap: css('#compact .heroCtas').rowGap, ctaColGap: css('#compact .heroCtas').columnGap, maxH: css('#compact').maxHeight, transform: css('#compact').transform, zoom: css('#compact').getPropertyValue('zoom') },
+        plain: { top: css('#plain').paddingTop, bottom: css('#plain > .wrap').paddingBottom, badge: css('#plain .badge').marginBottom, h1: css('#plain h1').marginBottom, lead: css('#plain .lead').marginBottom, ctas: css('#plain .heroCtas').marginBottom, h1Size: css('#plain h1').fontSize, leadLine: css('#plain .lead').lineHeight },
       };
     });
     const wide = await read();
@@ -337,10 +388,20 @@ describe.skipIf(!CHROME)('Logo carousel (real browser)', () => {
     expect(wide.plain).toMatchObject({ top: '170px', bottom: '110px', badge: '22px', h1: '20px', lead: '32px', ctas: '28px' });
     // no text is made smaller to make the hero shorter
     expect(wide.compact.h1Size).toBe(wide.plain.h1Size);
+    expect(wide.compact.leadLine).toBe(wide.plain.leadLine);
     await page.setViewportSize({ width: 390, height: 844 });
     const phone = await read();
-    expect(phone.compact).toMatchObject({ top: '96px', bottom: '48px', gap: '28px', bar: '18px 24px' }); // the bar of checks keeps its own 18 px (it used to get the hero's 80)
+    // A phone's first screen (Nuno, 31/10/2026): 12 px under the 72 px nav, a little less between badge / title / lead / buttons, the lead at 1.5 line height, 10 px between buttons that wrap, the 28 px between the text
+    // and the picture KEPT (its floating chip sits 30 px above it) — and the bar of checks keeps its own 18 px (it used to get the hero's 80)
+    expect(phone.compact).toMatchObject({ top: '84px', bottom: '48px', gap: '28px', badge: '12px', h1: '10px', lead: '16px', bar: '18px 24px', ctaRowGap: '10px', ctaColGap: '14px', minH: '0px', maxH: 'none', transform: 'none' });
+    expect(parseFloat(phone.compact.leadLine) / parseFloat(phone.compact.leadSize)).toBeCloseTo(1.5, 2);
+    expect(parseFloat(phone.compact.leadLine) / parseFloat(phone.compact.leadSize)).toBeGreaterThanOrEqual(1.5);
+    // the text is exactly as big as the plain hero's at the same width: the gain is vertical space only, no font size, no fixed height, no scale or zoom
+    expect(phone.compact.h1Size).toBe(phone.plain.h1Size);
+    expect(phone.compact.leadSize).toBe(wide.compact.leadSize);
+    expect(phone.compact.zoom).toBe('1');
     expect(phone.plain).toMatchObject({ top: '170px', bottom: '80px' });
+    expect(parseFloat(phone.plain.leadLine) / parseFloat(wide.compact.leadSize)).toBeCloseTo(1.6, 2);
     await ctx.close();
   }, 60_000);
 

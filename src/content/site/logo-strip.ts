@@ -33,6 +33,13 @@ export const LOGO_STRIP_SIZES: LogoStripSizes = {
   phone: { area: 3000, maxWidth: 120, maxHeight: 46, gap: 36 },
 };
 
+/**
+ * How far each end of the moving window fades into the page, in CSS px: the logos come in and go out through it, so none is ever cut by a hard edge. It was 72 / 32; a shorter fade starts nearer
+ * the edge of the window (Nuno, 31/10/2026: more of the row is seen, less is lost to the fade). It plays no part in the rule that no logo shows twice at once (landing-logos.ts: `noRepeatWindow`
+ * counts every pixel of a logo, faded or not).
+ */
+export const LOGO_STRIP_FADE = { desktop: 48, phone: 20 } as const;
+
 export const LANDING_LOGOS: readonly LandingLogo[] = parseLogos(data);
 
 /** The logos a page may draw today (authorized and meant for it). The page draws the strip only when there are enough: see `logoStripVisible`. */
