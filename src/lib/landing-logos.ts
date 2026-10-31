@@ -6,7 +6,7 @@
 // the future — and a logo that is not authorized is never drawn: the rule fails closed, it cannot be satisfied by accident.
 //
 // The strip also needs LOGO_STRIP_MIN authorized logos for the page. A strip with two or three names reads as a short list of customers, not as proof, so
-// below the minimum it is not drawn at all (and the page keeps its old spacing).
+// below the minimum it is not drawn at all (and the page goes from the hero straight to the next section).
 //
 // scripts/check-landing-logos.mjs states the same two rules for `npm run build`, which warns about every logo it hides; landing-logos.test.ts runs both
 // through the same cases so they cannot drift apart.
@@ -97,39 +97,60 @@ export function stripVisible(logos: readonly unknown[]): boolean {
   return logos.length >= LOGO_STRIP_MIN;
 }
 
-/** The sizes the strip draws at, in CSS px. They reach the stylesheet as custom properties (see LogoStrip), so the CSS never repeats them. */
-export interface LogoStripSizes {
-  height: number; gap: number; maxWidth: number;
-  heightPhone: number; gapPhone: number; maxWidthPhone: number;
+/** What one layout draws the logos at, in CSS px. */
+export interface LogoSizing {
+  /** The AREA every logo gets (px²): a long, thin wordmark and a squarer mark weigh the same to the eye. */
+  area: number;
+  /** The widest and the tallest a logo may be: a very long or very tall one is held to them and keeps its shape. */
+  maxWidth: number;
+  maxHeight: number;
+  /** The space between two logos (and the closing space of each copy of the list, so the seam is the same as any other gap). */
+  gap: number;
 }
 
-/** The widest the moving window can be: the row of logos runs the whole width of the page up to 1600 px (the stylesheet's max-width on .logoWindow); beyond that it is centred and its ends fade to white. */
+/** The two layouts of the strip: the desktop's and the phone's (the stylesheet switches at 760 px). They reach the stylesheet as custom properties (see LogoStrip), so the CSS never repeats them. */
+export interface LogoStripSizes { desktop: LogoSizing; phone: LogoSizing }
+
+/** The widest the moving window can be: the row of logos runs the whole width of the page up to 1600 px (the stylesheet's max-width on .logoWindow); beyond that it is centred and its ends fade into the page. */
 export const LOGO_STRIP_WINDOW = 1600;
 
-/** How wide a logo is drawn: the box's height times the file's own shape, never wider than `maxWidth` (a long logo is shrunk to fit, not stretched taller). */
-export function drawnWidth(logo: Pick<LandingLogo, 'width' | 'height'>, height: number, maxWidth: number): number {
-  return Math.min(maxWidth, Math.round((height * logo.width) / logo.height));
+export interface LogoBox { width: number; height: number }
+
+/**
+ * The box each logo is drawn in, so that no logo dominates the row: every logo gets the SAME AREA (equal heights would make the long wordmarks huge, equal widths would shrink
+ * the squarer marks), kept inside `maxWidth` x `maxHeight`, and each logo keeps the shape of its own file. Sizes are rounded to a tenth of a pixel.
+ */
+export function logoBoxes(logos: readonly Pick<LandingLogo, 'width' | 'height'>[], s: Pick<LogoSizing, 'area' | 'maxWidth' | 'maxHeight'>): LogoBox[] {
+  return logos.map((l) => {
+    const ar = l.width / l.height;
+    let width = Math.sqrt(s.area * ar);
+    let height = width / ar;
+    if (width > s.maxWidth) { width = s.maxWidth; height = width / ar; }
+    if (height > s.maxHeight) { height = s.maxHeight; width = height * ar; }
+    return { width: Math.round(width * 10) / 10, height: Math.round(height * 10) / 10 };
+  });
+}
+
+/** The width of one copy of the list at one layout: every logo's width plus one gap after it (the gap that also closes the copy). */
+export function listWidth(logos: readonly Pick<LandingLogo, 'width' | 'height'>[], s: LogoSizing): number {
+  return logoBoxes(logos, s).reduce((sum, b) => sum + b.width + s.gap, 0);
 }
 
 /**
- * How many copies of the list the track needs for the loop never to show an empty end. The track slides left by exactly one copy and starts over, so what is on
- * screen at any moment is [offset, offset + window] inside K copies: (K - 1) copies must cover the widest window. The narrowest list (phone sizes) is the case
- * that needs the most copies, so it is the one counted.
+ * How many copies of the list the track needs for the loop never to show an empty end. The track slides left by exactly one copy and starts over, so what is on screen at
+ * any moment is [offset, offset + window] inside K copies: (K - 1) copies must cover the widest window. The narrowest list (usually the phone's) is the case that needs the
+ * most copies, so it is the one counted. The extra copies are the same logos again, only to make the movement seamless: they are hidden from assistive technology.
  */
 export function loopCopies(logos: readonly Pick<LandingLogo, 'width' | 'height'>[], sizes: LogoStripSizes): number {
-  const narrowest = Math.min(listWidth(logos, sizes.height, sizes.gap, sizes.maxWidth), listWidth(logos, sizes.heightPhone, sizes.gapPhone, sizes.maxWidthPhone));
+  const narrowest = Math.min(listWidth(logos, sizes.desktop), listWidth(logos, sizes.phone));
   return Math.max(2, Math.ceil(LOGO_STRIP_WINDOW / narrowest) + 1);
 }
 
-/** The width of one copy of the list at one set of sizes: every logo's drawn width plus one gap after it (the gap that also closes the copy, so the seam is the same as any other space). */
-export function listWidth(logos: readonly Pick<LandingLogo, 'width' | 'height'>[], height: number, gap: number, maxWidth: number): number {
-  return logos.reduce((sum, l) => sum + drawnWidth(l, height, maxWidth) + gap, 0);
-}
-
 /**
- * Seconds one full turn of the list takes, so that the logos move at the same calm speed whatever the length of the list: 8 logos turn in 40 s and 19 in 95 s, instead of
- * the long list racing past at twice the speed. Worked out on the desktop sizes (the phone's own list is narrower, so it moves a little slower, which is fine).
+ * Seconds one full turn of the list takes AT ONE LAYOUT, so that the logos move at the same speed in CSS px per second whatever the screen and whatever the length of the list.
+ * The stylesheet uses one duration for the desktop's list and another for the phone's, because the phone's logos are smaller and its list shorter: with one duration for both,
+ * the phone would crawl.
  */
-export function loopSeconds(logos: readonly Pick<LandingLogo, 'width' | 'height'>[], sizes: LogoStripSizes, pxPerSecond: number): number {
-  return Math.max(1, Math.round(listWidth(logos, sizes.height, sizes.gap, sizes.maxWidth) / pxPerSecond));
+export function loopSeconds(logos: readonly Pick<LandingLogo, 'width' | 'height'>[], s: LogoSizing, pxPerSecond: number): number {
+  return Math.max(1, Math.round(listWidth(logos, s) / pxPerSecond));
 }

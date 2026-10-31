@@ -134,8 +134,8 @@ export default async function InvestorLandingPage() {
     }
   }
 
-  // Prompt 926 — the strip of logos of the investors of the catalogue that may be shown (src/lib/landing-logos.ts; 31/10/2026, Nuno: examples of investors already on the platform, not the
-  // startups that the other page shows), drawn only when there are enough of them; the hero moves up to make room for it only then, so the page looks exactly as before while the strip is not shown.
+  // Prompt 926 — the logos of the investors of the catalogue that may be shown (src/lib/landing-logos.ts; 31/10/2026, Nuno: a selection from the profiles in the database, not the startups that the
+  // other page shows), drawn only when there are enough of them, as a carousel that opens the light area under the hero. The hero keeps the compact spacing it had on the live site (heroCompact).
   const logos = landingLogosFor('investors');
   const withLogos = logoStripVisible(logos);
 
@@ -165,7 +165,7 @@ export default async function InvestorLandingPage() {
           ".split + .split", pairs two elements that stay siblings inside it). */}
       <main>
       {/* ============ HERO ============ */}
-      <header className={withLogos ? `${s.hero} ${s.heroWithLogos}` : s.hero} id="top">
+      <header className={`${s.hero} ${s.heroCompact}`} id="top">
         <div className={s.wrap}>
           <div>
             <span className={s.badge}><span className={s.dot} />{BRAND_NAME.toUpperCase()} FOR INVESTORS</span>
@@ -203,11 +203,11 @@ export default async function InvestorLandingPage() {
             </div>
           </div>
         </div>
-
-        {/* Prompt 926 — examples of investors already on the platform, at the foot of the top block. This page has no dark bar of checks: the strip is the last thing in the
-            hero, and the "Already in our database" section (the same kind of profile) follows it. */}
-        {withLogos && <LogoStrip page="investors" logos={logos} />}
       </header>
+
+      {/* Prompt 926 (31/10/2026, Nuno) — a selection of the investor profiles in the database, as a carousel at the start of the light area under the hero: a centred title and ONE row of logos that
+          slides on its own, on the page's own colour. This page has no dark bar of checks. The "Already in our database" section (the same kind of profile) follows them, without its top line. */}
+      {withLogos && <LogoStrip page="investors" logos={logos} />}
 
       {/* ============ CLAIM ============ */}
       <section className={`${s.sec} ${s.claimSec}`}>

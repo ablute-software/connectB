@@ -12,8 +12,8 @@ import { afterAll, describe, expect, it } from 'vitest';
 import data from '@/content/site/landing-logos.json';
 import * as buildCheck from '../../scripts/check-landing-logos.mjs';
 import {
-  AUTHORIZATION_FORMS, LOGO_FILE_PATTERN, LOGO_PAGES, LOGO_STRIP_MIN, LOGO_STRIP_WINDOW, authorizationProblem, drawnWidth, isAuthorized, loopCopies, logosForPage,
-  parseLogos, stripVisible, type LandingLogo, type LogoStripSizes,
+  AUTHORIZATION_FORMS, LOGO_FILE_PATTERN, LOGO_PAGES, LOGO_STRIP_MIN, authorizationProblem, isAuthorized, logosForPage,
+  parseLogos, stripVisible, type LandingLogo,
 } from './landing-logos';
 
 const ROOT = process.cwd();
@@ -147,36 +147,6 @@ describe('what the file may hold', () => {
     ['null', null],
   ])('drops a row with %s', (_n, row) => {
     expect(parseLogos([row, good])).toEqual([good]);
-  });
-});
-
-describe('how many copies of the list the loop needs (so it never shows an empty end)', () => {
-  const SIZES: LogoStripSizes = { height: 64, gap: 56, maxWidth: 150, heightPhone: 44, gapPhone: 32, maxWidthPhone: 110 };
-
-  it('a logo is drawn at the box height times its own shape, never wider than the largest width', () => {
-    expect(drawnWidth({ width: 512, height: 512 }, 64, 150)).toBe(64);
-    expect(drawnWidth({ width: 200, height: 40 }, 36, 150)).toBe(150); // 5:1 would be 180: shrunk to the largest width
-    expect(drawnWidth({ width: 100, height: 50 }, 36, 150)).toBe(72);
-  });
-
-  it('whatever the number and shape of the logos, K-1 copies are wider than the widest window, so the end of the track is never empty', () => {
-    const shapes = [{ width: 512, height: 512 }, { width: 200, height: 40 }, { width: 60, height: 60 }, { width: 400, height: 200 }];
-    for (const n of [6, 7, 8, 10, 14, 20, 40]) {
-      const logos = Array.from({ length: n }, (_, i) => shapes[i % shapes.length]);
-      const k = loopCopies(logos, SIZES);
-      expect(k).toBeGreaterThanOrEqual(2);
-      for (const [h, gap, max] of [[SIZES.height, SIZES.gap, SIZES.maxWidth], [SIZES.heightPhone, SIZES.gapPhone, SIZES.maxWidthPhone]] as const) {
-        const list = logos.reduce((sum, l) => sum + drawnWidth(l, h, max) + gap, 0);
-        expect((k - 1) * list).toBeGreaterThanOrEqual(LOGO_STRIP_WINDOW);
-      }
-    }
-  });
-
-  it('a short list gets more copies than a long one, and never fewer than two (the second is what scrolls in)', () => {
-    const six = many(6);
-    const forty = many(40);
-    expect(loopCopies(six, SIZES)).toBeGreaterThan(loopCopies(forty, SIZES));
-    expect(loopCopies(forty, SIZES)).toBe(2);
   });
 });
 

@@ -329,63 +329,63 @@
   .c2 { left: -6px; }
 }
 
-/* ---------- hero with the logo strip under it (Prompt 926, 30/10/2026) ----------
-   With the strip of logos under it the hero moves up, so the whole strip is in the first screen of a laptop (1280x720 and up). Only vertical space changes: the gap
-   under the nav (which is 72 px tall), the gap under the content, and the margins between the lines of the left column. No font size, no text, no width and no part of
-   the pipeline picture is touched (the strip now sits UNDER the dark bar of checks, so this brings the bar and the strip as high as the hero allows). heroWithLogos is added only while the strip is drawn, so the hero keeps its old spacing whenever it is not (fewer than six
-   authorized logos). Written with the hero's own class in front of each selector so it wins over the rules above whatever their order; the bottom padding is on
-   the hero's DIRECT .wrap only, because the dark bar of checks inside the hero has a .wrap of its own (".strip .wrap", 18 px) that a plain ".wrap" would also reach. */
-.hero.heroWithLogos { padding-top: 96px; }
-.hero.heroWithLogos > .wrap { padding-bottom: 28px; }
-.hero.heroWithLogos .badge { margin-bottom: 14px; }
-.hero.heroWithLogos h1 { margin-bottom: 12px; }
-.hero.heroWithLogos .lead { margin-bottom: 20px; }
-.hero.heroWithLogos .heroCtas { margin-bottom: 16px; }
+/* ---------- compact hero of the two landing pages (Prompt 926; back to the compact spacing 31/10/2026, Nuno) ----------
+   The hero of / and /investors keeps the compact spacing it had on the live site: 96 px under the nav (which is 72 px tall, so the badge and the title sit close to it and never under it) and
+   28 px under the content (48 px on a phone), and the small margins between the lines of the left column. Only vertical space: no font size, no text, no width, no column, no gap and no part of the
+   product picture is touched, and nothing is centred or stretched to fill a height (there is no min-height and no 100vh anywhere in the hero). The base rules above keep the spacing the other pages that
+   share this stylesheet use. Written with the hero's own class in front of each selector so it wins over the base rules whatever their order; the bottom padding is on the hero's DIRECT .wrap only,
+   because the dark bar of checks inside the hero has a .wrap of its own (".strip .wrap", 18 px) that a plain ".wrap" would also reach. */
+.hero.heroCompact { padding-top: 96px; }
+.hero.heroCompact > .wrap { padding-bottom: 28px; }
+.hero.heroCompact .badge { margin-bottom: 14px; }
+.hero.heroCompact h1 { margin-bottom: 12px; }
+.hero.heroCompact .lead { margin-bottom: 20px; }
+.hero.heroCompact .heroCtas { margin-bottom: 16px; }
 @media (max-width: 900px) {
-  .hero.heroWithLogos > .wrap { padding-bottom: 48px; }
+  .hero.heroCompact > .wrap { padding-bottom: 48px; row-gap: 28px; }
+  /* On a phone the rule ".hero .wrap { padding-bottom: 80px }" (further down the file) also reaches the .wrap of the bar of checks inside the hero and beats ".strip .wrap" (18 px) by coming later:
+     the bar was 62 px taller than its own padding says, an empty dark strip under the four checks. The bar gets its 18 px back; and the 48 px between the text and the picture, which is a grid gap
+     once the two columns become one, is 28 px (Nuno, 31/10/2026: no unnecessary gaps between the elements on a phone). */
+  .hero.heroCompact .strip .wrap { padding-bottom: 18px; }
 }
 
-/* ---------- logo strip (Prompt 926, 30/10/2026) ----------
-   The band of logos at the foot of the hero, under the dark bar of checks (LogoStrip.tsx): a thin heading row and a white row of logos. The sizes, the loop time and the number of copies of the list arrive as custom
-   properties on the <section> (--logo-h, --logo-gap, --logo-maxw and their -phone twins, --logo-loop, --logo-copies); their source is src/content/site/logo-strip.ts, so no
-   number Nuno may want to change is written twice. Every rule is under .logoStrip: ".landing *" resets margin and padding at (0,1,0), which a lone class would tie with
-   and lose to by the order of the files. The motion is transform only: it never touches layout, so it cannot move anything else on the page. */
-.logoStrip { --h: var(--logo-h); --gap: var(--logo-gap); --maxw: var(--logo-maxw); }
-/* the heading: ONE small centred line in the brand's amber, fixed at the top of the strip (it is outside the track, so it never moves with the logos) and close above the logos that
-   pass right under it (31/10/2026, Nuno: smaller, "na parte superior da linha de carrossel, fixa"). It sits on the same dark as the bar of checks right above it, so it reads at about 7:1
-   (the same amber on white would be 2.3:1); on the investors page, which has no bar, it is transparent and the hero's own gradient shows through. The hairline is the bar's own. */
-.logoStrip .logoHead { background: var(--ink); border-top: 1px solid rgba(255, 255, 255, .06); padding: 11px 24px 9px; text-align: center; }
-.logoStrip[data-logo-strip='investors'] .logoHead { background: transparent; border-top: 0; padding-top: 4px; }
-.logoStrip .logoLabel { font-size: .875rem; line-height: 1.3; font-weight: 600; letter-spacing: .02em; color: var(--amber); white-space: nowrap; }
-/* the row of logos is the only white part: the whole width of the page, up to 1600 px, then centred with its ends faded out */
-.logoStrip .logoInner { background: #fff; padding: 18px 0 22px; }
-.logoStrip .logoWindow { position: relative; max-width: 1600px; margin: 0 auto; overflow: hidden; }
-/* the two ends fade into the band, so a logo is never cut off by a hard edge */
-.logoStrip .logoWindow::before, .logoStrip .logoWindow::after { content: ''; position: absolute; top: 0; bottom: 0; width: 64px; z-index: 1; pointer-events: none; }
-.logoStrip .logoWindow::before { left: 0; background: linear-gradient(to right, #fff, rgba(255, 255, 255, 0)); }
-.logoStrip .logoWindow::after { right: 0; background: linear-gradient(to left, #fff, rgba(255, 255, 255, 0)); }
+/* ---------- logos of the companies: a carousel (Prompt 926, 30/10/2026; out of the hero and without discs 31/10/2026) ----------
+   The first thing of the light area, right under the hero: a centred title and ONE row of logos that slides left on its own, on the page's own colour. No band, no border, no card, no circle: the area goes on,
+   unbroken, into the section that follows. LogoStrip.tsx writes, on the <section>, the sizes it worked out (--logo-gap, --logo-maxh and their -phone twins, --logo-copies, --logo-loop and --logo-loop-phone:
+   one duration for each layout, so the speed in px per second is the same on every screen) and, on each <li>, --w and --wp (the width of its logo on a laptop and on a phone). Their source is
+   src/content/site/logo-strip.ts, so no number Nuno may want to change is written twice. Every rule is under .logoStrip: ".landing *" resets margin and padding at (0,1,0), which a lone class would tie with
+   and win or lose by the order of the files. The motion is transform only: it never touches layout, so it cannot move anything else on the page. */
+.logoStrip { --gap: var(--logo-gap); --maxh: var(--logo-maxh); padding: 40px 0 0; }
+.logoStrip .logoTitle { text-align: center; font-size: clamp(1.15rem, 1.4vw + .75rem, 1.5rem); font-weight: 600; line-height: 1.25; margin-bottom: 10px; text-wrap: balance; }
+/* the window is the whole width of the page up to 1600 px, then centred; the logos enter and leave at its ends, which fade into the page's own colour so a logo is never cut by a hard edge */
+.logoStrip .logoWindow { position: relative; max-width: 1600px; margin: 0 auto; overflow: hidden; padding: 10px 0; }
+.logoStrip .logoWindow::before, .logoStrip .logoWindow::after { content: ''; position: absolute; top: 0; bottom: 0; width: 72px; z-index: 1; pointer-events: none; }
+.logoStrip .logoWindow::before { left: 0; background: linear-gradient(to right, var(--bg), rgba(247, 250, 250, 0)); }
+.logoStrip .logoWindow::after { right: 0; background: linear-gradient(to left, var(--bg), rgba(247, 250, 250, 0)); }
 .logoStrip .logoTrack { display: flex; width: max-content; animation: logoLoop var(--logo-loop) linear infinite; will-change: transform; }
-.logoStrip .logoWindow:hover .logoTrack { animation-play-state: paused; }
+/* the pointer, or a finger on it, stops it */
+.logoStrip .logoWindow:hover .logoTrack, .logoStrip .logoWindow:active .logoTrack { animation-play-state: paused; }
 /* every copy ends with one gap of padding, so the seam between copies is the same width as the space between two logos */
 .logoStrip .logoList { display: flex; flex: 0 0 auto; align-items: center; gap: var(--gap); padding-right: var(--gap); list-style: none; }
 .logoStrip .logoItem { display: flex; flex: 0 0 auto; align-items: center; }
-/* a fixed height and a largest width: a long logo is shrunk to fit its box instead of dominating the row */
-.logoStrip .logoImg { display: block; height: var(--h); width: auto; max-width: var(--maxw); object-fit: contain; }
+.logoStrip .logoImg { display: block; width: calc(var(--w) * 1px); height: auto; }
 @keyframes logoLoop { from { transform: translateX(0); } to { transform: translateX(calc(-100% / var(--logo-copies))); } }
+/* what follows the logos starts with a moderate space (the section's own 96 px of top padding would leave a big empty area), and the claim section of the investors page loses its top line there */
+.logoStrip + .sec { padding-top: 46px; }
+.logoStrip + .claimSec { border-top: 0; }
 
 @media (max-width: 760px) {
-  .logoStrip { --h: var(--logo-h-phone); --gap: var(--logo-gap-phone); --maxw: var(--logo-maxw-phone); }
-  .logoStrip .logoHead { padding: 10px 12px 8px; }
-  .logoStrip[data-logo-strip='investors'] .logoHead { padding-top: 4px; }
-  .logoStrip .logoLabel { font-size: min(.78rem, 3.8vw); }
-  .logoStrip .logoInner { padding: 14px 0 18px; }
-  .logoStrip .logoWindow::before, .logoStrip .logoWindow::after { width: 28px; }
+  .logoStrip { --gap: var(--logo-gap-phone); --maxh: var(--logo-maxh-phone); padding-top: 32px; }
+  .logoStrip .logoTrack { animation-duration: var(--logo-loop-phone); }
+  .logoStrip .logoImg { width: calc(var(--wp) * 1px); }
+  .logoStrip .logoWindow::before, .logoStrip .logoWindow::after { width: 32px; }
+  .logoStrip + .sec { padding-top: 36px; }
 }
 
-/* "Reduce motion": the strip stands still and shows the logos that fit in one row, none of them cut (the rest wrap out of sight); the copies that only exist for the
-   seam are not drawn (the global rule above already stops the animation, this one makes the still picture right). */
+/* "Reduce motion": the strip stands still and shows the logos that fit in one row, none of them cut (the rest are pushed out of sight); the copies that only exist for the seam are not drawn
+   (the global rule above already stops the animation, this one makes the still picture right). */
 @media (prefers-reduced-motion: reduce) {
   .logoStrip .logoTrack { animation: none; width: auto; will-change: auto; }
-  .logoStrip .logoList { flex: 1 1 100%; flex-wrap: wrap; justify-content: center; height: var(--h); overflow: hidden; padding-right: 0; }
+  .logoStrip .logoList { flex: 1 1 100%; flex-wrap: wrap; justify-content: center; row-gap: 200px; height: var(--maxh); overflow: hidden; padding-right: 0; }
   .logoStrip .logoList[aria-hidden='true'] { display: none; }
 }

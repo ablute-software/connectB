@@ -1,4 +1,4 @@
-// Prompt 926 (30/10/2026) — the strip of logos at the foot of the landing's hero: the words above it, the speed it turns at, the size the logos are drawn at, and the
+// Prompt 926 (30/10/2026; carousel back and logos out of the hero 31/10/2026, Nuno) — the logos of the landing pages: the title above them, how fast they move, how big each is drawn, and the
 // logos themselves (landing-logos.json, next to this file). Everything Nuno may want to tune is a constant here.
 //
 // The rules about WHICH logos may appear (authorization recorded, at least six) are in src/lib/landing-logos.ts, and README.md in public/landing/logos/ says how
@@ -8,27 +8,30 @@ import { logosForPage, parseLogos, stripVisible, type LandingLogo, type LogoPage
 import data from './landing-logos.json';
 
 /**
- * The line above the logos: small, centred, fixed (it does not move with the logos), in the brand's amber. The startups page shows the startups that trust the platform
- * ("Startups que confiam em nós", Nuno, 30/10/2026; the site is in English); the investors page shows investors of the catalogue instead and says so (Nuno, 31/10/2026:
- * "Examples of investors already on Sherlock Deal"; the page's own section below it, "Already in our database", is about the same profiles).
+ * The title above the carousel, in the same light area, right over it. It must say that these are EXAMPLES and not the whole list (31/10/2026, Nuno: a fixed grid of logos "suggests that the
+ * companies shown are all the organisations on the platform"). The startups page says that these startups are already on the platform; the investors page speaks of PROFILES of the database
+ * (verified, active, none of them claimed by the firm yet) and gives the size of the database, never "investors on the platform": it must not suggest that they are all active users. The
+ * "500+" is the figure the page itself gives in its section "Already in our database".
  */
 export const LOGO_STRIP_LABEL: Record<LogoPage, string> = {
-  startups: 'Startups that trust us',
-  investors: `Examples of investors already on ${BRAND_NAME}`,
+  startups: `Some of the startups already on ${BRAND_NAME}`,
+  investors: 'A selection from 500+ investor profiles in our database',
 };
 
 /**
- * How fast the logos move, in CSS px per second: the calm pace of the first strip (8 logos of 96 px with a 64 px gap turn in 40 s, which the brief asked for: 30 to 45 s).
- * A longer list takes longer to turn but moves at the same speed (see `loopSeconds` in src/lib/landing-logos.ts).
+ * How fast the logos move, in CSS px per second, THE SAME on every screen: the stylesheet uses one duration for the desktop's list and another for the phone's (`loopSeconds` in
+ * src/lib/landing-logos.ts), each worked out from the width of its own list. 32 px/s is the calm pace of the first strip (8 startup logos turn in 43 s on a laptop, 32 s on a phone).
  */
 export const LOGO_STRIP_SPEED = 32;
 
 /**
- * The size of one logo's box, in CSS px. The files are 512 px (startups) and 320 px (investors) discs: a white circle with the name inside it, 14% to 48% of the
- * circle's height, so the box is the disc: at the 32-40 px of the brief a name would be 5 to 13 px tall. A logo cropped without margins would go back to 32-40 px (phone 24-28).
- * 30/10/2026, Nuno: "aumenta os logos e a altura da barra" — 64 px became 96 px (phone 44 became 68), and the gap grew with them.
+ * How big each logo is drawn. Every logo gets the same AREA, inside a widest and a tallest, and keeps the shape of its own file: a long wordmark is wide and low, a squarer mark is smaller
+ * across and taller. The files are cropped to their drawing on a transparent background (no disc, no card): at 4600 px² a wordmark is 25-35 px tall and a mark up to 60 px.
  */
-export const LOGO_STRIP_SIZES: LogoStripSizes = { height: 96, gap: 64, maxWidth: 200, heightPhone: 68, gapPhone: 36, maxWidthPhone: 140 };
+export const LOGO_STRIP_SIZES: LogoStripSizes = {
+  desktop: { area: 4600, maxWidth: 170, maxHeight: 60, gap: 56 },
+  phone: { area: 3000, maxWidth: 120, maxHeight: 46, gap: 36 },
+};
 
 export const LANDING_LOGOS: readonly LandingLogo[] = parseLogos(data);
 

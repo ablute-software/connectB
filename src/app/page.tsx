@@ -178,8 +178,8 @@ export default async function LandingPage() {
     }
   }
 
-  // Prompt 926 — the strip of logos of companies that authorized it (src/lib/landing-logos.ts), drawn only when there are enough of them; the hero moves up to make
-  // room for it only then, so the page looks exactly as before while the strip is not shown.
+  // Prompt 926 — the logos of companies that authorized it (src/lib/landing-logos.ts), drawn only when there are enough of them. They are a carousel that opens the light area under the hero, not part
+  // of the hero (31/10/2026, Nuno); the hero keeps the compact spacing it had on the live site (heroCompact).
   const logos = landingLogosFor('startups');
   const withLogos = logoStripVisible(logos);
 
@@ -209,7 +209,7 @@ export default async function LandingPage() {
           child of it). */}
       <main>
       {/* ============ HERO ============ */}
-      <header className={withLogos ? `${s.hero} ${s.heroWithLogos}` : s.hero} id="top">
+      <header className={`${s.hero} ${s.heroCompact}`} id="top">
         <Lens className={`${s.lens} ${s.l1}`} size={260} />
         <div className={s.wrap}>
           <div>
@@ -217,7 +217,7 @@ export default async function LandingPage() {
             <h1>Crack the case on your <em>fundraise.</em></h1>
             {/* Prompt 920 §F.3 (Nuno's "sim") — one factual line under the H1, in the subtitle's own style, so the page says in plain words what
                 the product does for both sides (the rest of the hero describes the founder's workspace). */}
-            <p className={s.lead} style={{ marginBottom: withLogos ? 10 : 14 }}>
+            <p className={s.lead} style={{ marginBottom: 10 }}>
               {BRAND_NAME} matches startups with the investors that fit them, and puts startups that match their mandate in front of investors.
             </p>
             <p className={s.lead}>
@@ -281,11 +281,11 @@ export default async function LandingPage() {
             <span><TickAmber />AI drafts — you decide</span>
           </div>
         </div>
-
-        {/* Prompt 926 (30/10/2026; moved UNDER the dark bar of checks the same evening, Nuno): the logos of companies already on the platform, the last thing in the hero. The hero, the bar of checks and
-            the heading of the strip are one dark block; only the row of logos is white, so the page no longer goes dark, white, dark, white. */}
-        {withLogos && <LogoStrip page="startups" logos={logos} />}
       </header>
+
+      {/* Prompt 926 (30/10/2026; out of the hero 31/10/2026, Nuno): the carousel of startups already on the platform opens the light area under the hero and its bar of checks — a centred title and ONE row
+          of logos that slides on its own, on the page's own colour, so the area goes on, unbroken, into the section below. */}
+      {withLogos && <LogoStrip page="startups" logos={logos} />}
 
       {/* ============ FEATURES ============ */}
       <section className={s.sec} id="features">
