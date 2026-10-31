@@ -368,8 +368,8 @@ describe.skipIf(!CHROME)('Logo carousel (real browser)', () => {
     await ctx.close();
   }, 60_000);
 
-  it('what follows the carousel starts with a small space, not the 96 px of a section on its own: 30 to 55 px from the logos to the next heading on a laptop, 24 to 50 on a phone (Nuno, 31/10/2026: less vertical space above and below)', async () => {
-    for (const [w, lo, hi] of [[1440, 30, 55], [390, 24, 50]] as const) {
+  it('what follows the carousel starts with room to breathe, not the 96 px of a section on its own: 60 to 80 px from the logos to the next heading on a laptop, 46 to 66 on a phone (Nuno, 31/10/2026: "deixa respirar um pouco mais")', async () => {
+    for (const [w, lo, hi] of [[1440, 60, 80], [390, 46, 66]] as const) {
       const { page, ctx } = await open(w);
       const m = await page.evaluate(measure);
       const lastBottom = Math.max(...m.firstImgs.map((i) => i.bottom));
@@ -421,8 +421,8 @@ describe.skipIf(!CHROME)('Logo carousel (real browser)', () => {
     await ctx.close();
   }, 60_000);
 
-  it('the compact hero ends where the carousel begins, with only the section\'s own 28 px (24 on a phone) of air above the title', async () => {
-    for (const [w, pad] of [[1440, 28], [390, 24]] as const) {
+  it('the compact hero ends where the carousel begins, with only the section\'s own 44 px (32 on a phone) of air above the title', async () => {
+    for (const [w, pad] of [[1440, 44], [390, 32]] as const) {
       const { page, ctx } = await open(w);
       const m = await page.evaluate(measure);
       expect(m.strip.top).toBeCloseTo(m.hero.bottom, 0);
@@ -433,11 +433,11 @@ describe.skipIf(!CHROME)('Logo carousel (real browser)', () => {
 
   // The first screen of a laptop or a desktop is the whole hero (Nuno, 31/10/2026): the dark green runs to the bottom edge of the window, the bar of checks sits on that edge, and the carousel only shows
   // once the visitor scrolls. A minimum, not a fixed height: a short window keeps the hero's own height. Measured at the three sizes Nuno asked for, plus a short and a very tall window.
-  // The hero stops at 900 px (Nuno, 31/10/2026, on seeing 1920x1080: "reduz o ar acima e abaixo do conteúdo"): up to a 900 px window it fills it exactly; in a taller one it stays 900 px, the bar of checks on its
-  // lower edge, and the light area with the carousel begins below it.
-  it.each([[1280, 720], [1440, 900], [1920, 1080], [1440, 1400]] as const)('%i x %i: the hero fills the window up to 900 px and no further — its bottom edge is the window\'s (or 900 px), the bar of checks is the last thing in it and the carousel starts right below', async (w, h) => {
+  // No upper limit (Nuno, 31/10/2026: a cap at 900 px was tried and taken out again — "prefiro que o verde chegue sempre ao fundo"): the hero fills the window at any height, the bar of checks on its lower
+  // edge, and the light area with the carousel begins below the first screen.
+  it.each([[1280, 720], [1440, 900], [1920, 1080], [1440, 1400]] as const)('%i x %i: the hero fills the window at any height — its bottom edge is the window\'s, the bar of checks is the last thing in it and the carousel starts right below, out of the first screen', async (w, h) => {
     const { page, ctx } = await open(w, 'startups', { height: h });
-    const hero = Math.min(h, 900);
+    const hero = h;
     const r = await page.evaluate(() => {
       const hero = document.getElementById('compact')!;
       const bar = hero.querySelector('.strip')!.getBoundingClientRect();
@@ -448,10 +448,10 @@ describe.skipIf(!CHROME)('Logo carousel (real browser)', () => {
       return { vh: innerHeight, heroTop: hero.getBoundingClientRect().top, heroBottom: hero.getBoundingClientRect().bottom, barBottom: bar.bottom, barTop: bar.top, stripTop: strip.top, contentTop: content.top, contentBottom: content.bottom, gridTop: gridBox.top, gridBottom: gridBox.bottom };
     });
     expect(r.heroTop).toBe(0);
-    expect(r.heroBottom, 'the hero ends at the bottom edge of the window (or at 900 px in a taller one)').toBeCloseTo(hero, 0);
+    expect(r.heroBottom, 'the hero ends at the bottom edge of the window').toBeCloseTo(hero, 0);
     expect(r.barBottom, 'the bar of checks sits on that edge').toBeCloseTo(hero, 0);
     expect(r.barBottom, 'and it is whole inside the first screen').toBeLessThanOrEqual(r.vh + 0.5);
-    expect(r.stripTop, 'the carousel begins where the hero ends: below the first screen up to a 900 px window, peeking in above that').toBeCloseTo(hero, 0);
+    expect(r.stripTop, 'the carousel begins where the hero ends: below the first screen, never peeking into it').toBeCloseTo(hero, 0);
     // the content is kept in the middle of the room between the nav and the bar — the air above it and below it is the same, within the difference of the grid's own paddings (96 above, 28 below, and the nav in front)
     const above = r.contentTop - 96; const below = (r.barTop - 28) - r.contentBottom;
     expect(Math.abs(above - below), `${w}x${h}: ${above.toFixed(0)} above, ${below.toFixed(0)} below`).toBeLessThanOrEqual(2);

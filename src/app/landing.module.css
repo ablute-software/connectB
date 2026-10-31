@@ -348,11 +348,10 @@
    The grid has to say width: 100% here: as an item of a column flex container with auto side margins it would shrink to its content and take its two columns with it. Only from 901 px up: on a
    phone the hero is as tall as its content and the page flows as it always did (the picture sits under the text and is long enough to need the scroll anyway). 100vh first for the browsers that do not
    know 100svh (the height with the browser's own bars in view: what the visitor really sees on a laptop it is the same).
-   The minimum stops at 900 px (Nuno, 31/10/2026, on seeing 1920x1080: "reduz o ar acima e abaixo do conteúdo"): in a window taller than that the hero stays 900 px tall and the light area, with the
-   carousel in it, begins below it. At 1080 px of window the content had ~200 px of empty dark green above and below it; at 900 px it has ~117, which is what the 1440x900 page looked like and is
-   the room the content needs. The bar of four checks is the last thing INSIDE the hero, so it sits on the hero's lower edge at 900 px, in the first screen, whatever the window. */
+   There is NO upper limit on it (Nuno, 31/10/2026: a cap at 900 px was tried and taken out again — "prefiro que o verde chegue sempre ao fundo"): in a tall window the dark green still runs to the bottom
+   edge, with the content in the middle of it, and the carousel never shows in the first screen. The bar of four checks is the last thing INSIDE the hero, so it sits on that edge. */
 @media (min-width: 901px) {
-  .hero.heroCompact { display: flex; flex-direction: column; min-height: min(100vh, 900px); min-height: min(100svh, 900px); }
+  .hero.heroCompact { display: flex; flex-direction: column; min-height: 100vh; min-height: 100svh; }
   .hero.heroCompact > .wrap { flex: 1 1 auto; width: 100%; }
 }
 /* In a SHORT window — up to 700 px of height: a laptop, or a 1920x1080 screen scaled up to 150-175% (about 1165x650 of CSS pixels) — the hero's own height is more than the window and the bar of four checks
@@ -397,7 +396,7 @@
    one duration for each layout, so the speed in px per second is the same on every screen) and, on each <li>, --w and --wp (the width of its logo on a laptop and on a phone). Their source is
    src/content/site/logo-strip.ts, so no number Nuno may want to change is written twice. Every rule is under .logoStrip: ".landing *" resets margin and padding at (0,1,0), which a lone class would tie with
    and win or lose by the order of the files. The motion is transform only: it never touches layout, so it cannot move anything else on the page. */
-.logoStrip { --gap: var(--logo-gap); --maxh: var(--logo-maxh); --win: var(--logo-window); --fade: var(--logo-fade); padding: 28px 0 0; }
+.logoStrip { --gap: var(--logo-gap); --maxh: var(--logo-maxh); --win: var(--logo-window); --fade: var(--logo-fade); padding: 44px 0 0; }
 .logoStrip .logoTitle { text-align: center; font-size: 1.0625rem; font-weight: 600; line-height: 1.3; margin-bottom: 4px; text-wrap: balance; }
 /* the window sits INSIDE the page's content column (.wrap: 1140 px with its 24 px of side padding, so 1092 px of content on a laptop and the screen minus the two gutters on a phone), centred, and is never
    wider than --win either: the widest window in which no logo can show twice at once (landing-logos.ts: `noRepeatWindow`, one turn of the list minus its widest logo). So its edges are the edges of the cards
@@ -416,15 +415,16 @@
 .logoStrip .logoItem { display: flex; flex: 0 0 auto; align-items: center; }
 .logoStrip .logoImg { display: block; width: calc(var(--w) * 1px); height: auto; }
 @keyframes logoLoop { from { transform: translateX(0); } to { transform: translateX(calc(-100% / var(--logo-copies))); } }
-/* what follows the logos starts with a small space (the section's own 96 px of top padding would leave a big empty area), and the claim section of the investors page loses its top line there */
-.logoStrip + .sec { padding-top: 34px; }
+/* what follows the logos starts with room to breathe but not the section's own 96 px of top padding, which would leave a big empty area: 60 px (44 on a phone); and above the title 44 px (32 on a phone). Nuno,
+   31/10/2026: "deixa respirar um pouco mais" before the title and before "The case file" (they were 28 / 34 px, and 40 / 46 before the 4th round). The claim section of the investors page loses its top line there */
+.logoStrip + .sec { padding-top: 60px; }
 .logoStrip + .claimSec { border-top: 0; }
 
 @media (max-width: 760px) {
-  .logoStrip { --gap: var(--logo-gap-phone); --maxh: var(--logo-maxh-phone); --win: var(--logo-window-phone); --fade: var(--logo-fade-phone); padding-top: 24px; }
+  .logoStrip { --gap: var(--logo-gap-phone); --maxh: var(--logo-maxh-phone); --win: var(--logo-window-phone); --fade: var(--logo-fade-phone); padding-top: 32px; }
   .logoStrip .logoTrack { animation-duration: var(--logo-loop-phone); }
   .logoStrip .logoImg { width: calc(var(--wp) * 1px); }
-  .logoStrip + .sec { padding-top: 28px; }
+  .logoStrip + .sec { padding-top: 44px; }
 }
 
 /* "Reduce motion": the strip stands still and shows the logos that fit in one row, none of them cut (the rest are pushed out of sight); the copies that only exist for the seam are not drawn
