@@ -10,8 +10,9 @@
 // only for the movement to be seamless: it is aria-hidden with empty alt text, so a screen reader meets each company once. No links: a logo here is a statement, not a door.
 //
 // Every logo is drawn at a box worked out here (`logoBoxes`): the same AREA for all (times its own optical weight, if it has one), so a long wordmark and a squarer mark weigh the same to the eye, and each
-// keeps the shape of its own file. The window the logos move in is as wide as the real logos allow and no wider (`logoWindows`): a window longer than one turn of the list would show a brand at both ends
-// at once, so with eight startups it is ~1.2k px, centred, and with seventeen investors it is the whole screen.
+// keeps the shape of its own file. The window the logos move in is never wider than the real logos allow (`logoWindows`): a window longer than one turn of the list would show a brand at both ends at once,
+// so with eight startups it could be ~1.2k px at most. And it sits inside the page's content column, like the hero's text and the cards below (31/10/2026, Nuno: "nunca ultrapassar os limites laterais
+// da grelha de conteúdo"): at most 1092 px on a laptop or a monitor, centred, whatever the screen (the stylesheet takes the smaller of the two).
 import type { CSSProperties } from 'react';
 import { LOGO_STRIP_FADE, LOGO_STRIP_LABEL, LOGO_STRIP_SIZES, LOGO_STRIP_SPEED } from '@/content/site/logo-strip';
 import { LOOP_COPIES, logoBoxes, logoWindows, loopSeconds, stripVisible, type LandingLogo, type LogoPage, type LogoStripSizes } from '@/lib/landing-logos';
@@ -62,12 +63,13 @@ export function LogoStrip({ page, logos, sizes = LOGO_STRIP_SIZES, pxPerSecond =
 
   return (
     <section className={s.logoStrip} aria-labelledby={titleId} data-logo-strip={page} style={style}>
+      {/* The title and the moving window are both inside the page's content column (.wrap): the window never runs wider than the grid the hero's text and the cards below sit on. */}
       <div className={s.wrap}>
         <h2 id={titleId} className={s.logoTitle}>{label}</h2>
-      </div>
-      <div className={s.logoWindow}>
-        <div className={s.logoTrack}>
-          {Array.from({ length: LOOP_COPIES }, (_, copy) => list(copy))}
+        <div className={s.logoWindow}>
+          <div className={s.logoTrack}>
+            {Array.from({ length: LOOP_COPIES }, (_, copy) => list(copy))}
+          </div>
         </div>
       </div>
     </section>

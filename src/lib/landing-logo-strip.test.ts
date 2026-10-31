@@ -95,7 +95,8 @@ describe('where the carousel sits', () => {
   });
 });
 
-describe('the hero keeps the compact spacing it had on the live site (31/10/2026, Nuno: "recuperar aproximadamente a altura e os espaçamentos originais")', () => {
+describe('the hero keeps the compact spacing it had on the live site (31/10/2026, Nuno: "recuperar aproximadamente a altura e os espaçamentos originais") and, from a laptop up, fills the first screen', () => {
+  const FULL_WINDOW = '@media (min-width: 901px)';
   const compact = css.filter((r) => r.selector.includes('heroCompact'));
 
   it('every such rule is written with the hero\'s own class in front, so it wins over the base rules whatever the order of the file', () => {
@@ -103,18 +104,35 @@ describe('the hero keeps the compact spacing it had on the live site (31/10/2026
     for (const r of compact) expect(r.selector.startsWith('.hero.heroCompact'), r.selector).toBe(true);
   });
 
-  it('they set only vertical space — a top padding, a bottom padding, a bottom margin, the gap between rows — and, on a phone, the lead\'s line height: no font size, text, width, column or picture is touched, and nothing is stretched or centred to fill a height', () => {
+  it('their SPACING rules set only vertical space — a top padding, a bottom padding, a bottom margin, the gap between rows — and, on a phone, the lead\'s line height: no font size, text, width, column or picture is touched (the laptop\'s full-window block is its own rule, below)', () => {
     const props = new Set<string>();
-    for (const r of compact) for (const k of Object.keys(declarations(r.body))) props.add(k);
+    for (const r of compact.filter((x) => x.media !== FULL_WINDOW)) for (const k of Object.keys(declarations(r.body))) props.add(k);
     expect([...props].sort()).toEqual(['line-height', 'margin-bottom', 'padding-bottom', 'padding-top', 'row-gap']);
     // the line height is the one thing about text, it is only ever the lead's, only on a phone, and never tighter than 1.5
     const withLine = compact.filter((r) => 'line-height' in declarations(r.body));
     expect(withLine.map((r) => [r.selector, r.media])).toEqual([['.hero.heroCompact .lead', '@media (max-width: 900px)']]);
     expect(parseFloat(decl('.hero.heroCompact .lead', '@media (max-width: 900px)')['line-height'])).toBeGreaterThanOrEqual(1.5);
-    // no min-height and no 100vh in the hero's rules, base or compact
+    // a height appears in ONE rule of the hero's, and it is a minimum (see the next test): never a fixed height, a maximum, a scale or a zoom, anywhere in the hero's or the picture's rules
     for (const r of css.filter((x) => x.selector.startsWith('.hero') || x.selector.startsWith('.mock'))) {
-      expect(r.body, r.selector).not.toMatch(/min-height|100vh|100dvh|(?<![\w-])height\s*:/);
+      expect(r.body, r.selector).not.toMatch(/(?<![\w-])height\s*:|max-height|transform:\s*scale|zoom\s*:|100dvh/);
+      if (!(r.selector === '.hero.heroCompact' && r.media === FULL_WINDOW)) expect(r.body, r.selector).not.toMatch(/min-height|100vh|100svh/);
     }
+  });
+
+  it('the first screen of a laptop or a desktop is the whole hero: from 901 px up the hero is a column at least as tall as the window (a MINIMUM — 100vh with 100svh after it for the browsers that know it), its grid takes the room between the nav and the bar and keeps the content in the middle of it; on a phone nothing of this applies (Nuno, 31/10/2026)', () => {
+    const full = find('.hero.heroCompact', FULL_WINDOW);
+    expect(full).toHaveLength(1);
+    expect(declarations(full[0].body)).toEqual({ display: 'flex', 'flex-direction': 'column', 'min-height': '100svh' }); // the last min-height wins: 100svh
+    expect(full[0].body).toMatch(/min-height:\s*100vh;\s*min-height:\s*100svh/); // 100vh first, as the fallback
+    // the grid is the DIRECT .wrap (the bar's .wrap must not grow), it takes the free height and keeps its 1140 px column: as a flex item with auto side margins it would shrink to its content without width: 100%
+    expect(decl('.hero.heroCompact > .wrap', FULL_WINDOW)).toEqual({ flex: '1 1 auto', width: '100%' });
+    expect(css.filter((r) => r.media === FULL_WINDOW).map((r) => r.selector)).toEqual(['.hero.heroCompact', '.hero.heroCompact > .wrap']);
+    // it is the laptop's only: nothing about height or flex in the phone's block, and the plain hero of the other public pages has none of it
+    for (const r of css.filter((x) => x.media === '@media (max-width: 900px)' && x.selector.startsWith('.hero'))) expect(r.body, r.selector).not.toMatch(/min-height|display|flex/);
+    expect(decl('.hero')).not.toHaveProperty('min-height');
+    // the content stays in the middle: the grid already centres its items, and nothing here pushes them to an edge
+    expect(decl('.hero .wrap')['align-items']).toBe('center');
+    expect(decl('.hero.heroCompact > .wrap', FULL_WINDOW)).not.toHaveProperty('align-self');
   });
 
   it('each one is smaller than the value it overrides, so the hero only ever moves up; the top padding never goes under the 72 px nav', () => {
@@ -147,8 +165,8 @@ describe('the hero keeps the compact spacing it had on the live site (31/10/2026
     // The 28 px between the text and the picture are kept: the picture's floating "Fact confirmed" chip sits ~30 px above it, over the text block; with 20 px it came down onto "Free to start" (measured)
     expect(px(decl('.hero.heroCompact > .wrap', phone)['row-gap'])).toBe(28);
     expect(decl('.hero.heroCompact .heroCtas', phone)).toEqual({ 'row-gap': '10px' }); // only the row gap: two buttons side by side keep their 14 px
-    // nothing here fixes a height or scales the hero
-    expect(read('src/app/landing.module.css')).not.toMatch(/\.hero[^{]*\{[^}]*(min-height|(?<![\w-])height\s*:|transform:\s*scale|zoom\s*:)/);
+    // nothing here fixes a height or scales the hero: the phone's rules have no min-height at all (the laptop's minimum is in its own block, above 900 px)
+    for (const r of css.filter((x) => x.media === phone)) expect(r.body, r.selector).not.toMatch(/min-height|(?<![\w-])height\s*:|transform:\s*scale|zoom\s*:/);
   });
 
   it('the base rules are untouched (170 px under the nav, 110 px under the content, the same margins and sizes), so the other public pages that share the stylesheet keep their hero', () => {
@@ -249,7 +267,7 @@ describe('the carousel\'s stylesheet', () => {
         : r.selector === '.logoStrip + .claimSec' ? ['border-top'] : []; // the claim section's own top line is REMOVED while the carousel sits right above it
       expect(bad.filter((k) => !allowed.includes(k)), r.selector).toEqual([]);
     }
-    expect(decl('.logoStrip')).toEqual({ '--gap': 'var(--logo-gap)', '--maxh': 'var(--logo-maxh)', '--win': 'var(--logo-window)', '--fade': 'var(--logo-fade)', padding: '40px 0 0' });
+    expect(decl('.logoStrip')).toEqual({ '--gap': 'var(--logo-gap)', '--maxh': 'var(--logo-maxh)', '--win': 'var(--logo-window)', '--fade': 'var(--logo-fade)', padding: '28px 0 0' });
     const img = decl('.logoStrip .logoImg');
     expect(img.width).toBe('calc(var(--w) * 1px)');
     expect(img.height).toBe('auto');
@@ -257,18 +275,21 @@ describe('the carousel\'s stylesheet', () => {
     expect(read('src/app/landing.module.css')).not.toMatch(/\.logoInner|\.logoHead|\.logoLabel/);
   });
 
-  it('what follows the carousel starts with a moderate space: less than the 96 px a section normally begins with (46 px, 36 px on a phone), and the claim section loses its top line there', () => {
+  it('what follows the carousel starts with a small space: far less than the 96 px a section normally begins with (34 px, 28 px on a phone), and the claim section loses its top line there; the strip itself has 28 px above its title (24 on a phone) — Nuno, 31/10/2026: less vertical space above and below', () => {
     expect(decl('.sec').padding).toBe('96px 0');
-    expect(decl('.logoStrip + .sec')).toEqual({ 'padding-top': '46px' });
-    expect(decl('.logoStrip + .sec', '@media (max-width: 760px)')).toEqual({ 'padding-top': '36px' });
+    expect(decl('.logoStrip + .sec')).toEqual({ 'padding-top': '34px' });
+    expect(decl('.logoStrip + .sec', '@media (max-width: 760px)')).toEqual({ 'padding-top': '28px' });
+    expect(px(decl('.logoStrip', '@media (max-width: 760px)')['padding-top'])).toBe(24);
     expect(declarations(find('.logoStrip + .claimSec')[0].body)['border-top']).toBe('0');
   });
 
-  it('the title is a centred line of the page\'s own heading font and ink, a little smaller than a section heading, right above the carousel; ink on --bg passes WCAG AAA', () => {
+  it('the title is a DISCREET centred line — 17 px (1.0625rem; Nuno asked for about 16-18 px) — of the page\'s own heading font and ink, much smaller than a section heading, right above the carousel; ink on --bg passes WCAG AAA', () => {
     const t = decl('.logoStrip .logoTitle');
     expect(t['text-align']).toBe('center');
-    expect(t['font-size']).toBe('clamp(1.15rem, 1.4vw + .75rem, 1.5rem)');
-    expect(t['margin-bottom']).toBe('10px');
+    expect(t['font-size']).toBe('1.0625rem');
+    expect(parseFloat(t['font-size']) * 16).toBeGreaterThanOrEqual(16);
+    expect(parseFloat(t['font-size']) * 16).toBeLessThanOrEqual(18);
+    expect(t['margin-bottom']).toBe('4px');
     expect(Object.keys(t)).not.toContain('color'); // the ink it gets from ".landing h2"
     expect(Object.keys(t)).not.toContain('font-family');
     expect(decl('.secHead h2')['font-size']).toBe('clamp(1.8rem, 3.4vw, 2.5rem)');

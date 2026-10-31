@@ -332,15 +332,26 @@
 /* ---------- compact hero of the two landing pages (Prompt 926; back to the compact spacing 31/10/2026, Nuno) ----------
    The hero of / and /investors keeps the compact spacing it had on the live site: 96 px under the nav (which is 72 px tall, so the badge and the title sit close to it and never under it) and
    28 px under the content (48 px on a phone), and the small margins between the lines of the left column. Only vertical space: no font size, no text, no width, no column, no gap and no part of the
-   product picture is touched, and nothing is centred or stretched to fill a height (there is no min-height and no 100vh anywhere in the hero). The base rules above keep the spacing the other pages that
-   share this stylesheet use. Written with the hero's own class in front of each selector so it wins over the base rules whatever their order; the bottom padding is on the hero's DIRECT .wrap only,
-   because the dark bar of checks inside the hero has a .wrap of its own (".strip .wrap", 18 px) that a plain ".wrap" would also reach. */
+   product picture is touched. The base rules above keep the spacing the other pages that share this stylesheet use. Written with the hero's own class in front of each selector so it wins over the base
+   rules whatever their order; the bottom padding is on the hero's DIRECT .wrap only, because the dark bar of checks inside the hero has a .wrap of its own (".strip .wrap", 18 px) that a plain ".wrap"
+   would also reach. */
 .hero.heroCompact { padding-top: 96px; }
 .hero.heroCompact > .wrap { padding-bottom: 28px; }
 .hero.heroCompact .badge { margin-bottom: 14px; }
 .hero.heroCompact h1 { margin-bottom: 12px; }
 .hero.heroCompact .lead { margin-bottom: 20px; }
 .hero.heroCompact .heroCtas { margin-bottom: 16px; }
+/* The first screen of a laptop or a desktop is the whole hero (Nuno, 31/10/2026: "preservar a composição e o impacto visual do primeiro ecrã"): the dark green goes down to the bottom edge of the browser,
+   the bar of four checks sits on that edge (the startups page; the investors page has no bar) and the logos only show once the visitor scrolls. It is a MINIMUM height, not a fixed one: a hero that is
+   taller than the window (a short window, a large font) keeps its own height and the page simply scrolls, and nothing in it is scaled. The hero becomes a column: its grid (.wrap) takes whatever height is
+   left between the nav and the bar and keeps the content in the middle of it (the grid's own align-items), so a tall window gets some air above and below the content, never a different size of it.
+   The grid has to say width: 100% here: as an item of a column flex container with auto side margins it would shrink to its content and take its two columns with it. Only from 901 px up: on a
+   phone the hero is as tall as its content and the page flows as it always did (the picture sits under the text and is long enough to need the scroll anyway). 100vh first for the browsers that do not
+   know 100svh (the height with the browser's own bars in view: what the visitor really sees on a laptop it is the same). */
+@media (min-width: 901px) {
+  .hero.heroCompact { display: flex; flex-direction: column; min-height: 100vh; min-height: 100svh; }
+  .hero.heroCompact > .wrap { flex: 1 1 auto; width: 100%; }
+}
 /* A phone's first screen (Nuno, 31/10/2026: "a stronger first impression, no aggressive compression"): the same vertical-only changes, a little further. 12 px under the 72 px nav instead of 24 (the badge still
    sits clear of it), a little less between badge, title, lead and buttons (12 / 10 / 16 px instead of 14 / 12 / 20), the lead's lines at 1.5 instead of the page's 1.6 (still the comfortable reading measure,
    nine lines on the startups page), and 10 px between two buttons that wrap onto separate rows. The 28 px between the text and the picture are KEPT: the picture's floating "Fact confirmed" chip sits
@@ -365,12 +376,14 @@
    one duration for each layout, so the speed in px per second is the same on every screen) and, on each <li>, --w and --wp (the width of its logo on a laptop and on a phone). Their source is
    src/content/site/logo-strip.ts, so no number Nuno may want to change is written twice. Every rule is under .logoStrip: ".landing *" resets margin and padding at (0,1,0), which a lone class would tie with
    and win or lose by the order of the files. The motion is transform only: it never touches layout, so it cannot move anything else on the page. */
-.logoStrip { --gap: var(--logo-gap); --maxh: var(--logo-maxh); --win: var(--logo-window); --fade: var(--logo-fade); padding: 40px 0 0; }
-.logoStrip .logoTitle { text-align: center; font-size: clamp(1.15rem, 1.4vw + .75rem, 1.5rem); font-weight: 600; line-height: 1.25; margin-bottom: 10px; text-wrap: balance; }
-/* the window is the whole width of the page up to --win, then centred; everything past it is cut off (overflow hidden). --win is the widest window in which no logo can show twice at once (landing-logos.ts:
-   `noRepeatWindow`: one turn of the list minus its widest logo, ~1.2k px for eight startups, the whole screen for seventeen investors). The logos enter and leave at its ends, which fade into the page's own
-   colour over --fade px, so a logo is never cut by a hard edge and there is no frame or background of the window's own: the area outside it is the same colour as the area inside. */
-.logoStrip .logoWindow { position: relative; max-width: var(--win); margin: 0 auto; overflow: hidden; padding: 10px 0; }
+.logoStrip { --gap: var(--logo-gap); --maxh: var(--logo-maxh); --win: var(--logo-window); --fade: var(--logo-fade); padding: 28px 0 0; }
+.logoStrip .logoTitle { text-align: center; font-size: 1.0625rem; font-weight: 600; line-height: 1.3; margin-bottom: 4px; text-wrap: balance; }
+/* the window sits INSIDE the page's content column (.wrap: 1140 px with its 24 px of side padding, so 1092 px of content on a laptop and the screen minus the two gutters on a phone), centred, and is never
+   wider than --win either: the widest window in which no logo can show twice at once (landing-logos.ts: `noRepeatWindow`, one turn of the list minus its widest logo). So its edges are the edges of the cards
+   below and of the hero's text, on every screen, and it can never run out to the sides of a big monitor (Nuno, 31/10/2026). Everything past it is cut off (overflow hidden). The logos enter and leave at its
+   ends, which fade into the page's own colour over --fade px, so a logo is never cut by a hard edge and there is no frame, line or background of the window's own: the area outside it is the same colour as
+   the area inside. */
+.logoStrip .logoWindow { position: relative; max-width: var(--win); margin: 0 auto; overflow: hidden; padding: 6px 0; }
 .logoStrip .logoWindow::before, .logoStrip .logoWindow::after { content: ''; position: absolute; top: 0; bottom: 0; width: var(--fade); z-index: 1; pointer-events: none; }
 .logoStrip .logoWindow::before { left: 0; background: linear-gradient(to right, var(--bg), rgba(247, 250, 250, 0)); }
 .logoStrip .logoWindow::after { right: 0; background: linear-gradient(to left, var(--bg), rgba(247, 250, 250, 0)); }
@@ -382,15 +395,15 @@
 .logoStrip .logoItem { display: flex; flex: 0 0 auto; align-items: center; }
 .logoStrip .logoImg { display: block; width: calc(var(--w) * 1px); height: auto; }
 @keyframes logoLoop { from { transform: translateX(0); } to { transform: translateX(calc(-100% / var(--logo-copies))); } }
-/* what follows the logos starts with a moderate space (the section's own 96 px of top padding would leave a big empty area), and the claim section of the investors page loses its top line there */
-.logoStrip + .sec { padding-top: 46px; }
+/* what follows the logos starts with a small space (the section's own 96 px of top padding would leave a big empty area), and the claim section of the investors page loses its top line there */
+.logoStrip + .sec { padding-top: 34px; }
 .logoStrip + .claimSec { border-top: 0; }
 
 @media (max-width: 760px) {
-  .logoStrip { --gap: var(--logo-gap-phone); --maxh: var(--logo-maxh-phone); --win: var(--logo-window-phone); --fade: var(--logo-fade-phone); padding-top: 32px; }
+  .logoStrip { --gap: var(--logo-gap-phone); --maxh: var(--logo-maxh-phone); --win: var(--logo-window-phone); --fade: var(--logo-fade-phone); padding-top: 24px; }
   .logoStrip .logoTrack { animation-duration: var(--logo-loop-phone); }
   .logoStrip .logoImg { width: calc(var(--wp) * 1px); }
-  .logoStrip + .sec { padding-top: 36px; }
+  .logoStrip + .sec { padding-top: 28px; }
 }
 
 /* "Reduce motion": the strip stands still and shows the logos that fit in one row, none of them cut (the rest are pushed out of sight); the copies that only exist for the seam are not drawn

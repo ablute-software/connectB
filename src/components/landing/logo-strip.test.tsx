@@ -48,6 +48,17 @@ describe('what the section says', () => {
     expect(html.slice(html.indexOf('class="logoTrack"'))).not.toContain('<h2');
   });
 
+  it('the title and the moving window are both INSIDE one content column (.wrap, the grid the hero text and the cards use), so the window can never run wider than that grid (Nuno, 31/10/2026)', () => {
+    expect(count(html, /class="wrap"/g)).toBe(1);
+    const wrapAt = html.indexOf('<div class="wrap">');
+    expect(wrapAt).toBeGreaterThan(html.indexOf('<section'));
+    expect(wrapAt).toBeLessThan(html.indexOf('<h2'));
+    expect(html.indexOf('class="logoWindow"')).toBeGreaterThan(wrapAt);
+    // the wrap closes only after the window: nothing but the wrap's closing tag and the section's follow the last list
+    const tail = html.slice(html.lastIndexOf('</ul>'));
+    expect(tail.replace(/\s/g, '')).toBe('</ul></div></div></div></section>');
+  });
+
   it('the title, one per page, says EXAMPLES (Nuno, 31/10/2026): the startups page says some of the startups are already on the platform; the investors page says a selection from the 500+ profiles of the database — never that they are all active users', () => {
     expect(LOGO_STRIP_LABEL.startups).toBe('Some of the startups already on Sherlock Deal');
     expect(LOGO_STRIP_LABEL.investors).toBe('A selection from 500+ investor profiles in our database');

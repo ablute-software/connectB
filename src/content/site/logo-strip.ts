@@ -26,10 +26,12 @@ export const LOGO_STRIP_SPEED = 32;
 
 /**
  * How big each logo is drawn. Every logo gets the same AREA, inside a widest and a tallest, and keeps the shape of its own file: a long wordmark is wide and low, a squarer mark is smaller
- * across and taller. The files are cropped to their drawing on a transparent background (no disc, no card): at 4600 px² a wordmark is 25-35 px tall and a mark up to 60 px.
+ * across and taller. The files are cropped to their drawing on a transparent background (no disc, no card): at 3800 px² a wordmark is 22-32 px tall and a mark up to 52 px. It was 4600 px² (up to 60 px tall)
+ * under a 24 px title; with the title now 17 px and the strip a part of the page's own flow (Nuno, 31/10/2026: "logótipos de dimensão moderada e peso ótico equilibrado") the logos are a sixth lighter
+ * (the gap between them is the same). One turn of the eight startups is still longer than the 1092 px of the content column, so the window fills it with no logo twice in view.
  */
 export const LOGO_STRIP_SIZES: LogoStripSizes = {
-  desktop: { area: 4600, maxWidth: 170, maxHeight: 60, gap: 56 },
+  desktop: { area: 3800, maxWidth: 150, maxHeight: 52, gap: 56 },
   phone: { area: 3000, maxWidth: 120, maxHeight: 46, gap: 36 },
 };
 
