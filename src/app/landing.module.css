@@ -347,10 +347,31 @@
    left between the nav and the bar and keeps the content in the middle of it (the grid's own align-items), so a tall window gets some air above and below the content, never a different size of it.
    The grid has to say width: 100% here: as an item of a column flex container with auto side margins it would shrink to its content and take its two columns with it. Only from 901 px up: on a
    phone the hero is as tall as its content and the page flows as it always did (the picture sits under the text and is long enough to need the scroll anyway). 100vh first for the browsers that do not
-   know 100svh (the height with the browser's own bars in view: what the visitor really sees on a laptop it is the same). */
+   know 100svh (the height with the browser's own bars in view: what the visitor really sees on a laptop it is the same).
+   The minimum stops at 900 px (Nuno, 31/10/2026, on seeing 1920x1080: "reduz o ar acima e abaixo do conteúdo"): in a window taller than that the hero stays 900 px tall and the light area, with the
+   carousel in it, begins below it. At 1080 px of window the content had ~200 px of empty dark green above and below it; at 900 px it has ~117, which is what the 1440x900 page looked like and is
+   the room the content needs. The bar of four checks is the last thing INSIDE the hero, so it sits on the hero's lower edge at 900 px, in the first screen, whatever the window. */
 @media (min-width: 901px) {
-  .hero.heroCompact { display: flex; flex-direction: column; min-height: 100vh; min-height: 100svh; }
+  .hero.heroCompact { display: flex; flex-direction: column; min-height: min(100vh, 900px); min-height: min(100svh, 900px); }
   .hero.heroCompact > .wrap { flex: 1 1 auto; width: 100%; }
+}
+/* In a SHORT window — up to 700 px of height: a laptop, or a 1920x1080 screen scaled up to 150-175% (about 1165x650 of CSS pixels) — the hero's own height is more than the window and the bar of four checks
+   ("Outreach discipline, enforced / One version of the truth / NDA-protected data room / AI drafts — you decide") fell below the fold (Nuno: "esta linha tem que constar"): the hero was 665 px, the window 650.
+   So the air around the content takes the phone's compact values — 84 px under the 72 px nav (12 clear of it), 16 px under the content, and 12 / 10 / 16 px between badge, title and lead — which makes
+   the hero 633 px and keeps the bar whole in the first screen from a 640 px window up. The same vertical-only kind of change as the rules above: no text, size, width or picture is touched. */
+@media (min-width: 901px) and (max-height: 700px) {
+  .hero.heroCompact { padding-top: 84px; }
+  .hero.heroCompact > .wrap { padding-bottom: 16px; }
+  .hero.heroCompact .badge { margin-bottom: 12px; }
+  .hero.heroCompact h1 { margin-bottom: 10px; }
+  .hero.heroCompact .lead { margin-bottom: 16px; }
+}
+/* A step further for a window of 660 px or less (1920x1080 at 150% with the bookmarks bar showing is ~1280x633): 8 px under the content, 12 px under the buttons and the lead's lines at 1.5 (the phone's
+   own value; the page has 1.6) bring the hero to ~610 px, so the bar is whole from a 610 px window up. Nothing here makes anything smaller. */
+@media (min-width: 901px) and (max-height: 660px) {
+  .hero.heroCompact > .wrap { padding-bottom: 8px; }
+  .hero.heroCompact .lead { line-height: 1.5; }
+  .hero.heroCompact .heroCtas { margin-bottom: 12px; }
 }
 /* A phone's first screen (Nuno, 31/10/2026: "a stronger first impression, no aggressive compression"): the same vertical-only changes, a little further. 12 px under the 72 px nav instead of 24 (the badge still
    sits clear of it), a little less between badge, title, lead and buttons (12 / 10 / 16 px instead of 14 / 12 / 20), the lead's lines at 1.5 instead of the page's 1.6 (still the comfortable reading measure,

@@ -97,6 +97,8 @@ describe('where the carousel sits', () => {
 
 describe('the hero keeps the compact spacing it had on the live site (31/10/2026, Nuno: "recuperar aproximadamente a altura e os espaçamentos originais") and, from a laptop up, fills the first screen', () => {
   const FULL_WINDOW = '@media (min-width: 901px)';
+  const SHORT_1 = '@media (min-width: 901px) and (max-height: 700px)';
+  const SHORT_2 = '@media (min-width: 901px) and (max-height: 660px)';
   const compact = css.filter((r) => r.selector.includes('heroCompact'));
 
   it('every such rule is written with the hero\'s own class in front, so it wins over the base rules whatever the order of the file', () => {
@@ -108,10 +110,10 @@ describe('the hero keeps the compact spacing it had on the live site (31/10/2026
     const props = new Set<string>();
     for (const r of compact.filter((x) => x.media !== FULL_WINDOW)) for (const k of Object.keys(declarations(r.body))) props.add(k);
     expect([...props].sort()).toEqual(['line-height', 'margin-bottom', 'padding-bottom', 'padding-top', 'row-gap']);
-    // the line height is the one thing about text, it is only ever the lead's, only on a phone, and never tighter than 1.5
+    // the line height is the one thing about text, it is only ever the lead's, only on a phone and in a window of 660 px or less, and never tighter than 1.5
     const withLine = compact.filter((r) => 'line-height' in declarations(r.body));
-    expect(withLine.map((r) => [r.selector, r.media])).toEqual([['.hero.heroCompact .lead', '@media (max-width: 900px)']]);
-    expect(parseFloat(decl('.hero.heroCompact .lead', '@media (max-width: 900px)')['line-height'])).toBeGreaterThanOrEqual(1.5);
+    expect(withLine.map((r) => [r.selector, r.media])).toEqual([['.hero.heroCompact .lead', SHORT_2], ['.hero.heroCompact .lead', '@media (max-width: 900px)']]); // in file order
+    for (const media of ['@media (max-width: 900px)', SHORT_2]) expect(parseFloat(decl('.hero.heroCompact .lead', media)['line-height'])).toBeGreaterThanOrEqual(1.5);
     // a height appears in ONE rule of the hero's, and it is a minimum (see the next test): never a fixed height, a maximum, a scale or a zoom, anywhere in the hero's or the picture's rules
     for (const r of css.filter((x) => x.selector.startsWith('.hero') || x.selector.startsWith('.mock'))) {
       expect(r.body, r.selector).not.toMatch(/(?<![\w-])height\s*:|max-height|transform:\s*scale|zoom\s*:|100dvh/);
@@ -119,11 +121,11 @@ describe('the hero keeps the compact spacing it had on the live site (31/10/2026
     }
   });
 
-  it('the first screen of a laptop or a desktop is the whole hero: from 901 px up the hero is a column at least as tall as the window (a MINIMUM — 100vh with 100svh after it for the browsers that know it), its grid takes the room between the nav and the bar and keeps the content in the middle of it; on a phone nothing of this applies (Nuno, 31/10/2026)', () => {
+  it('the first screen of a laptop or a desktop is the whole hero: from 901 px up the hero is a column at least as tall as the window but never more than 900 px (a MINIMUM — 100vh with 100svh after it for the browsers that know it), its grid takes the room between the nav and the bar and keeps the content in the middle of it; on a phone nothing of this applies (Nuno, 31/10/2026: and "reduz o ar acima e abaixo do conteúdo" at 1920x1080)', () => {
     const full = find('.hero.heroCompact', FULL_WINDOW);
     expect(full).toHaveLength(1);
-    expect(declarations(full[0].body)).toEqual({ display: 'flex', 'flex-direction': 'column', 'min-height': '100svh' }); // the last min-height wins: 100svh
-    expect(full[0].body).toMatch(/min-height:\s*100vh;\s*min-height:\s*100svh/); // 100vh first, as the fallback
+    expect(declarations(full[0].body)).toEqual({ display: 'flex', 'flex-direction': 'column', 'min-height': 'min(100svh, 900px)' }); // the last min-height wins: 100svh, capped
+    expect(full[0].body).toMatch(/min-height:\s*min\(100vh, 900px\);\s*min-height:\s*min\(100svh, 900px\)/); // 100vh first, as the fallback
     // the grid is the DIRECT .wrap (the bar's .wrap must not grow), it takes the free height and keeps its 1140 px column: as a flex item with auto side margins it would shrink to its content without width: 100%
     expect(decl('.hero.heroCompact > .wrap', FULL_WINDOW)).toEqual({ flex: '1 1 auto', width: '100%' });
     expect(css.filter((r) => r.media === FULL_WINDOW).map((r) => r.selector)).toEqual(['.hero.heroCompact', '.hero.heroCompact > .wrap']);
@@ -133,6 +135,42 @@ describe('the hero keeps the compact spacing it had on the live site (31/10/2026
     // the content stays in the middle: the grid already centres its items, and nothing here pushes them to an edge
     expect(decl('.hero .wrap')['align-items']).toBe('center');
     expect(decl('.hero.heroCompact > .wrap', FULL_WINDOW)).not.toHaveProperty('align-self');
+  });
+
+  it('the bar of four checks is INSIDE the hero and the last thing in it, so it sits on the hero\'s lower edge: with the cap at 900 px it is in the first screen of a window of any height from ~610 px up (Nuno: "esta linha tem que constar")', () => {
+    const page = read('src/app/page.tsx');
+    const hero = page.slice(page.indexOf('<header className={`${s.hero} ${s.heroCompact}`} id="top">'), page.indexOf('</header>'));
+    for (const t of ['Outreach discipline, enforced', 'One version of the truth', 'NDA-protected data room', 'AI drafts — you decide']) expect(hero, t).toContain(`<TickAmber />${t}`);
+    expect(hero.lastIndexOf('<div className={s.strip}>')).toBeGreaterThan(hero.lastIndexOf('<div className={s.mock}>'));
+    expect(hero.trimEnd().endsWith('</div>')).toBe(true); // nothing after the bar inside the hero
+    expect(hero.slice(hero.lastIndexOf('<div className={s.strip}>')).match(/<TickAmber \/>/g)).toHaveLength(4);
+  });
+
+  it('in a SHORT window the air around the content takes the phone\'s compact values (84 px under the nav, 16 under the content, 12 / 10 / 16 between badge, title and lead), and from 660 px down a step further (8 px under the content, 12 under the buttons, the lead at 1.5): only vertical space, each smaller than the value it overrides — so the bar stays whole (Nuno)', () => {
+    expect(decl('.hero.heroCompact', SHORT_1)).toEqual({ 'padding-top': '84px' });
+    expect(decl('.hero.heroCompact > .wrap', SHORT_1)).toEqual({ 'padding-bottom': '16px' });
+    expect(decl('.hero.heroCompact .badge', SHORT_1)).toEqual({ 'margin-bottom': '12px' });
+    expect(decl('.hero.heroCompact h1', SHORT_1)).toEqual({ 'margin-bottom': '10px' });
+    expect(decl('.hero.heroCompact .lead', SHORT_1)).toEqual({ 'margin-bottom': '16px' });
+    expect(decl('.hero.heroCompact > .wrap', SHORT_2)).toEqual({ 'padding-bottom': '8px' });
+    expect(decl('.hero.heroCompact .lead', SHORT_2)).toEqual({ 'line-height': '1.5' });
+    expect(decl('.hero.heroCompact .heroCtas', SHORT_2)).toEqual({ 'margin-bottom': '12px' });
+    // every value is below the one it overrides, the top padding never goes under the nav, the line height never under 1.5
+    const over = (sel: string, prop: string, media: string, base: string | null) => px(decl(sel, media)[prop]) < px(decl(sel, base)[prop]);
+    expect(over('.hero.heroCompact', 'padding-top', SHORT_1, null)).toBe(true);
+    expect(px(decl('.hero.heroCompact', SHORT_1)['padding-top'])).toBeGreaterThanOrEqual(72 + 12);
+    expect(over('.hero.heroCompact > .wrap', 'padding-bottom', SHORT_1, null)).toBe(true);
+    expect(over('.hero.heroCompact .badge', 'margin-bottom', SHORT_1, null)).toBe(true);
+    expect(over('.hero.heroCompact h1', 'margin-bottom', SHORT_1, null)).toBe(true);
+    expect(over('.hero.heroCompact .lead', 'margin-bottom', SHORT_1, null)).toBe(true);
+    expect(px(decl('.hero.heroCompact > .wrap', SHORT_2)['padding-bottom'])).toBeLessThan(px(decl('.hero.heroCompact > .wrap', SHORT_1)['padding-bottom']));
+    expect(px(decl('.hero.heroCompact .heroCtas', SHORT_2)['margin-bottom'])).toBeLessThan(px(decl('.hero.heroCompact .heroCtas')['margin-bottom']));
+    // they come AFTER the rules they override in the file (same specificity: the later one wins), the 660 px step after the 700 px one
+    const order = css.map((r) => `${r.selector}|${r.media}`);
+    expect(order.indexOf('.hero.heroCompact|' + SHORT_1)).toBeGreaterThan(order.indexOf('.hero.heroCompact|null'));
+    expect(order.indexOf('.hero.heroCompact > .wrap|' + SHORT_2)).toBeGreaterThan(order.indexOf('.hero.heroCompact > .wrap|' + SHORT_1));
+    // still no height, no scale, no font size in them
+    for (const r of css.filter((x) => x.media === SHORT_1 || x.media === SHORT_2)) expect(r.body, r.selector).not.toMatch(/(?<![\w-])height\s*:|font-size|transform|zoom|width/);
   });
 
   it('each one is smaller than the value it overrides, so the hero only ever moves up; the top padding never goes under the 72 px nav', () => {
