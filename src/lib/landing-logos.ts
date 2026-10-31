@@ -117,7 +117,19 @@ export function drawnWidth(logo: Pick<LandingLogo, 'width' | 'height'>, height: 
  * that needs the most copies, so it is the one counted.
  */
 export function loopCopies(logos: readonly Pick<LandingLogo, 'width' | 'height'>[], sizes: LogoStripSizes): number {
-  const listWidth = (height: number, gap: number, maxWidth: number) => logos.reduce((sum, l) => sum + drawnWidth(l, height, maxWidth) + gap, 0);
-  const narrowest = Math.min(listWidth(sizes.height, sizes.gap, sizes.maxWidth), listWidth(sizes.heightPhone, sizes.gapPhone, sizes.maxWidthPhone));
+  const narrowest = Math.min(listWidth(logos, sizes.height, sizes.gap, sizes.maxWidth), listWidth(logos, sizes.heightPhone, sizes.gapPhone, sizes.maxWidthPhone));
   return Math.max(2, Math.ceil(LOGO_STRIP_WINDOW / narrowest) + 1);
+}
+
+/** The width of one copy of the list at one set of sizes: every logo's drawn width plus one gap after it (the gap that also closes the copy, so the seam is the same as any other space). */
+export function listWidth(logos: readonly Pick<LandingLogo, 'width' | 'height'>[], height: number, gap: number, maxWidth: number): number {
+  return logos.reduce((sum, l) => sum + drawnWidth(l, height, maxWidth) + gap, 0);
+}
+
+/**
+ * Seconds one full turn of the list takes, so that the logos move at the same calm speed whatever the length of the list: 8 logos turn in 40 s and 19 in 95 s, instead of
+ * the long list racing past at twice the speed. Worked out on the desktop sizes (the phone's own list is narrower, so it moves a little slower, which is fine).
+ */
+export function loopSeconds(logos: readonly Pick<LandingLogo, 'width' | 'height'>[], sizes: LogoStripSizes, pxPerSecond: number): number {
+  return Math.max(1, Math.round(listWidth(logos, sizes.height, sizes.gap, sizes.maxWidth) / pxPerSecond));
 }

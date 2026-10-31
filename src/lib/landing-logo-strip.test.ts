@@ -192,11 +192,14 @@ describe('the strip\'s stylesheet', () => {
     expect(Object.keys(img).filter((k) => /filter|opacity|mix-blend|grayscale/.test(k))).toEqual([]);
   });
 
-  it('the heading is ONE centred line in the brand amber, on the same dark as the bar of checks above it, and transparent on the investors page (no bar there: the hero shows through)', () => {
+  it('the heading is ONE small centred line in the brand amber, on the same dark as the bar of checks above it, and transparent on the investors page (no bar there: the hero shows through)', () => {
     const label = declarations(find('.logoStrip .logoLabel')[0].body);
     expect(label.color).toBe('var(--amber)');
     expect(label['white-space']).toBe('nowrap');
+    // small (31/10/2026, Nuno: "reduzir ambas as frases"): 14 px, not the 20 px it was, with little air around it so it reads as a line fixed above the logos and not as a band
+    expect(label['font-size']).toBe('.875rem');
     const head = declarations(find('.logoStrip .logoHead')[0].body);
+    expect(head.padding).toBe('11px 24px 9px');
     expect(head['text-align']).toBe('center');
     expect(head.background).toBe('var(--ink)');
     expect(declarations(find('.strip')[0].body).background).toBe('var(--ink)'); // the bar's own dark: the same token, so there is no seam
@@ -215,9 +218,9 @@ describe('the strip\'s stylesheet', () => {
     expect(ratio(tokens.amber, '#ffffff')).toBeLessThan(3);
   });
 
-  it('on a phone the heading is smaller (still one line) and the logos use the phone sizes', () => {
+  it('on a phone the heading is smaller (still one line, and it shrinks with the screen so the long investors line never wraps) and the logos use the phone sizes', () => {
     const phone = '@media (max-width: 760px)';
-    expect(declarations(find('.logoStrip .logoLabel', phone)[0].body)['font-size']).toBe('1.05rem');
+    expect(declarations(find('.logoStrip .logoLabel', phone)[0].body)['font-size']).toBe('min(.78rem, 3.8vw)');
     expect(declarations(find('.logoStrip .logoLabel')[0].body)['white-space']).toBe('nowrap');
     expect(declarations(find('.logoStrip', phone)[0].body)['--h']).toBe('var(--logo-h-phone)');
   });

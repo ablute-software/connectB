@@ -134,8 +134,8 @@ export default async function InvestorLandingPage() {
     }
   }
 
-  // Prompt 926 — the strip of logos of companies that authorized it (src/lib/landing-logos.ts), drawn only when there are enough of them; the hero moves up to make
-  // room for it only then, so the page looks exactly as before while the strip is not shown.
+  // Prompt 926 — the strip of logos of the investors of the catalogue that may be shown (src/lib/landing-logos.ts; 31/10/2026, Nuno: examples of investors already on the platform, not the
+  // startups that the other page shows), drawn only when there are enough of them; the hero moves up to make room for it only then, so the page looks exactly as before while the strip is not shown.
   const logos = landingLogosFor('investors');
   const withLogos = logoStripVisible(logos);
 
@@ -204,8 +204,8 @@ export default async function InvestorLandingPage() {
           </div>
         </div>
 
-        {/* Prompt 926 — the logos of companies already on the platform, at the foot of the top block. This page has no dark bar of checks: the strip is the last thing in the
-            hero, and the "Already in our database" section follows it. */}
+        {/* Prompt 926 — examples of investors already on the platform, at the foot of the top block. This page has no dark bar of checks: the strip is the last thing in the
+            hero, and the "Already in our database" section (the same kind of profile) follows it. */}
         {withLogos && <LogoStrip page="investors" logos={logos} />}
       </header>
 

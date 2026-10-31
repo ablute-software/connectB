@@ -13,8 +13,8 @@ const realError = console.error;
 beforeAll(() => { console.error = (...args: unknown[]) => { if (typeof args[0] === 'string' && args[0].includes('fetchPriority')) return; realError(...args); }; });
 afterAll(() => { console.error = realError; });
 
-import { LOGO_STRIP_LABEL, LOGO_STRIP_LOOP_SECONDS, LOGO_STRIP_SIZES } from '@/content/site/logo-strip';
-import { LOGO_STRIP_MIN, loopCopies, type LandingLogo } from '@/lib/landing-logos';
+import { LOGO_STRIP_LABEL, LOGO_STRIP_SIZES, LOGO_STRIP_SPEED } from '@/content/site/logo-strip';
+import { LOGO_STRIP_MIN, listWidth, loopCopies, loopSeconds, type LandingLogo } from '@/lib/landing-logos';
 import { LOGO_FOLDER, LogoStrip } from './LogoStrip';
 
 const logo = (n: number, over: Partial<LandingLogo> = {}): LandingLogo => ({
@@ -43,13 +43,25 @@ describe('what the strip says', () => {
     expect(html).toMatch(new RegExp(`<p class="logoLabel" aria-hidden="true">${LOGO_STRIP_LABEL.startups}</p>`));
   });
 
-  it('the words above it are the brief\'s proposals, one per page, and the investors page names only startups', () => {
+  it('the words above it, one per page: the startups page says startups trust the platform; the investors page says it shows EXAMPLES of investors on it, and never speaks of startups', () => {
     expect(LOGO_STRIP_LABEL.startups).toBe('Startups that trust us');
-    expect(LOGO_STRIP_LABEL.investors).toBe('Startups that trust us');
+    expect(LOGO_STRIP_LABEL.investors).toBe('Examples of investors already on Sherlock Deal');
     const investors = render({ page: 'investors', logos: many(6) });
     expect(investors).toContain('data-logo-strip="investors"');
     expect(investors).toContain(`aria-label="${LOGO_STRIP_LABEL.investors}"`);
-    expect(investors).not.toContain('investors already');
+    expect(investors).toMatch(/<p class="logoLabel" aria-hidden="true">Examples of investors already on Sherlock Deal<\/p>/);
+    expect(investors).not.toContain('Startups that trust us');
+    expect(render({ page: 'startups', logos: many(6) })).not.toContain('investors already');
+  });
+
+  it('the line is FIXED above the logos: it is in the heading row, before and outside the track that moves, never inside it', () => {
+    const label = html.indexOf('class="logoLabel"');
+    const track = html.indexOf('class="logoTrack"');
+    const head = html.indexOf('class="logoHead"');
+    expect(head).toBeGreaterThan(-1);
+    expect(label).toBeGreaterThan(head);
+    expect(track).toBeGreaterThan(label);
+    expect(html.slice(track)).not.toContain('logoLabel');
   });
 
   it('the first copy of the list is for people: each logo is an image whose alternative text is the company\'s name, with its own width and height written on it', () => {
@@ -97,13 +109,21 @@ describe('what the strip says', () => {
     expect(html).toContain(`--logo-maxw:${LOGO_STRIP_SIZES.maxWidth}px`);
     expect(html).toContain(`--logo-h-phone:${LOGO_STRIP_SIZES.heightPhone}px`);
     expect(html).toContain(`--logo-copies:${loopCopies(many(8), LOGO_STRIP_SIZES)}`);
-    expect(html).toContain(`--logo-loop:${LOGO_STRIP_LOOP_SECONDS}s`);
+    expect(html).toContain(`--logo-loop:${loopSeconds(many(8), LOGO_STRIP_SIZES, LOGO_STRIP_SPEED)}s`);
     expect(render({ logos: many(8), loopSeconds: 33 })).toContain('--logo-loop:33s');
   });
 
-  it('one turn is between 30 and 45 seconds, as the brief asks', () => {
-    expect(LOGO_STRIP_LOOP_SECONDS).toBeGreaterThanOrEqual(30);
-    expect(LOGO_STRIP_LOOP_SECONDS).toBeLessThanOrEqual(45);
+  it('the logos move at the same calm speed whatever the length of the list: 8 of the strip\'s own discs turn in 40 s (the brief asked for 30 to 45), 19 take 95 s, not the same 40 at twice the speed', () => {
+    const discs = (n: number) => Array.from({ length: n }, (_, i) => logo(i + 1, { width: 320, height: 320 }));
+    expect(loopSeconds(discs(8), LOGO_STRIP_SIZES, LOGO_STRIP_SPEED)).toBe(40);
+    expect(loopSeconds(discs(19), LOGO_STRIP_SIZES, LOGO_STRIP_SPEED)).toBe(95);
+    for (const n of [6, 8, 12, 19, 30]) {
+      const seconds = loopSeconds(discs(n), LOGO_STRIP_SIZES, LOGO_STRIP_SPEED);
+      const speed = listWidth(discs(n), LOGO_STRIP_SIZES.height, LOGO_STRIP_SIZES.gap, LOGO_STRIP_SIZES.maxWidth) / seconds;
+      expect(Math.abs(speed - LOGO_STRIP_SPEED), `${n} logos`).toBeLessThan(1);
+    }
+    expect(LOGO_STRIP_SPEED).toBeGreaterThanOrEqual(20); // calm, not a crawl
+    expect(LOGO_STRIP_SPEED).toBeLessThanOrEqual(45); // calm, not a ticker
   });
 
   it('a name with markup in it is text, never markup', () => {

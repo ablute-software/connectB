@@ -1,7 +1,9 @@
 # Logos da faixa da landing (Prompt 926, 30/10/2026)
 
-A faixa branca entre o topo da landing e o resto da página (a das startups e a dos investidores) mostra, a correr sozinhos, os logos de empresas que já estão na
-Sherlock Deal. **Mostrar o logo de uma empresa diz publicamente que ela usa a Sherlock Deal**, por isso esta pasta tem uma regra que não se contorna:
+A faixa branca entre o topo da landing e o resto da página mostra, a correr sozinhos, logos: na página das **startups**, as startups que já estão na Sherlock Deal
+(«Startups that trust us»); na página dos **investidores**, exemplos de investidores do catálogo («Examples of investors already on Sherlock Deal»). Cada página tem
+os seus logos (campo `pages` da lista: `"startups"` ou `"investors"`; `"both"` mostraria o mesmo nas duas, o que a página dos investidores já não quer).
+**Mostrar o logo de uma empresa diz publicamente que ela está na Sherlock Deal**, por isso esta pasta tem uma regra que não se contorna:
 
 > **Um logo só aparece com a autorização REGISTADA** — a data e a forma (um email da empresa, os termos que aceitou, ou a decisão do dono da plataforma, registada como tal). Sem esse registo o logo não é mostrado
 > e o `npm run build` avisa. A faixa só aparece quando uma página tem **6 ou mais** logos autorizados; com menos desaparece (e o topo da página fica como estava).
@@ -16,7 +18,7 @@ A autorização é tratada pelo Nuno, fora do código. Quem mexe aqui não a inv
 | --- | --- |
 | Os ficheiros dos logos | esta pasta, `public/landing/logos/` |
 | A lista (uma linha por logo, com a autorização) | `src/content/site/landing-logos.json` |
-| O texto por cima da faixa, a velocidade, os tamanhos | `src/content/site/logo-strip.ts` |
+| O texto por cima da faixa (uma linha pequena e fixa, por cima dos logos que passam), a velocidade, os tamanhos | `src/content/site/logo-strip.ts` |
 | A regra «só com autorização, mínimo de 6» | `src/lib/landing-logos.ts` |
 | O aviso do build | `scripts/check-landing-logos.mjs` (`npm run verify:landing-logos` corre-o sozinho) |
 
@@ -52,6 +54,13 @@ A autorização é tratada pelo Nuno, fora do código. Quem mexe aqui não a inv
    linha por cada logo mostrado assim, para não ser esquecido, e um email ou uns termos aceites substituem-na quando existirem). `note` é opcional e diz **onde está a prova** (uma etiqueta da caixa de correio,
    o assunto da conversa); nunca um endereço de email nem dados pessoais. A `date` não pode ser futura nem inexistente.
 3. `npm run verify:landing-logos` diz o que ficou de fora e porquê; `npm test` e `npm run build` têm de passar.
+
+## Os logos dos investidores (31/10/2026)
+
+São ficheiros `vc-*.png`: o logótipo de cada firma tal como está no site da própria firma, assente num disco branco de 320 px (a mesma forma dos das startups, que são de 512 px;
+320 px chega para os 96 px da faixa mesmo em ecrãs 3×, e a faixa inteira pesa cerca de 100 KB). A firma é do catálogo (verificada, ativa, ainda sem *claim*): o texto da faixa diz «exemplos
+de investidores já na Sherlock Deal», não que tenham pedido para aparecer; a `authorization` de cada uma é `"owner"` (pedido do Nuno, sem prova da firma em arquivo) até haver um email
+ou uns termos. Para trocar um logo: refazer o disco (logótipo recortado, centrado, com o mesmo raio e o mesmo anel fino) e manter o nome do ficheiro e o tamanho 320×320.
 
 ## Retirar um logo
 

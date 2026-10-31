@@ -1,6 +1,6 @@
-// Prompt 926 (30/10/2026) — the strip of logos of companies already on the platform, the last thing in the landing's hero: under the dark bar of checks on the startups page,
-// at the foot of the hero on the investors page (which has no bar), and before the "Already in our database" section there. Two rows: the heading (one centred line, in the
-// brand's amber, on the same dark as the bar above it) and the row of logos (white).
+// Prompt 926 (30/10/2026) — the strip of logos already on the platform, the last thing in the landing's hero: under the dark bar of checks on the startups page (the startups that
+// trust it), at the foot of the hero on the investors page (which has no bar; there it is investors of the catalogue), and before the "Already in our database" section there.
+// Two rows: the heading (one small centred line, fixed above the logos that pass right under it, in the brand's amber, on the same dark as the bar above it) and the row of logos (white).
 //
 // No client code: a list of logos that slides left by CSS alone (transform only), repeated so the turn has no seam — see landing-logos.ts (`loopCopies`) for how
 // many copies. Hover stops it; "reduce motion" in the system leaves it still, showing the logos that fit. No links: a logo here is a statement, not a door.
@@ -8,27 +8,29 @@
 // Accessibility: the strip is one labelled region, announced once. Only the first copy of the list is read — each logo by the company's name — and the other
 // copies are aria-hidden with empty alt text. The visible label is aria-hidden too, because the region's name already says it.
 import type { CSSProperties } from 'react';
-import { LOGO_STRIP_LABEL, LOGO_STRIP_LOOP_SECONDS, LOGO_STRIP_SIZES } from '@/content/site/logo-strip';
-import { loopCopies, stripVisible, type LandingLogo, type LogoPage, type LogoStripSizes } from '@/lib/landing-logos';
+import { LOGO_STRIP_LABEL, LOGO_STRIP_SIZES, LOGO_STRIP_SPEED } from '@/content/site/logo-strip';
+import { loopCopies, loopSeconds as secondsPerTurn, stripVisible, type LandingLogo, type LogoPage, type LogoStripSizes } from '@/lib/landing-logos';
 import s from '@/app/landing.module.css';
 
 export const LOGO_FOLDER = '/landing/logos/';
 
-export function LogoStrip({ page, logos, sizes = LOGO_STRIP_SIZES, loopSeconds = LOGO_STRIP_LOOP_SECONDS }: {
+export function LogoStrip({ page, logos, sizes = LOGO_STRIP_SIZES, loopSeconds }: {
   page: LogoPage;
   /** Already authorized and meant for this page (landingLogosFor). The strip checks the minimum again: it is the last gate before the public sees a name. */
   logos: readonly LandingLogo[];
   sizes?: LogoStripSizes;
+  /** Seconds one full turn takes; left out, it is the time that makes the logos move at LOGO_STRIP_SPEED whatever the length of the list. */
   loopSeconds?: number;
 }) {
   if (!stripVisible(logos)) return null;
   const label = LOGO_STRIP_LABEL[page];
   const copies = loopCopies(logos, sizes);
+  const loop = loopSeconds ?? secondsPerTurn(logos, sizes, LOGO_STRIP_SPEED);
 
   const style = {
     '--logo-h': `${sizes.height}px`, '--logo-gap': `${sizes.gap}px`, '--logo-maxw': `${sizes.maxWidth}px`,
     '--logo-h-phone': `${sizes.heightPhone}px`, '--logo-gap-phone': `${sizes.gapPhone}px`, '--logo-maxw-phone': `${sizes.maxWidthPhone}px`,
-    '--logo-copies': copies, '--logo-loop': `${loopSeconds}s`,
+    '--logo-copies': copies, '--logo-loop': `${loop}s`,
   } as CSSProperties;
 
   // The same <ul> once for people and assistive technology, and again (hidden from them) for the seam.

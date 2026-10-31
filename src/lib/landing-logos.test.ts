@@ -374,6 +374,18 @@ describe('the logos in the repository (src/content/site/landing-logos.json and p
     }
   });
 
+  it('each page has its own logos (31/10/2026): the startups page the startups, the investors page at least 16 investors, and none is on both — the investors page never shows a startup', () => {
+    const all = parseLogos(rows);
+    expect(all.filter((l) => l.pages === 'both')).toEqual([]);
+    const startups = logosForPage('startups', all);
+    const investors = logosForPage('investors', all);
+    expect(stripVisible(startups)).toBe(true);
+    expect(investors.length).toBeGreaterThanOrEqual(16);
+    expect(startups.filter((l) => investors.some((i) => i.file === l.file || i.name === l.name))).toEqual([]);
+    for (const l of investors) expect(l.file, l.name).toMatch(/^vc-/);
+    for (const l of startups) expect(l.file, l.name).not.toMatch(/^vc-/);
+  });
+
   it('every image in the folder has a row (a file nobody lists would be deployed and never shown), and nothing else is in there but the README', () => {
     const listed = new Set(parseLogos(rows).map((l) => l.file));
     for (const f of files) {

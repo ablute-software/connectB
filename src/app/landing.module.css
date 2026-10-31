@@ -346,18 +346,19 @@
 }
 
 /* ---------- logo strip (Prompt 926, 30/10/2026) ----------
-   The band of logos at the foot of the hero, under the dark bar of checks (LogoStrip.tsx): a heading row and a white row of logos. The sizes, the loop time and the number of copies of the list arrive as custom
+   The band of logos at the foot of the hero, under the dark bar of checks (LogoStrip.tsx): a thin heading row and a white row of logos. The sizes, the loop time and the number of copies of the list arrive as custom
    properties on the <section> (--logo-h, --logo-gap, --logo-maxw and their -phone twins, --logo-loop, --logo-copies); their source is src/content/site/logo-strip.ts, so no
    number Nuno may want to change is written twice. Every rule is under .logoStrip: ".landing *" resets margin and padding at (0,1,0), which a lone class would tie with
    and lose to by the order of the files. The motion is transform only: it never touches layout, so it cannot move anything else on the page. */
 .logoStrip { --h: var(--logo-h); --gap: var(--logo-gap); --maxw: var(--logo-maxw); }
-/* the heading: ONE centred line in the brand's amber. It sits on the same dark as the bar of checks right above it, so it reads at about 7:1 (the same amber on white would
-   be 2.3:1); on the investors page, which has no bar, it is transparent and the hero's own gradient shows through. The hairline is the bar's own. */
-.logoStrip .logoHead { background: var(--ink); border-top: 1px solid rgba(255, 255, 255, .06); padding: 30px 24px 24px; text-align: center; }
-.logoStrip[data-logo-strip='investors'] .logoHead { background: transparent; border-top: 0; padding-top: 6px; }
-.logoStrip .logoLabel { font-size: 1.25rem; line-height: 1.3; font-weight: 600; letter-spacing: .01em; color: var(--amber); white-space: nowrap; }
+/* the heading: ONE small centred line in the brand's amber, fixed at the top of the strip (it is outside the track, so it never moves with the logos) and close above the logos that
+   pass right under it (31/10/2026, Nuno: smaller, "na parte superior da linha de carrossel, fixa"). It sits on the same dark as the bar of checks right above it, so it reads at about 7:1
+   (the same amber on white would be 2.3:1); on the investors page, which has no bar, it is transparent and the hero's own gradient shows through. The hairline is the bar's own. */
+.logoStrip .logoHead { background: var(--ink); border-top: 1px solid rgba(255, 255, 255, .06); padding: 11px 24px 9px; text-align: center; }
+.logoStrip[data-logo-strip='investors'] .logoHead { background: transparent; border-top: 0; padding-top: 4px; }
+.logoStrip .logoLabel { font-size: .875rem; line-height: 1.3; font-weight: 600; letter-spacing: .02em; color: var(--amber); white-space: nowrap; }
 /* the row of logos is the only white part: the whole width of the page, up to 1600 px, then centred with its ends faded out */
-.logoStrip .logoInner { background: #fff; padding: 24px 0 26px; }
+.logoStrip .logoInner { background: #fff; padding: 18px 0 22px; }
 .logoStrip .logoWindow { position: relative; max-width: 1600px; margin: 0 auto; overflow: hidden; }
 /* the two ends fade into the band, so a logo is never cut off by a hard edge */
 .logoStrip .logoWindow::before, .logoStrip .logoWindow::after { content: ''; position: absolute; top: 0; bottom: 0; width: 64px; z-index: 1; pointer-events: none; }
@@ -374,10 +375,10 @@
 
 @media (max-width: 760px) {
   .logoStrip { --h: var(--logo-h-phone); --gap: var(--logo-gap-phone); --maxw: var(--logo-maxw-phone); }
-  .logoStrip .logoHead { padding: 24px 16px 18px; }
+  .logoStrip .logoHead { padding: 10px 12px 8px; }
   .logoStrip[data-logo-strip='investors'] .logoHead { padding-top: 4px; }
-  .logoStrip .logoLabel { font-size: 1.05rem; }
-  .logoStrip .logoInner { padding: 18px 0 20px; }
+  .logoStrip .logoLabel { font-size: min(.78rem, 3.8vw); }
+  .logoStrip .logoInner { padding: 14px 0 18px; }
   .logoStrip .logoWindow::before, .logoStrip .logoWindow::after { width: 28px; }
 }
 

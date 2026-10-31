@@ -15,8 +15,8 @@ vi.mock('@/app/landing.module.css', () => ({ default: new Proxy({}, { get: (_t, 
 const realError = console.error;
 console.error = (...args: unknown[]) => { if (typeof args[0] === 'string' && args[0].includes('fetchPriority')) return; realError(...args); };
 
-import { LOGO_STRIP_LOOP_SECONDS, LOGO_STRIP_SIZES } from '@/content/site/logo-strip';
-import type { LandingLogo } from '@/lib/landing-logos';
+import { LOGO_STRIP_LABEL, LOGO_STRIP_SIZES, LOGO_STRIP_SPEED } from '@/content/site/logo-strip';
+import { loopSeconds, type LandingLogo } from '@/lib/landing-logos';
 import { LogoStrip } from './LogoStrip';
 
 const CHROME = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/chromium']
@@ -36,10 +36,10 @@ describe.skipIf(!CHROME)('Logo strip (real browser)', () => {
   }, 60_000);
   afterAll(async () => { await browser?.close(); }, 60_000);
 
-  const markup = renderToStaticMarkup(createElement(LogoStrip, { page: 'startups', logos: LOGOS }));
-  const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0}${CSS}</style></head><body><div class="landing">${markup}</div></body></html>`;
+  const pageHtml = (which: 'startups' | 'investors') => `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0}${CSS}</style></head><body><div class="landing">${renderToStaticMarkup(createElement(LogoStrip, { page: which, logos: LOGOS }))}</div></body></html>`;
+  const html = pageHtml('startups');
 
-  async function open(width: number, opts: { reducedMotion?: 'reduce' | 'no-preference' } = {}) {
+  async function open(width: number, opts: { reducedMotion?: 'reduce' | 'no-preference'; which?: 'startups' | 'investors' } = {}) {
     const ctx = await browser.newContext({ viewport: { width, height: 700 }, reducedMotion: opts.reducedMotion ?? 'no-preference' });
     const page = await ctx.newPage();
     const errors: string[] = [];
@@ -51,7 +51,7 @@ describe.skipIf(!CHROME)('Logo strip (real browser)', () => {
         const [w, h] = SHAPES[Number(m[1]) - 1];
         return route.fulfill({ contentType: 'image/svg+xml', body: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="#1f5aa6"/></svg>` });
       }
-      return route.fulfill({ contentType: 'text/html', body: html });
+      return route.fulfill({ contentType: 'text/html', body: opts.which === 'investors' ? pageHtml('investors') : html });
     });
     await page.goto('http://strip.test/');
     await page.waitForFunction(() => [...document.images].every((i) => i.complete));
@@ -65,9 +65,10 @@ describe.skipIf(!CHROME)('Logo strip (real browser)', () => {
     const lists = [...strip.querySelectorAll('ul')];
     const track = strip.querySelector('[class="logoTrack"]')!;
     return {
+      text: (() => { const range = document.createRange(); range.selectNodeContents(strip.querySelector('.logoLabel')!); return r(range as unknown as Element); })(),
       strip: r(strip), label: r(strip.querySelector('.logoLabel')), head: r(strip.querySelector('.logoHead')), inner: r(strip.querySelector('.logoInner')), window: r(strip.querySelector('.logoWindow')), track: r(track), firstList: r(lists[0]),
       labelLines: Math.round(strip.querySelector('.logoLabel')!.getBoundingClientRect().height / parseFloat(getComputedStyle(strip.querySelector('.logoLabel')!).lineHeight)),
-      labelColor: getComputedStyle(strip.querySelector('.logoLabel')!).color, headBg: getComputedStyle(strip.querySelector('.logoHead')!).backgroundColor, innerBg: getComputedStyle(strip.querySelector('.logoInner')!).backgroundColor,
+      labelColor: getComputedStyle(strip.querySelector('.logoLabel')!).color, labelSize: getComputedStyle(strip.querySelector('.logoLabel')!).fontSize, headBg: getComputedStyle(strip.querySelector('.logoHead')!).backgroundColor, innerBg: getComputedStyle(strip.querySelector('.logoInner')!).backgroundColor,
       lists: lists.length, imgs: [...lists[0].querySelectorAll('img')].map(r),
       pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     };
@@ -92,7 +93,7 @@ describe.skipIf(!CHROME)('Logo strip (real browser)', () => {
     });
     expect(t.count).toBe(1);
     expect(t.name).toBe('logoLoop');
-    expect(t.duration).toBe(LOGO_STRIP_LOOP_SECONDS * 1000);
+    expect(t.duration).toBe(loopSeconds(LOGOS, LOGO_STRIP_SIZES, LOGO_STRIP_SPEED) * 1000);
     expect(t.iterations).toBe(Infinity);
     expect(t.easing).toBe('linear');
     expect(t.start).toBe(0);
@@ -167,7 +168,7 @@ describe.skipIf(!CHROME)('Logo strip (real browser)', () => {
     await ctx.close();
   });
 
-  it('1280 px: the heading is ONE line, centred, in the brand amber, above the logos; the row of logos is one logo tall plus its padding and white; the page is no wider than the screen', async () => {
+  it('1280 px: the heading is ONE small line, centred, in the brand amber, fixed right above the logos; the row of logos is one logo tall plus its padding and white; the page is no wider than the screen', async () => {
     const { page, ctx } = await open(1280);
     const m = await page.evaluate(measure);
     expect(m.labelLines).toBe(1);
@@ -176,12 +177,40 @@ describe.skipIf(!CHROME)('Logo strip (real browser)', () => {
     expect(m.labelColor).toBe('rgb(217, 164, 65)');
     expect(m.headBg).toBe('rgb(12, 39, 46)');
     expect(m.innerBg).toBe('rgb(255, 255, 255)');
-    expect(m.inner.height).toBeCloseTo(LOGO_STRIP_SIZES.height + 50, 0);
+    expect(m.inner.height).toBeCloseTo(LOGO_STRIP_SIZES.height + 40, 0);
+    expect(m.head.height).toBeLessThan(48); // a thin line, not a band: small text with little air around it
+    expect(parseFloat(m.labelSize)).toBeLessThanOrEqual(14);
     expect(m.strip.height).toBeCloseTo(m.head.height + m.inner.height, 0);
     expect(m.strip.width).toBe(1280);
     expect(m.window.width).toBe(1280);
     expect(m.lists).toBeGreaterThanOrEqual(2);
     expect(m.pageOverflow).toBeLessThanOrEqual(0);
+    await ctx.close();
+  });
+
+  it('the investors-page line is the long one, and it is still ONE line, centred and inside the screen at 1280, 375 and 320 px (the text shrinks with the screen instead of wrapping)', async () => {
+    expect(LOGO_STRIP_LABEL.investors).toBe('Examples of investors already on Sherlock Deal');
+    for (const width of [1280, 375, 320]) {
+      const { page, ctx } = await open(width, { which: 'investors' });
+      const m = await page.evaluate(measure);
+      expect(m.labelLines, `${width}px`).toBe(1);
+      // the TEXT's own box (a Range), not the paragraph's, which is as wide as the screen whatever the text does
+      expect(Math.abs((m.text.left + m.text.right) / 2 - width / 2), `${width}px`).toBeLessThan(1);
+      expect(m.text.left, `${width}px`).toBeGreaterThanOrEqual(12);
+      expect(m.text.right, `${width}px`).toBeLessThanOrEqual(width - 12);
+      expect(m.label.bottom, `${width}px`).toBeLessThanOrEqual(m.window.top);
+      expect(m.pageOverflow, `${width}px`).toBeLessThanOrEqual(0);
+      await ctx.close();
+    }
+  });
+
+  it('the heading is fixed: it is outside the track, so it stays where it is while the logos move', async () => {
+    const { page, ctx } = await open(1280);
+    const at = () => page.evaluate(() => { const b = document.querySelector('[data-logo-strip] .logoLabel')!.getBoundingClientRect(); return [b.left, b.top]; });
+    const first = await at();
+    expect(await page.evaluate(() => !!document.querySelector('[data-logo-strip] .logoLabel')!.closest('.logoTrack'))).toBe(false);
+    await page.waitForTimeout(700);
+    expect(await at()).toEqual(first);
     await ctx.close();
   });
 
