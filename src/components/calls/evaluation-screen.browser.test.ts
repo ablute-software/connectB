@@ -125,9 +125,15 @@ describe.skipIf(!CHROME)('the evaluator screens (real browser)', () => {
     expect(a && s && a.x + a.width <= s.x + 1).toBe(true);
     expect(await page.locator('[data-testid="eval-tab-application"]').isVisible()).toBe(false);          // tabs only on smaller screens
     expect(await page.locator('[data-testid="eval-answer"]').count()).toBe(3);
-    const href = await page.locator('[data-testid="answer-files"] a').getAttribute('href');
+    // a document opens INSIDE the platform (the viewer of the data room), on the platform's own route — never a download, never a Storage address
+    await page.locator('[data-testid="answer-files"] [data-testid="open-document"]').click();
+    const frame = page.locator('iframe[title="certidao.pdf"]');
+    await frame.waitFor();
+    const href = await frame.getAttribute('src');
     expect(href).toBe('/api/calls/c1/evaluations/a1/documents/file-1');
     expect(href).not.toContain('supabase');
+    await page.keyboard.press('Escape');
+    expect(await page.locator('iframe').count()).toBe(0);
     expect(await page.locator('[data-testid="eval-title"]').innerText()).toBe('REF-001 · Acme Robotics');
     expect(await page.locator('[data-testid="eval-deadline"]').innerText()).toContain('3 days left');
     const before = await page.locator('[data-testid="grade-ring-text"]').innerText();
@@ -201,7 +207,7 @@ describe.skipIf(!CHROME)('the evaluator screens (real browser)', () => {
     const { page } = await open(1280, srv);
     expect(await page.locator('[data-testid="eval-blind"]').innerText()).toContain('who applied is hidden');
     expect(await page.locator('[data-testid="eval-title"]').innerText()).toBe('REF-001');
-    expect(await page.locator('[data-testid="answer-files"] a').innerText()).toBe('Permanent Certificate — document 1.pdf');
+    expect(await page.locator('[data-testid="answer-files"] [data-testid="open-document"]').innerText()).toBe('Permanent Certificate — document 1.pdf');
     expect(await page.locator('[data-testid="eval-application"]').innerText()).not.toContain('Acme');
     await page.close();
   }, 120_000);
@@ -327,7 +333,7 @@ describe.skipIf(!CHROME)('the evaluator screens (real browser)', () => {
     expect(await card(0).locator('[data-testid="eval-linked-answer"]').count()).toBe(2);
     expect(await card(0).locator('[data-testid="eval-linked-answer"]').first().innerText()).toContain('2. Pitch');
     expect(await card(0).locator('[data-testid="eval-linked-answer"]').first().innerText()).toContain('We build robots for [the startup].');
-    expect(await card(0).locator('[data-testid="eval-linked-answer"] a').first().getAttribute('href')).toBe('/api/calls/c1/evaluations/a1/documents/file-1');
+    expect(await card(0).locator('[data-testid="eval-linked-answer"] [data-testid="open-document"]').first().innerText()).toBe('certidao.pdf');
     expect(await card(3).locator('[data-testid="eval-linked"]').count()).toBe(0);
     await card(0).locator('[data-testid="eval-open-answer"]').first().click();
     await page.waitForFunction(() => document.getElementById('eval-answer-f2')?.className.includes('ring-2') === true);
