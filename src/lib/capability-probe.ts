@@ -13,7 +13,8 @@
 // but negatives are re-probed after a short TTL so a just-applied migration
 // is picked up within ~60s. One independent cache cell per returned probe.
 import 'server-only';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { createNoStoreClient } from '@/lib/supabase-no-store';
 
 const NEGATIVE_TTL_MS = 60_000;
 
@@ -30,7 +31,8 @@ export function makeCapabilityProbe(probe: (admin: SupabaseClient) => Promise<bo
     if (!url || !service) { cached = false; negativeAt = Date.now(); return false; }
 
     try {
-      const admin = createClient(url, service, { auth: { persistSession: false } });
+      // Not cacheable: the 60 s negative TTL above is only true if the probe really reaches the database (a GET route with no cookie read first would replay the old "missing" answer).
+      const admin = createNoStoreClient(url, service, { auth: { persistSession: false } });
       cached = await probe(admin);
     } catch {
       cached = false;

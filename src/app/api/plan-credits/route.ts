@@ -10,7 +10,7 @@
 // the affected tier is simply omitted (not backfilled from a guessed
 // constant); the card renders "AI credits included" with no number for it.
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createNoStoreClient } from '@/lib/supabase-no-store';
 import { PLAN_TIERS } from '@/lib/plans';
 import type { PlanTier } from '@/lib/types';
 
@@ -32,7 +32,8 @@ export async function GET() {
   const credits: Partial<Record<PlanTier, number>> = {};
   if (!url || !service) return NextResponse.json({ ok: true, credits });
 
-  const admin = createClient(url, service, { auth: { persistSession: false } });
+  // `dynamic = 'force-dynamic'` above does not stop the fetch cache (nothing here reads a cookie), so the client does: an edited price-list number must show on the next visit.
+  const admin = createNoStoreClient(url, service, { auth: { persistSession: false } });
   const { data } = await admin.from('plans').select('key, monthly_ai_credits').in('key', PLAN_TIERS);
   for (const row of data ?? []) {
     const key = row.key as string;
