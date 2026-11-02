@@ -9,7 +9,7 @@
 // signup, anything they could not already guess. The signup confirms a typed
 // address against it through ./check-email.
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createNoStoreClient } from '@/lib/supabase-no-store';
 import { hashToken } from '@/lib/matchdeal-pairing';
 import { clientIp, guestLinkRateLimited } from '@/lib/guest-link-security';
 import { maskInviteEmail } from '@/lib/incubators';
@@ -18,7 +18,8 @@ export async function GET(req: Request, { params }: { params: { token: string } 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, demo: true, error: 'not configured' });
-  const admin = createClient(url, service, { auth: { persistSession: false } });
+  // Uncacheable today only because clientIp(req) below reads a header on a non-force-dynamic route; the client no longer depends on that.
+  const admin = createNoStoreClient(url, service, { auth: { persistSession: false } });
   if (await guestLinkRateLimited(admin, clientIp(req))) {
     return NextResponse.json({ ok: false, error: 'rate_limited' }, { status: 429 });
   }

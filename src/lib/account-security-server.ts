@@ -4,6 +4,7 @@
 import 'server-only';
 import crypto from 'crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createNoStoreClient } from '@/lib/supabase-no-store';
 import { sendTransactionalEmail } from './resend';
 import { BRAND_NAME, APP_URL } from './brand';
 import { stripeConfigured, stripeSecret } from './stripe-env';
@@ -13,7 +14,8 @@ export function serviceAdmin(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return null;
-  return createClient(url, service, { auth: { persistSession: false } });
+  // /api/account/not-me is a public GET that reads its token from the URL on a force-dynamic route (nothing marks it dynamic): a cached "unused" lookup would let the one-time link run again.
+  return createNoStoreClient(url, service, { auth: { persistSession: false } });
 }
 
 export function requestOrigin(req: Request): { ip: string | null; userAgent: string | null } {

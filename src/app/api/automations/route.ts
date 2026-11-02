@@ -22,7 +22,7 @@
 // idempotent (skips orgs already badged), so it just runs every tick.
 import { processQueue } from '@/lib/calls/eligibility-engine';
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createNoStoreClient } from '@/lib/supabase-no-store';
 import { monthlyDeliveryDue } from '@/lib/catalog-monthly-delivery';
 import { catalogMonthlyDeliveryAvailable } from '@/lib/catalog-monthly-delivery-capability';
 import { deliverMonthlyForOrg, type MonthlyDeliveryOrgRow, type MonthlyDeliveryResult } from '@/lib/catalog-monthly-delivery-server';
@@ -62,7 +62,8 @@ export async function GET() {
     });
   }
 
-  const admin = createClient(url, service, { auth: { persistSession: false } });
+  // GET() takes no request and reads no cookie: a bare client would let Next's fetch cache hand this daily tick an old copy of the orgs it decides on.
+  const admin = createNoStoreClient(url, service, { auth: { persistSession: false } });
   const now = new Date().toISOString();
 
   let monthlyDelivery: { ranFor: number; results: MonthlyDeliveryResult[]; totalDelivered: number } | null = null;

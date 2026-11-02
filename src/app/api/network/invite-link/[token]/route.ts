@@ -3,7 +3,7 @@
 // (32 random bytes) is the entire authorization, same trust model as
 // MatchDeal's own pairing tokens.
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createNoStoreClient } from '@/lib/supabase-no-store';
 import { findEmailInviteByTokenHash, resolveActorDisplays } from '@/lib/network-db';
 import { hashToken } from '@/lib/matchdeal-pairing';
 
@@ -12,7 +12,8 @@ export async function GET(req: Request, { params }: { params: { token: string } 
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' });
 
-  const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // This route reads no cookie and no header, so a bare client would let Next's fetch cache answer: a revoked or accepted invite would keep resolving as pending.
+  const admin = createNoStoreClient(url, serviceKey, { auth: { persistSession: false } });
   const invite = await findEmailInviteByTokenHash(admin, hashToken(params.token));
   if (!invite) return NextResponse.json({ ok: false, error: 'This link is not valid.' }, { status: 404 });
   if (new Date(invite.expiresAt) <= new Date()) return NextResponse.json({ ok: false, error: 'This invite link has expired.' }, { status: 404 });
