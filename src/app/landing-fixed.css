@@ -1,0 +1,317 @@
+/* Prompt 935 (02/11/2026) — the fixed landing's stylesheet: the approved mockup (v21) ported mechanically (tools/gen_css.py: every class prefixed fx-, every rule scoped under .fx-root, so nothing leaks into or out of the rest of
+   the app) and then the departures that are the point of the port, named below: the lens, the photograph and the wheel placed by CSS alone, the real fonts, real links, and the phone bar. A plain global file, not a CSS module,
+   because the panels' copy is HTML strings (src/content/site/landing-fixed-panels.ts) that cannot know a module's hashed class names. */
+.fx-root {--ink:#0C272E; --ink-2:#123A44; --teal:#2A7F8E; --amber:#D9A441; --fg:#FFFFFF; --fg-2:#C9DCE1; --muted:#8FB0B8;
+  --glass:rgba(8,28,36,.58); --glass-line:rgba(255,255,255,.16); --ok:#9FE3BB; --warn:#F2D79A;
+  --display:var(--font-fraunces),Georgia,serif; --body:var(--font-inter),system-ui,sans-serif; --wordmark:var(--font-comfortaa), var(--font-inter), sans-serif;
+  --gl:max(16px,env(safe-area-inset-left,0px)); --gr:max(16px,env(safe-area-inset-right,0px));
+  --vh:1vh; --bar-h:calc(56px + env(safe-area-inset-bottom,0px));
+  --lx:50vw; --ly:calc(var(--vh) * 46); --ld:calc(var(--vh) * 18);
+  --d:clamp(40px,calc(var(--ld) * .39),80px); --gap:calc(var(--d) * .37); --first:calc(var(--ld) / 2 + var(--gap) + var(--d) / 2); --step:calc(var(--d) + var(--gap));
+  --pw:calc(var(--ld) / .102); --ph:calc(var(--pw) * 1.0373206);
+  --t-xl:clamp(1.35rem,2.6vw,2.2rem); --t-l:1.08rem; --t-m:.9rem; --t-s:.78rem; --t-xs:.66rem;
+  color-scheme:dark;}
+.fx-root * {box-sizing:border-box}
+.fx-root {position:fixed;inset:0;margin:0;font-family:var(--body);color:var(--fg);background:var(--ink);overflow:hidden;-webkit-font-smoothing:antialiased;font-size:var(--t-m);line-height:1.45}
+.fx-root::before {content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--ink)}
+.fx-root [hidden] {display:none!important}
+.fx-root .fx-bg {position:fixed;inset:0;z-index:0;background:#031c23;overflow:hidden}
+.fx-root .fx-bg .fx-blur {position:absolute;inset:-6%;width:112%;height:112%;object-fit:cover;object-position:50% 60%;}
+/* the blur, darkening and desaturation are baked into lens-photo-blur.webp (a filter on a window-sized layer is what a throttled phone chokes on) */
+.fx-root .fx-bg .fx-photo {position:absolute;max-width:none;width:var(--pw);height:var(--ph);left:calc(var(--lx) - var(--pw) * .504);top:calc(var(--ly) - var(--ph) * .461);-webkit-mask-image:linear-gradient(90deg,transparent,#000 9%,#000 91%,transparent),linear-gradient(180deg,transparent,#000 8%,#000 90%,transparent);-webkit-mask-composite:source-in;mask-image:linear-gradient(90deg,transparent,#000 9%,#000 91%,transparent),linear-gradient(180deg,transparent,#000 8%,#000 90%,transparent);mask-composite:intersect}
+.fx-root .fx-bg::after {content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(3,28,35,.55) 0,rgba(3,28,35,.15) 28%,rgba(3,28,35,0) 45%,rgba(3,28,35,.3) 100%)}
+.fx-root .fx-nav {position:fixed;z-index:3;left:0;right:0;top:env(safe-area-inset-top,0px);display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:1rem;padding:16px var(--gr) 0 var(--gl);max-width:1440px;margin:0 auto}
+.fx-root .fx-brand {display:flex;align-items:center;gap:.6rem;text-decoration:none;color:#fff;font-family:var(--wordmark);font-weight:700;font-size:1.15rem;justify-self:start}
+.fx-root .fx-brand .fx-mark {width:30px;height:30px;border-radius:8px;background:var(--teal);display:grid;place-items:center;font-size:.9rem}
+.fx-root .fx-brand b {color:var(--amber)}
+.fx-root .fx-seg {display:inline-flex;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.1);backdrop-filter:blur(10px);border-radius:999px;padding:4px;justify-self:center}
+.fx-root .fx-seg button {background:none;border:0;color:rgba(255,255,255,.85);font:inherit;font-weight:600;font-size:var(--t-s);padding:8px 16px;border-radius:999px;cursor:pointer;white-space:nowrap}
+.fx-root .fx-seg button[aria-pressed="true"] {background:#fff;color:var(--ink)}
+.fx-root .fx-actions {display:flex;gap:.5rem;justify-self:end}
+.fx-root .fx-btn {display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:0 18px;border-radius:999px;font-weight:600;font-size:var(--t-s);text-decoration:none;border:1.5px solid transparent;cursor:pointer;font-family:var(--body);white-space:nowrap}
+.fx-root .fx-btn-ghost {color:#fff;border-color:rgba(255,255,255,.38);background:rgba(255,255,255,.06);backdrop-filter:blur(10px)}
+.fx-root .fx-btn-primary {background:var(--amber);color:var(--ink)}
+.fx-root .fx-btn-sm {min-height:34px;padding:0 14px;font-size:var(--t-xs)}
+.fx-root .fx-btn:focus-visible, .fx-root button:focus-visible, .fx-root a:focus-visible {outline:2px solid var(--amber);outline-offset:3px}
+@media (max-width:760px) {
+  .fx-root .fx-nav {grid-template-columns:1fr auto;padding-top:12px}
+  .fx-root .fx-seg {grid-column:1/-1;grid-row:2;justify-self:center;margin-top:8px}
+  .fx-root .fx-actions .fx-btn-ghost {display:none}
+  .fx-root .fx-btn {min-height:38px;padding:0 14px}
+  .fx-root .fx-seg button {padding:7px 12px}
+}
+.fx-root .fx-head {position:fixed;z-index:2;left:var(--gl);right:var(--gr);top:calc(env(safe-area-inset-top,0px) + 64px);height:calc(var(--ly) - var(--ld)/2 - 16px - env(safe-area-inset-top,0px) - 64px);display:grid;align-content:center;justify-items:center;text-align:center;gap:.45rem;min-width:0}
+.fx-root .fx-head .fx-sig {font-family:var(--display);font-style:italic;font-weight:500;font-size:var(--t-l);color:var(--amber);margin:0;letter-spacing:-.01em}
+.fx-root .fx-head h1 {font-family:var(--display);font-weight:600;font-size:clamp(1.5rem,3.1vw,2.7rem);line-height:1.08;margin:0;text-wrap:balance;max-width:min(26ch,100%);font-variation-settings:"opsz" 144;text-shadow:0 2px 24px rgba(0,0,0,.35);transition:opacity .9s ease,filter .9s ease,transform .9s ease;opacity:1;filter:blur(0)}
+.fx-root .fx-head h1 em {font-style:italic;color:var(--amber);font-weight:500}
+.fx-root .fx-head h1.fx-fog {opacity:0;filter:blur(16px);transform:translateY(4px) scale(1.02)}
+@media (prefers-reduced-motion:reduce) {
+  .fx-root .fx-head h1 {transition:none}
+}
+.fx-root .fx-head p {margin:0;color:var(--fg-2);font-size:var(--t-m);max-width:min(62ch,100%);text-shadow:0 1px 12px rgba(0,0,0,.4)}
+.fx-root .fx-head .fx-cta {display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center;margin-top:.35rem}
+@media (max-height:880px) {
+  .fx-root {--t-l:1rem;--t-m:.84rem;--t-s:.74rem;--t-xs:.62rem}
+  .fx-root .fx-card .fx-body {padding:9px 18px 10px}
+  .fx-root .fx-panel {gap:8px 18px}
+  .fx-root .fx-icard, .fx-root .fx-box, .fx-root .fx-plan {padding:8px 10px}
+  .fx-root td {padding:5px 8px}
+  .fx-root .fx-marquee img {width:42px;height:42px}
+  .fx-root .fx-marquee figure {width:68px}
+}
+@media (max-height:760px) {
+  .fx-root .fx-doclist li span {display:none}
+  .fx-root .fx-marquee figcaption {display:none}
+  .fx-root .fx-marquee img {width:40px;height:40px}
+  .fx-root .fx-marquee figure {width:auto}
+  .fx-root .fx-marquee .fx-track {gap:14px}
+  .fx-root [data-id$="-overview"] .fx-side .fx-ex {display:none}
+  .fx-root .fx-icard .fx-meta {display:none}
+}
+@media (max-height:800px) {
+  .fx-root [data-id="docs"] .fx-promise {display:none}
+  .fx-root .fx-doclist {gap:5px}
+  .fx-root .fx-doclist li {padding:5px 10px}
+  .fx-root [data-id="docs"] .fx-side p+p {display:none}
+  /* (0,3,1): the plan card's own `ul {display:grid}` further down the file is (0,2,1) and would otherwise win by position — in the mockup too; the short window is meant to show price and difference only */
+  .fx-root .fx-plans .fx-plan ul {display:none}
+  .fx-root .fx-fine {display:none}
+  .fx-root .fx-plan {gap:4px}
+  .fx-root .fx-plan ul {margin:2px 0 6px}
+  .fx-root {--t-m:.8rem;--t-s:.71rem;--t-xs:.6rem}
+  .fx-root .fx-card .fx-top {padding:6px 18px 5px}
+  .fx-root .fx-marquee img {width:38px;height:38px}
+  .fx-root .fx-marquee figure {width:60px}
+  .fx-root td {padding:4px 8px}
+  .fx-root .fx-plan ul {gap:2px}
+  .fx-root .fx-panel .fx-promise {font-size:.95rem}
+  .fx-root .fx-plan .fx-price {font-size:1.15rem}
+  .fx-root details {padding:6px 0}
+}
+@media (max-width:760px) {
+  .fx-root .fx-head {top:calc(env(safe-area-inset-top,0px) + 112px)}
+  .fx-root .fx-head h1 {font-size:1.35rem}
+}
+.fx-root .fx-wheel {position:fixed;z-index:2;left:0;right:0;top:var(--ly);height:0;overflow:visible}
+.fx-root .fx-wheel ul {list-style:none;margin:0;padding:0;position:absolute;left:var(--lx);top:0;width:0;height:0}
+.fx-root .fx-wheel li {--x:calc(var(--s,0) * (var(--first) + var(--k,0) * var(--step)));position:absolute;left:0;top:0;width:var(--d,70px);display:grid;place-items:center;transform:translate(calc(var(--x,0px) - 50%),-50%);transition:transform .5s cubic-bezier(.2,.7,.2,1),opacity .35s;opacity:1}
+.fx-root .fx-wheel li.fx-jump {transition:none;opacity:0}
+.fx-root .fx-wheel button {width:var(--d,70px);height:var(--d,70px);border-radius:50%;border:1.5px solid rgba(255,255,255,.22);background:rgba(10,34,41,.5);backdrop-filter:blur(8px);color:#fff;display:grid;place-items:center;cursor:pointer;transition:transform .45s,background .35s,border-color .35s,opacity .35s;opacity:.9;padding:0}
+.fx-root .fx-wheel button svg {width:42%;height:42%;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.fx-root .fx-wheel li.fx-far button {opacity:.55}
+.fx-root .fx-wheel li.fx-on {width:var(--ld);z-index:1}
+.fx-root .fx-wheel li.fx-on button {width:var(--ld);height:var(--ld);background:transparent;border-color:transparent;backdrop-filter:none;color:var(--ink);opacity:1;box-shadow:none}
+.fx-root .fx-wheel li.fx-on button svg {width:40%;height:40%;stroke-width:2;filter:drop-shadow(0 1px 0 rgba(255,255,255,.6))}
+.fx-root .fx-wheel .fx-lbl {position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);white-space:normal;width:calc(var(--d,70px) + var(--gap,22px) - 6px);text-align:center;line-height:1.2;font-size:.6rem;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.55);font-weight:500;pointer-events:none;transition:opacity .3s}
+.fx-root .fx-wheel li.fx-on .fx-lbl {opacity:0}
+.fx-root .fx-wheel li.fx-far .fx-lbl {opacity:.6}
+.fx-root .fx-sr {position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.fx-root .fx-active {position:fixed;z-index:2;left:var(--lx);top:calc(var(--ly) + var(--ld)/2 + 2px);transform:translateX(-50%);display:flex;align-items:center;gap:.5rem;white-space:nowrap;font-size:var(--t-xs);letter-spacing:.08em;text-transform:uppercase;color:#fff}
+.fx-root .fx-active .fx-n {color:var(--muted)}
+.fx-root .fx-active button {background:none;border:0;color:var(--muted);font:inherit;cursor:pointer;padding:0 4px;font-size:.9rem;line-height:1}
+.fx-root .fx-active button:hover {color:#fff}
+@media (prefers-reduced-motion:reduce) {
+  .fx-root .fx-wheel li, .fx-root .fx-wheel button, .fx-root .fx-card {transition:none}
+}
+.fx-root .fx-card {position:fixed;z-index:4;left:50%;transform:translateX(-50%);top:calc(var(--ly) + var(--ld)/2 + 14px);bottom:max(18px,calc(env(safe-area-inset-bottom,0px) + 18px));width:min(84vw,calc(100vw - var(--gl) - var(--gr)));min-width:0;background:var(--glass);border:1px solid var(--glass-line);border-radius:18px;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.35);transition:top .45s cubic-bezier(.2,.7,.2,1)}
+.fx-root .fx-card.fx-open {top:calc(env(safe-area-inset-top,0px) + 64px)}
+.fx-root .fx-card .fx-top {display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:8px 20px 7px;border-bottom:1px solid var(--glass-line);flex-wrap:wrap;cursor:pointer;user-select:none}
+.fx-root .fx-card .fx-top h2 {margin:0;font-family:var(--display);font-weight:500;font-size:var(--t-l);font-variation-settings:"opsz" 48}
+.fx-root .fx-card .fx-top .fx-mono {font-size:var(--t-xs);color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.fx-root .fx-card .fx-top .fx-exp {margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:var(--t-xs);color:var(--fg-2);background:rgba(255,255,255,.08);border:1px solid var(--glass-line);border-radius:999px;padding:5px 11px}
+.fx-root .fx-card .fx-top .fx-exp svg {width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2;transition:transform .3s}
+.fx-root .fx-card.fx-open .fx-top .fx-exp svg {transform:rotate(180deg)}
+.fx-root .fx-card:not(.fx-has-more) .fx-top .fx-exp {display:none}
+.fx-root .fx-card .fx-body {overflow:auto;padding:10px 20px 12px;scrollbar-width:thin}
+@media (max-width:640px) {
+  .fx-root .fx-card .fx-top .fx-mono {display:none}
+  .fx-root .fx-demo {overflow-x:auto}
+}
+@media (max-width:760px) {
+  .fx-root .fx-card {bottom:calc(env(safe-area-inset-bottom,0px) + 16px)}
+}
+.fx-root .fx-card .fx-body > section {display:none}
+.fx-root .fx-card .fx-body > section.fx-on {display:block}
+.fx-root .fx-panel {display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:10px 20px;align-items:start}
+.fx-root .fx-panel .fx-promise {grid-column:1/-1;font-family:var(--display);font-weight:500;font-size:var(--t-l);margin:0 0 -2px;line-height:1.2;font-variation-settings:"opsz" 48}
+.fx-root .fx-panel .fx-demo {min-width:0}
+.fx-root .fx-panel .fx-side {display:grid;gap:6px;align-content:start}
+.fx-root .fx-panel .fx-side p {margin:0;color:var(--fg-2);font-size:var(--t-s);line-height:1.4;padding-left:12px;border-left:2px solid var(--amber)}
+.fx-root .fx-panel .fx-side .fx-act {margin-top:4px;justify-self:start}
+.fx-root .fx-ex {display:inline-block;font-size:var(--t-xs);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border:1px solid var(--glass-line);border-radius:4px;padding:1px 6px;margin-bottom:5px}
+@media (max-width:900px) {
+  .fx-root .fx-panel {grid-template-columns:1fr}
+}
+.fx-root table {width:100%;border-collapse:collapse;font-size:var(--t-s);font-variant-numeric:tabular-nums}
+.fx-root th {text-align:left;font-size:var(--t-xs);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:5px 8px;border-bottom:1px solid var(--glass-line);font-weight:500}
+.fx-root td {padding:7px 8px;border-bottom:1px solid var(--glass-line);vertical-align:top}
+.fx-root td:first-child {font-weight:600;color:#fff}
+.fx-root .fx-st {display:inline-block;padding:2px 8px;border-radius:999px;font-size:var(--t-xs);background:rgba(255,255,255,.1);color:var(--fg-2);white-space:nowrap}
+.fx-root .fx-st.fx-ok {background:rgba(47,143,91,.25);color:var(--ok)}
+.fx-root .fx-st.fx-w {background:rgba(217,164,65,.22);color:var(--warn)}
+.fx-root .fx-cards {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media (max-width:1100px) {
+  .fx-root .fx-cards {grid-template-columns:1fr 1fr}
+}
+@media (max-width:640px) {
+  .fx-root .fx-cards {grid-template-columns:1fr}
+}
+.fx-root .fx-doclist {list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.fx-root .fx-doclist li {display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;gap:2px 10px;align-items:center;border:1px solid var(--glass-line);border-radius:12px;padding:8px 11px;background:rgba(255,255,255,.04);min-width:0}
+.fx-root .fx-doclist li b {color:#fff;font-size:var(--t-m)}
+.fx-root .fx-doclist li span {color:var(--muted);font-size:var(--t-xs);grid-column:1}
+.fx-root .fx-doclist li a {grid-column:2;grid-row:1/3}
+@media (max-width:760px) {
+  .fx-root .fx-doclist {grid-template-columns:1fr}
+}
+.fx-root .fx-modal-card .fx-body h2:not(.fx-paper h2) {font-family:var(--display);font-weight:500;font-size:var(--t-l);margin:18px 0 6px;padding-top:12px;border-top:1px solid var(--glass-line)}
+.fx-root .fx-modal-card .fx-body h2:first-child:not(.fx-paper h2) {border-top:0;padding-top:0;margin-top:0}
+.fx-root .fx-modal-card .fx-body h2.fx-hl:not(.fx-paper h2) {color:var(--amber)}
+.fx-root .fx-rows {list-style:none;margin:0;padding:0;border:1px solid var(--glass-line);border-radius:12px;background:rgba(255,255,255,.04);overflow:hidden}
+.fx-root .fx-rows li {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr) minmax(0,1.7fr);gap:4px 14px;align-items:baseline;padding:6px 11px;border-top:1px solid var(--glass-line);font-size:var(--t-s);min-width:0}
+.fx-root .fx-rows li:first-child {border-top:0}
+.fx-root .fx-rows li b {color:#fff;font-size:var(--t-m);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fx-root .fx-rows li span {color:var(--muted);font-size:var(--t-xs)}
+.fx-root .fx-rows li em, .fx-root .fx-rows li span {font-style:normal;color:var(--fg-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fx-root .fx-rows li span {color:var(--muted)}
+@media (max-height:840px) {
+  .fx-root [data-id$="-overview"] .fx-promise {display:none}
+}
+@media (max-width:900px) {
+  .fx-root .fx-rows li {grid-template-columns:1fr}
+}
+.fx-root [data-id$="-overview"] .fx-agenda {gap:3px}
+.fx-root .fx-icard {border:1px solid var(--glass-line);border-radius:12px;padding:8px 11px;background:rgba(255,255,255,.04);display:grid;gap:3px;font-size:var(--t-s);min-width:0}
+.fx-root .fx-icard b {font-size:var(--t-m);color:#fff}
+.fx-root .fx-icard .fx-meta {color:var(--muted);font-size:var(--t-xs)}
+.fx-root .fx-icard .fx-why {border-top:1px solid var(--glass-line);padding-top:4px;margin-top:1px;color:var(--fg-2)}
+.fx-root .fx-icard .fx-why em {font-style:normal;color:var(--amber)}
+.fx-root .fx-twocol {display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:12px}
+@media (max-width:900px) {
+  .fx-root .fx-twocol {grid-template-columns:1fr}
+}
+.fx-root .fx-box {border:1px solid var(--glass-line);border-radius:12px;padding:10px 12px;background:rgba(255,255,255,.04);font-size:var(--t-s);min-width:0}
+.fx-root .fx-box h4 {margin:0 0 6px;font-size:var(--t-xs);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:500}
+.fx-root .fx-box p {margin:0 0 .4rem;color:var(--fg-2)}
+.fx-root .fx-box mark {background:rgba(217,164,65,.22);color:#fff;border-radius:3px;padding:0 3px}
+.fx-root .fx-list {list-style:none;margin:0;padding:0;display:grid;gap:5px}
+.fx-root .fx-list li {display:flex;justify-content:space-between;gap:8px;color:var(--fg-2)}
+.fx-root .fx-list li b {color:#fff;font-weight:500}
+.fx-root .fx-chk {list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.fx-root .fx-chk li {display:flex;gap:8px;align-items:center;color:var(--fg-2)}
+.fx-root .fx-chk li::before {content:"✓";color:var(--ok);font-weight:700;width:14px}
+.fx-root .fx-chk li.fx-no::before {content:"○";color:var(--muted)}
+.fx-root .fx-chk li.fx-no {color:var(--muted)}
+.fx-root .fx-agenda {display:grid;gap:4px}
+.fx-root .fx-agenda div {display:flex;gap:10px;align-items:baseline;color:var(--fg-2);font-size:var(--t-s)}
+.fx-root .fx-agenda div b {color:var(--amber);font-weight:600;white-space:nowrap}
+.fx-root .fx-plans {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.fx-root .fx-plans.fx-three {grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:900px) {
+  .fx-root .fx-plans, .fx-root .fx-plans.fx-three {grid-template-columns:1fr 1fr}
+}
+@media (max-width:520px) {
+  .fx-root .fx-plans, .fx-root .fx-plans.fx-three {grid-template-columns:1fr}
+}
+.fx-root .fx-plan {border:1px solid var(--glass-line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:5px;background:rgba(255,255,255,.05);min-width:0}
+.fx-root .fx-plan.fx-rec {border-color:var(--amber)}
+.fx-root .fx-plan .fx-tag {font-size:var(--t-xs);letter-spacing:.06em;text-transform:uppercase;color:var(--amber)}
+.fx-root .fx-plan .fx-name {font-family:var(--display);font-size:var(--t-l)}
+.fx-root .fx-plan .fx-price {font-size:1.35rem;font-weight:600;font-family:var(--display)}
+.fx-root .fx-plan .fx-price small {font-family:var(--body);font-size:var(--t-xs);color:var(--muted);font-weight:400}
+.fx-root .fx-plan .fx-diff {color:#fff;font-weight:600;font-size:var(--t-s)}
+.fx-root .fx-plan ul {margin:2px 0 8px;padding:0;list-style:none;display:grid;gap:3px;font-size:var(--t-s);color:var(--fg-2)}
+.fx-root .fx-plan .fx-btn {margin-top:auto}
+.fx-root .fx-plan .fx-btn.fx-full {background:#fff;color:var(--ink)}
+.fx-root .fx-fine {font-size:var(--t-xs);color:var(--muted);margin:8px 0 0}
+.fx-root details {border-top:1px solid var(--glass-line);padding:8px 0}
+.fx-root summary {cursor:pointer;font-weight:600;list-style:none;display:flex;justify-content:space-between;gap:1rem;font-size:var(--t-m)}
+.fx-root summary::after {content:"+";color:var(--muted)}
+.fx-root details[open] summary::after {content:"–"}
+.fx-root details p {margin:.4rem 0 0;font-size:var(--t-s);color:var(--fg-2)}
+.fx-root .fx-marquee {grid-column:1/-1;border-top:1px solid var(--glass-line);margin-top:12px;padding-top:8px;display:grid;gap:4px}
+@media (max-height:800px) {
+  .fx-root .fx-marquee {margin-top:4px;padding-top:4px;gap:2px}
+}
+.fx-root .fx-marquee .fx-cap {font-size:var(--t-xs);letter-spacing:.08em;text-transform:uppercase;color:var(--fg-2);margin:0;line-height:1.3}
+.fx-root .fx-marquee .fx-strip {overflow:hidden;min-width:0;-webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent)}
+.fx-root .fx-marquee .fx-track {display:flex;gap:18px;width:max-content;animation:fx-logos 40s linear infinite;align-items:start}
+.fx-root .fx-marquee.fx-logos-i .fx-track {animation-duration:70s}
+.fx-root .fx-marquee:hover .fx-track {animation-play-state:paused}
+.fx-root .fx-marquee figure {margin:0;display:grid;justify-items:center;gap:3px;font-size:.62rem;color:var(--fg-2);width:76px;text-align:center;line-height:1.2}
+.fx-root .fx-marquee img {width:48px;height:48px;border-radius:50%;box-shadow:0 0 0 1px rgba(255,255,255,.12)}
+@keyframes fx-logos {to{transform:translateX(-50%)}}
+@media (prefers-reduced-motion:reduce) {
+  /* still: one row of whole logos (the rest pushed out of sight by the strip), without the second copy that only exists for the loop's seam */
+  .fx-root .fx-marquee .fx-track {animation:none}
+  .fx-root .fx-marquee figure[aria-hidden="true"] {display:none}
+}
+.fx-root .fx-cform {display:grid;gap:8px}
+.fx-root .fx-cform .fx-mono, .fx-root .fx-modal-card .fx-mono {font-size:var(--t-xs);color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.fx-root .fx-cform-head {display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap}
+.fx-root .fx-cform-grid {display:grid;grid-template-columns:1fr 1fr;gap:8px 16px}
+.fx-root .fx-cform-grid label {display:grid;gap:5px;font-size:var(--t-s);color:var(--muted)}
+.fx-root .fx-cform-grid .fx-full {grid-column:1/-1}
+.fx-root .fx-cform input, .fx-root .fx-cform select, .fx-root .fx-cform textarea {font:inherit;font-size:var(--t-m);color:#fff;background:rgba(255,255,255,.07);border:1px solid var(--glass-line);border-radius:10px;padding:7px 12px;min-height:36px;width:100%;resize:vertical}
+.fx-root .fx-cform input:focus, .fx-root .fx-cform select:focus, .fx-root .fx-cform textarea:focus {outline:2px solid var(--amber);outline-offset:1px;border-color:transparent}
+.fx-root .fx-cform select option {color:#111}
+.fx-root .fx-cform-foot {display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap}
+.fx-root .fx-cform-ok {color:var(--ok);font-weight:600}
+@media (max-width:640px) {
+  .fx-root .fx-cform-grid {grid-template-columns:1fr}
+}
+.fx-root .fx-modal {position:fixed;inset:0;z-index:20;display:grid;place-items:center;padding:24px var(--gr) 24px var(--gl)}
+.fx-root .fx-modal-back {position:absolute;inset:0;background:rgba(3,20,26,.55);backdrop-filter:blur(3px)}
+.fx-root .fx-modal-card {position:relative;width:min(760px,100%);max-height:min(80vh,760px);background:var(--glass);border:1px solid var(--glass-line);border-radius:18px;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.45)}
+.fx-root .fx-modal-card .fx-top {display:flex;align-items:center;gap:1rem;padding:12px 20px;border-bottom:1px solid var(--glass-line)}
+.fx-root .fx-modal-card .fx-top h2 {margin:0;font-family:var(--display);font-weight:500;font-size:var(--t-l);font-variation-settings:"opsz" 48}
+.fx-root .fx-modal-card .fx-top .fx-close {margin-left:auto;background:rgba(255,255,255,.08);border:1px solid var(--glass-line);color:#fff;width:32px;height:32px;border-radius:50%;font-size:1.1rem;cursor:pointer;line-height:1}
+.fx-root .fx-modal-card .fx-body {overflow:auto;padding:16px 20px;font-size:var(--t-m)}
+.fx-root .fx-modal-card .fx-body h3:not(.fx-paper h3) {font-size:var(--t-m);margin:12px 0 4px}
+.fx-root .fx-modal-card .fx-body p:not(.fx-paper p) {color:var(--fg-2);margin:0 0 .6rem;line-height:1.5}
+.fx-root .fx-modal-foot {display:flex;justify-content:flex-end;gap:.6rem;padding:12px 20px;border-top:1px solid var(--glass-line)}
+
+/* ---------- departures from the mockup (Prompt 935) ---------- */
+@supports (height:1dvh){.fx-root{--vh:1dvh}}
+/* the mode switch is a pair of real links (/ and /investors), drawn like the mockup's buttons */
+.fx-root .fx-seg a{color:rgba(255,255,255,.85);font-weight:600;font-size:var(--t-s);padding:8px 16px;border-radius:999px;white-space:nowrap;text-decoration:none;display:inline-block;cursor:pointer}
+.fx-root .fx-seg a[aria-current="page"]{background:#fff;color:var(--ink)}
+@media (max-width:760px){.fx-root .fx-seg a{padding:7px 12px}}
+/* the real logo lock-up in the brand slot (the mockup drew a placeholder square) */
+.fx-root .fx-brand{font-family:var(--wordmark)}
+.fx-root .fx-brand .fx-deal{color:var(--amber)}
+.fx-root .fx-brand svg{flex:0 0 auto}
+/* a link that is also an action keeps the mockup's button look */
+.fx-root a.fx-btn{text-decoration:none}
+/* the card's body and the modal's: the legal text is drawn on a light sheet, in the Terms' own typography */
+.fx-root .fx-modal-card .fx-paper{background:#fff;color:#22343a;border-radius:12px;padding:6px 18px 14px;margin-top:10px}
+.fx-root .fx-modal-card .fx-paper h1,.fx-root .fx-modal-card .fx-paper h2,.fx-root .fx-modal-card .fx-paper h3{color:#0c272e}
+.fx-root .fx-modal-card .fx-chapter{scroll-margin-top:8px}
+.fx-root .fx-modal-card .fx-chapter-title{font-family:var(--display);font-weight:500;font-size:var(--t-l);margin:18px 0 6px;padding-top:12px;border-top:1px solid var(--glass-line)}
+.fx-root .fx-modal-card .fx-chapter:first-child .fx-chapter-title{border-top:0;padding-top:0;margin-top:0}
+.fx-root .fx-modal-card .fx-chapter-title.fx-hl{color:var(--amber)}
+.fx-root .fx-modal-card .fx-source{font-size:var(--t-xs);color:var(--muted);margin:0 0 6px}
+.fx-root .fx-cform-err{color:#F2A6A6;font-size:var(--t-s);margin:0}
+.fx-root .fx-cform .fx-hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
+/* the bar fixed to the bottom of a phone: Sign in and Create account, always (there is no hero to leave the screen); the card ends above it */
+.fx-root .fx-mbar{display:none;position:fixed;left:0;right:0;bottom:0;z-index:6;gap:12px;box-sizing:border-box;min-height:var(--bar-h);padding:6px var(--gr) calc(6px + env(safe-area-inset-bottom,0px)) var(--gl);background:rgba(12,39,46,.92);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border-top:1px solid rgba(255,255,255,.14)}
+.fx-root .fx-mbar .fx-btn{flex:1 1 0;min-height:44px}
+@media (max-width:760px){
+  .fx-root .fx-mbar{display:flex}
+  .fx-root .fx-card{bottom:calc(var(--bar-h) + 12px)}
+}
+/* the logos: a white disc each, the name under it; reduced motion stops the strip and lets it wrap (mockup) */
+.fx-root .fx-marquee .fx-track{will-change:transform}
+
+/* the links to the site's other public pages, at the foot of the Documents panel (the landing has no footer: these keep About, FAQ and the article reachable from it) */
+.fx-root .fx-sitelinks{grid-column:1/-1;margin:6px 0 0}
+.fx-root .fx-sitelinks a{color:var(--fg-2);text-decoration:underline;text-underline-offset:2px}
+/* the legal text sits on a light sheet in its own (Tailwind) typography: the dialog's rules for plain headings and paragraphs on the glass must not reach into it (:not(.fx-paper ...) above) */
+/* the contact form in the card: name, email and subject share one row from a tablet up, so the form is a row shorter and fits the card of a laptop without "See all" */
+@media (min-width:761px) {
+  .fx-root #fx-contact .fx-cform-grid {grid-template-columns:1fr 1fr 1fr}
+}
+/* a phone reads at 12 px and up: the mockup's 10-11 px labels are for a laptop (Lighthouse font-size: 60% of the text must be 12 px or more) */
+@media (max-width:760px) {
+  .fx-root {--t-m:.9rem;--t-s:.8rem;--t-xs:.75rem}
+}

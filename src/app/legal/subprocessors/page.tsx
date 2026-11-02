@@ -12,17 +12,9 @@
 import Link from 'next/link';
 import { BRAND_NAME } from '@/lib/brand';
 import { CONTROLLER_NAME } from '@/content/commitments/v1';
+import { SuppliersTable } from '@/components/legal/SuppliersTable';
 
 export const metadata = { title: `Suppliers (sub-processors) — ${BRAND_NAME}` };
-
-const SUPPLIERS: { name: string; purpose: string; data: string; where: string }[] = [
-  { name: 'Supabase', purpose: 'Database, authentication, file storage', data: 'Everything the workspace stores', where: 'eu-west-2 (London, United Kingdom — adequacy decision)' },
-  { name: 'Vercel', purpose: 'Hosting and execution of the application', data: 'Requests and responses in transit; server logs', where: 'Serverless functions in iad1 (United States) — standard contractual clauses' },
-  { name: 'Stripe', purpose: 'Payments and subscriptions', data: 'Billing identity and payment status; card data never reaches us', where: 'United States / Ireland — standard contractual clauses' },
-  { name: 'Anthropic', purpose: 'AI processing (extractions, summaries, drafts)', data: 'The text of documents and fields sent for a given feature, on your instruction', where: 'United States — standard contractual clauses' },
-  { name: 'Resend', purpose: 'Transactional email delivery', data: 'Recipient address, subject and message body of emails we send you', where: 'United States — standard contractual clauses' },
-  { name: 'VirusTotal', purpose: 'Malware check on uploaded files', data: 'A SHA-256 hash of the file only — never the file or its content', where: 'Hash lookup only; no personal data' },
-];
 
 export default function SubprocessorsPage() {
   return (
@@ -39,21 +31,7 @@ export default function SubprocessorsPage() {
         <p className="text-sm text-gray-700">
           {CONTROLLER_NAME} runs {BRAND_NAME} with a short list of suppliers. Each processes your data only on our instructions, cannot use it for its own purposes, and is bound by a data-protection agreement. We tell you before this list changes.
         </p>
-        <div className="mt-5 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr className="text-left text-[11px] uppercase tracking-wide text-gray-400"><th className="py-1 pr-3">Supplier</th><th className="pr-3">Purpose</th><th className="pr-3">What it processes</th><th>Where</th></tr></thead>
-            <tbody>
-              {SUPPLIERS.map((s) => (
-                <tr key={s.name} className="border-t border-gray-100 align-top">
-                  <td className="py-2 pr-3 font-medium text-gray-900">{s.name}</td>
-                  <td className="pr-3 text-gray-700">{s.purpose}</td>
-                  <td className="pr-3 text-gray-700">{s.data}</td>
-                  <td className="text-gray-600">{s.where}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <SuppliersTable />
         <p className="mt-5 text-xs text-gray-500">
           Questions about a supplier, or a data-rights request: <Link href="/privacy-request" className="underline">data-rights request</Link> · <Link href="/legal/privacy-notice" className="underline">How we hold professional contact information</Link> · <Link href="/terms" className="underline">Terms &amp; Conditions</Link> (clause 8.3).
         </p>

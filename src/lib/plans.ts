@@ -177,7 +177,7 @@ function matchDealLine(tier: PlanTier): string {
   return `MatchDeal: ${parts.join(' · ')}`;
 }
 
-const SEAT_COUNT_LABEL: Record<PlanTier, string> = { idea: '1 user', garage: '2 users', motherfunding: '5 users' };
+export const SEAT_COUNT_LABEL: Record<PlanTier, string> = { idea: '1 user', garage: '2 users', motherfunding: '5 users' };
 
 // Prompt 749 — the curated-pipeline asterisk, verbatim, shared by every
 // tier's card footer (PlanCards.tsx collects and dedupes section notes

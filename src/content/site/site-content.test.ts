@@ -118,10 +118,9 @@ describe('the facts the copy leans on', () => {
     expect(sql).toMatch(new RegExp(`weekly_cap int not null default ${DEFAULT_WEEKLY_TARGET}`));
   });
 
-  it('"500+ … 25+" is what /investors already says (one statement of the catalogue, not two)', () => {
-    const page = read('src/app/investors/page.tsx');
-    expect(page).toContain(`${CATALOGUE_FLOOR}+ investor profiles`);
-    expect(page).toContain(`${COUNTRIES_FLOOR}+ European`);
+  // Prompt 935: the investors' landing is the fixed one; it states the size of the catalogue once, in the title of its strip of investor profiles
+  it('"500+" is what the investors\' landing says about the catalogue (one statement of it, not two)', () => {
+    expect(read('src/content/site/logo-strip.ts')).toContain(`${CATALOGUE_FLOOR}+ investor profiles`);
   });
 
   it('the operating company sits where the Terms say it does', () => {
@@ -129,49 +128,36 @@ describe('the facts the copy leans on', () => {
   });
 });
 
-describe('how the existing pages carry the additions (the pages themselves need a session and next/font, so the wiring is pinned at the source)', () => {
+describe('how the two landing pages carry the metadata, the schema and the wiring (the pages need a session and next/font, so it is pinned at the source) — Prompt 935', () => {
   const home = read('src/app/page.tsx');
   const investors = read('src/app/investors/page.tsx');
-  const toggle = read('src/components/landing/AudienceToggle.tsx');
+  const shared = read('src/components/landing-fixed/FixedLandingPage.tsx');
+  const content = read('src/content/site/landing-fixed.ts');
 
-  it('the home takes its title and description from the approved text and carries the schema — and its visible copy is the landing\'s own', () => {
+  it('the home takes its title and description from the approved text, and both pages render the shared fixed landing in their own mode', () => {
     expect(home).toContain('const TITLE = HOME_META.title;');
     expect(home).toContain('const DESCRIPTION = HOME_META.description;');
-    expect(home).toContain('<JsonLd data={homeGraph()} />');
-    // the landing's own words are still there (Prompt 920 changes metadata and three approved touches, nothing else)
-    for (const kept of ['Crack the case on your <em>fundraise.</em>', 'Everything a raise needs, nothing it doesn&apos;t', 'Three steps to a round under control', 'Your numbers, confirmed once. Consistent everywhere.', 'The game is afoot.', 'Every investor, every conversation, every confirmed fact']) {
-      expect(home, kept).toContain(kept);
-    }
+    expect(home).toContain('<FixedLandingPage mode="startups" fontClass={fraunces.variable} />');
+    expect(investors).toContain('<FixedLandingPage mode="investors" fontClass={fraunces.variable} />');
+    expect(investors).toContain("alternates: { canonical: '/investors' }");
   });
 
-  it('the home gained the approved visible touches: one line under the H1 and the footer links — and the toggle switches between the two landing pages only (Nuno, 31/10/2026), never to the article', () => {
-    expect([...toggle.matchAll(/href="([^"]+)"/g)].map((m) => m[1])).toEqual(['/', '/investors']);
-    expect(home).toContain('matches startups with the investors that fit them, and puts startups that match their mandate in front of investors.');
-    expect(home).toContain('<Link href="/about">About</Link>');
-    expect(home).toContain('<Link href="/faq">FAQ</Link>');
-    // the article keeps its URL and is reached from the footer of both landing pages (the toggle used to be its only internal link from them)
-    expect(home).toContain('<Link href="/for-startups">How to find investors</Link>');
-    expect(investors).toContain('<Link href="/for-startups">How to find investors</Link>');
-    expect(home).toContain('<Link href="/">For Startups</Link>');
+  it('the structured data: the home keeps Organization + WebSite + SoftwareApplication and gains the FAQPage, built from the panels\' own questions; /investors keeps its Article and Breadcrumb', () => {
+    expect(shared).toContain('graph(organizationNode(), websiteNode(), softwareApplicationNode(), faqPageNode(faqItems(mode), path))');
+    expect(shared).toContain('articleNode({ headline: INVESTOR_FIT_SECTION.title');
+    expect(shared).toContain("breadcrumbNode([{ name: 'Home', path: '/' }, { name: 'For investors', path }])");
+    expect(shared).toContain("PANEL_FAQ[mode === 'startups' ? 's' : 'i']");
   });
 
-  it('/investors keeps its four questions, adds the three, and builds the FAQPage from the whole list', () => {
-    expect(investors.match(/\{ q: '/g) ?? []).toHaveLength(4);
-    expect(INVESTOR_FAQ_EXTRA).toHaveLength(3);
-    expect(investors).toContain('const FAQS = [...EXISTING_FAQS, ...INVESTOR_FAQ_EXTRA];');
-    expect(investors).toContain("faqPageNode(FAQS, '/investors')");
-    expect(investors).toContain('FAQS.map((f) =>');
+  it('the audience switch is a pair of real links between the two landing pages only (Nuno, 31/10/2026), never to the article; the article, About and the FAQ stay reachable from the landing', () => {
+    expect(content).toContain("export const MODE_PATH: Record<LandingMode, string> = { startups: '/', investors: '/investors' };");
+    const panels = read('src/components/landing-fixed/Panels.tsx');
+    for (const href of ['/about', '/faq', '/for-startups']) expect(panels).toContain(`href="${href}"`);
   });
 
-  it('/investors draws the new section from the approved text, between the access splits and the pricing', () => {
-    expect(investors).toContain('INVESTOR_FIT_SECTION.cards.map');
-    const order = ['============ TRUST SPLIT ============', '============ FIRST CONTACT ============', '============ PRICING ============'].map((m) => investors.indexOf(m));
-    expect(order.every((i) => i > 0)).toBe(true);
-    expect([...order].sort((a, b) => a - b)).toEqual(order);
-  });
-
-  it('the landing\'s stylesheet is not part of this change (new pages have their own)', () => {
-    expect(read('src/components/site/site-page.module.css')).toContain('A NEW file: nothing in landing.module.css is changed');
+  it('the visible heading of the home is the approved first line, in the server HTML', () => {
+    expect(content).toContain("['Crack the case on your ', 'fundraise.']");
+    expect(read('src/components/landing-fixed/FixedLanding.tsx')).toContain('<h1 className={fog ? \'fx-fog\' : undefined}><Heading line={lines[line] ?? lines[0]} /></h1>');
   });
 });
 

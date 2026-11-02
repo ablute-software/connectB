@@ -1,0 +1,36 @@
+PASS mode switch changes the address with replaceState :: "http://127.0.0.1:3000/investors"
+PASS mode switch: CTA becomes "Claim your profile" -> /claim
+PASS mode switch: heading is the investors' first line :: "Fewer, better, investment-ready opportunities."
+PASS mode switch: investors Overview panel is the one shown
+PASS switch back restores /
+PASS popup is a modal dialog with a label
+PASS popup opens scrolled to the GDPR chapter
+PASS the whole page behind is inert and the page did not scroll
+PASS focus moved into the dialog :: "A"
+PASS Tab keeps the focus inside the dialog (25 presses)
+PASS Shift+Tab keeps the focus inside the dialog (25 presses)
+PASS "Open full document" goes to the existing page :: "/legal/privacy-notice"
+PASS the wheel does not turn while the dialog is open
+PASS Esc closes the dialog and the page is live again
+PASS focus returns to the link that opened it :: "<a href=\"/legal/privacy-notice\" data-doc=\"gdpr\" class=\"fx-btn fx-btn-ghost fx-bt"
+PASS contact opens inside the card (no navigation)
+PASS Back returns to the panel
+PASS contact form posts to /api/support/submit with the right category and source :: {"name":"Test Person","email":"test@example.com","category":"claim_profile","subject":"Investor access","message":"Hello, a message of enough characters.","source":"landing","website":""}
+PASS contact form shows the sent message
+PASS three wheel events in a burst move ONE place (Find investors) :: "Find investors"
+PASS ArrowLeft steps back :: "Overview"
+PASS no page scroll anywhere
+PASS active name is announced (aria-live)
+PASS headline rotates after ~6 s (normal motion) :: ["Crack the case on your fundraise.","The right investors. Not thousands."]
+PASS reduced motion: the first line only :: ["Crack the case on your fundraise.","Crack the case on your fundraise."]
+PASS phone: the bar is fixed at the bottom, both buttons visible :: {"bar":{"top":787,"bottom":844,"left":0,"right":390,"h":57},"card":{"top":478,"bottom":776,"left":31,"right":359,"h":298},"h1":{"top":216,"bottom":240,"left":25,"right":365,"h":23},"seg":{"top":74,"bottom":115,"left":94,"right":296,"h":41},"navActions":"flex","vh":844,"h1font":"21.6px","overflowX":false}
+PASS phone: the card ends above the bar :: {"bar":{"top":787,"bottom":844,"left":0,"right":390,"h":57},"card":{"top":478,"bottom":776,"left":31,"right":359,"h":298},"h1":{"top":216,"bottom":240,"left":25,"right":365,"h":23},"seg":{"top":74,"bottom":115,"left":94,"right":296,"h":41},"navActions":"flex","vh":844,"h1font":"21.6px","overflowX":false}
+PASS phone: h1 is 1.35rem (21.6px) :: "21.6px"
+PASS phone: no horizontal overflow
+PASS phone: bar has Sign in + Create account :: ["Sign in","Create account"]
+PASS phone: header shows only Create account :: ["Create account"]
+PASS phone: a horizontal swipe moves the wheel one place :: ["Overview","Find investors"]
+PASS phone: Pricing does not fit, so "See all" is offered
+PASS phone: raised card still ends above the bar :: {"cardTop":64,"cardBottom":776,"barTop":787}
+PASS no console errors on the way :: []
+{"total":35,"failed":0}

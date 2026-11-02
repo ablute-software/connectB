@@ -118,13 +118,12 @@ describe('metadata: the large card everywhere, and defaults that say what the ho
 describe('accessibility structure of the landing pages', () => {
   const css = read('src/app/landing.module.css');
 
-  it.each(['src/app/page.tsx', 'src/app/investors/page.tsx'])('%s has exactly one <main> (Lighthouse landmark-one-main), between the nav and the footer', (f) => {
-    const src = read(f);
-    // the JSX tags, each on a line of its own (the comment above the opening one says the word "<main>" too)
-    expect(count(src, /^\s*<main>\s*$/gm)).toBe(1);
+  // Prompt 935: the two landing pages are the fixed landing; its one <main> is in FixedLanding.tsx, after the header's <nav>, holding the heading, the wheel and the card
+  it('the fixed landing has exactly one <main> (Lighthouse landmark-one-main), after the nav', () => {
+    const src = read('src/components/landing-fixed/FixedLanding.tsx');
+    expect(count(src, /^\s*<main[ >]/gm)).toBe(1);
     expect(count(src, /^\s*<\/main>\s*$/gm)).toBe(1);
-    expect(src.search(/^\s*<main>\s*$/m)).toBeGreaterThan(src.indexOf('</nav>'));
-    expect(src.search(/^\s*<\/main>\s*$/m)).toBeLessThan(src.indexOf('<footer'));
+    expect(src.search(/^\s*<main[ >]/m)).toBeGreaterThan(src.indexOf('</nav>'));
   });
 
   it('the new public pages\' layout has its <main> too', () => {
@@ -152,7 +151,6 @@ describe('accessibility structure of the landing pages', () => {
     // …and they are where they are claimed to be
     expect(read('src/components/site/PublicSiteLayout.tsx')).toContain("'--muted': '#596e75'");
     expect(css).toContain('.firstContact .eyebrow { color: #297c8b; }');
-    expect(read('src/app/investors/page.tsx')).toContain('${s.sec} ${s.firstContact}');
   });
 });
 

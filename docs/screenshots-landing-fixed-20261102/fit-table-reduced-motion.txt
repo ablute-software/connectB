@@ -1,0 +1,97 @@
+{"total":96,"failing":0}
+1280x720 | startups  | Documents          | 251/251 | fits |  | card 410-702/720
+1280x720 | startups  | FAQ                | 251/251 | fits |  | card 410-702/720
+1280x720 | startups  | Share securely     | 251/251 | fits |  | card 410-702/720
+1280x720 | startups  | Pricing            | 251/251 | fits |  | card 410-702/720
+1280x720 | startups  | Overview           | 251/251 | fits |  | card 410-702/720
+1280x720 | startups  | Find investors     | 251/251 | fits |  | card 410-702/720
+1280x720 | startups  | Your fundraise     | 251/251 | fits |  | card 410-702/720
+1280x720 | startups  | AI assistant       | 251/251 | fits |  | card 410-702/720
+1280x720 | investors | Documents          | 251/251 | fits |  | card 410-702/720
+1280x720 | investors | FAQ                | 251/251 | fits |  | card 410-702/720
+1280x720 | investors | Your mandate       | 251/251 | fits |  | card 410-702/720
+1280x720 | investors | Access & pricing   | 251/251 | fits |  | card 410-702/720
+1280x720 | investors | Overview           | 251/251 | fits |  | card 410-702/720
+1280x720 | investors | Discover startups  | 251/251 | fits |  | card 410-702/720
+1280x720 | investors | Review & decide    | 251/251 | fits |  | card 410-702/720
+1280x720 | investors | Your pipeline      | 251/251 | fits |  | card 410-702/720
+1366x768 | startups  | Documents          | 272/272 | fits |  | card 436-750/768
+1366x768 | startups  | FAQ                | 272/272 | fits |  | card 436-750/768
+1366x768 | startups  | Share securely     | 272/272 | fits |  | card 436-750/768
+1366x768 | startups  | Pricing            | 272/272 | fits |  | card 436-750/768
+1366x768 | startups  | Overview           | 272/272 | fits |  | card 436-750/768
+1366x768 | startups  | Find investors     | 272/272 | fits |  | card 436-750/768
+1366x768 | startups  | Your fundraise     | 272/272 | fits |  | card 436-750/768
+1366x768 | startups  | AI assistant       | 272/272 | fits |  | card 436-750/768
+1366x768 | investors | Documents          | 272/272 | fits |  | card 436-750/768
+1366x768 | investors | FAQ                | 272/272 | fits |  | card 436-750/768
+1366x768 | investors | Your mandate       | 272/272 | fits |  | card 436-750/768
+1366x768 | investors | Access & pricing   | 272/272 | fits |  | card 436-750/768
+1366x768 | investors | Overview           | 272/272 | fits |  | card 436-750/768
+1366x768 | investors | Discover startups  | 272/272 | fits |  | card 436-750/768
+1366x768 | investors | Review & decide    | 272/272 | fits |  | card 436-750/768
+1366x768 | investors | Your pipeline      | 272/272 | fits |  | card 436-750/768
+1440x790 | startups  | Documents          | 282/282 | fits |  | card 449-772/790
+1440x790 | startups  | FAQ                | 282/282 | fits |  | card 449-772/790
+1440x790 | startups  | Share securely     | 282/282 | fits |  | card 449-772/790
+1440x790 | startups  | Pricing            | 282/282 | fits |  | card 449-772/790
+1440x790 | startups  | Overview           | 282/282 | fits |  | card 449-772/790
+1440x790 | startups  | Find investors     | 282/282 | fits |  | card 449-772/790
+1440x790 | startups  | Your fundraise     | 282/282 | fits |  | card 449-772/790
+1440x790 | startups  | AI assistant       | 282/282 | fits |  | card 449-772/790
+1440x790 | investors | Documents          | 282/282 | fits |  | card 449-772/790
+1440x790 | investors | FAQ                | 282/282 | fits |  | card 449-772/790
+1440x790 | investors | Your mandate       | 282/282 | fits |  | card 449-772/790
+1440x790 | investors | Access & pricing   | 282/282 | fits |  | card 449-772/790
+1440x790 | investors | Overview           | 282/282 | fits |  | card 449-772/790
+1440x790 | investors | Discover startups  | 282/282 | fits |  | card 449-772/790
+1440x790 | investors | Review & decide    | 282/282 | fits |  | card 449-772/790
+1440x790 | investors | Your pipeline      | 282/282 | fits |  | card 449-772/790
+1440x900 | startups  | Documents          | 330/330 | fits |  | card 509-882/900
+1440x900 | startups  | FAQ                | 330/330 | fits |  | card 509-882/900
+1440x900 | startups  | Share securely     | 330/330 | fits |  | card 509-882/900
+1440x900 | startups  | Pricing            | 330/330 | fits |  | card 509-882/900
+1440x900 | startups  | Overview           | 330/330 | fits |  | card 509-882/900
+1440x900 | startups  | Find investors     | 330/330 | fits |  | card 509-882/900
+1440x900 | startups  | Your fundraise     | 330/330 | fits |  | card 509-882/900
+1440x900 | startups  | AI assistant       | 330/330 | fits |  | card 509-882/900
+1440x900 | investors | Documents          | 330/330 | fits |  | card 509-882/900
+1440x900 | investors | FAQ                | 330/330 | fits |  | card 509-882/900
+1440x900 | investors | Your mandate       | 330/330 | fits |  | card 509-882/900
+1440x900 | investors | Access & pricing   | 330/330 | fits |  | card 509-882/900
+1440x900 | investors | Overview           | 330/330 | fits |  | card 509-882/900
+1440x900 | investors | Discover startups  | 330/330 | fits |  | card 509-882/900
+1440x900 | investors | Review & decide    | 330/330 | fits |  | card 509-882/900
+1440x900 | investors | Your pipeline      | 330/330 | fits |  | card 509-882/900
+1536x864 | startups  | Documents          | 316/316 | fits |  | card 489-846/864
+1536x864 | startups  | FAQ                | 316/316 | fits |  | card 489-846/864
+1536x864 | startups  | Share securely     | 316/316 | fits |  | card 489-846/864
+1536x864 | startups  | Pricing            | 316/316 | fits |  | card 489-846/864
+1536x864 | startups  | Overview           | 316/316 | fits |  | card 489-846/864
+1536x864 | startups  | Find investors     | 316/316 | fits |  | card 489-846/864
+1536x864 | startups  | Your fundraise     | 316/316 | fits |  | card 489-846/864
+1536x864 | startups  | AI assistant       | 316/316 | fits |  | card 489-846/864
+1536x864 | investors | Documents          | 316/316 | fits |  | card 489-846/864
+1536x864 | investors | FAQ                | 316/316 | fits |  | card 489-846/864
+1536x864 | investors | Your mandate       | 316/316 | fits |  | card 489-846/864
+1536x864 | investors | Access & pricing   | 316/316 | fits |  | card 489-846/864
+1536x864 | investors | Overview           | 316/316 | fits |  | card 489-846/864
+1536x864 | investors | Discover startups  | 316/316 | fits |  | card 489-846/864
+1536x864 | investors | Review & decide    | 316/316 | fits |  | card 489-846/864
+1536x864 | investors | Your pipeline      | 316/316 | fits |  | card 489-846/864
+1920x1080 | startups  | Documents          | 411/411 | fits |  | card 608-1062/1080
+1920x1080 | startups  | FAQ                | 411/411 | fits |  | card 608-1062/1080
+1920x1080 | startups  | Share securely     | 411/411 | fits |  | card 608-1062/1080
+1920x1080 | startups  | Pricing            | 411/411 | fits |  | card 608-1062/1080
+1920x1080 | startups  | Overview           | 411/411 | fits |  | card 608-1062/1080
+1920x1080 | startups  | Find investors     | 411/411 | fits |  | card 608-1062/1080
+1920x1080 | startups  | Your fundraise     | 411/411 | fits |  | card 608-1062/1080
+1920x1080 | startups  | AI assistant       | 411/411 | fits |  | card 608-1062/1080
+1920x1080 | investors | Documents          | 411/411 | fits |  | card 608-1062/1080
+1920x1080 | investors | FAQ                | 411/411 | fits |  | card 608-1062/1080
+1920x1080 | investors | Your mandate       | 411/411 | fits |  | card 608-1062/1080
+1920x1080 | investors | Access & pricing   | 411/411 | fits |  | card 608-1062/1080
+1920x1080 | investors | Overview           | 411/411 | fits |  | card 608-1062/1080
+1920x1080 | investors | Discover startups  | 411/411 | fits |  | card 608-1062/1080
+1920x1080 | investors | Review & decide    | 411/411 | fits |  | card 608-1062/1080
+1920x1080 | investors | Your pipeline      | 411/411 | fits |  | card 608-1062/1080
