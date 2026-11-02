@@ -110,9 +110,25 @@ describe.skipIf(!CHROME)('the evaluation grid step (real browser)', () => {
   }
   const ready = (page: import('playwright').Page) => page.waitForSelector('[data-testid="eval-grid-step"]');
 
-  async function addCriterion(page: import('playwright').Page, name: string, weight: string, scale?: string) {
+  type Pg = import('playwright').Page;
+  /** The cards are folded: a new one opens by itself and closes the one that was open. These two helpers say what a person does — click the title to open a card, "More options" for the rest. */
+  const cardAt = (page: Pg, i: number) => page.locator('[data-testid="criterion-card"]').nth(i);
+  async function openCard(page: Pg, i: number) {
+    const c = cardAt(page, i);
+    if ((await c.getAttribute('data-open')) !== 'true') await c.locator('[data-testid="criterion-toggle"]').click();
+    return c;
+  }
+  async function moreOptions(card: import('playwright').Locator) {
+    if (!(await card.locator('[data-testid="criterion-more-body"]').count())) await card.locator('[data-testid="criterion-more"]').click();
+    return card;
+  }
+  async function openSettings(page: Pg) {
+    if (!(await page.locator('[data-testid="grid-settings"]').count())) await page.locator('[data-testid="grid-settings-toggle"]').click();
+  }
+
+  async function addCriterion(page: Pg, name: string, weight: string, scale?: string) {
     await page.locator('[data-testid="add-criterion"]').click();
-    const card = page.locator('[data-testid="criterion-card"]').last();
+    const card = page.locator('[data-testid="criterion-card"][data-open="true"]');
     await card.locator('textarea').first().fill(name);
     await card.locator('[data-testid="criterion-weight"]').fill(weight);
     if (scale) await card.locator('[data-testid="criterion-scale"]').selectOption(scale);
@@ -126,16 +142,21 @@ describe.skipIf(!CHROME)('the evaluation grid step (real browser)', () => {
     expect(await page.locator('[data-testid="no-criteria"]').count()).toBe(1);
     expect(await page.locator('[data-testid="grid-privacy"]').innerText()).toBe('Read on our platform only. Evaluation grids are never sent to an AI provider.');
     await addCriterion(page, 'Team', '25');
-    expect(await page.locator('[data-testid="grid-weights"]').innerText()).toContain('⚠ Sum of the weights: 25 % — 75 % missing');
+    expect(await page.locator('[data-testid="grid-weights"]').innerText()).toContain('⚠ Weights: 25 / 100 %');
     const tech = await addCriterion(page, 'Technology', '25', '0-10');
+    await moreOptions(tech);
     expect(await tech.locator('[data-testid="criterion-minscore"] option').count()).toBe(11);          // none + 1..10
     await addCriterion(page, 'Market', '50', '1-5');
-    expect(await page.locator('[data-testid="grid-weights"]').innerText()).toContain('Sum of the weights: 100 % ✓');
+    expect(await page.locator('[data-testid="grid-weights"]').innerText()).toContain('Weights: 100 / 100 % ✓');
+    // only ONE card is open at a time: the last one added; the others show a line each
+    expect(await page.locator('[data-testid="criterion-card"][data-open="true"]').count()).toBe(1);
+    expect(await page.locator('[data-testid="criterion-summary"]').first().innerText()).toBe('25 % · scale 1–5 · no questions linked');
     expect(await page.locator('[data-testid="grid-dirty"]').count()).toBe(1);
     await page.locator('[data-testid="grid-save"]').click();
     await page.waitForFunction(() => document.querySelectorAll('[data-testid="grid-dirty"]').length === 0);
     expect(srv.state.criteria.map((c) => [c.name, c.weight, c.scaleMin, c.scaleMax])).toEqual([['Team', 25, 1, 5], ['Technology', 25, 0, 10], ['Market', 50, 1, 5]]);
     expect(await page.evaluate(() => (window as unknown as { __count: number }).__count)).toBe(3);
+    expect(await page.locator('[data-testid="criterion-card"][data-open="true"]').count()).toBe(0);      // after saving the grid is read again, folded
     await page.screenshot({ path: path.join(SHOTS, 'grid-1280.png'), fullPage: true });
     expect(await overflow()).toBeLessThanOrEqual(0);
     expect(errors).toEqual([]);
@@ -143,26 +164,34 @@ describe.skipIf(!CHROME)('the evaluation grid step (real browser)', () => {
     await page.close();
   }, 120_000);
 
-  it('a custom scale, a description of the levels, the eliminatory minimum, "comment required"; the settings: any number of evaluators, "all", blind, a deadline per phase', async () => {
+  it('a custom scale, a description of the levels, the eliminatory minimum, "comment required" (in More options); the settings, folded at the top with a summary: any number of evaluators, "all", blind, a deadline per phase', async () => {
     const srv = server();
     const { page } = await open(1280, srv);
     await ready(page);
+    expect(await page.locator('[data-testid="grid-settings-summary"]').innerText()).toBe('No criteria yet · 2 evaluators per application · Blind: off · Divergence alert: 40 %');
     const c = await addCriterion(page, 'Impact', '100', 'custom');
     await c.locator('[data-testid="criterion-min"]').fill('0');
     await c.locator('[data-testid="criterion-max"]').fill('20');
-    await c.locator('[data-testid="criterion-levels"] summary').click();
-    await c.locator('[data-testid="criterion-levels"] textarea').fill('20: outstanding\n0–5: weak');
+    await moreOptions(c);
+    await c.locator('textarea[aria-label="Descriptions of the levels"]').fill('20: outstanding\n0–5: weak');
     await c.locator('[data-testid="criterion-minscore"]').selectOption('3');
     await c.locator('[data-testid="criterion-comment-required"]').check();
+    expect(await page.locator('[data-testid="grid-settings"]').count()).toBe(0);                      // folded until opened
+    await openSettings(page);
     await page.locator('[data-testid="set-evaluators"]').fill('25');
     await page.locator('[data-testid="set-blind"]').check();
     await page.locator('input[aria-label="Deadline for Pitch day"]').fill('2026-12-15');
+    await page.locator('[data-testid="grid-settings-toggle"]').click();                                // fold it: the summary follows what was set
+    expect(await page.locator('[data-testid="grid-settings-summary"]').innerText()).toBe('Scale 0–20 · 25 evaluators per application · Blind: on · Divergence alert: 40 %');
     await page.locator('[data-testid="grid-save"]').click();
     await page.waitForFunction(() => document.querySelectorAll('[data-testid="grid-dirty"]').length === 0);
     expect(srv.state.criteria[0]).toMatchObject({ scaleMin: 0, scaleMax: 20, minScore: 3, commentRequired: true, levels: [{ from: 20, to: 20, text: 'outstanding' }, { from: 0, to: 5, text: 'weak' }] });
     expect(srv.state.settings).toMatchObject({ evaluatorsPerApplication: 25, blind: true, deadlines: [{ phaseId: PHASES[1].id, day: '2026-12-15' }] });
+    await openSettings(page);
     await page.locator('[data-testid="set-all"]').check();
     expect(await page.locator('[data-testid="set-evaluators"]').isDisabled()).toBe(true);
+    await page.locator('[data-testid="grid-settings-toggle"]').click();
+    expect(await page.locator('[data-testid="grid-settings-summary"]').innerText()).toContain('every evaluator per application');
     await page.close();
   }, 120_000);
 
@@ -170,11 +199,12 @@ describe.skipIf(!CHROME)('the evaluation grid step (real browser)', () => {
     const srv = server();
     const { page } = await open(1280, srv);
     await ready(page);
-    await addCriterion(page, 'Team', '60');
+    const first = await addCriterion(page, 'Team', '60');
+    await moreOptions(first);
+    await first.locator('textarea[aria-label="Descriptions of the levels"]').fill('5: excellent team');
     const second = await addCriterion(page, 'Market', '40');
+    await moreOptions(second);
     await second.locator('[data-testid="criterion-minscore"]').selectOption('2');
-    await page.locator('[data-testid="criterion-levels"]').first().locator('summary').click();
-    await page.locator('[data-testid="criterion-levels"]').first().locator('textarea').fill('5: excellent team');
     await page.locator('[data-testid="grid-tab-preview"]').click();
     await page.waitForSelector('[data-testid="evaluator-preview"]');
     expect(await page.locator('[data-testid="preview-criterion"]').count()).toBe(2);
@@ -198,11 +228,13 @@ describe.skipIf(!CHROME)('the evaluation grid step (real browser)', () => {
     await page.locator('[data-testid="grid-import-file"]').setInputFiles(xlsxPath);
     await page.waitForSelector('[data-testid="grid-import-review"]');
     expect(await page.locator('[data-testid="criterion-card"]').count()).toBe(3);
-    expect(await page.locator('[data-testid="criterion-source"]').first().innerText()).toMatch(/^Read from line \d+: “/);
-    expect(await page.locator('[data-testid="grid-weights"]').innerText()).toContain('100 % ✓');
+    expect(await page.locator('[data-testid="grid-weights"]').innerText()).toContain('100 / 100 % ✓');
     expect(srv.state.criteria).toHaveLength(0);
-    await page.locator('[data-testid="criterion-card"]').first().locator('[data-testid="criterion-weight"]').fill('45');
-    await page.locator('[data-testid="criterion-card"]').last().locator('[data-testid="criterion-weight"]').fill('20');
+    const first = await openCard(page, 0);
+    expect(await first.locator('[data-testid="criterion-source"]').innerText()).toMatch(/^Read from line \d+: “/);
+    await first.locator('[data-testid="criterion-weight"]').fill('45');
+    const last = await openCard(page, 2);
+    await last.locator('[data-testid="criterion-weight"]').fill('20');
     await page.locator('[data-testid="grid-save"]').click();
     await page.waitForFunction(() => document.querySelectorAll('[data-testid="grid-dirty"]').length === 0);
     expect(srv.state.puts[0]).toMatchObject({ importRunId: 'run-1' });
@@ -230,19 +262,26 @@ describe.skipIf(!CHROME)('the evaluation grid step (real browser)', () => {
     await page.close();
   }, 120_000);
 
-  it('removing a criterion is asked in the page (Keep keeps, Yes removes); reordering moves it', async () => {
+  it('removing a criterion is asked in the page, from the menu of its card (Keep keeps, Yes removes); reordering moves it; Duplicate copies it', async () => {
     const srv = server();
     const { page, dialogs } = await open(1280, srv);
     await ready(page);
     await addCriterion(page, 'First', '50'); await addCriterion(page, 'Second', '50');
-    await page.locator('[data-testid="criterion-card"]').nth(1).getByLabel('Move up').click();
-    expect(await page.locator('[data-testid="criterion-card"]').first().locator('textarea').first().inputValue()).toBe('Second');
-    await page.locator('[data-testid="criterion-card"]').first().locator('[data-testid="criterion-remove"]').click();
+    await cardAt(page, 1).getByLabel('Move up').click();
+    expect(await cardAt(page, 0).locator('[data-testid="criterion-title"]').innerText()).toBe('Second');
+    await cardAt(page, 0).locator('[data-testid="criterion-menu"]').click();
+    await cardAt(page, 0).locator('[data-testid="criterion-remove"]').click();
     await page.locator('[data-testid="criterion-remove-no"]').click();
     expect(await page.locator('[data-testid="criterion-card"]').count()).toBe(2);
-    await page.locator('[data-testid="criterion-card"]').first().locator('[data-testid="criterion-remove"]').click();
+    await cardAt(page, 0).locator('[data-testid="criterion-menu"]').click();
+    await cardAt(page, 0).locator('[data-testid="criterion-duplicate"]').click();
+    expect(await page.locator('[data-testid="criterion-card"]').count()).toBe(3);
+    expect(await cardAt(page, 1).locator('[data-testid="criterion-title"]').innerText()).toBe('Second (copy)');
+    expect(await cardAt(page, 1).getAttribute('data-open')).toBe('true');                              // a copy opens, the rest fold
+    await cardAt(page, 0).locator('[data-testid="criterion-menu"]').click();
+    await cardAt(page, 0).locator('[data-testid="criterion-remove"]').click();
     await page.locator('[data-testid="criterion-remove-yes"]').click();
-    expect(await page.locator('[data-testid="criterion-card"]').count()).toBe(1);
+    expect(await page.locator('[data-testid="criterion-card"]').count()).toBe(2);
     expect(dialogs).toEqual([]);
     await page.close();
   }, 120_000);
@@ -253,8 +292,10 @@ describe.skipIf(!CHROME)('the evaluation grid step (real browser)', () => {
     const { page, dialogs } = await open(1280, srv);
     await ready(page);
     expect(await page.locator('[data-testid="grid-frozen"]').innerText()).toContain('3 evaluations already submitted');
+    await openSettings(page);
     expect(await page.locator('[data-testid="set-blind"]').isDisabled()).toBe(true);
-    await page.locator('[data-testid="criterion-weight"]').fill('90');
+    const c = await openCard(page, 0);
+    await c.locator('[data-testid="criterion-weight"]').fill('90');
     await page.locator('[data-testid="grid-save"]').click();
     expect(await page.locator('[data-testid="grid-confirm"]').innerText()).toContain('This change makes version 2');
     expect(srv.state.rev).toBe(0);
@@ -285,9 +326,10 @@ describe.skipIf(!CHROME)('the evaluation grid step (real browser)', () => {
       const { page, overflow } = await open(width, srv);
       await ready(page);
       const c = await addCriterion(page, 'A very long criterion name with a_very_long_unbroken_word_that_cannot_wrap_anywhere_by_itself_1234567890 and then more words after it', '60', 'custom');
-      await c.locator('[data-testid="criterion-levels"] summary').click();
-      await c.locator('[data-testid="criterion-levels"] textarea').fill('5: an_extremely_long_unbroken_description_of_the_best_level_that_goes_on_and_on_and_on_1234567890');
+      await moreOptions(c);
+      await c.locator('textarea[aria-label="Descriptions of the levels"]').fill('5: an_extremely_long_unbroken_description_of_the_best_level_that_goes_on_and_on_and_on_1234567890');
       await addCriterion(page, 'Short', '40', '0-10');
+      await openSettings(page);
       expect(await overflow(), `${width}px, build`).toBeLessThanOrEqual(0);
       const bad = await page.evaluate(() => {
         const root = document.querySelector('[data-testid="eval-grid-step"]') as HTMLElement; const r = root.getBoundingClientRect(); const out: string[] = [];

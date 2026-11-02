@@ -4,6 +4,7 @@
 // the same pieces).
 import { useMemo, useState } from 'react';
 import { exampleGrades, formulaText, gradeText, levelDescription, scaleLabel, scaleLevels, weightedGrade, belowMinimum, type Criterion } from '@/lib/calls/eval-grid';
+import { fieldTitle, type LinkableField } from '@/lib/calls/eval-links';
 
 export function GradeRing({ percent, label }: { percent: number | null; label: string }) {
   const r = 34; const c = 2 * Math.PI * r;
@@ -20,7 +21,8 @@ export function GradeRing({ percent, label }: { percent: number | null; label: s
   );
 }
 
-export function EvaluatorPreview({ criteria }: { criteria: Criterion[] }) {
+/** `fields` (Adenda 2): the questions of the form, so that a linked criterion shows WHAT it is about, with a stand-in where the applicant's answer will appear. */
+export function EvaluatorPreview({ criteria, fields = [] }: { criteria: Criterion[]; fields?: LinkableField[] }) {
   const [scores, setScores] = useState<Record<string, number>>({});
   const [hover, setHover] = useState<{ id: string; level: number } | null>(null);
   const [comments, setComments] = useState<Set<string>>(new Set());
@@ -48,7 +50,18 @@ export function EvaluatorPreview({ criteria }: { criteria: Criterion[] }) {
                 <span className="shrink-0 text-xs text-gray-500">weight {c.weight} % · scale {scaleLabel(c)}</span>
               </div>
               {c.section && <p className="text-[11px] uppercase tracking-wide text-gray-400">{c.section}</p>}
-              {c.guidance && <p className="mt-1 text-xs text-gray-600 [overflow-wrap:anywhere]">{c.guidance}</p>}
+              {c.guidance && <p className="mt-1 text-xs text-gray-600 [overflow-wrap:anywhere]" data-testid="preview-guidance">{c.guidance}</p>}
+              {(c.linkedFields ?? []).length > 0 && (
+                <div className="mt-2 min-w-0 space-y-1.5 rounded bg-gray-50 p-2" data-testid="preview-linked">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Based on these answers</p>
+                  {(c.linkedFields ?? []).map((id) => { const f = fields.find((x) => x.id === id); return (
+                    <div key={id} className="min-w-0 rounded bg-white p-2" data-testid="preview-linked-question">
+                      <p className="text-xs font-semibold text-gray-700 [overflow-wrap:anywhere]">{f ? fieldTitle(f) : 'A question that was removed from the form'}{f?.kind === 'file' ? ' (document)' : ''}</p>
+                      <p className="mt-0.5 text-xs italic text-gray-400">The applicant’s answer appears here</p>
+                    </div>
+                  ); })}
+                </div>
+              )}
               <div className="mt-2 flex flex-wrap gap-1.5" role="radiogroup" aria-label={`Score for ${c.name}`}>
                 {scaleLevels(c).map((l) => (
                   <button key={l} type="button" role="radio" aria-checked={scores[c.id] === l} data-testid="preview-level" onMouseEnter={() => setHover({ id: c.id, level: l })} onMouseLeave={() => setHover(null)} onFocus={() => setHover({ id: c.id, level: l })} onBlur={() => setHover(null)}
