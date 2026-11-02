@@ -115,8 +115,8 @@ describe('the phone / tablet header: the Menu button replaces the row of links, 
     expect(open.right).toBe('0');
     expect(open['overflow-y']).toBe('auto');
     expect(open['max-height']).toBe('calc(100svh - 72px)');
-    expect(open.background).toBe('rgba(12, 39, 46, .98)');
-    expect(decl(".nav[data-scrolled='true'] .menuPanel[data-open='true']", PHONE).background).toBe('rgba(255, 255, 255, .98)');
+    expect(open.background).toBe('var(--ink)'); // solid: at 98% the hero's headline showed through it as a ghost
+    expect(decl(".nav[data-scrolled='true'] .menuPanel[data-open='true']", PHONE).background).toBe('#fff');
     expect(open.position).not.toBe('fixed'); // the project's createPortal rule is about full-window fixed overlays
     expect(rules.some((r) => /inset:\s*0/.test(r.body) && /menu/i.test(r.selector))).toBe(false);
   });
@@ -141,13 +141,13 @@ describe('the bar fixed to the bottom (§A)', () => {
     expect(rules.filter((r) => r.selector.includes('mobileBar') && r.media === null && /display:\s*flex/.test(r.body))).toEqual([]);
   });
 
-  it('it is fixed to the bottom, the whole width, above the header\'s z-index, the hero\'s blue at 92% with an 8 px blur and a thin line on top, at least 56 px tall plus the safe area', () => {
+  it('it is fixed to the bottom, the whole width, under the header\'s z-index, the hero\'s blue at 92% with an 8 px blur and a thin line on top, at least 56 px tall plus the safe area', () => {
     const p = phone();
     expect(p.position).toBe('fixed');
     expect(p.left).toBe('0');
     expect(p.right).toBe('0');
     expect(p.bottom).toBe('0');
-    expect(Number(p['z-index'])).toBeGreaterThan(Number(decl('.nav')['z-index']));
+    expect(Number(p['z-index'])).toBeLessThan(Number(decl('.nav')['z-index'])); // under the header: an open Menu panel is never half covered by the bar
     expect(p.background).toBe('rgba(12, 39, 46, .92)');
     expect(read('src/app/landing.module.css')).toMatch(/--ink:\s*#0c272e/i); // 12, 39, 46 is the ink of the hero
     expect(p['backdrop-filter']).toBe('blur(8px)');
