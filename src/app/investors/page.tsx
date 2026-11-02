@@ -154,7 +154,7 @@ export default async function InvestorLandingPage() {
           <a className={s.logo} href="#top">
             <LogoLockup size={32} accentClassName={s.deal} />
           </a>
-          <div className={s.navLinks}>
+          <div className={`${s.navLinks} ${s.navHasMenu}`}>
             <a className={s.link} href="#how">How it works</a>
             <a className={s.link} href="#features">Features</a>
             <a className={s.link} href="#pricing">Pricing</a>

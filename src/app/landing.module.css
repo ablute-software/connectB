@@ -332,8 +332,11 @@
   .split { grid-template-columns: 1fr; gap: 32px; }
   .dealHead, .dealRow { grid-template-columns: 1.2fr .6fr 1fr; }
   .dealWhy { display: none; }
-  /* the whole row of links, selector and buttons leaves the header up to 900 px: it did not fit at 390 px and was cut off (Prompt 934); the Menu button and its panel (further down) hold it instead */
-  .navLinks { display: none; }
+  .navLinks a.link { display: none; }
+  /* On the two LANDING pages (the ones whose header carries the Menu button: .navHasMenu) the whole row of links, selector and buttons leaves the header up to 900 px — it did not fit at 390 px and was cut off
+     (Prompt 934) — and the Menu button and its panel (further down) hold it instead. The public pages (/about, /faq, /for-startups ...) share .navLinks through PublicSiteLayout but have no Menu button: their
+     row keeps its selector and its two buttons (site-page.module.css wraps them from 640 px down), so the rule is NOT on the bare class. */
+  .navLinks.navHasMenu { display: none; }
   .c2 { left: -6px; }
 }
 

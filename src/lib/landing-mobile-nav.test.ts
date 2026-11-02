@@ -91,7 +91,11 @@ describe('the header\'s "Sign in" and the Startups/Investors selector are readab
 
 describe('the phone / tablet header: the Menu button replaces the row of links, selector and buttons (§B)', () => {
   it('up to 900 px the whole row leaves the header; the Menu button is not drawn above that', () => {
-    expect(decl('.navLinks', PHONE)).toEqual({ display: 'none' });
+    // ONLY on the landing pages' own row (.navHasMenu): the public pages (/about, /faq, /for-startups ...) share .navLinks through PublicSiteLayout, have no Menu button and keep their selector and buttons
+    expect(decl('.navLinks.navHasMenu', PHONE)).toEqual({ display: 'none' });
+    expect(decl('.navLinks a.link', PHONE)).toEqual({ display: 'none' }); // what the 900 px block always hid, for every page
+    expect(find('.navLinks', PHONE)).toEqual([]); // never on the bare class
+    expect(decl('.navLinks')).toBeDefined();
     expect(decl('.nav .menuBtn').display).toBe('none');
     expect(decl('.nav .menuBtn', PHONE)).toEqual({ display: 'inline-flex' });
     expect(decl('.nav .menuPanel').display).toBe('none');
@@ -210,6 +214,14 @@ describe('the pages\' wiring', () => {
       const hero = src.slice(src.indexOf('id="top">'), src.indexOf('</header>'));
       expect(hero, name).toContain('<div className={s.heroCtas} data-hero-ctas>');
     }
+  });
+
+  it('the modifier that hides the header row is on the header row of the two landing pages and NOT on the one of the public pages (PublicSiteLayout shares .navLinks but has no Menu button: it must keep its selector and its two buttons)', () => {
+    expect(startups).toContain('<div className={`${s.navLinks} ${s.navHasMenu}`}>');
+    expect(investors).toContain('<div className={`${s.navLinks} ${s.navHasMenu}`}>');
+    const publicHeader = read('src/components/site/PublicSiteLayout.tsx');
+    expect(publicHeader).toContain('s.navLinks');
+    expect(publicHeader).not.toMatch(/navHasMenu|LandingMenu|LandingMobileBar/);
   });
 
   it('startups: Menu with Features / How it works / Pricing, the selector and the page\'s own buttons; the bar with /login and /signup', () => {
