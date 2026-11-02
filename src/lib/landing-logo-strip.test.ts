@@ -205,7 +205,8 @@ describe('the hero keeps the compact spacing it had on the live site (31/10/2026
     expect(px(decl('.hero.heroCompact > .wrap', phone)['row-gap'])).toBe(28);
     expect(decl('.hero.heroCompact .heroCtas', phone)).toEqual({ 'row-gap': '10px' }); // only the row gap: two buttons side by side keep their 14 px
     // nothing here fixes a height or scales the hero: the phone's rules have no min-height at all (the laptop's minimum is in its own block, above 900 px)
-    for (const r of css.filter((x) => x.media === phone)) expect(r.body, r.selector).not.toMatch(/min-height|(?<![\w-])height\s*:|transform:\s*scale|zoom\s*:/);
+    // (the hero's and the picture's rules: the Menu button, its panel and the bottom bar of Prompt 934 live in the same 900 px block and have 44 px targets of their own)
+    for (const r of css.filter((x) => x.media === phone && /\.hero|\.mock/.test(x.selector))) expect(r.body, r.selector).not.toMatch(/min-height|(?<![\w-])height\s*:|transform:\s*scale|zoom\s*:/);
   });
 
   it('the base rules are untouched (170 px under the nav, 110 px under the content, the same margins and sizes), so the other public pages that share the stylesheet keep their hero', () => {

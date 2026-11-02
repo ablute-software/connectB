@@ -17,6 +17,8 @@ import { resolveAreaDestination } from '@/lib/areas-server';
 import { BRAND_NAME, APP_URL } from '@/lib/brand';
 import { LogoLockup } from '@/components/Logo';
 import { LandingEffects } from '@/components/landing/LandingEffects';
+import { LandingMenu } from '@/components/landing/LandingMenu';
+import { LandingMobileBar } from '@/components/landing/LandingMobileBar';
 import { AudienceToggle } from '@/components/landing/AudienceToggle';
 import { InvestorPricingSection } from '@/components/landing/InvestorPricingSection';
 import { HowItWorksVideo } from '@/components/landing/HowItWorksVideo';
@@ -123,10 +125,13 @@ const EXISTING_FAQS = [
 const FAQS = [...EXISTING_FAQS, ...INVESTOR_FAQ_EXTRA];
 
 export default async function InvestorLandingPage() {
+  // Prompt 934 — whether the visitor is signed in, for the phone's bottom bar (see the startups page): the answer of the same getUser() that decides the redirect below.
+  let signedIn = false;
   if (authEnabled) {
     const sb = await serverClient();
     const { data: { user } } = await sb.auth.getUser();
     if (user) {
+      signedIn = true;
       // Prompt 923 (A) — one rule for where a signed-in visitor goes (src/lib/areas.ts): the area they chose, the one they used last, or the first they have. An account with no area still gets what it always got
       // (a pending claim, a pending ecosystem invitation, or this public page: path null).
       const { path: dest } = await resolveAreaDestination(user, sb, { intent: 'investor', last: parseArea(cookies().get(LAST_AREA_COOKIE)?.value) });
@@ -157,6 +162,11 @@ export default async function InvestorLandingPage() {
             <Link className={`${s.btn} ${s.btnGhost} ${s.btnSm}`} href="/login?as=investor">Sign in</Link>
             <Link className={`${s.btn} ${s.btnPrimary} ${s.btnSm}`} href={CLAIM_HREF}>Claim your profile</Link>
           </div>
+          {/* Prompt 934 §B — up to 900 px the row above leaves the header (it did not fit) and this button and its panel take its place; from 901 px up they are not drawn.
+              "Create account" goes where the header's primary button goes (the claim flow), as the brief says. */}
+          <LandingMenu links={[{ label: 'How it works', href: '#how' }, { label: 'Features', href: '#features' }, { label: 'Pricing', href: '#pricing' }]} signInHref="/login?as=investor" createHref={CLAIM_HREF}>
+            <AudienceToggle active="investor" />
+          </LandingMenu>
         </div>
       </nav>
 
@@ -175,7 +185,7 @@ export default async function InvestorLandingPage() {
               only the opportunities that deserve your team&apos;s attention — qualified, explained, and
               ready for a decision.
             </p>
-            <div className={s.heroCtas}>
+            <div className={s.heroCtas} data-hero-ctas>
               <Link className={`${s.btn} ${s.btnPrimary}`} href={CLAIM_HREF}>Claim your investor profile <Arrow /></Link>
               <SeeHowButton className={`${s.btn} ${s.btnGhost}`} />
             </div>
@@ -426,6 +436,9 @@ export default async function InvestorLandingPage() {
           <p className={s.cp}>© {new Date().getFullYear()} {BRAND_NAME} · Investor relations, investigated.</p>
         </div>
       </footer>
+
+      {/* Prompt 934 §A — the bar fixed to the bottom of a phone's or a tablet's screen (up to 900 px), once the hero's buttons are out of view; "Sign in" as the header's, "Create account" where the header's primary button goes. */}
+      <LandingMobileBar signedIn={signedIn} signInHref="/login?as=investor" createHref={CLAIM_HREF} />
 
       {/* Prompt 920 §B.2 — Article + FAQPage (all seven questions), invisible. */}
       <JsonLd

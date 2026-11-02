@@ -61,6 +61,9 @@
 .btnPrimary { background: var(--amber); color: var(--ink); }
 .btnPrimary:hover { box-shadow: 0 10px 24px rgba(217, 164, 65, .35); }
 .btnGhost { border: 1.5px solid rgba(255, 255, 255, .35); color: #fff; }
+/* Qualified with .nav for the same reason as .navLinks a.link above: ".landing a { color: inherit }" (class + element) outranks the bare
+   .btnGhost class, so the nav's "Sign in" inherited the ink colour and sat dark-on-dark on the landing (audit of 02/11/2026; Prompt 934 §C, patch fix_landing_nav_signin_branco). */
+.nav .btnGhost { color: #fff; }
 .nav[data-scrolled='true'] .btnGhost { border-color: var(--line); color: var(--ink); }
 .btnTeal { background: var(--teal); color: #fff; }
 .btnTeal:hover { box-shadow: 0 10px 24px rgba(42, 127, 142, .35); }
@@ -70,10 +73,14 @@
 .audience { display: flex; align-items: center; background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .22); border-radius: 999px; padding: 3px; gap: 2px; }
 .nav[data-scrolled='true'] .audience { background: var(--teal-soft); border-color: var(--line); }
 .audienceOpt { padding: 7px 16px; border-radius: 999px; font-size: .85rem; font-weight: 600; color: rgba(255, 255, 255, .8); transition: background .2s, color .2s; }
+/* The same specificity trap (Prompt 934 §C): the bare .audienceOpt colour above lost to ".landing a { color: inherit }", so the option that is NOT selected was dark on the dark header. Qualified with .nav it wins;
+   the selected option (.audienceOptOn, further down) gets its ink colour the same way, otherwise it would turn light on its amber. The data-scrolled variants stay more specific and still win. */
+.nav .audienceOpt { color: rgba(255, 255, 255, .8); }
 .nav[data-scrolled='true'] .audienceOpt { color: var(--muted); }
 .audienceOpt:hover { color: #fff; }
 .nav[data-scrolled='true'] .audienceOpt:hover { color: var(--ink); }
 .audienceOptOn { background: var(--amber); color: var(--ink); }
+.nav .audienceOptOn { color: var(--ink); }
 .nav[data-scrolled='true'] .audienceOptOn { background: var(--teal); color: #fff; }
 .audienceOptOn:hover { color: var(--ink); }
 .nav[data-scrolled='true'] .audienceOptOn:hover { color: #fff; }
@@ -325,7 +332,8 @@
   .split { grid-template-columns: 1fr; gap: 32px; }
   .dealHead, .dealRow { grid-template-columns: 1.2fr .6fr 1fr; }
   .dealWhy { display: none; }
-  .navLinks a.link { display: none; }
+  /* the whole row of links, selector and buttons leaves the header up to 900 px: it did not fit at 390 px and was cut off (Prompt 934); the Menu button and its panel (further down) hold it instead */
+  .navLinks { display: none; }
   .c2 { left: -6px; }
 }
 
@@ -433,4 +441,49 @@
   .logoStrip .logoTrack { animation: none; width: auto; will-change: auto; }
   .logoStrip .logoList { flex: 1 1 100%; flex-wrap: wrap; justify-content: center; row-gap: 200px; height: var(--maxh); overflow: hidden; padding-right: 0; }
   .logoStrip .logoList[aria-hidden='true'] { display: none; }
+}
+
+/* ---------- phone / tablet header and the fixed bottom bar (Prompt 934, 02/11/2026; Nuno on a phone: "Sign in" and "Create account" were out of the screen) ----------
+   Up to 900 px (the line where the hero becomes one column) the header cannot hold the links, the Startups/Investors selector and the two buttons: at 390 px they overflowed and were cut off by the page's
+   overflow-x: hidden. So the whole row leaves the header (".navLinks { display: none }" in the 900 px block above) and the header keeps the logo and a "Menu" button (44 px target) whose panel holds all of it.
+   A bar fixed to the bottom of the screen carries "Sign in" and "Create account" once the hero's own buttons are out of view (LandingMobileBar.tsx watches them), and the end of the page leaves room for it.
+   Nothing here is drawn from 901 px up, and nothing else on the landing changes: no colour, type, text or section. Every rule says .nav or .landing in front: ".landing *" resets margin and padding and
+   ".landing a { color: inherit }" beats a bare class, which is what made the header's "Sign in" dark on dark in the first place. */
+.nav .menuBtn { display: none; align-items: center; gap: 8px; min-height: 44px; min-width: 44px; padding: 0 16px; border: 1.5px solid rgba(255, 255, 255, .35); border-radius: 999px; background: transparent; color: #fff; font: inherit; font-size: .92rem; font-weight: 600; cursor: pointer; transition: color .3s, border-color .3s; }
+.nav[data-scrolled='true'] .menuBtn { border-color: var(--line); color: var(--ink); }
+.nav .menuPanel { display: none; }
+.landing .mobileBar { display: none; }
+
+@media (max-width: 900px) {
+  .nav .menuBtn { display: inline-flex; }
+
+  /* the panel hangs from the header (which is the fixed one): dark under the transparent header at the top of the page, light under the white one once the page has scrolled; it scrolls on its own
+     when the window is too short for it. Not a full-window overlay: no portal needed. */
+  .nav .menuPanel[data-open='true'] { display: block; position: absolute; top: 100%; left: 0; right: 0; max-height: calc(100vh - 72px); max-height: calc(100svh - 72px); overflow-y: auto; padding: 4px 24px 20px; background: rgba(12, 39, 46, .98); border-bottom: 1px solid rgba(255, 255, 255, .12); box-shadow: 0 24px 40px rgba(12, 39, 46, .35); }
+  .nav[data-scrolled='true'] .menuPanel[data-open='true'] { background: rgba(255, 255, 255, .98); border-bottom-color: var(--line); box-shadow: 0 24px 40px rgba(12, 39, 46, .12); }
+  .nav .menuList { list-style: none; }
+  .nav .menuLink { display: flex; align-items: center; min-height: 48px; font-size: 1rem; font-weight: 600; color: rgba(255, 255, 255, .92); border-bottom: 1px solid rgba(255, 255, 255, .1); }
+  .nav[data-scrolled='true'] .menuLink { color: var(--ink); border-bottom-color: var(--line); }
+  /* the selector, in one line: the two options share the width of the panel and never wrap */
+  .nav .menuAudience { padding: 16px 0 4px; }
+  .nav .menuAudience .audience { width: 100%; }
+  .nav .menuAudience .audienceOpt { flex: 1 1 0; text-align: center; white-space: nowrap; padding: 10px 12px; }
+  .nav .menuActions { display: flex; gap: 12px; padding-top: 16px; }
+  .nav .menuActions .btn { flex: 1 1 0; min-height: 44px; }
+
+  /* the bar: the whole width, the hero's blue at 92% with a blur behind it and a thin line on top, at least 56 px tall plus the phone's safe area under it; two buttons side by side (the ghost one white,
+     the gold one as on the page). It starts out of sight (down, transparent, not focusable) and moves in for 200 ms; transform and opacity only, so it never pushes the page: CLS 0. */
+  .landing { --bar-h: calc(56px + env(safe-area-inset-bottom, 0px)); }
+  .landing .mobileBar { display: flex; gap: 12px; position: fixed; left: 0; right: 0; bottom: 0; z-index: 55; box-sizing: border-box; min-height: var(--bar-h); padding: 6px 16px calc(6px + env(safe-area-inset-bottom, 0px)); background: rgba(12, 39, 46, .92); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); border-top: 1px solid rgba(255, 255, 255, .14); transform: translateY(100%); opacity: 0; visibility: hidden; transition: transform .2s ease, opacity .2s ease, visibility 0s linear .2s; }
+  .landing .mobileBar[data-visible='true'] { transform: none; opacity: 1; visibility: visible; transition-delay: 0s; }
+  .landing .mobileBar .btn { flex: 1 1 0; min-height: 44px; }
+  .landing .mobileBar .btnGhost { color: #fff; }
+  .landing .mobileBar .btnPrimary { color: var(--ink); }
+  /* while the page carries the bar the footer — the last thing on the page — leaves room for it (LandingMobileBar sets data-landing-bar on <html> as soon as it is mounted, not only while it is in sight: a jump straight to the end
+     of the page must not arrive 56 px short), so neither the footer's last links nor the page's end are covered. The room is at the very end of the document: it moves nothing on screen. */
+  :global(html[data-landing-bar='on']) .footerEl { padding-bottom: calc(40px + var(--bar-h)); }
+}
+/* "reduce motion": it appears and disappears at once */
+@media (prefers-reduced-motion: reduce) {
+  .landing .mobileBar { transition: none; }
 }

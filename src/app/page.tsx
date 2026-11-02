@@ -18,6 +18,8 @@ import { resolveAreaDestination } from '@/lib/areas-server';
 import { BRAND_NAME, APP_URL } from '@/lib/brand';
 import { LogoLockup } from '@/components/Logo';
 import { LandingEffects } from '@/components/landing/LandingEffects';
+import { LandingMenu } from '@/components/landing/LandingMenu';
+import { LandingMobileBar } from '@/components/landing/LandingMobileBar';
 import { PricingSection } from '@/components/landing/PricingSection';
 import { AudienceToggle } from '@/components/landing/AudienceToggle';
 import { JsonLd } from '@/components/seo/JsonLd';
@@ -166,11 +168,15 @@ const STEPS = [
 ];
 
 export default async function LandingPage() {
+  // Prompt 934 — whether the visitor is signed in, for the phone's bottom bar ("Sign in" / "Create account", which a signed-in visitor has no use for). It is the answer of the same getUser() that decides the
+  // redirect below, so it needs no cookie read and no request of its own; a signed-in visitor with a place in the product never gets here at all.
+  let signedIn = false;
   // Logged-in visitors go straight to the app — the landing is for the public.
   if (authEnabled) {
     const sb = await serverClient();
     const { data: { user } } = await sb.auth.getUser();
     if (user) {
+      signedIn = true;
       // Prompt 923 (A) — one rule for where a signed-in visitor goes (src/lib/areas.ts): the area they chose, the one they used last, or the first they have. An account with no area still gets what it always got
       // (a pending claim, a pending ecosystem invitation, or this public page: path null).
       const { path: dest } = await resolveAreaDestination(user, sb, { intent: null, last: parseArea(cookies().get(LAST_AREA_COOKIE)?.value) });
@@ -201,6 +207,10 @@ export default async function LandingPage() {
             <Link className={`${s.btn} ${s.btnGhost} ${s.btnSm}`} href="/login">Sign in</Link>
             <Link className={`${s.btn} ${s.btnPrimary} ${s.btnSm}`} href="/signup">Create account</Link>
           </div>
+          {/* Prompt 934 §B — up to 900 px the row above leaves the header (it did not fit) and this button and its panel take its place; from 901 px up they are not drawn. */}
+          <LandingMenu links={[{ label: 'Features', href: '#features' }, { label: 'How it works', href: '#how' }, { label: 'Pricing', href: '#pricing' }]} signInHref="/login" createHref="/signup">
+            <AudienceToggle active="startup" />
+          </LandingMenu>
         </div>
       </nav>
 
@@ -224,7 +234,7 @@ export default async function LandingPage() {
               Every investor, every conversation, every confirmed fact — in one case file. {BRAND_NAME} keeps
               your raise organised, consistent and moving, so no warm lead ever goes cold.
             </p>
-            <div className={s.heroCtas}>
+            <div className={s.heroCtas} data-hero-ctas>
               <Link className={`${s.btn} ${s.btnPrimary}`} href="/signup">Start free <Arrow /></Link>
               <Link className={`${s.btn} ${s.btnGhost}`} href="/login">Sign in</Link>
             </div>
@@ -429,6 +439,9 @@ export default async function LandingPage() {
           <p className={s.cp}>© {new Date().getFullYear()} {BRAND_NAME} · Investor relations, investigated.</p>
         </div>
       </footer>
+
+      {/* Prompt 934 §A — the bar fixed to the bottom of a phone's or a tablet's screen (up to 900 px), once the hero's buttons are out of view. After the footer, so a keyboard reaches it last. */}
+      <LandingMobileBar signedIn={signedIn} signInHref="/login" createHref="/signup" />
 
       {/* Prompt 920 §A.3 — Organization, WebSite and SoftwareApplication (the three priced plans, read from plans.ts). Invisible. */}
       <JsonLd data={homeGraph()} />
