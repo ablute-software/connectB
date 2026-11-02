@@ -13,6 +13,8 @@ export function linkableFields(fields: Pick<FormField, 'id' | 'page' | 'position
 }
 
 export const fieldTitle = (f: Pick<LinkableField, 'number' | 'label'>): string => `${f.number}. ${f.label}`;
+/** The start of a question, for a chip: "2. Em que setor se insere…". */
+export const chipText = (f: Pick<LinkableField, 'number' | 'label'>, max = 38): string => { const l = f.label.replace(/\s+/g, ' ').trim(); return `${f.number}. ${l.length > max ? `${l.slice(0, max).trimEnd()}…` : l}`; };
 
 /** The pages of the form with their questions, for the picker and the side panel. */
 export function byPage(fields: LinkableField[]): { page: number; fields: LinkableField[] }[] {

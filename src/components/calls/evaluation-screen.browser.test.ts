@@ -380,4 +380,29 @@ describe.skipIf(!CHROME)('the evaluator screens (real browser)', () => {
     expect(errors).toEqual([]);
     await page.close();
   }, 120_000);
+
+  it('what the evaluator sees on a criterion, in this order: name, weight and scale; the guidance; the linked questions (number and whole text) with the applicant\'s answer, folded when long; the scale buttons and the description of the level chosen; "Add comment"', async () => {
+    const long = 'We build robots for health care. '.repeat(30);
+    const criteria = [crit('k1', 'Team', 100, 1, 5, { guidance: 'Look at how complete the team is.', linkedFields: ['f2', 'f1'], levels: [{ from: 5, to: 5, text: 'an excellent team' }] })];
+    const p = payload({ grid: { version: 1, criteria, commentRequiredForAll: false }, answers: { f1: 'Acme Robotics', f2: long, f3: [] } as never });
+    const { page, errors, overflow } = await open(1280, server(p));
+    const card = page.locator('[data-testid="eval-criterion"]').first();
+    const top = (sel: string) => card.locator(sel).first().evaluate((e) => e.getBoundingClientRect().top);
+    const order = [await top('p.font-semibold'), await top('p.text-gray-600'), await top('[data-testid="eval-linked"]'), await top('[role="radiogroup"]'), await top('[data-testid="eval-add-comment"]')];
+    expect(order).toEqual([...order].sort((a, b) => a - b));                                              // name → guidance → linked → buttons → comment
+    expect(await card.locator('p.text-gray-600').first().innerText()).toBe('Look at how complete the team is.');
+    expect(await card.locator('[data-testid="eval-linked-answer"]').first().innerText()).toContain('2. Pitch');            // number and the whole question
+    expect(await card.locator('[data-testid="eval-linked-value"]').first().getAttribute('data-folded')).toBe('true');       // long: folded
+    expect(await card.locator('[data-testid="eval-linked-more"]').count()).toBe(1);                                          // only the long one has "Show more"
+    await card.locator('[data-testid="eval-linked-more"]').click();
+    expect(await card.locator('[data-testid="eval-linked-value"]').first().getAttribute('data-folded')).toBe('false');
+    expect(await card.locator('[data-testid="eval-linked-more"]').innerText()).toBe('Show less');
+    expect(await card.locator('[data-testid="eval-linked-answer"]').nth(1).innerText()).toContain('Acme Robotics');         // a short one whole
+    await level(page, 0, 5).click();
+    expect(await card.locator('[data-testid="eval-level-text"]').innerText()).toBe('an excellent team');
+    expect(await overflow()).toBeLessThanOrEqual(0);
+    expect(errors).toEqual([]);
+    await page.screenshot({ path: path.join(SHOTS, 'criterion-what-the-evaluator-sees-1280.png'), fullPage: true });
+    await page.close();
+  }, 120_000);
 });

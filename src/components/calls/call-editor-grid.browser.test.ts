@@ -96,9 +96,15 @@ describe.skipIf(!CHROME)('adding criteria in the real call editor', () => {
   }
   const add = async (page: import('playwright').Page, name: string, weight: string) => {
     await page.locator('[data-testid="add-criterion"]').click();
-    const card = page.locator('[data-testid="criterion-card"]').last();
+    const card = page.locator('[data-testid="criterion-card"][data-open="true"]');           // a new criterion opens by itself (and the others fold)
     await card.locator('textarea').first().fill(name);
     await card.locator('[data-testid="criterion-weight"]').fill(weight);
+  };
+  /** The cards are folded: a person clicks the title of the one to edit. */
+  const openCard = async (page: import('playwright').Page, i: number) => {
+    const c = page.locator('[data-testid="criterion-card"]').nth(i);
+    if ((await c.getAttribute('data-open')) !== 'true') await c.locator('[data-testid="criterion-toggle"]').click();
+    return c;
   };
   const saved = (page: import('playwright').Page) => page.waitForFunction(() => document.querySelectorAll('[data-testid="grid-dirty"]').length === 0 && !(document.querySelector('[data-testid="grid-save"]') as HTMLButtonElement | null)?.textContent?.includes('Saving'));
 
@@ -120,16 +126,18 @@ describe.skipIf(!CHROME)('adding criteria in the real call editor', () => {
     expect(await page.locator('[data-testid="no-criteria"]').count()).toBe(1);
     await add(page, 'Team', '40'); await add(page, 'Market', '30'); await add(page, 'Traction', '30');
     expect(await page.locator('[data-testid="criterion-card"]').count()).toBe(3);
-    expect(await page.locator('[data-testid="grid-weights"]').innerText()).toContain('Sum of the weights: 100 % ✓');
+    expect(await page.locator('[data-testid="grid-weights"]').innerText()).toContain('Weights: 100 / 100 % ✓');
     await page.locator('[data-testid="grid-save"]').click(); await saved(page);
     expect(srv.state.criteria.map((c) => [c.name, c.weight])).toEqual([['Team', 40], ['Market', 30], ['Traction', 30]]);
     // edit
-    await page.locator('[data-testid="criterion-card"]').nth(1).locator('textarea').first().fill('Market size');
-    await page.locator('[data-testid="criterion-card"]').nth(1).locator('[data-testid="criterion-weight"]').fill('25');
+    const market = await openCard(page, 1);
+    await market.locator('textarea').first().fill('Market size');
+    await market.locator('[data-testid="criterion-weight"]').fill('25');
     expect(await page.locator('[data-testid="grid-weights"]').innerText()).toContain('⚠');           // 95 %: a warning, never a stop
     await page.locator('[data-testid="grid-save"]').click(); await saved(page);
     expect(srv.state.criteria.map((c) => [c.name, c.weight])).toEqual([['Team', 40], ['Market size', 25], ['Traction', 30]]);
     // remove one: asked in the page
+    await page.locator('[data-testid="criterion-card"]').nth(1).locator('[data-testid="criterion-menu"]').click();
     await page.locator('[data-testid="criterion-card"]').nth(1).locator('[data-testid="criterion-remove"]').click();
     expect(await page.locator('[data-testid="criterion-remove-confirm"]').innerText()).toContain('Remove “Market size”?');
     await page.locator('[data-testid="criterion-remove-yes"]').click();

@@ -269,6 +269,21 @@ export function EvaluationScreen({ callId, applicationId, onBack }: { callId: st
   );
 }
 
+/** The applicant's answer to a linked question: short ones whole, long ones folded with "Show more"; the full answer is one click away in the application. */
+function LinkedAnswer({ field, value, docs, currency, onOpen }: { field: EvaluationPayload['fields'][number]; value: EvaluationPayload['answers'][string]; docs: ComponentProps<typeof AnswerView>['docs']; currency: string; onOpen: () => void }) {
+  const [full, setFull] = useState(false);
+  const long = (typeof value === 'string' && value.length > 280) || Array.isArray(value) || (value !== null && typeof value === 'object');
+  return (
+    <>
+      <div className={`mt-0.5 text-sm text-gray-900 [overflow-wrap:anywhere] ${long && !full ? 'max-h-28 overflow-hidden' : ''}`} data-testid="eval-linked-value" data-folded={long && !full ? 'true' : 'false'}><AnswerView field={field} value={value} docs={docs} currency={currency} /></div>
+      <div className="flex flex-wrap items-center gap-x-4">
+        {long && <button type="button" className="min-h-[44px] text-xs font-medium text-[#0E7490] hover:underline sm:min-h-0" data-testid="eval-linked-more" aria-expanded={full} onClick={() => setFull((f) => !f)}>{full ? 'Show less' : 'Show more'}</button>}
+        <button type="button" className="min-h-[44px] text-xs font-medium text-[#0E7490] hover:underline sm:min-h-0" data-testid="eval-open-answer" onClick={onOpen}>Open the full answer</button>
+      </div>
+    </>
+  );
+}
+
 type AutoView = EvaluationPayload['autos'][string];
 function CriterionScore({ c, entry, editable, need, forced, showComment, hover, auto, overridden, submitted, linked, answers, docs, currency, onOpenAnswer, onHover, onScore, onComment, onShowComment }: {
   c: Criterion; entry: { score: number | null; comment: string } | undefined; editable: boolean; need: 'score' | 'comment' | undefined; forced: boolean; showComment: boolean; hover: number | null;
@@ -295,8 +310,7 @@ function CriterionScore({ c, entry, editable, need, forced, showComment, hover, 
           {linked.map(({ field, title }) => (
             <div key={field.id} className="min-w-0 rounded bg-white p-2" data-testid="eval-linked-answer" data-field={field.id}>
               <p className="text-xs font-semibold text-gray-600 [overflow-wrap:anywhere]">{title}</p>
-              <div className="mt-0.5 line-clamp-6 text-sm text-gray-900 [overflow-wrap:anywhere]"><AnswerView field={field} value={answers[field.id]} docs={docs} currency={currency} /></div>
-              <button type="button" className="mt-1 min-h-[44px] text-xs font-medium text-[#0E7490] hover:underline sm:min-h-0" data-testid="eval-open-answer" onClick={() => onOpenAnswer(field.id)}>Open the full answer</button>
+              <LinkedAnswer field={field} value={answers[field.id]} docs={docs} currency={currency} onOpen={() => onOpenAnswer(field.id)} />
             </div>
           ))}
         </div>
