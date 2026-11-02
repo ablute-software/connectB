@@ -28,6 +28,7 @@ import * as XLSX from 'xlsx';
 import { parseCsv } from './structured-import';
 import { normalizeName, normalizeDomain } from './catalog-dedupe';
 import { ALL_SECTOR_NAMES } from './sector-taxonomy';
+import type { PortfolioCompany } from './portfolio-table';
 
 export type PortfolioStatus = 'current' | 'past';
 
@@ -1397,5 +1398,171 @@ export function validateManualPortfolioInput(body: Record<string, unknown>): { e
       contact_email: typeof body.contactEmail === 'string' && body.contactEmail.trim() ? body.contactEmail.trim() : null,
       contact_phone: typeof body.contactPhone === 'string' && body.contactPhone.trim() ? body.contactPhone.trim() : null,
     },
+  };
+}
+
+// ============================================================================
+// Prompt AL759 — the import screen should not read like a 14-field form, and
+// the preview should not make an investor read 50 lines. Pure helpers; the
+// components (PortfolioPanel's ImportFlow, ImportPreview) just draw them.
+// ============================================================================
+
+// ---------- §A: only the mapping fields that make sense for the destination ----------
+
+export type ImportDestination = PortfolioStatus;
+const EXIT_FIELDS = ['exit_at', 'exit_type'] as const;
+
+/**
+ * Which mapping dropdowns to show. A file WITH a status column mapped can mix
+ * Current and Past, so everything shows. Without one, the destination is the
+ * status: Past shows the exit fields; Current hides exit_at, exit_type and
+ * status (nothing to map status to — the tab IS the status).
+ */
+export function visibleMappingFields(mapping: ColumnMapping, destination: ImportDestination): PortfolioImportField[] {
+  if (mapping.status != null || destination === 'past') return [...PORTFOLIO_IMPORT_FIELDS];
+  return PORTFOLIO_IMPORT_FIELDS.filter((f) => f !== 'status' && f !== 'exit_at' && f !== 'exit_type');
+}
+
+/**
+ * The mapping the plan is actually built from. Importing into Current with no
+ * status column drops exit_at/exit_type — and says so (droppedExitNotice) —
+ * instead of turning every row into an error: the investor chose the
+ * destination, the file's exit columns simply don't apply to it.
+ */
+export function effectiveMappingForDestination(mapping: ColumnMapping, destination: ImportDestination): {
+  mapping: ColumnMapping; droppedExitFields: (typeof EXIT_FIELDS[number])[];
+} {
+  if (mapping.status != null || destination === 'past') return { mapping, droppedExitFields: [] };
+  const next: ColumnMapping = { ...mapping };
+  const dropped: (typeof EXIT_FIELDS[number])[] = [];
+  for (const f of EXIT_FIELDS) if (next[f] != null) { dropped.push(f); delete next[f]; }
+  return { mapping: next, droppedExitFields: dropped };
+}
+
+export function droppedExitNotice(dropped: (typeof EXIT_FIELDS[number])[]): string | null {
+  if (dropped.length === 0) return null;
+  const names = dropped.map((f) => (f === 'exit_at' ? 'Exit date' : 'Exit type')).join(' / ');
+  return `${names} found in the file but not imported: these apply to Past companies only. Import into Past, or move them later.`;
+}
+
+/** Collapsed by default when there is nothing to decide: the company name was found and nothing was guessed. */
+export function shouldCollapseMapping(mapping: ColumnMapping, guessedFields: PortfolioImportField[]): boolean {
+  return mapping.company_name != null && guessedFields.length === 0;
+}
+
+/** "7 columns matched · 2 not imported: Notes, Owner" — a column left out (including a dropped exit column) is named, never silent. */
+export function mappingSummary(headerRow: string[], effectiveMapping: ColumnMapping): { matched: number; notImported: string[]; text: string } {
+  const mapped = new Set(Object.values(effectiveMapping));
+  const notImported = headerRow
+    .map((h, i) => ({ i, label: h.trim() || `column ${i + 1}` }))
+    .filter(({ i }) => !mapped.has(i))
+    .map(({ label }) => label);
+  const matched = mapped.size;
+  let text = `${matched} column${matched === 1 ? '' : 's'} matched`;
+  if (notImported.length > 0) text += ` · ${notImported.length} not imported: ${notImported.join(', ')}`;
+  return { matched, notImported, text };
+}
+
+// ---------- §B: preview that scales ----------
+
+export type RowClass = 'ready' | 'warning' | 'duplicate' | 'error';
+
+/** One class per row, worst first: an error beats a duplicate beats a warning. */
+export function classifyItem(it: { data: PortfolioCompanyRow | null; errors: RowIssue[]; warnings: RowIssue[]; duplicate: DuplicateMatch | null }): RowClass {
+  if (it.data === null || it.errors.length > 0) return 'error';
+  if (it.duplicate) return 'duplicate';
+  if (it.warnings.length > 0) return 'warning';
+  return 'ready';
+}
+
+export interface PlanSummary { ready: number; withWarnings: number; duplicates: number; errors: number; total: number; included: number }
+
+export function summarizePlan(items: PortfolioImportPlanItem[]): PlanSummary {
+  const s: PlanSummary = { ready: 0, withWarnings: 0, duplicates: 0, errors: 0, total: items.length, included: 0 };
+  for (const it of items) {
+    const c = classifyItem(it);
+    if (c === 'ready') s.ready++; else if (c === 'warning') s.withWarnings++; else if (c === 'duplicate') s.duplicates++; else s.errors++;
+    if (it.include) s.included++;
+  }
+  return s;
+}
+
+/** "48 ready · 2 with warnings · 1 duplicate · 1 error" — zero parts are left out. */
+export function planSummaryText(s: PlanSummary): string {
+  const parts = [`${s.ready} ready`];
+  if (s.withWarnings) parts.push(`${s.withWarnings} with ${s.withWarnings === 1 ? 'warning' : 'warnings'}`);
+  if (s.duplicates) parts.push(`${s.duplicates} ${s.duplicates === 1 ? 'duplicate' : 'duplicates'}`);
+  if (s.errors) parts.push(`${s.errors} ${s.errors === 1 ? 'error' : 'errors'}`);
+  return parts.join(' · ');
+}
+
+export const ATTENTION_PREVIEW_LIMIT = 10;
+export const SAMPLE_SIZE = 5;
+
+/** The rows that get an individual card: anything that is not plainly ready. */
+export function attentionItems(items: PortfolioImportPlanItem[]): PortfolioImportPlanItem[] {
+  return items.filter((it) => classifyItem(it) !== 'ready');
+}
+
+/** The first N rows with usable data, as they will be saved — what the compact sample table shows. */
+export function sampleItems(items: PortfolioImportPlanItem[], n: number = SAMPLE_SIZE): PortfolioImportPlanItem[] {
+  return items.filter((it) => it.data !== null && it.errors.length === 0).slice(0, n);
+}
+
+/** Bulk include/exclude for one class of row; errors are never touched (they can never be included). */
+export function setIncludeForClass(items: PortfolioImportPlanItem[], cls: 'duplicate' | 'warning', include: boolean): PortfolioImportPlanItem[] {
+  return items.map((it) => (classifyItem(it) === cls && it.data !== null && it.errors.length === 0 ? { ...it, include } : it));
+}
+
+/**
+ * A date read from a day <= 12 text that is not ISO could just as well have
+ * been month-first to a human, even though this parser never reads it that
+ * way — those are the rows that keep a "read as" line (Prompt AL756/AL759).
+ */
+export function isAmbiguousDayDate(raw: string | undefined, iso: string | undefined): boolean {
+  if (!raw || !iso) return false;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim())) return false;
+  const month = Number(iso.slice(5, 7));
+  const day = Number(iso.slice(8, 10));
+  return day <= 12 && day !== month;
+}
+
+/** Whether a row still gets its "read as" line: it has a warning, or a human-ambiguous date. */
+export function needsReadAs(it: PortfolioImportPlanItem): boolean {
+  return it.warnings.length > 0
+    || isAmbiguousDayDate(it.raw.invested_at, it.data?.investedAt)
+    || isAmbiguousDayDate(it.raw.exit_at, it.data?.exitAt);
+}
+
+/**
+ * "Download rows with errors" — the original rows from the file (not the
+ * parsed ones) plus an `error` column, so the investor can fix them in Excel
+ * and re-import without hunting for the lines. Row numbers on a plan item are
+ * the original file line numbers, which is what indexes `fileRows`.
+ */
+export function errorRowsCsv(args: {
+  fileRows: string[][]; headerRowNumber: number;
+  items: { row: number; data: PortfolioCompanyRow | null; errors: RowIssue[] }[];
+}): string {
+  const { fileRows, headerRowNumber, items } = args;
+  const header = fileRows[headerRowNumber - 1] ?? [];
+  const lines = [[...header, 'error'].map(csvCell).join(',')];
+  for (const it of items) {
+    if (it.data !== null && it.errors.length === 0) continue;
+    const original = fileRows[it.row - 1] ?? [];
+    const message = it.errors.map((e) => e.message).join(' | ');
+    lines.push([...original, message].map(csvCell).join(','));
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+/** An import row shaped like a saved company, so the compact sample can draw it with the real table's cell formatting. */
+export function rowToDisplayCompany(data: PortfolioCompanyRow, id: string): PortfolioCompany {
+  return {
+    id, status: data.status, company_name: data.companyName, website: data.website ?? null, domain: data.domain,
+    country: data.country ?? null, stage_at_entry: data.stageAtEntry ?? null, sectors: data.sectors,
+    ticket_eur: data.ticketEur ?? null, instrument: data.instrument ?? null, invested_at: data.investedAt ?? null,
+    exit_at: data.exitAt ?? null, exit_type: data.exitType ?? null, contact_name: data.contactName ?? null,
+    contact_email: data.contactEmail ?? null, contact_phone: data.contactPhone ?? null, source: 'import', created_at: '',
   };
 }

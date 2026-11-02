@@ -19,50 +19,70 @@
 // committing; (2) nothing could be corrected after import without deleting
 // the row and retyping it — this file now has an Edit form (PATCH) next to
 // Remove, and Remove asks once before it actually deletes anything.
-import { useCallback, useEffect, useState } from 'react';
+//
+// Prompt AL759 — the panel also owns search/filter/sort state (in the URL),
+// the row selection and the move flow; the table, the search box and the
+// import preview are components of their own (PortfolioTable, PortfolioSearch,
+// ImportPreview), with the rules in portfolio-table.ts / portfolio-import.ts.
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Card, Tabs, type TabItem } from '@/components/ui';
 import { EmptyState } from '@/components/workspace-shell/EmptyState';
 import { SectorPicker, type SectorValue } from '@/components/company/SectorPicker';
 import {
   buildPortfolioImportPlan, detectDuplicates, detectHeaderAndMapping, parsePortfolioCsvRows, parsePortfolioFields,
-  parsePortfolioXlsxRows, pickImportTargetStatus, portfolioImportTemplateCsv, portfolioTemplateFilename, acceptedValuesHelp, formatDateDisplay, formatTicketDisplay,
-  stripEmptyRowsAndColumns,
-  PORTFOLIO_IMPORT_FIELDS, type ColumnMapping, type PortfolioImportField, type PortfolioImportPlan, type PortfolioImportPlanItem,
+  parsePortfolioXlsxRows, pickImportTargetStatus, portfolioImportTemplateCsv, portfolioTemplateFilename, acceptedValuesHelp,
+  stripEmptyRowsAndColumns, effectiveMappingForDestination, droppedExitNotice, mappingSummary, shouldCollapseMapping,
+  visibleMappingFields, setIncludeForClass, errorRowsCsv,
+  type ColumnMapping, type PortfolioImportField, type PortfolioImportPlan, type PortfolioImportPlanItem,
 } from '@/lib/portfolio-import';
 import {
-  EXIT_TYPE_LABELS, INSTRUMENT_LABELS, STAGE_LABELS, clampPage, parsePageParam, viewAfter,
-  type PortfolioCompany, type PortfolioTab, type PortfolioViewState,
+  EMPTY_QUERY, EXIT_TYPE_LABELS, INSTRUMENT_LABELS, STAGE_LABELS, arrangeCompanies, chunkIds, clampPage, hasQuery,
+  listAfter, moveButtonLabel, moveConfirmation, moveTarget, nextSort, noMatchText, pageSelection, pageSlice,
+  parseListParams, parsePageParam, pruneSelection, selectAllPrompt, summarizeMoveResults, toggleOne, togglePageSelection,
+  viewAfter, writeListParams,
+  type MoveBatchResult, type PortfolioCompany, type PortfolioListState, type PortfolioSortKey, type PortfolioTab,
+  type PortfolioViewState, type TaggedFilter,
 } from '@/lib/portfolio-table';
 import { PortfolioTable } from './PortfolioTable';
+import { PortfolioSearch } from './PortfolioSearch';
+import { ImportPreview } from './ImportPreview';
 
 type PortfolioStatus = PortfolioTab;
 
 const VIEW_TABS: TabItem[] = [{ key: 'current', label: 'Current' }, { key: 'past', label: 'Past' }];
 
 // Prompt AL758 §B — the tab AND the page live in the URL (?view=past&page=2),
-// so a shared link opens the same view. useTabParam only knows one param and
-// would need two router.replace calls (a race) to change tab and page
-// together; this sets both in one go. Current and page 1 are the defaults
-// and stay out of the URL.
-function usePortfolioUrl(): { tab: PortfolioTab; page: number; go: (next: PortfolioViewState) => void } {
+// so a shared link opens the same view. Prompt AL759 adds the search text,
+// the tagged filter and the sort (?q= ?f= ?sort= ?dir=). useTabParam only
+// knows one param and would need several router.replace calls (a race) to
+// change tab, page and search together; this writes everything in one go.
+// Defaults (Current, page 1, no search, no sort) stay out of the URL.
+function usePortfolioUrl(): {
+  tab: PortfolioTab; page: number; list: PortfolioListState; go: (view: PortfolioViewState, list: PortfolioListState) => void;
+} {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
+  const spString = sp.toString();
   const tab: PortfolioTab = sp.get('view') === 'past' ? 'past' : 'current';
   const page = parsePageParam(sp.get('page'));
-  const go = useCallback((next: PortfolioViewState) => {
-    const params = new URLSearchParams(sp.toString());
-    if (next.tab === 'current') params.delete('view'); else params.set('view', next.tab);
-    if (next.page <= 1) params.delete('page'); else params.set('page', String(next.page));
+  const list = useMemo(() => parseListParams(new URLSearchParams(spString), tab), [spString, tab]);
+  const go = useCallback((view: PortfolioViewState, nextList: PortfolioListState) => {
+    const params = new URLSearchParams(spString);
+    if (view.tab === 'current') params.delete('view'); else params.set('view', view.tab);
+    if (view.page <= 1) params.delete('page'); else params.set('page', String(view.page));
+    writeListParams(params, nextList);
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-  }, [router, pathname, sp]);
-  return { tab, page, go };
+  }, [router, pathname, spString]);
+  return { tab, page, list, go };
 }
 
+interface MoveResult { text: string; to: PortfolioTab; failed: boolean }
+
 export function PortfolioPanel() {
-  const { tab: status, page: urlPage, go } = usePortfolioUrl();
+  const { tab: status, page: urlPage, list, go } = usePortfolioUrl();
   const [linked, setLinked] = useState<boolean | null>(null);
   const [companies, setCompanies] = useState<PortfolioCompany[] | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -70,6 +90,10 @@ export function PortfolioPanel() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [removeBusy, setRemoveBusy] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmMove, setConfirmMove] = useState<string | null>(null);
+  const [moving, setMoving] = useState(false);
+  const [moveResult, setMoveResult] = useState<MoveResult | null>(null);
 
   function load() {
     fetch('/api/portal/investor-profile/portfolio').then((r) => r.json()).then((d) => {
@@ -79,15 +103,72 @@ export function PortfolioPanel() {
   }
   useEffect(load, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const rows = (companies ?? []).filter((c) => c.status === status);
-  const page = clampPage(urlPage, rows.length);
+  const tabRows = useMemo(() => (companies ?? []).filter((c) => c.status === status), [companies, status]);
+  // Filter, then order the WHOLE set (the investor's own column sort wins;
+  // otherwise relevance when searching; otherwise newest first), and only
+  // then slice a page.
+  const arranged = useMemo(() => arrangeCompanies(tabRows, list.query, list.sort), [tabRows, list]);
+  const page = clampPage(urlPage, arranged.length);
   const here: PortfolioViewState = { tab: status, page };
+  const goTo = (view: PortfolioViewState, nextList: PortfolioListState) => go(view, nextList);
+  // The URL is the source of truth, but it updates asynchronously: two quick
+  // clicks on a header would both read the OLD sort and both answer "ascending"
+  // instead of ascending then descending. So handlers read the last state the
+  // investor asked for (listRef), which the URL then catches up with.
+  const listRef = useRef(list);
+  useEffect(() => { listRef.current = list; }, [list]);
+  /** Any change to the text, the tagged filter or the sort starts again at page 1. */
+  const changeList = (nextList: PortfolioListState) => { listRef.current = nextList; go({ tab: status, page: 1 }, nextList); };
 
   // A page that no longer exists (the last row of page 3 was removed, or a
   // stale link says page=9) is corrected in the URL too, not only on screen.
   useEffect(() => {
-    if (companies !== null && page !== urlPage) go({ tab: status, page });
+    if (companies !== null && page !== urlPage) go({ tab: status, page }, list);
   }, [companies, page, urlPage, status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ----- selection (Prompt AL759 §C): only ever rows the investor can see -----
+  const arrangedIds = useMemo(() => arranged.map((c) => c.id), [arranged]);
+  const effectiveSelected = useMemo(() => pruneSelection(selected, arrangedIds), [selected, arrangedIds]);
+  const pageIds = useMemo(() => pageSlice(arranged, page).map((c) => c.id), [arranged, page]);
+  const prompt = selectAllPrompt(effectiveSelected, pageIds, arrangedIds);
+  const selectedRows = tabRows.filter((c) => effectiveSelected.has(c.id));
+
+  // Changing tab, search, filter or sort clears the selection — a row the
+  // investor can no longer see is never moved. (Paging does not: "Select all
+  // N matching" deliberately spans pages.)
+  const listKey = JSON.stringify([status, list.query, list.sort]);
+  useEffect(() => { setSelected(new Set()); setConfirmMove(null); }, [listKey]);
+
+  const moveTo = moveTarget(status);
+
+  async function doMove() {
+    setConfirmMove(null);
+    setMoving(true);
+    const results: MoveBatchResult[] = [];
+    // 500 ids is the route's ceiling; more than that goes in sequential
+    // batches, each atomic on its own, and the result line adds them up.
+    for (const batch of chunkIds([...effectiveSelected])) {
+      try {
+        const res = await fetch('/api/portal/investor-profile/portfolio/move', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids: batch, to: moveTo }),
+        });
+        const body = await res.json().catch(() => ({}));
+        results.push(body.ok ? { ok: true, moved: body.moved ?? 0, clearedExitData: body.clearedExitData ?? 0 } : { ok: false });
+      } catch { results.push({ ok: false }); }
+    }
+    const summary = summarizeMoveResults(results, moveTo);
+    setMoveResult({ text: summary.text, to: moveTo, failed: summary.failedBatches > 0 });
+    setSelected(new Set());
+    setMoving(false);
+    // The list reloads and the investor stays where they were (the page is
+    // re-clamped against the new total by the effect above) — no F5.
+    load();
+  }
+
+  function requestMove() {
+    const confirmation = moveConfirmation(selectedRows, moveTo);
+    if (confirmation.needed) setConfirmMove(confirmation.text); else void doMove();
+  }
 
   async function remove(id: string) {
     setRemoveBusy(true);
@@ -108,6 +189,9 @@ export function PortfolioPanel() {
   }
 
   const editingCompany = editingId ? (companies ?? []).find((c) => c.id === editingId) ?? null : null;
+  const noMatch = hasQuery(list.query) && arranged.length === 0 && tabRows.length > 0
+    ? { text: noMatchText(list.query), onClear: () => changeList({ query: EMPTY_QUERY, sort: listRef.current.sort }) }
+    : undefined;
 
   return (
     <div className="space-y-4">
@@ -118,7 +202,7 @@ export function PortfolioPanel() {
       </Card>
 
       <Tabs items={VIEW_TABS} active={status}
-        onChange={(key) => go(viewAfter(here, { type: 'switch-tab', tab: key === 'past' ? 'past' : 'current' }))} />
+        onChange={(key) => goTo(viewAfter(here, { type: 'switch-tab', tab: key === 'past' ? 'past' : 'current' }), listAfter(list, 'switch-tab'))} />
 
       <div className="flex flex-wrap gap-2">
         <button onClick={() => { setShowAddForm((v) => !v); setShowImport(false); setEditingId(null); }}
@@ -136,8 +220,9 @@ export function PortfolioPanel() {
           status={status}
           // Prompt AL758 §B — the list reloads and the investor lands on
           // page 1 (newest first), where the new row is, so it is visible
-          // without F5 and never on a page that no longer exists.
-          onSaved={() => { setShowAddForm(false); load(); go(viewAfter(here, { type: 'added' })); }}
+          // without F5 and never on a page that no longer exists. A search
+          // or sort that could hide the new row is cleared (Prompt AL759).
+          onSaved={() => { setShowAddForm(false); load(); goTo(viewAfter(here, { type: 'added' }), listAfter(list, 'added')); }}
           onCancel={() => setShowAddForm(false)}
         />
       )}
@@ -152,26 +237,99 @@ export function PortfolioPanel() {
           // closes it themselves (the same Cancel/toggle button that opened
           // it) once they're done reading the result.
           // Prompt AL758 — rows landed in `landedIn`: reload and show them.
-          onImported={(landedIn) => { load(); if (landedIn) go(viewAfter(here, { type: 'imported', landedIn })); }}
+          onImported={(landedIn) => { load(); if (landedIn) goTo(viewAfter(here, { type: 'imported', landedIn }), listAfter(list, 'imported')); }}
         />
       )}
       {editingCompany && (
         <PortfolioCompanyForm
           status={editingCompany.status}
           initial={editingCompany}
-          onSaved={() => { setEditingId(null); load(); go(viewAfter(here, { type: 'edited' })); }}
+          onSaved={() => { setEditingId(null); load(); goTo(viewAfter(here, { type: 'edited' }), listAfter(list, 'edited')); }}
           onCancel={() => setEditingId(null)}
+        />
+      )}
+
+      {moveResult && (
+        <div role="status" data-testid="move-result"
+          className={`flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2 text-xs ${moveResult.failed ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-green-200 bg-green-50 text-green-800'}`}>
+          <span>{moveResult.text}</span>
+          {moveResult.to !== status && (
+            <button onClick={() => { setMoveResult(null); goTo({ tab: moveResult.to, page: 1 }, listAfter(list, 'switch-tab')); }}
+              className="font-medium underline">
+              Open {moveResult.to === 'past' ? 'Past' : 'Current'}
+            </button>
+          )}
+          <button onClick={() => setMoveResult(null)} className="ml-auto text-gray-500 hover:underline">Dismiss</button>
+        </div>
+      )}
+
+      {/* Prompt AL759 — ONE slot above the table: the search box, or — only
+          while rows are selected — the action bar in its place. No permanent
+          button takes space when nothing is selected. */}
+      {effectiveSelected.size > 0 ? (
+        <div className="space-y-1.5" data-testid="selection-bar">
+          <div role="region" aria-label="Selection actions"
+            className="flex flex-wrap items-center gap-3 rounded-lg border border-[#0E7490]/30 bg-[#0E7490]/5 px-3 py-1.5 text-xs">
+            <span className="font-medium text-gray-700">{effectiveSelected.size} selected</span>
+            <button onClick={requestMove} disabled={moving || confirmMove !== null}
+              className="rounded-lg bg-[#0E7490] px-2.5 py-1 font-medium text-white disabled:opacity-40">
+              {moving ? 'Moving…' : moveButtonLabel(status, effectiveSelected.size)}
+            </button>
+            <button onClick={() => setSelected(new Set())} className="text-gray-500 hover:underline">Clear</button>
+          </div>
+          {prompt?.kind === 'select-all' && (
+            <p className="text-[11px] text-gray-500">
+              {prompt.onPage} selected on this page ·{' '}
+              <button onClick={() => setSelected(new Set(arrangedIds))} className="font-medium text-[#0E7490] hover:underline">
+                Select all {prompt.total} matching
+              </button>
+            </p>
+          )}
+          {prompt?.kind === 'all-selected' && (
+            <p className="text-[11px] text-gray-500">
+              All {prompt.total} selected ·{' '}
+              <button onClick={() => setSelected(new Set())} className="font-medium text-[#0E7490] hover:underline">Clear</button>
+            </p>
+          )}
+          {confirmMove && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+              {confirmMove}
+              <span className="ml-2 inline-flex gap-2">
+                <button onClick={() => void doMove()} className="font-semibold text-amber-900 hover:underline">Move</button>
+                <button onClick={() => setConfirmMove(null)} className="text-amber-700 hover:underline">Cancel</button>
+              </span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <PortfolioSearch
+          rows={tabRows}
+          query={list.query}
+          onSubmitText={(q) => changeList({ query: { ...listRef.current.query, q }, sort: listRef.current.sort })}
+          onChooseFilter={(filter: TaggedFilter) => changeList({ query: { ...listRef.current.query, filter }, sort: listRef.current.sort })}
+          onClearFilter={() => changeList({ query: { ...listRef.current.query, filter: null }, sort: listRef.current.sort })}
         />
       )}
 
       <PortfolioTable
         tab={status}
-        companies={rows}
+        companies={arranged}
         page={page}
+        totalInTab={hasQuery(list.query) ? tabRows.length : undefined}
         loading={companies === null}
         confirmRemoveId={confirmRemoveId}
         removeBusy={removeBusy}
-        onPageChange={(p) => go({ tab: status, page: p })}
+        selection={{
+          selectedIds: effectiveSelected,
+          pageSelection: pageSelection(effectiveSelected, pageIds),
+          onTogglePage: () => setSelected(togglePageSelection(effectiveSelected, pageIds)),
+          onToggleOne: (id) => setSelected(toggleOne(effectiveSelected, id)),
+        }}
+        sort={list.sort}
+        onSort={(key: PortfolioSortKey) => changeList({ query: listRef.current.query, sort: nextSort(listRef.current.sort, key) })}
+        highlight={list.query.q}
+        noMatch={noMatch}
+        onPageChange={(p) => go({ tab: status, page: p }, list)}
         onEdit={(id) => { setEditingId(id); setShowAddForm(false); setShowImport(false); }}
         onAskRemove={setConfirmRemoveId}
         onConfirmRemove={(id) => void remove(id)}
@@ -354,8 +512,7 @@ function PortfolioCompanyForm({ status: initialStatus, initial, onSaved, onCance
     </Card>
   );
 }
-
-function escapeRegExp(s: string): string {
+function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
@@ -369,8 +526,15 @@ function ImportFlow({ existing, activeStatus, onImported }: {
   const [fileRows, setFileRows] = useState<string[][] | null>(null);
   const [fileName, setFileName] = useState('');
   const [headerRow, setHeaderRow] = useState<string[]>([]);
+  // The line number of the header in the ORIGINAL file — what "Download rows
+  // with errors" needs to copy the header back out.
+  const [headerRowNumber, setHeaderRowNumber] = useState(1);
   const [mapping, setMapping] = useState<ColumnMapping>({});
   const [guessedFields, setGuessedFields] = useState<Set<PortfolioImportField>>(new Set());
+  // Prompt AL759 §A — the mapping is collapsed to one summary line when there
+  // is nothing to decide (company name found, nothing guessed); it opens by
+  // itself when something failed or was guessed, or on "Review mapping".
+  const [mappingOpen, setMappingOpen] = useState(false);
   // Prompt AL757 §D — "o separador ativo" is the starting default, but the
   // investor can override it for THIS import (e.g. importing a Past file
   // while sitting on the Current tab). Tracked separately from
@@ -388,15 +552,19 @@ function ImportFlow({ existing, activeStatus, onImported }: {
   const [result, setResult] = useState<ImportResult | null>(null);
   const [editingRow, setEditingRow] = useState<number | null>(null);
 
+  function saveBlob(text: string, filename: string) {
+    const blob = new Blob([text], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   // Prompt AL758 §C — the template is the active tab's own (Current has no
   // exit columns; Past adds exit_at and exit_type), not one file for both.
   function downloadTemplate() {
-    const blob = new Blob([portfolioImportTemplateCsv(activeStatus)], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = portfolioTemplateFilename(activeStatus);
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
+    saveBlob(portfolioImportTemplateCsv(activeStatus), portfolioTemplateFilename(activeStatus));
   }
 
   // Preview is computed ENTIRELY client-side — no round trip. The
@@ -408,9 +576,14 @@ function ImportFlow({ existing, activeStatus, onImported }: {
   // server-side rather than trusting this preview (see the commit route's
   // own header), so a stale `existing` snapshot here can never cause a bad
   // write, only a preview that's briefly out of date.
+  //
+  // Prompt AL759 §A — the plan is built from the EFFECTIVE mapping: importing
+  // into Current with no status column leaves the file's exit columns out
+  // (and the screen says so) rather than turning every row into an error.
   function computePlan(rows: string[][], m: ColumnMapping, defStatus: PortfolioStatus) {
     const existingForDedupe = existing.map((c) => ({ companyName: c.company_name, domain: c.domain }));
-    setPlan(buildPortfolioImportPlan(rows, existingForDedupe, m, { defaultStatus: defStatus }));
+    const effective = effectiveMappingForDestination(m, defStatus).mapping;
+    setPlan(buildPortfolioImportPlan(rows, existingForDedupe, effective, { defaultStatus: defStatus }));
   }
 
   async function onFile(file: File) {
@@ -428,13 +601,15 @@ function ImportFlow({ existing, activeStatus, onImported }: {
       // table, a spacer column to its left) stripped BEFORE the header is
       // even looked for; the header itself is found among the first 10
       // non-blank rows, not assumed to be row 0.
-      const { rows: stripped } = stripEmptyRowsAndColumns(rows);
+      const { rows: stripped, originalRowNumbers } = stripEmptyRowsAndColumns(rows);
       if (stripped.length === 0) { setErr('The file looked empty.'); return; }
       const detection = detectHeaderAndMapping(stripped);
       setFileRows(rows);
       setHeaderRow(stripped[detection.headerRowIndex] ?? []);
+      setHeaderRowNumber(originalRowNumbers[detection.headerRowIndex] ?? 1);
       setMapping(detection.mapping);
       setGuessedFields(new Set(detection.guessedFields));
+      setMappingOpen(!shouldCollapseMapping(detection.mapping, detection.guessedFields));
       computePlan(rows, detection.mapping, defaultStatus);
     } catch (e) {
       setErr((e as Error).message || 'Could not read that file.');
@@ -465,10 +640,10 @@ function ImportFlow({ existing, activeStatus, onImported }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeStatus]);
 
-  const mappedIndices = new Set(Object.values(mapping));
-  const unmappedColumns = headerRow
-    .map((h, i) => ({ index: i, header: h }))
-    .filter(({ index }) => !mappedIndices.has(index));
+  const effective = effectiveMappingForDestination(mapping, defaultStatus);
+  const summary = mappingSummary(headerRow, effective.mapping);
+  const visibleFields = visibleMappingFields(mapping, defaultStatus);
+  const exitNotice = droppedExitNotice(effective.droppedExitFields);
 
   function toggleInclude(row: number) {
     if (!plan) return;
@@ -532,6 +707,11 @@ function ImportFlow({ existing, activeStatus, onImported }: {
     saveRowEdit(rowNum, { ...it.raw, sectors: updated });
   }
 
+  function downloadErrors() {
+    if (!plan || !fileRows) return;
+    saveBlob(errorRowsCsv({ fileRows, headerRowNumber, items: plan.items }), 'portfolio-rows-with-errors.csv');
+  }
+
   async function commit() {
     if (!plan) return;
     setBusy(true); setErr('');
@@ -576,28 +756,46 @@ function ImportFlow({ existing, activeStatus, onImported }: {
       {err && <p className="mt-1.5 text-[11px] text-[#B00000]">{err}</p>}
 
       {fileRows && (
-        <div className="mt-3">
-          <h4 className="text-xs font-semibold text-gray-700">Column mapping</h4>
-          <p className="text-[11px] text-gray-400">Detected automatically — fix anything that looks wrong before importing.</p>
-          <div className="mt-1 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-            {PORTFOLIO_IMPORT_FIELDS.map((field) => (
-              <label key={field} className="text-[11px] text-gray-500">
-                {field}
-                {guessedFields.has(field) && <span className="ml-1 text-amber-600">(guessed from the values)</span>}
-                <select value={mapping[field] ?? ''}
-                  onChange={(e) => changeMapping(field, e.target.value === '' ? null : Number(e.target.value))}
-                  className="mt-0.5 block w-full rounded border border-gray-300 px-1.5 py-1 text-[11px]">
-                  <option value="">— none —</option>
-                  {headerRow.map((h, i) => <option key={i} value={i}>{h || `column ${i + 1}`}</option>)}
-                </select>
-              </label>
-            ))}
+        <div className="mt-3" data-testid="mapping-section">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="text-xs font-semibold text-gray-700">Column mapping</h4>
+            {!mappingOpen && (
+              <>
+                <span className="text-[11px] text-gray-500" data-testid="mapping-summary">{summary.text}</span>
+                <button onClick={() => setMappingOpen(true)} className="text-[11px] text-[#0E7490] hover:underline">Review mapping</button>
+              </>
+            )}
+            {mappingOpen && (
+              <button onClick={() => setMappingOpen(false)} className="text-[11px] text-[#0E7490] hover:underline">Hide mapping</button>
+            )}
           </div>
-          {unmappedColumns.length > 0 && (
-            <p className="mt-1.5 text-[11px] text-gray-500">
-              Not imported: {unmappedColumns.map((c) => c.header || `column ${c.index + 1}`).join(', ')} (no matching field — pick one above if one of these should be mapped).
-            </p>
+          {mappingOpen && (
+            <>
+              <p className="text-[11px] text-gray-400">Detected automatically — fix anything that looks wrong before importing.</p>
+              <div className="mt-1 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                {visibleFields.map((field) => (
+                  <label key={field} className="text-[11px] text-gray-500">
+                    {field}
+                    {guessedFields.has(field) && <span className="ml-1 text-amber-600">(guessed from the values)</span>}
+                    <select value={mapping[field] ?? ''}
+                      onChange={(e) => changeMapping(field, e.target.value === '' ? null : Number(e.target.value))}
+                      className="mt-0.5 block w-full rounded border border-gray-300 px-1.5 py-1 text-[11px]">
+                      <option value="">— none —</option>
+                      {headerRow.map((h, i) => <option key={i} value={i}>{h || `column ${i + 1}`}</option>)}
+                    </select>
+                  </label>
+                ))}
+              </div>
+              {summary.notImported.length > 0 && (
+                <p className="mt-1.5 text-[11px] text-gray-500">
+                  Not imported: {summary.notImported.join(', ')} (no matching field — pick one above if one of these should be mapped).
+                </p>
+              )}
+            </>
           )}
+          {/* Nothing is ignored in silence: exit columns found in a file that
+              is going into Current are named here, in or out of the mapping. */}
+          {exitNotice && <p className="mt-1.5 text-[11px] text-amber-700" data-testid="exit-notice">{exitNotice}</p>}
           {mapping.status == null && (
             <label className="mt-2 block text-[11px] text-gray-500">
               This file has no status column. Rows without a status go to:{' '}
@@ -612,84 +810,20 @@ function ImportFlow({ existing, activeStatus, onImported }: {
       )}
 
       {plan && (
-        <div className="mt-3">
-          <h4 className="text-xs font-semibold text-gray-700">
-            Preview ({plan.items.filter((it) => it.include).length}/{plan.items.length} rows will be imported)
-          </h4>
-          <ul className="mt-1 max-h-96 space-y-1 overflow-y-auto text-xs">
-            {plan.items.map((it) => (
-              <li key={it.row}
-                className={`rounded-lg border px-2.5 py-1.5 ${it.errors.length ? 'border-red-100 bg-red-50/50' : it.warnings.length ? 'border-amber-100 bg-amber-50/50' : it.duplicate ? 'border-amber-100 bg-amber-50/50' : 'border-gray-100 bg-gray-50'}`}>
-                <div className="flex flex-wrap items-center gap-2">
-                  <input type="checkbox" checked={it.include} disabled={it.data === null || it.errors.length > 0}
-                    onChange={() => toggleInclude(it.row)} />
-                  <span className="font-medium">Row {it.row}</span>
-                  <span className="text-gray-600">{it.data?.companyName ?? '(no company name)'}</span>
-                  {it.duplicate && (
-                    <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
-                      duplicate ({it.duplicate.reason}, {it.duplicate.against === 'existing' ? 'already in your portfolio' : 'repeated in this file'})
-                    </span>
-                  )}
-                  {/* Prompt AL757 §E — warnings no longer block `include`
-                      by default, so the only row this button can still
-                      change anything for is an un-opted duplicate. */}
-                  {it.duplicate && !it.include && it.errors.length === 0 && (
-                    <button onClick={() => importAnyway(it.row)} className="ml-auto rounded-full border border-amber-300 px-2 py-0.5 text-[10px] font-semibold text-amber-800 hover:bg-amber-100">
-                      Import anyway
-                    </button>
-                  )}
-                  {(it.errors.length > 0 || it.warnings.length > 0) && (
-                    <button onClick={() => setEditingRow(editingRow === it.row ? null : it.row)}
-                      className="rounded-full border border-gray-300 px-2 py-0.5 text-[10px] font-medium text-gray-600 hover:bg-gray-100">
-                      {editingRow === it.row ? 'Close' : 'Fix this row'}
-                    </button>
-                  )}
-                </div>
-                {it.errors.length > 0 && (
-                  <ul className="ml-6 mt-0.5 list-disc text-[11px] text-[#B00000]">
-                    {it.errors.map((e, i) => <li key={i}>{e.field ? `${e.field}: ` : ''}{e.message}</li>)}
-                  </ul>
-                )}
-                {it.warnings.length > 0 && (
-                  <ul className="ml-6 mt-0.5 list-disc text-[11px] text-amber-700">
-                    {it.warnings.map((w, i) => (
-                      <li key={i}>
-                        {w.field ? `${w.field}: ` : ''}{w.message}
-                        {w.suggestion && (
-                          <button onClick={() => acceptSectorSuggestion(it.row, w.suggestion!.token, w.suggestion!.canonical)}
-                            className="ml-1 font-semibold text-amber-900 hover:underline">
-                            Use &ldquo;{w.suggestion.canonical}&rdquo;
-                          </button>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {/* "Cada célula ... mostra o original e o lido" (Prompt 753
-                    §E) — EVERY row a transformed date/ticket, not just an
-                    errored/warned one. Prompt AL756's own review caught
-                    this: a confidently-read "03/04/2022" (day <= 12, where
-                    dd/mm vs. mm/dd is genuinely ambiguous to a human even
-                    though this parser never reads it as mm/dd) used to show
-                    no "read as" line at all unless the row also happened to
-                    have an unrelated warning — exactly the case a human
-                    most wants to double-check. */}
-                {editingRow !== it.row && <ReadAsSummary raw={it.raw} data={it.data} />}
-                {editingRow === it.row && (
-                  <RowEditor
-                    fields={it.raw}
-                    onSave={(edited) => saveRowEdit(it.row, edited)}
-                    onCancel={() => setEditingRow(null)}
-                  />
-                )}
-              </li>
-            ))}
-          </ul>
-          <button onClick={commit} disabled={busy || plan.items.every((it) => !it.include)}
-            className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
-            {busy ? 'Importing…' : `Import ${plan.items.filter((it) => it.include).length} compan${plan.items.filter((it) => it.include).length === 1 ? 'y' : 'ies'}`}
-          </button>
-        </div>
+        <ImportPreview
+          items={plan.items}
+          destination={pickImportTargetStatus(plan.items)}
+          editingRow={editingRow}
+          busy={busy}
+          onImport={commit}
+          onToggleInclude={toggleInclude}
+          onImportAnyway={importAnyway}
+          onEditRow={setEditingRow}
+          onSaveRowEdit={saveRowEdit}
+          onAcceptSuggestion={acceptSectorSuggestion}
+          onBulk={(cls, include) => setPlan({ ...plan, items: setIncludeForClass(plan.items, cls, include) })}
+          onDownloadErrors={downloadErrors}
+        />
       )}
 
       {result && <ImportResultBanner result={result} onDismiss={() => setResult(null)} />}
@@ -731,64 +865,6 @@ function ImportResultBanner({ result, onDismiss }: { result: ImportResult; onDis
           Dismiss
         </button>
       )}
-    </div>
-  );
-}
-
-// "O original e o lido" — shown read-only next to the field name for the
-// two fields the parser most often transforms in a way worth double-
-// checking (ticket amount, dates); other fields' original text is already
-// visible in the row editor once opened.
-function ReadAsSummary({ raw, data }: { raw: Partial<Record<PortfolioImportField, string>>; data: ReturnType<typeof parsePortfolioFields>['data'] }) {
-  const lines: string[] = [];
-  if (raw.ticket_eur && data?.ticketEur != null) lines.push(`ticket_eur: "${raw.ticket_eur}" → ${formatTicketDisplay(data.ticketEur)}`);
-  if (raw.invested_at && data?.investedAt) lines.push(`invested_at: "${raw.invested_at}" → ${formatDateDisplay(data.investedAt)}`);
-  if (raw.exit_at && data?.exitAt) lines.push(`exit_at: "${raw.exit_at}" → ${formatDateDisplay(data.exitAt)}`);
-  // Prompt AL758 §C — the preview shows the investment type and (Past) the
-  // exit type as read, with the same labels the table will use.
-  if (raw.instrument && data?.instrument) lines.push(`instrument: "${raw.instrument}" → ${INSTRUMENT_LABELS[data.instrument] ?? data.instrument}`);
-  if (raw.exit_type && data?.exitType) lines.push(`exit_type: "${raw.exit_type}" → ${EXIT_TYPE_LABELS[data.exitType] ?? data.exitType}`);
-  if (lines.length === 0) return null;
-  return (
-    <ul className="ml-6 mt-0.5 space-y-0.5 text-[11px] text-gray-500">
-      {lines.map((l) => <li key={l}>{l}</li>)}
-    </ul>
-  );
-}
-
-// The per-row correction form — every mapped field, pre-filled with the
-// ORIGINAL cell text (not the parsed value), so fixing a typo means editing
-// exactly what the file said rather than reverse-engineering the parsed
-// reading. Re-validates on Save via the same parsePortfolioFields the
-// initial import used (see saveRowEdit above) — "revalidam-se ao editar".
-function RowEditor({ fields, onSave, onCancel }: {
-  fields: Partial<Record<PortfolioImportField, string>>;
-  onSave: (edited: Partial<Record<PortfolioImportField, string>>) => void;
-  onCancel: () => void;
-}) {
-  const [draft, setDraft] = useState<Partial<Record<PortfolioImportField, string>>>(fields);
-  const mappedFields = PORTFOLIO_IMPORT_FIELDS.filter((f) => fields[f] !== undefined);
-
-  return (
-    <div className="ml-6 mt-1.5 rounded-lg border border-gray-200 bg-white p-2">
-      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-        {mappedFields.map((field) => (
-          <label key={field} className="text-[11px] text-gray-500">
-            {field}
-            <input value={draft[field] ?? ''} onChange={(e) => setDraft({ ...draft, [field]: e.target.value })}
-              autoComplete="off"
-              className="mt-0.5 block w-full rounded border border-gray-300 px-1.5 py-1 text-[11px]" />
-          </label>
-        ))}
-      </div>
-      <div className="mt-2 flex gap-2">
-        <button onClick={() => onSave(draft)} className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-[11px] font-medium text-white">
-          Save row
-        </button>
-        <button onClick={onCancel} className="rounded-lg border border-gray-300 px-2.5 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50">
-          Cancel
-        </button>
-      </div>
     </div>
   );
 }
