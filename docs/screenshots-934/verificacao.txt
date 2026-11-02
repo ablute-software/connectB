@@ -1,0 +1,88 @@
+Prompt 934 — verificação nas páginas reais (dev:verify, modo demo, commit a8a80d87): 78 verificações passaram, 0 falharam
+
+PASS  startups 390x844 (a): the header is the logo and a Menu button on ONE line (72 px tall, button 102x44), nothing cut off
+PASS  startups 390x844 (a): the bar is NOT on screen at the top (the hero's own buttons are)
+PASS  startups 390x844 (a): Menu is a button with aria-expanded=false and aria-controls pointing at an existing panel
+PASS  startups 390x844 (b): after the hero the bar is on screen — full width, at the bottom, 63 px tall, opacity 1  — {"l":0,"t":781,"r":390,"b":844,"w":390,"h":63}
+PASS  startups 390x844 (b): two buttons side by side: "Sign in" (white, ghost) → /login and "Create account" (gold) → /signup  — [["Sign in",174,50,"rgb(255, 255, 255)"],["Create account",172,50,"rgb(12, 39, 46)"]]
+PASS  startups 390x844 (b): the bar is the hero's blue at 92% with an 8 px blur and a thin line on top  — rgba(12, 39, 46, 0.92) blur(8px) 1px
+PASS  startups 390x844 (b): the flag is on <html> and nothing is wider than the window
+PASS  startups 390x844 (c): the menu opens (aria-expanded=true) with the page's links, the selector, Sign in and Create account, in that order  — ["Features","How it works","Pricing","For Startups","For Investors","Sign in","Create account"]
+PASS  startups 390x844 (c): the selector is in ONE line (two options at the same height, 166+166 px wide) and the buttons are ≥ 44 px
+PASS  startups 390x844 (c): the panel hangs under the header, inside the window (72-377 of 844) and the page is not wider
+PASS  startups 390x844 (c): Esc closes the menu and the focus goes back to the button
+PASS  startups 390x844 (c): a tap outside the panel closes it
+PASS  startups 390x844 (c): choosing "Pricing" closes the menu and goes to the section (#pricing at 0 px)
+PASS  startups 390x844 (d): at the end of the page the footer's last line ends 33 px ABOVE the bar (not covered) and the footer's padding grew to 96px  — lastFooterBottom 748 bar top 781
+PASS  startups 390x844: back at the top the bar leaves again (hidden; the room under the footer stays, so nothing moves)
+PASS  startups 390x844: layout shift while the bar and the menu come and go = 0.0000  — [0.0000498900259687304]
+PASS  startups 390x844: no page error, no console error, no hydration warning
+PASS  startups 768x1024 (a): the header is the logo and a Menu button on ONE line (72 px tall, button 102x44), nothing cut off
+PASS  startups 768x1024 (a): the bar is NOT on screen at the top (the hero's own buttons are)
+PASS  startups 768x1024 (a): Menu is a button with aria-expanded=false and aria-controls pointing at an existing panel
+PASS  startups 768x1024 (b): after the hero the bar is on screen — full width, at the bottom, 63 px tall, opacity 1  — {"l":0,"t":961,"r":768,"b":1024,"w":768,"h":63}
+PASS  startups 768x1024 (b): two buttons side by side: "Sign in" (white, ghost) → /login and "Create account" (gold) → /signup  — [["Sign in",363,50,"rgb(255, 255, 255)"],["Create account",361,50,"rgb(12, 39, 46)"]]
+PASS  startups 768x1024 (b): the bar is the hero's blue at 92% with an 8 px blur and a thin line on top  — rgba(12, 39, 46, 0.92) blur(8px) 1px
+PASS  startups 768x1024 (b): the flag is on <html> and nothing is wider than the window
+PASS  startups 768x1024 (c): the menu opens (aria-expanded=true) with the page's links, the selector, Sign in and Create account, in that order  — ["Features","How it works","Pricing","For Startups","For Investors","Sign in","Create account"]
+PASS  startups 768x1024 (c): the selector is in ONE line (two options at the same height, 355+355 px wide) and the buttons are ≥ 44 px
+PASS  startups 768x1024 (c): the panel hangs under the header, inside the window (72-377 of 1024) and the page is not wider
+PASS  startups 768x1024 (c): Esc closes the menu and the focus goes back to the button
+PASS  startups 768x1024 (c): a tap outside the panel closes it
+PASS  startups 768x1024 (c): choosing "Pricing" closes the menu and goes to the section (#pricing at 0 px)
+PASS  startups 768x1024 (d): at the end of the page the footer's last line ends 33 px ABOVE the bar (not covered) and the footer's padding grew to 96px  — lastFooterBottom 928 bar top 961
+PASS  startups 768x1024: back at the top the bar leaves again (hidden; the room under the footer stays, so nothing moves)
+PASS  startups 768x1024: layout shift while the bar and the menu come and go = 0.0054  — [0.0006239078938961029,0.004749121033910342]
+PASS  startups 768x1024: no page error, no console error, no hydration warning
+PASS  investors 390x844 (a): the header is the logo and a Menu button on ONE line (72 px tall, button 102x44), nothing cut off
+PASS  investors 390x844 (a): the bar is NOT on screen at the top (the hero's own buttons are)
+PASS  investors 390x844 (a): Menu is a button with aria-expanded=false and aria-controls pointing at an existing panel
+PASS  investors 390x844 (b): after the hero the bar is on screen — full width, at the bottom, 63 px tall, opacity 1  — {"l":0,"t":781,"r":390,"b":844,"w":390,"h":63}
+PASS  investors 390x844 (b): two buttons side by side: "Sign in" (white, ghost) → /login?as=investor and "Create account" (gold) → /claim  — [["Sign in",174,50,"rgb(255, 255, 255)"],["Create account",172,50,"rgb(12, 39, 46)"]]
+PASS  investors 390x844 (b): the bar is the hero's blue at 92% with an 8 px blur and a thin line on top  — rgba(12, 39, 46, 0.92) blur(8px) 1px
+PASS  investors 390x844 (b): the flag is on <html> and nothing is wider than the window
+PASS  investors 390x844 (c): the menu opens (aria-expanded=true) with the page's links, the selector, Sign in and Create account, in that order  — ["How it works","Features","Pricing","For Startups","For Investors","Sign in","Create account"]
+PASS  investors 390x844 (c): the selector is in ONE line (two options at the same height, 166+166 px wide) and the buttons are ≥ 44 px
+PASS  investors 390x844 (c): the panel hangs under the header, inside the window (72-377 of 844) and the page is not wider
+PASS  investors 390x844 (c): Esc closes the menu and the focus goes back to the button
+PASS  investors 390x844 (c): a tap outside the panel closes it
+PASS  investors 390x844 (c): choosing "Pricing" closes the menu and goes to the section (#pricing at 83 px)
+PASS  investors 390x844 (d): at the end of the page the footer's last line ends 33 px ABOVE the bar (not covered) and the footer's padding grew to 96px  — lastFooterBottom 748 bar top 781
+PASS  investors 390x844: back at the top the bar leaves again (hidden; the room under the footer stays, so nothing moves)
+PASS  investors 390x844: layout shift while the bar and the menu come and go = 0.0002  — [0.00022339128984520519]
+PASS  investors 390x844: no page error, no console error, no hydration warning
+PASS  investors 768x1024 (a): the header is the logo and a Menu button on ONE line (72 px tall, button 102x44), nothing cut off
+PASS  investors 768x1024 (a): the bar is NOT on screen at the top (the hero's own buttons are)
+PASS  investors 768x1024 (a): Menu is a button with aria-expanded=false and aria-controls pointing at an existing panel
+PASS  investors 768x1024 (b): after the hero the bar is on screen — full width, at the bottom, 63 px tall, opacity 1  — {"l":0,"t":961,"r":768,"b":1024,"w":768,"h":63}
+PASS  investors 768x1024 (b): two buttons side by side: "Sign in" (white, ghost) → /login?as=investor and "Create account" (gold) → /claim  — [["Sign in",363,50,"rgb(255, 255, 255)"],["Create account",361,50,"rgb(12, 39, 46)"]]
+PASS  investors 768x1024 (b): the bar is the hero's blue at 92% with an 8 px blur and a thin line on top  — rgba(12, 39, 46, 0.92) blur(8px) 1px
+PASS  investors 768x1024 (b): the flag is on <html> and nothing is wider than the window
+PASS  investors 768x1024 (c): the menu opens (aria-expanded=true) with the page's links, the selector, Sign in and Create account, in that order  — ["How it works","Features","Pricing","For Startups","For Investors","Sign in","Create account"]
+PASS  investors 768x1024 (c): the selector is in ONE line (two options at the same height, 355+355 px wide) and the buttons are ≥ 44 px
+PASS  investors 768x1024 (c): the panel hangs under the header, inside the window (72-377 of 1024) and the page is not wider
+PASS  investors 768x1024 (c): Esc closes the menu and the focus goes back to the button
+PASS  investors 768x1024 (c): a tap outside the panel closes it
+PASS  investors 768x1024 (c): choosing "Pricing" closes the menu and goes to the section (#pricing at 17 px)
+PASS  investors 768x1024 (d): at the end of the page the footer's last line ends 33 px ABOVE the bar (not covered) and the footer's padding grew to 96px  — lastFooterBottom 928 bar top 961
+PASS  investors 768x1024: back at the top the bar leaves again (hidden; the room under the footer stays, so nothing moves)
+PASS  investors 768x1024: layout shift while the bar and the menu come and go = 0.0024  — [0.0023944753532608347]
+PASS  investors 768x1024: no page error, no console error, no hydration warning
+PASS  startups 1440 (e): the header's "Sign in" is WHITE (rgb(255, 255, 255)), the unselected option is light (rgba(255, 255, 255, 0.8)), the selected one keeps its ink on amber (rgb(12, 39, 46))
+PASS  startups 1440 (e): no Menu button, no bar, the row of links is in the header
+PASS  startups 1440 (e): scrolled, the white header keeps its variants (Sign in ink rgb(12, 39, 46), unselected muted rgb(91, 112, 119), selected white rgb(255, 255, 255))
+PASS  startups 1440 (e): no error
+PASS  investors 1440 (e): the header's "Sign in" is WHITE (rgb(255, 255, 255)), the unselected option is light (rgba(255, 255, 255, 0.8)), the selected one keeps its ink on amber (rgb(12, 39, 46))
+PASS  investors 1440 (e): no Menu button, no bar, the row of links is in the header
+PASS  investors 1440 (e): scrolled, the white header keeps its variants (Sign in ink rgb(12, 39, 46), unselected muted rgb(91, 112, 119), selected white rgb(255, 255, 255))
+PASS  investors 1440 (e): no error
+PASS  reduced motion: the bar has no transition (0s)
+PASS  320x568: the hero's buttons start at 586 px (below the fold of 568) and the bar is on screen from the start: true  — ctasTop 586
+
+TOTAL 78 checks, 0 failed
+
+CLS (Lighthouse mobile 12.8.2, throttling simulado): build local de produção em modo demo vs produção (www) antes desta alteração
+local-home CLS 4.96668187823482e-05
+local-investors CLS 0.0002229172629063807
+producao-home CLS 0
+producao-investors CLS 0
