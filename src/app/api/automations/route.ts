@@ -49,6 +49,10 @@ import { runAutomationRulesSweep, type AutomationRulesSweepResult } from '@/lib/
 import { investorNotifyDigestAvailable } from '@/lib/investor-notify-digest-capability';
 import { runInvestorNotifyDigestSweep, type NotifyDigestSweepResult } from '@/lib/investor-notify-digest-server';
 
+// The daily tick runs when the cron calls it, never while the site is built. Without this Next prerenders the handler at build time (it takes no request and reads no cookie) and, with the Supabase
+// variables set, runs the whole tick there — and a service-role client that forces `cache: 'no-store'` (supabase-no-store.ts) turns that into a build that never finishes (Vercel, 02/11/2026).
+export const dynamic = 'force-dynamic';
+
 // Prompt 201 §3 — limiar de sinal, não de aborto.
 const MONTHLY_DELIVERY_ALERT_THRESHOLD = 100;
 
