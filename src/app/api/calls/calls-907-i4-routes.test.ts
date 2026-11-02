@@ -155,8 +155,13 @@ describe('the entity\'s Submissions (read-only)', () => {
     expect(JSON.stringify(d.body)).not.toContain('EDITED LATER');
     expect(d.body.documents).toMatchObject([{ fileName: 'deck.pdf', url: `/api/calls/${CALL}/submissions/s1/documents/file-s1` }]);
     const dl = await docGet(req(), { params: { id: CALL, applicationId: 's1', fileId: 'file-s1' } });
-    expect(dl.status).toBe(302);
-    expect(dl.headers.get('location')).toContain(`calls/${CALL}/applications/s1/frozen/file-s1.pdf`);
+    // streamed through the platform (Prompt 930): inline for a PDF, never a redirect to a Storage address
+    expect(dl.status).toBe(200);
+    expect(dl.headers.get('location')).toBeNull();
+    expect(dl.headers.get('content-type')).toBe('application/pdf');
+    expect(dl.headers.get('content-disposition')).toMatch(/^inline;/);
+    expect(dl.headers.get('cache-control')).toBe('private, no-store');
+    expect(db.tables.call_events.filter((e) => e.event === 'document_opened')).toMatchObject([{ application_id: 's1', detail: { fileId: 'file-s1', where: 'applications' } }]);
     expect((await docGet(req(), { params: { id: CALL, applicationId: 's1', fileId: 'not-a-document-of-this-version' } })).status).toBe(404);
   });
 

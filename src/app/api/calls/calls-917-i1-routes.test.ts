@@ -265,7 +265,8 @@ describe('the submitted version, and what the entity reads', () => {
     expect(docs.map((x) => x.fileName).sort()).toEqual(['cv-ana.pdf', 'cv.docx', 'plan.pdf', 'team.jpg']);
     for (const f of [...files.others, files.cv, files.photo]) {
       const dl = await docGet(req('GET'), { params: { id: CALL, applicationId: id, fileId: f } });
-      expect(dl.status).toBe(302);
+      expect(dl.status).toBe(200);
+      expect(dl.headers.get('location')).toBeNull();
     }
     const rows = (d.body.answers[F.competitors] as { values: Record<string, string> }[]);
     expect(rows.map((r) => r.values[C.name])).toEqual(['Your company', 'Competitor 1']);

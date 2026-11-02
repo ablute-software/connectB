@@ -13,6 +13,7 @@ import { callsApi } from './api';
 import { AutoTextarea } from './AutoTextarea';
 import { GradeRing } from './EvaluatorPreview';
 import { AnswerView } from './SubmissionsTab';
+import { DocViewerProvider } from './DocViewer';
 import { ScrollTabs } from '@/components/ScrollTabs';
 
 const BTN = 'min-h-[44px] rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 sm:min-h-0 sm:py-1 sm:text-xs';
@@ -243,6 +244,7 @@ export function EvaluationScreen({ callId, applicationId, onBack }: { callId: st
   );
 
   return (
+    <DocViewerProvider docs={data.documents}>
     <div className="min-w-0 space-y-3" data-testid="evaluation">
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
         <button type="button" className={BTN} onClick={() => { void flush().then(onBack); }} data-testid="eval-back">← My evaluations</button>
@@ -266,6 +268,7 @@ export function EvaluationScreen({ callId, applicationId, onBack }: { callId: st
         <div className={`${tab === 'score' ? '' : 'hidden'} min-w-0 lg:sticky lg:top-2 lg:block lg:max-h-[calc(100vh-1rem)] lg:overflow-y-auto`}>{scorePane}</div>
       </div>
     </div>
+    </DocViewerProvider>
   );
 }
 

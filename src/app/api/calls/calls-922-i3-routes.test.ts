@@ -184,6 +184,8 @@ describe('the application the evaluator reads', () => {
     expect(ok.headers.get('location')).toBeNull();
     expect(ok.headers.get('cache-control')).toBe('private, no-store');
     expect(ok.headers.get('x-content-type-options')).toBe('nosniff');
+    // who opened what, and when: one event per opening (the id of the file, never its name)
+    expect(events('document_opened')).toMatchObject([{ actor_user_id: 'ana', application_id: APP, detail: { fileId, where: 'evaluation' } }]);
     as('bruno');
     expect((await docGet(json('GET'), { params: { id: CALL, applicationId: APP, fileId } })).status).toBe(403);
     as('rita');

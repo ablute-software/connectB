@@ -5,15 +5,16 @@
 // shows the result rule by rule with the evidence, the possible duplicates and — for whoever may — the corrections. Evaluation and distribution come in a later stage.
 import { useCallback, useEffect, useState } from 'react';
 import { formatInZone } from '@/lib/calls/tz';
-import { formatNumberDisplay, visiblePages } from '@/lib/calls/form-logic';
+import { answerText } from '@/lib/calls/answer-text';
+import { visiblePages } from '@/lib/calls/form-logic';
 import { entriesOf, fileValues, groupOf, isHttpUrl, presetEntriesFor, subFieldAsField } from '@/lib/calls/field-config';
-import { isTableAnswered, tableSummary } from '@/lib/calls/table';
+import { isTableAnswered } from '@/lib/calls/table';
 import type { Answers, AnswerValue, FormField, SimpleAnswer } from '@/lib/calls/types';
 import { TableInput } from './TableInput';
 import { ApplicationEligibility } from './ApplicationEligibility';
 import { ELIGIBILITY_LABEL, type EligibilityInfo, type EligibilityState, type EligibilityView } from '@/lib/calls/eligibility-payload';
 import { duplicateSentence, type PossibleDuplicate } from '@/lib/calls/duplicates';
-import { ScrollTabs } from '@/components/ScrollTabs';
+import { DocViewerProvider, useDocViewer } from './DocViewer';
 
 interface Item { applicationId: string; reference: string | null; startup: string; submittedAt: string; eligibility?: { state: EligibilityState; view: EligibilityView; reason: string; source: string | null }; duplicates?: number }
 interface Detail {
@@ -24,25 +25,14 @@ interface Detail {
 
 const sizeText = (b: number) => (b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 
-/** An answer as text, for reading (option labels, not ids). Pure; the tests read it. */
-export function answerText(field: FormField, value: AnswerValue, currency: string): string {
-  if (value == null || value === '') return '—';
-  if (field.kind === 'table') return isTableAnswered(value) ? tableSummary(field, value) : '—';
-  if (field.kind === 'group') { const n = entriesOf(value).length; const g = groupOf(field); return n === 0 ? '—' : `${n} ${(g?.entryLabel ?? 'entry').toLowerCase()}${n === 1 ? '' : ' entries'}`; }
-  if (Array.isArray(value)) {
-    if (field.kind === 'file') return fileValues(value).map((f) => f.fileName).join(', ') || '—';
-    return (value as unknown[]).map((id) => field.options.find((o) => o.id === id)?.label ?? String(id)).join(', ') || '—';
-  }
-  if (typeof value === 'object') return (value as { fileName: string }).fileName;
-  if (field.kind === 'yes_no' || field.kind === 'single_choice') return field.options.find((o) => o.id === value)?.label ?? value;
-  if (field.kind === 'number') return formatNumberDisplay(value, field.validations.currency ? currency : null);
-  return value;
-}
+export { answerText } from '@/lib/calls/answer-text';
 
 type Doc = Detail['documents'][number];
 
 /** One answer as the entity reads it: option labels, files as downloads, a link that opens in a NEW tab (never embedded, never previewed), a group as its entries. */
 export function AnswerView({ field, value, docs, currency }: { field: FormField; value: AnswerValue | SimpleAnswer; docs: Doc[]; currency: string }) {
+  // Inside a viewer (Prompt 930) a document opens in the platform; without one it stays a plain link to the platform's own route.
+  const openDoc = useDocViewer();
   if (field.kind === 'file') {
     const refs = fileValues(value);
     if (refs.length === 0) return <>—</>;
@@ -52,7 +42,9 @@ export function AnswerView({ field, value, docs, currency }: { field: FormField;
           const doc = docs.find((d) => d.fileId === r.fileId);
           return (
             <li key={r.fileId ?? i}>
-              {doc ? <a href={doc.url} className="font-medium text-[#0E7490] hover:underline" target="_blank" rel="noreferrer">{doc.fileName}</a> : r.fileName}
+              {doc ? (openDoc
+                ? <button type="button" className="text-left font-medium text-[#0E7490] hover:underline [overflow-wrap:anywhere]" data-testid="open-document" onClick={() => openDoc(doc.fileId)}>{doc.fileName}</button>
+                : <a href={doc.url} className="font-medium text-[#0E7490] hover:underline" target="_blank" rel="noreferrer">{doc.fileName}</a>) : r.fileName}
               <span className="ml-2 text-xs text-gray-400">{sizeText(doc?.size ?? r.size)}{doc?.source === 'vault' ? ` · from the Vault (v${doc.versionNumber ?? 1})` : ''}</span>
             </li>
           );
@@ -101,25 +93,29 @@ export function AnswerView({ field, value, docs, currency }: { field: FormField;
   return <>{answerText(field, value as AnswerValue, currency)}</>;
 }
 
-const VIEWS: { key: EligibilityView | 'all'; label: string }[] = [
-  { key: 'all', label: 'All' }, { key: 'fit', label: 'Fit' }, { key: 'not_fit', label: 'Not a fit' }, { key: 'to_validate', label: 'To validate' }, { key: 'processing', label: 'Processing' },
+/** The filters of the list of applications (Prompt 930, B): the result, and "Changed by a person" (decided or flagged by someone, not left to the automatic check). */
+export type ListFilter = EligibilityView | 'all' | 'changed';
+const FILTERS: { key: ListFilter; label: string; param: string }[] = [
+  { key: 'all', label: 'All', param: 'all' }, { key: 'fit', label: 'Fit', param: 'fit' }, { key: 'not_fit', label: 'Not a fit', param: 'not_fit' }, { key: 'to_validate', label: 'To validate', param: 'to_validate' },
+  { key: 'processing', label: 'Processing', param: 'processing' }, { key: 'changed', label: 'Changed by a person', param: 'changed' },
 ];
+export const isFilter = (v: unknown): v is ListFilter => FILTERS.some((f) => f.key === v);
 const STATE_TONE: Record<EligibilityState, string> = { fit: 'bg-emerald-50 text-emerald-900', not_fit: 'bg-red-50 text-[#8a0000]', to_validate: 'bg-amber-50 text-amber-900', queued: 'bg-gray-100 text-gray-700', processing: 'bg-gray-100 text-gray-700', technical_failure: 'bg-red-50 text-[#8a0000]' };
 
 /** The applications of one sub-view. An application with no eligibility information (an old server answer) is shown in "All" only. */
-export const shown = (items: Item[], view: EligibilityView | 'all'): Item[] => (view === 'all' ? items : items.filter((s) => s.eligibility?.view === view));
+export const changedByAPerson = (s: Pick<Item, 'eligibility'>): boolean => s.eligibility?.source === 'human' || s.eligibility?.source === 'flag';
+export const shown = (items: Item[], view: ListFilter): Item[] => (view === 'all' ? items : view === 'changed' ? items.filter(changedByAPerson) : items.filter((s) => s.eligibility?.view === view));
+/** "All (24) · Fit (15) · Not a fit (6) · To validate (3)": the counts of every filter, from the list itself. */
+export const filterCounts = (items: Item[]): Record<ListFilter, number> => ({ all: items.length, fit: shown(items, 'fit').length, not_fit: shown(items, 'not_fit').length, to_validate: shown(items, 'to_validate').length, processing: shown(items, 'processing').length, changed: shown(items, 'changed').length });
 
-function SubViews({ view, counts, total, onView }: { view: EligibilityView | 'all'; counts: Record<EligibilityView, number> | null; total: number; onView: (v: EligibilityView | 'all') => void }) {
+function SubViews({ view, counts, onView }: { view: ListFilter; counts: Record<ListFilter, number>; onView: (v: ListFilter) => void }) {
   return (
-    <ScrollTabs label="Eligibility" className="mt-3 flex gap-1 overflow-x-auto whitespace-nowrap border-b border-gray-200" testId="eligibility-views">
-      {VIEWS.map((v) => {
-        const n = v.key === 'all' ? total : counts?.[v.key] ?? 0;
-        return (
-          <button key={v.key} type="button" role="tab" aria-selected={view === v.key} data-testid={`view-${v.key}`} onClick={() => onView(v.key)}
-            className={`-mb-px min-h-[44px] shrink-0 border-b-2 px-3 py-2 text-sm sm:min-h-0 ${view === v.key ? 'border-[#0E7490] font-semibold text-[#0E7490]' : 'border-transparent text-gray-600 hover:text-gray-900'}`}>{v.label} <span className="text-xs text-gray-400">{n}</span></button>
-        );
-      })}
-    </ScrollTabs>
+    <div role="group" aria-label="Filter the applications" className="mt-3 flex flex-wrap gap-2" data-testid="eligibility-views">
+      {FILTERS.filter((f) => f.key !== 'processing' || counts.processing > 0).map((f) => (
+        <button key={f.key} type="button" aria-pressed={view === f.key} data-testid={`view-${f.key}`} onClick={() => onView(f.key)}
+          className={`min-h-[44px] rounded-full border px-3 py-1.5 text-sm sm:min-h-0 sm:py-1 ${view === f.key ? 'border-[#0E7490] bg-[#E8F4F8] font-semibold text-[#0A5F75]' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'}`}>{f.label} ({counts[f.key]})</button>
+      ))}
+    </div>
   );
 }
 
@@ -137,15 +133,19 @@ export function SubmissionsTab({ callId, timezone, currency }: { callId: string;
   const [items, setItems] = useState<Item[] | null>(null);
   const [error, setError] = useState('');
   const [open, setOpen] = useState<(Detail & { id: string }) | null>(null);
-  const [view, setView] = useState<EligibilityView | 'all'>('all');
-  const [counts, setCounts] = useState<Record<EligibilityView, number> | null>(null);
+  // The filter is in the address (?elig=not_fit), so a view can be shared and survives a reload.
+  const [view, setViewState] = useState<ListFilter>(() => { try { const v = new URLSearchParams(window.location.search).get('elig'); return isFilter(v) ? v : 'all'; } catch { return 'all'; } });
+  const setView = useCallback((v: ListFilter) => {
+    setViewState(v);
+    try { const u = new URL(window.location.href); if (v === 'all') u.searchParams.delete('elig'); else u.searchParams.set('elig', FILTERS.find((f) => f.key === v)!.param); window.history.replaceState(window.history.state, '', u.toString()); } catch { /* an address that cannot be rewritten: the filter still works */ }
+  }, []);
 
   const load = useCallback(async (alive: () => boolean = () => true) => {
     try {
       const r = await fetch(`/api/calls/${callId}/submissions`, { cache: 'no-store' });
       const d = await r.json().catch(() => null);
       if (!alive()) return null;
-      if (r.ok && d?.ok) { setItems(d.submissions); setCounts(d.counts ?? null); return d as { counts?: Record<EligibilityView, number> }; }
+      if (r.ok && d?.ok) { setItems(d.submissions); return d as { counts?: Record<EligibilityView, number> }; }
       setItems([]); setError(d?.error ?? 'You cannot view the submissions of this call.');
     } catch { if (alive()) { setItems([]); setError('We could not load the submissions.'); } }
     return null;
@@ -171,6 +171,7 @@ export function SubmissionsTab({ callId, timezone, currency }: { callId: string;
   if (open) {
     const pages = visiblePages(open.fields, open.answers);
     return (
+      <DocViewerProvider docs={open.documents}>
       <section data-testid="submission-detail">
         <button type="button" onClick={() => setOpen(null)} className="min-h-[44px] text-sm text-gray-500 hover:text-[#0E7490] sm:min-h-0">← Applications</button>
         <h2 className="mt-2 text-base font-semibold text-gray-900">{open.startup} <span className="font-mono text-xs font-normal text-gray-500">{open.reference}</span></h2>
@@ -182,7 +183,7 @@ export function SubmissionsTab({ callId, timezone, currency }: { callId: string;
             <p className="mt-1 text-[11px] text-amber-900">Nothing is blocked: you decide, in the light of what counts as one entity in this call.</p>
           </div>
         )}
-        {open.eligibility && <div className="mt-3"><ApplicationEligibility callId={callId} applicationId={open.id} info={open.eligibility} canCorrect={open.canCorrect === true} canFlag={open.canFlag === true} onChanged={() => { void show(open.id); void load(); }} /></div>}
+        {open.eligibility && <div className="mt-3"><ApplicationEligibility callId={callId} applicationId={open.id} info={open.eligibility} canCorrect={open.canCorrect === true} canFlag={open.canFlag === true} documents={open.documents} fields={open.fields} answers={open.answers} currency={currency} onChanged={() => { void show(open.id); void load(); }} /></div>}
         <div className="mt-4 space-y-6">
           {pages.map((p, i) => (
             <div key={p.page}>
@@ -201,6 +202,7 @@ export function SubmissionsTab({ callId, timezone, currency }: { callId: string;
           ))}
         </div>
       </section>
+      </DocViewerProvider>
     );
   }
 
@@ -209,7 +211,7 @@ export function SubmissionsTab({ callId, timezone, currency }: { callId: string;
       <h2 className="text-base font-semibold text-gray-900">Applications</h2>
       <p className="mt-1 text-xs text-gray-500">Applications that were submitted, read-only. Applications still being filled in are never shown to the organisation that runs the call.</p>
       {error && <p role="alert" className="mt-3 text-sm text-[#B00000]">{error}</p>}
-      {items !== null && items.length > 0 && <SubViews view={view} counts={counts} total={items.length} onView={setView} />}
+      {items !== null && items.length > 0 && <SubViews view={view} counts={filterCounts(items)} onView={setView} />}
       {items === null ? <p className="mt-4 text-sm text-gray-400">Loading…</p> : items.length === 0 && !error ? (
         <p className="mt-4 text-sm text-gray-500" data-testid="no-submissions">No applications have been submitted yet.</p>
       ) : items.length > 0 ? (

@@ -12,6 +12,8 @@ export const ELIGIBILITY_LABEL: Record<EligibilityState, string> = {
 
 export interface RuleLine {
   ruleId: string; kind: string; sentence: string;
+  /** The question or document the rule is about (so the screen can show the applicant's answer next to it). */
+  fieldId?: string;
   /** What the engine said, and what stands now (a person may have decided otherwise). */
   engine: Outcome; effective: Outcome; reason: string;
   evidence: { quote?: string; page?: number | null; fileName?: string } | null;
@@ -47,7 +49,7 @@ export function buildInfo(current: CurrentEligibility | null, task: { status: st
     rules: current.ruleResults.map((r) => {
       const ov = current.overrides[r.ruleId];
       const override = ov && ov.outcome ? { outcome: ov.outcome, by: ov.by, why: ov.why, at: ov.at } : null;
-      return { ruleId: r.ruleId, kind: r.kind, sentence: r.sentence, engine: r.outcome, effective: override?.outcome ?? r.outcome, reason: r.reason, evidence: r.evidence ?? null, override };
+      return { ruleId: r.ruleId, kind: r.kind, sentence: r.sentence, fieldId: r.fieldId, engine: r.outcome, effective: override?.outcome ?? r.outcome, reason: r.reason, evidence: r.evidence ?? null, override };
     }),
   };
 }
