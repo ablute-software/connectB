@@ -242,5 +242,5 @@ export function TableInput({ field, value, currency, disabled, showAllErrors, va
 }
 
 /** A one-line reading of the table's currency formatting of an amount, for places that show a value rather than an input (the Submissions tab). */
-export const formatCell = (kind: TableCellKind, v: string, currency: string): string => (kind === 'amount' ? formatNumberDisplay(v, currency) : kind === 'percent' ? `${v} %` : v);
+export const formatCell = (kind: TableCellKind, v: string, currency: string, language?: string | null): string => (kind === 'amount' ? formatNumberDisplay(v, currency, language) : kind === 'percent' ? `${v} %` : v);
 export type { TableConfig };

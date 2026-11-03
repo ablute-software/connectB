@@ -11,11 +11,12 @@ import { FileConfigEditor, GroupEditor, UrlConfigEditor, type ConvertAction } fr
 import { callsApi, type CallState } from './api';
 import { AutoTextarea } from './AutoTextarea';
 import { TableEditor } from './TableEditor';
+import { DependentFrame } from './DependentFrame';
 import type { ImportStatus } from '@/lib/calls/ai-import/screen-state';
 import type { ImportMode } from '@/lib/calls/form-import';
 import { orderFields } from '@/lib/calls/form-logic';
 import {
-  addOption, appendField, changeKind, deleteField, mergePageWithPrevious, moveField, removeOption, renameOption, splitPageAt, suggestPages,
+  addOption, appendField, cascadeDeleteSentence, changeKind, deleteFieldWithDependents, shownIfLabel, mergePageWithPrevious, moveField, removeOption, renameOption, splitPageAt, suggestPages,
 } from '@/lib/calls/form-builder';
 import {
   CONDITION_OPERATOR_LABELS, DEFAULT_MAX_FILE_MB, FIELD_KINDS, FIELD_KIND_LABELS, MAPPABLE_KINDS, MAX_FILE_MB_CEILING, PLATFORM_MAPPINGS, isChoiceKind,
@@ -181,12 +182,13 @@ export function FormTab({ callId, fields, disabled, lockedReason, onChange, onIm
                 <ul className="space-y-2">
                   {ordered.filter((f) => f.page === page).map((f, fi) => {
                     const flatIndex = ordered.findIndex((x) => x.id === f.id);
-                    const cond = conditionText(f, ordered);
+                    const cond = shownIfLabel(f, ordered) ?? conditionText(f, ordered);
                     return (
                       <li key={f.id} data-testid="field-card" data-jump={f.id}>
                         {fi > 0 && !disabled && (
                           <button type="button" onClick={() => onChange(splitPageAt(fields, f.id))} className="mb-1 block text-[10px] text-gray-300 hover:text-[#0E7490]" title="Start a new page before this question">— new page here —</button>
                         )}
+                        <DependentFrame field={f} all={ordered} gap="sm" tag={false}>
                         <div draggable={!disabled}
                           onDragStart={() => setDragId(f.id)} onDragEnd={() => setDragId(null)}
                           onDragOver={(e) => { if (dragId) e.preventDefault(); }} onDrop={() => drop(flatIndex)}
@@ -208,6 +210,7 @@ export function FormTab({ callId, fields, disabled, lockedReason, onChange, onIm
                             <button type="button" aria-label="Move down" disabled={disabled || flatIndex === ordered.length - 1} onClick={(e) => { e.stopPropagation(); step(f.id, 1); }} className="rounded px-1 text-xs text-gray-400 hover:bg-gray-100 disabled:opacity-30">↓</button>
                           </div>
                         </div>
+                        </DependentFrame>
                       </li>
                     );
                   })}
@@ -224,7 +227,8 @@ export function FormTab({ callId, fields, disabled, lockedReason, onChange, onIm
             <FieldPanel
               field={selected} ordered={ordered} disabled={disabled} convert={convertFor(selected)}
               onChange={(patch) => update(selected.id, patch)} onReplace={(f) => onChange(fields.map((x) => (x.id === f.id ? f : x)))}
-              onDelete={() => { onChange(deleteField(fields, selected.id)); setSelectedId(null); }}
+              cascade={cascadeDeleteSentence(fields, selected.id)}
+              onDelete={() => { onChange(deleteFieldWithDependents(fields, selected.id)); setSelectedId(null); }}
             />
           ) : (
             <p className="rounded-lg border border-dashed border-gray-300 p-6 text-center text-sm text-gray-400">Select a field to edit it here.</p>
@@ -241,7 +245,8 @@ export function FormTab({ callId, fields, disabled, lockedReason, onChange, onIm
             <FieldPanel
               field={selected} ordered={ordered} disabled={disabled} convert={convertFor(selected)}
               onChange={(patch) => update(selected.id, patch)} onReplace={(f) => onChange(fields.map((x) => (x.id === f.id ? f : x)))}
-              onDelete={() => { onChange(deleteField(fields, selected.id)); setSelectedId(null); }}
+              cascade={cascadeDeleteSentence(fields, selected.id)}
+              onDelete={() => { onChange(deleteFieldWithDependents(fields, selected.id)); setSelectedId(null); }}
             />
             <button type="button" onClick={() => setSelectedId(null)} className="mt-4 min-h-[44px] w-full rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-semibold text-white">Done</button>
           </div>
@@ -252,10 +257,13 @@ export function FormTab({ callId, fields, disabled, lockedReason, onChange, onIm
   );
 }
 
-export function FieldPanel({ field, ordered, disabled, onChange, onReplace, onDelete, convert }: {
+export function FieldPanel({ field, ordered, disabled, onChange, onReplace, onDelete, convert, cascade = null }: {
   field: FormField; ordered: FormField[]; disabled: boolean; convert?: ConvertAction;
+  /** Prompt 927 (C): when the question has follow-ups, the sentence that says they go with it — asked in the page before anything is deleted. */
+  cascade?: string | null;
   onChange: (patch: Partial<FormField>) => void; onReplace: (f: FormField) => void; onDelete: () => void;
 }) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   // A group cannot be what a condition depends on (version 1), and nothing inside a group is a question of the form.
   const earlier = ordered.slice(0, ordered.findIndex((x) => x.id === field.id)).filter((x) => x.kind !== 'group' && x.kind !== 'table');
   const controller = field.condition ? earlier.find((x) => x.id === field.condition!.fieldId) : null;
@@ -394,7 +402,17 @@ export function FieldPanel({ field, ordered, disabled, onChange, onReplace, onDe
         <p className="mt-1 text-[11px] text-gray-400">A required question that is hidden by its condition never blocks the applicant.</p>
       </div>
 
-      <button type="button" disabled={disabled} onClick={onDelete} className="text-xs font-medium text-[#B00000] hover:underline disabled:opacity-40" data-testid="delete-field">Delete this field</button>
+      {confirmingDelete ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3" role="alertdialog" aria-label="Delete this question and its follow-ups" data-testid="delete-confirm">
+          <p className="text-sm text-gray-800" data-testid="delete-confirm-text">{cascade}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button type="button" disabled={disabled} onClick={() => { setConfirmingDelete(false); onDelete(); }} className="rounded-lg bg-[#B00000] px-3 py-1.5 text-sm font-semibold text-white" data-testid="delete-confirm-yes">Yes, delete them all</button>
+            <button type="button" onClick={() => setConfirmingDelete(false)} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700" data-testid="delete-confirm-no">Keep them</button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" disabled={disabled} onClick={() => (cascade ? setConfirmingDelete(true) : onDelete())} className="text-xs font-medium text-[#B00000] hover:underline disabled:opacity-40" data-testid="delete-field">Delete this field</button>
+      )}
     </div>
   );
 }

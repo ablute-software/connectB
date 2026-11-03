@@ -2,7 +2,8 @@
 import { NextResponse } from 'next/server';
 import { authCall } from '@/lib/calls/access';
 import { parseGeneralPatch } from '@/lib/calls/mappers';
-import { bumpConfig, setCallDescription } from '@/lib/calls/store';
+import { bumpConfig, loadPromoterNames, setCallDescription } from '@/lib/calls/store';
+import { nameClashBody } from '@/lib/calls/call-names';
 import { buildCallState } from '@/lib/calls/state';
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
@@ -31,6 +32,12 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
   const parsed = parseGeneralPatch(body, auth.call);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 });
+
+  // Prompt 927 (F): renaming never makes two calls of the organisation share a name (the call's own name, written again, is not a clash).
+  if (typeof parsed.patch.name === 'string' && parsed.patch.name !== auth.call.name) {
+    const clash = nameClashBody(await loadPromoterNames(auth.admin, auth.call.promoterKind, auth.call.promoterId), parsed.patch.name, auth.call.id);
+    if (clash) return NextResponse.json({ ok: false, ...clash }, { status: 409 });
+  }
 
   const baseVersion = Number(body.baseVersion);
   if (!Number.isInteger(baseVersion)) return NextResponse.json({ ok: false, error: 'Missing baseVersion.' }, { status: 400 });

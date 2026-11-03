@@ -78,7 +78,10 @@ export const REQUIRED_CUE = /\bobrigatori[ao]s?\b|\bmandatory\b|\brequired\b|\*\
 /** "Se sim, …", "Se Não, …", "If yes, …": a follow-up that depends on the previous yes/no. */
 export const IF_YES = /^(?:\d+(?:\.\d+)*\.?\s*)?(?:se\s+sim|if\s+yes)\b/;
 export const IF_NO = /^(?:\d+(?:\.\d+)*\.?\s*)?(?:se\s+nao|if\s+no)\b/;
-export const FOLLOW_UP_INLINE = /\?\s*(se\s+sim\b.*|if\s+yes\b.*)$/;
+/** Prompt 927 (B): "? Se sim, …", "? Se não, …", "? Caso afirmativo, …", "? If yes, …", "? If so, …", "? If not, …": the follow-up that sits in the same item as its yes/no. */
+export const FOLLOW_UP_INLINE = /\?\s*((?:se\s+sim|se\s+nao|caso\s+afirmativo|caso\s+negativo|if\s+yes|if\s+so|if\s+not|if\s+no)\b.*)$/;
+/** The follow-ups that are shown when the answer is No. */
+export const FOLLOW_UP_IS_NO = /^(?:se\s+nao|caso\s+negativo|if\s+not|if\s+no)\b/;
 export const YES_NO_THEN_AMOUNT = /\?\s*(?:sim\s+ou\s+nao|yes\s+or\s+no)\s*\.?\s*((?:quanto|qual o valor|how much|qual o montante)\b.*\?)\s*$/;
 /** A block the reader does not turn into questions: a template, a table, an example. */
 export const STRUCTURE_MARKER = /\b(?:template|modelo de|tabela|table|quadro|exemplo\s*-)\b/;

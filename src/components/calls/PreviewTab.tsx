@@ -12,6 +12,7 @@ import type { CallSummary, ReadinessIssue, availableActions } from '@/lib/calls/
 import { stepLabel, stepOfIssue, type StepKey } from '@/lib/calls/editor-nav';
 import { FormPreview } from './FormPreview';
 import { FormTest } from './FormTest';
+import { CallLanguageProvider } from './CallLanguage';
 import { StatusBadge } from './StatusBadge';
 import type { CallStatus } from '@/lib/calls/types';
 import { closeReasonSentence, closingLine, type CloseReason } from '@/lib/calls/closing';
@@ -88,9 +89,11 @@ export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summ
             )}
           </div>
         )}
-        {testing && canManage
-          ? <FormTest fields={fields} currency={call.currency} title={call.name} onExit={() => setTesting(false)} />
-          : <FormPreview fields={fields} currency={call.currency} title={call.name} />}
+        <CallLanguageProvider value={call.contentLanguage}>
+          {testing && canManage
+            ? <FormTest fields={fields} currency={call.currency} title={call.name} onExit={() => setTesting(false)} />
+            : <FormPreview fields={fields} currency={call.currency} title={call.name} />}
+        </CallLanguageProvider>
       </div>
 
       <div className="space-y-4">

@@ -76,13 +76,13 @@ describe('a File question: formats and several files', () => {
     expect(validateAnswer(f, [fv('a.pdf'), fv('b.docx')])).toBeNull();
     expect(validateAnswer(f, [fv('a.pdf'), fv('b.docx'), fv('c.pdf')])).toBe('You can attach at most 2 files.');
     expect(validateAnswer(f, fv('a.xlsx'))).toBe('“a.xlsx” is not an accepted file type. This question accepts PDF or Word files (.pdf, .docx, .doc).');
-    expect(validateAnswer(f, [fv('a.pdf', 2 * 1024 * 1024)])).toBe('The file is too large (maximum 1 MB).');
+    expect(validateAnswer(f, [fv('a.pdf', 2 * 1024 * 1024)])).toBe('This file is 2.0 MB. The maximum is 1 MB.');
     expect(validateAnswer(f, fv('a.pdf'))).toBeNull();                                       // one file where several are allowed
     expect(validateAnswer(field('file', { validations: { maxFileMb: 10 } }), [fv('a.pdf'), fv('b.pdf')])).toBe('Only one file can be attached here.');
   });
-  it('is read from the editor within the limits: up to 10 files, up to 50 MB, at least one format; one file stays "one"', () => {
-    expect(parseSimpleValidations('file', { maxFiles: 99, maxFileMb: 999, fileFormats: ['pdf', 'zip', 'image'] })).toEqual({ maxFileMb: 50, maxFiles: 10, fileFormats: ['pdf', 'image'] });
-    expect(parseSimpleValidations('file', { maxFiles: 1 })).toEqual({ maxFileMb: 10 });
+  it('is read from the editor within the limits: up to 10 files, up to 12 MB (never more, Prompt 927), at least one format; one file stays "one"', () => {
+    expect(parseSimpleValidations('file', { maxFiles: 99, maxFileMb: 999, fileFormats: ['pdf', 'zip', 'image'] })).toEqual({ maxFileMb: 12, maxFiles: 10, fileFormats: ['pdf', 'image'] });
+    expect(parseSimpleValidations('file', { maxFiles: 1 })).toEqual({ maxFileMb: 12 });
     expect(maxFilesOf(parseSimpleValidations('file', { maxFiles: 4 }))).toBe(4);
   });
   it('a list of files is "answered" when it is not empty', () => {

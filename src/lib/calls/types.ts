@@ -1,6 +1,7 @@
 // Prompt 905 — Calls, Stage 1: the vocabulary shared by the entity-side editor (905) and the applicant
 // side (906). Pure types and constants, no I/O, importable from client and server alike
 // (docs/calls/SPEC_CALLS_V2.md §5, §6, §8).
+import { CURRENCY_CODES } from './currencies';
 
 // Prompt 917 (I1): url, email and group are new. The first eight are the original kinds; a group is the only kind that holds other questions.
 
@@ -169,8 +170,9 @@ export interface FormField {
   maxAgeMonths: number | null;
 }
 
-export const DEFAULT_MAX_FILE_MB = 10;
-export const MAX_FILE_MB_CEILING = 50;
+/** Prompt 927 (E): every file in a call is at most 12 MB — the platform's ceiling AND the default. An entity can choose a smaller limit, never a larger one and never "no limit". */
+export const DEFAULT_MAX_FILE_MB = 12;
+export const MAX_FILE_MB_CEILING = 12;
 export const MAX_NUMBER_DIGITS = 15;
 export const YES_NO_OPTIONS: FieldOption[] = [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }];
 
@@ -242,7 +244,8 @@ export const CONTENT_LANGUAGES = [
   { code: 'en', label: 'English' }, { code: 'pt', label: 'Português' }, { code: 'es', label: 'Español' },
   { code: 'fr', label: 'Français' }, { code: 'de', label: 'Deutsch' }, { code: 'it', label: 'Italiano' },
 ] as const;
-export const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'BRL'] as const;
+/** Every currency a call can use (Prompt 927, D: the list, the names and the decimals live in `currencies.ts`). */
+export const CURRENCIES = CURRENCY_CODES;
 
 /** An answer, by field id. Text, link, email: string; number: digits; date: YYYY-MM-DD; yes/no: 'yes'|'no'; single: option id;
  *  multiple: option ids; file: one {fileName,size,…} (several when the question takes several: a list); group: a list of entries. */

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { RichText } from '@/components/RichText';
 import { applicantApi, type ResultBody } from '@/lib/calls/applicant/client';
 import { MAX_CONTEST_FILE_MB, MAX_REASON } from '@/lib/calls/contestations';
+import { fileTooLargeMessage, overFileLimit } from '@/lib/calls/field-config';
 import { formatInZone } from '@/lib/calls/tz';
 import { browserClient } from '@/lib/supabase';
 
@@ -58,7 +59,7 @@ function ContestBox({ applicationId, orgId, contest, tz, onDone }: { application
     setError('');
     if (!reason.trim()) { setError('Write the reason for your contestation.'); return; }
     if (file && !/\.pdf$/i.test(file.name)) { setError('Only a PDF file can be attached.'); return; }
-    if (file && file.size > MAX_CONTEST_FILE_MB * 1024 * 1024) { setError(`The file is too large (maximum ${MAX_CONTEST_FILE_MB} MB).`); return; }
+    if (file && overFileLimit(file.size, MAX_CONTEST_FILE_MB)) { setError(fileTooLargeMessage(file.size, MAX_CONTEST_FILE_MB)); return; }
     setBusy('Sending…');
     try {
       let upload: { storagePath: string; fileName: string } | undefined;

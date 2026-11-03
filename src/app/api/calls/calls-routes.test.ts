@@ -477,3 +477,72 @@ describe('the public link', () => {
     expect((await pub(token)).status).toBe(404);
   });
 });
+
+// --- Prompt 927 (F): two calls of one organisation never share a name -------------------------------------------------------------------------------------------------------------------------------
+describe('call names are unique inside an organisation', () => {
+  const row = (id: string) => db.tables.calls.find((c) => c.id === id)!;
+  const create = async (userId: string, name?: string) => { as(userId); return read(await createPost(json('POST', { kind: 'catalog_entity', ...(name === undefined ? {} : { name }) }))); };
+
+  it('creating: a name that is taken (any case, accents or spaces) is refused with the call that has it and free names; nothing is created', async () => {
+    const first = await create('ana', 'INNOV-ID');
+    expect(first.status).toBe(200);
+    const clash = await create('ana', '  innov-id ');
+    expect(clash.status).toBe(409);
+    expect(clash.body).toMatchObject({ ok: false, code: 'duplicate_name', error: 'There is already a call named «INNOV-ID» in your organisation.', existing: { id: first.body.call.id, deleted: false } });
+    expect(clash.body.suggestions).toHaveLength(3);
+    expect(clash.body.suggestions).not.toContain('INNOV-ID');
+    expect(db.tables.calls).toHaveLength(1);
+    expect((await create('ana', clash.body.suggestions[0])).status).toBe(200);                 // a suggestion is free
+  });
+
+  it('another organisation can use the same name', async () => {
+    expect((await create('ana', 'INNOV-ID')).status).toBe(200);
+    expect((await create('otto', 'INNOV-ID')).status).toBe(200);
+    expect(db.tables.calls.filter((c) => c.name === 'INNOV-ID')).toHaveLength(2);
+  });
+
+  it('no name: "Untitled call", then "Untitled call 2", "Untitled call 3" — each free, also past a deleted one', async () => {
+    const names: string[] = [];
+    for (let i = 0; i < 3; i++) names.push((await create('ana')).body.call.name);
+    expect(names).toEqual(['Untitled call', 'Untitled call 2', 'Untitled call 3']);
+    row(db.tables.calls[1].id as string).deleted_at = new Date().toISOString();
+    row(db.tables.calls[1].id as string).delete_purge_after = new Date(Date.now() + 20 * DAY).toISOString();
+    expect((await create('ana')).body.call.name).toBe('Untitled call 4');
+    expect((await create('otto')).body.call.name).toBe('Untitled call');                      // the other organisation starts again
+  });
+
+  it('a deleted call (restorable) counts; one already past its 30 days does not; an archived one counts', async () => {
+    const a = (await create('ana', 'Deleted one')).body.call.id; const b = (await create('ana', 'Purged one')).body.call.id; const c = (await create('ana', 'Archived one')).body.call.id;
+    Object.assign(row(a), { deleted_at: new Date().toISOString(), delete_purge_after: new Date(Date.now() + 20 * DAY).toISOString() });
+    Object.assign(row(b), { deleted_at: new Date(Date.now() - 40 * DAY).toISOString(), delete_purge_after: new Date(Date.now() - 10 * DAY).toISOString() });
+    row(c).status = 'archived';
+    const deleted = await create('ana', 'deleted one');
+    expect(deleted.status).toBe(409);
+    expect(deleted.body.error).toBe('There is already a call named «Deleted one» in your organisation (in Deleted calls).');
+    expect(deleted.body.existing.deleted).toBe(true);
+    expect((await create('ana', 'Purged one')).status).toBe(200);
+    expect((await create('ana', 'ARCHIVED ONE')).status).toBe(409);
+  });
+
+  it('renaming: a taken name is refused (409) and the name stays; the call\'s own name written again, or another case of it, is fine', async () => {
+    const one = (await create('ana', 'Call A')).body.call; const two = (await create('ana', 'Call B')).body.call;
+    as('ana');
+    const version = (await read(await oneGet(json('GET'), params(two.id)))).body.call.configVersion as number;
+    const clash = await read(await onePatch(json('PATCH', { baseVersion: version, name: 'call a' }), params(two.id)));
+    expect(clash).toMatchObject({ status: 409, body: { code: 'duplicate_name', existing: { id: one.id } } });
+    expect(row(two.id).name).toBe('Call B');
+    const same = await read(await onePatch(json('PATCH', { baseVersion: version, name: 'CALL B' }), params(two.id)));
+    expect(same.status, JSON.stringify(same.body)).toBe(200);                                  // the same call, another case
+    expect(row(two.id).name).toBe('CALL B');
+    const fresh = await read(await onePatch(json('PATCH', { baseVersion: same.body.call.configVersion, name: 'Call C' }), params(two.id)));
+    expect(fresh.status).toBe(200);
+  });
+
+  it('duplicating: the copy is born with a free name, again and again', async () => {
+    const src = (await create('ana', 'INNOV-ID')).body.call;
+    as('ana');
+    const first = await read(await duplicatePost(json('POST'), params(src.id)));
+    const second = await read(await duplicatePost(json('POST'), params(src.id)));
+    expect([first.body.call.name, second.body.call.name]).toEqual(['INNOV-ID (copy)', 'INNOV-ID (copy 2)']);
+  });
+});

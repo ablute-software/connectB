@@ -6,17 +6,23 @@ import { useMemo } from 'react';
 import { RichTextEditor } from '@/components/RichTextEditor';
 import { CallMediaFields } from './CallMediaFields';
 import type { CallState } from './api';
-import { CONTENT_LANGUAGES, CURRENCIES, type Call } from '@/lib/calls/types';
+import { CONTENT_LANGUAGES, type Call } from '@/lib/calls/types';
+import { CurrencySelect } from './CurrencySelect';
 import { timeZoneOptions, utcToWall, wallToUtcIso } from '@/lib/calls/tz';
 
 const FIELD = 'block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-50 disabled:text-gray-500';
 const LABEL = 'block text-xs font-semibold text-gray-700';
 const HINT = 'mt-1 text-[11px] text-gray-400';
 
+/** What the server answers when another call of the organisation already has the name (Prompt 927, F). */
+export interface NameClashView { error: string; existing: { id: string; name: string; deleted: boolean }; suggestions: string[] }
+
 export type GeneralPatch = Partial<Pick<Call, 'name' | 'description' | 'opensAt' | 'closesAt' | 'timezone' | 'visibility' | 'limitUnit' | 'allowMultiple' | 'contentLanguage' | 'currency'>>;
 
-export function GeneralTab({ call, promoterName, disabled, presentationDisabled, branding, onState, onChange }: {
+export function GeneralTab({ call, promoterName, disabled, presentationDisabled, branding, onState, onChange, nameClash }: {
   call: Call; promoterName: string; disabled: boolean; onChange: (patch: GeneralPatch) => void;
+  /** The name was refused: the call that has it and some free names, shown under the Name field. */
+  nameClash?: NameClashView | null;
   /** The description, cover image and logo may change in more states than the rest (after validation, even once open): false while the person can edit them. Defaults to `disabled`. */
   presentationDisabled?: boolean;
   branding?: CallState['branding'];
@@ -50,7 +56,23 @@ export function GeneralTab({ call, promoterName, disabled, presentationDisabled,
       <div>
         <label className={LABEL} htmlFor="call-name">Name</label>
         <input id="call-name" data-jump="name" autoComplete="off" className={FIELD} value={call.name} disabled={disabled} maxLength={200}
-          onChange={(e) => onChange({ name: e.target.value })} />
+          onChange={(e) => onChange({ name: e.target.value })} aria-invalid={nameClash ? true : undefined} aria-describedby={nameClash ? 'call-name-clash' : undefined} />
+        {nameClash && (
+          <div id="call-name-clash" role="alert" className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" data-testid="name-clash">
+            <p>
+              {nameClash.error}{' '}
+              {!nameClash.existing.deleted && <a href={`${typeof window === 'undefined' ? '' : window.location.pathname}?call=${nameClash.existing.id}`} className="font-semibold text-[#0E7490] underline" data-testid="name-clash-open">Open it</a>}
+            </p>
+            {nameClash.suggestions.length > 0 && (
+              <p className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="text-xs text-amber-900">Free names:</span>
+                {nameClash.suggestions.map((s) => (
+                  <button key={s} type="button" onClick={() => onChange({ name: s })} className="max-w-full truncate rounded-full border border-amber-400 bg-white px-3 py-1 text-xs font-medium text-amber-950 hover:bg-amber-100" data-testid="name-suggestion">{s}</button>
+                ))}
+              </p>
+            )}
+          </div>
+        )}
       </div>
       <div>
         <span className={LABEL} id="call-description-label">Description</span>
@@ -142,9 +164,7 @@ export function GeneralTab({ call, promoterName, disabled, presentationDisabled,
         </div>
         <div>
           <label className={LABEL} htmlFor="call-currency">Currency</label>
-          <select id="call-currency" className={FIELD} value={call.currency} disabled={disabled} onChange={(e) => onChange({ currency: e.target.value })}>
-            {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <CurrencySelect id="call-currency" className={FIELD} value={call.currency} disabled={disabled} onChange={(currency) => onChange({ currency })} />
           <p className={HINT}>Used by amount fields.</p>
         </div>
       </div>

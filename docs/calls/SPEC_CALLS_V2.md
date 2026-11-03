@@ -917,6 +917,14 @@ Indicar:
 
 **Não declarar a etapa concluída só porque as páginas existem.** Os fluxos têm de funcionar de ponta a ponta.
 
+## 27.1 Correções às Calls (Prompt 927, partes B a F — 03/11/2026)
+
+- **Importação: «Se sim, qual?» no mesmo número.** O leitor interno parte `6.4.2 Já apresentou…? Se sim, qual?` numa pergunta Sim/Não e numa dependente. **A mãe fica com o número; a dependente não tem número próprio** (nenhum número aparece em dois rótulos). Reconhece «Se sim», «Se não», «Caso afirmativo», «Caso negativo», «If yes», «If so», «If not»; a condição é Sim ou Não conforme a frase. A revisão diz: «6.4.2 split into a Yes/No question and a follow-up shown only if Yes.»
+- **Perguntas dependentes.** No editor, na pré-visualização, no teste e no formulário do candidato, uma dependente aparece **com avanço, conector e «Shown if «Yes»»**; o avanço acumula e é menor no telemóvel. É só visual, por isso aplica-se também numa call aberta. **Apagar a mãe apaga as dependentes**, depois de uma confirmação na página («This also deletes 2 follow-up questions: «…», «…».»); **mover a mãe move-as juntas**; «Remove condition» torna a dependente uma pergunta normal.
+- **Moedas.** 26 códigos ISO 4217 num só sítio (`src/lib/calls/currencies.ts`, também no `CONFIG_REGISTRY`), com as casas decimais certas (0: JPY e KRW; 3: KWD, BHD, OMR, JOD e TND), formatadas com `Intl.NumberFormat` no idioma da call. O seletor de moeda tem pesquisa por código e por nome, com EUR, USD e GBP primeiro.
+- **Ficheiros até 12 MB.** O máximo da plataforma e o valor por omissão são 12 MB; a entidade escolhe menos, nunca mais nem «sem limite». Todos os caminhos de ficheiro (pergunta, vários ficheiros, grupo, Vault, contestação) recusam acima do limite com «This file is 18.4 MB. The maximum is 12 MB.»; o navegador avisa antes de enviar.
+- **Nomes de call únicos por organização.** Compara-se sem maiúsculas, acentos nem espaços a mais; contam as calls ativas, as arquivadas e as apagadas dentro dos 30 dias (não as purgadas). Verifica-se ao criar, ao mudar o nome, ao duplicar e ao importar. Um nome repetido recebe «There is already a call named «X» in your organisation», o caminho para ela e 3 nomes livres (ano, edição, número) gerados sem IA. Uma call nova sem nome é «Untitled call», «Untitled call 2», …; uma cópia nasce com «X (copy)», «X (copy 2)». **O índice único na base de dados ainda não foi criado**, porque existem nomes repetidos que o Nuno decide (relatório).
+
 ## 28. Piloto: Portugal Ventures
 
 - **10 seats** (plano custom, pré-atribuído).

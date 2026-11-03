@@ -99,11 +99,84 @@ export function conditionOrderProblems(fields: FormField[]): string[] {
   return out;
 }
 
+// --- Follow-up (dependent) questions (Prompt 927, C) -------------------------------------------------------------------------
+
+/** Every question that depends on this one, directly or through another follow-up, in form order. */
+export function dependentsOf(fields: FormField[], id: string): FormField[] {
+  const ordered = flat(fields);
+  const ids = new Set([id]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const f of ordered) if (!ids.has(f.id) && f.condition && ids.has(f.condition.fieldId)) { ids.add(f.id); grew = true; }
+  }
+  return ordered.filter((f) => f.id !== id && ids.has(f.id));
+}
+
+/** How many questions up the chain a follow-up sits: 0 for an ordinary question, 1 for a follow-up, 2 for a follow-up of a follow-up. A question whose controller is gone is ordinary. */
+export function dependencyDepth(fields: FormField[], id: string): number {
+  const byId = new Map(fields.map((f) => [f.id, f]));
+  let depth = 0; let cur = byId.get(id);
+  while (cur?.condition && depth < 12) {
+    const parent = byId.get(cur.condition.fieldId);
+    if (!parent) break;
+    depth += 1; cur = parent;
+  }
+  return depth;
+}
+
+/** The short line under a follow-up: "Shown if «Yes»". Null for an ordinary question (or one whose controller is gone). */
+export function shownIfLabel(field: FormField, all: FormField[]): string | null {
+  const c = field.condition;
+  if (!c) return null;
+  const ctl = all.find((x) => x.id === c.fieldId);
+  if (!ctl) return null;
+  const value = ctl.options.find((o) => o.id === c.value)?.label ?? c.value ?? '…';
+  switch (c.operator) {
+    case 'equals': return `Shown if «${value}»`;
+    case 'not_equals': return `Shown if not «${value}»`;
+    case 'is_answered': return 'Shown if answered';
+    case 'is_empty': return 'Shown if not answered';
+  }
+}
+
+/** The sentence that asks before a question is deleted together with its follow-ups; null when it has none. */
+export function cascadeDeleteSentence(fields: FormField[], id: string): string | null {
+  const deps = dependentsOf(fields, id);
+  if (deps.length === 0) return null;
+  const short = (s: string) => (s.length > 60 ? `${s.slice(0, 57)}…` : s);
+  return `This also deletes ${deps.length} follow-up question${deps.length === 1 ? '' : 's'}: ${deps.map((d) => `«${short(d.label)}»`).join(', ')}.`;
+}
+
+/** Delete a question AND every follow-up that depends on it (asked in the page first). */
+export function deleteFieldWithDependents(fields: FormField[], id: string): FormField[] {
+  const gone = new Set([id, ...dependentsOf(fields, id).map((d) => d.id)]);
+  return reflow(fields.filter((f) => !gone.has(f.id)));
+}
+
+/** Moving a question that has follow-ups moves them with it, in the same order, onto the page it lands on. */
+function moveWithDependents(ordered: FormField[], id: string, toIndex: number, from: number, deps: FormField[]): { fields: FormField[]; refused: string | null } {
+  const ids = new Set([id, ...deps.map((d) => d.id)]);
+  let target = ordered[toIndex];
+  if (target && ids.has(target.id) && toIndex > from) target = ordered.slice(toIndex).find((f) => !ids.has(f.id))!;     // one step down hops over the block
+  if (!target || ids.has(target.id)) return { fields: reflow(ordered), refused: null };
+  const block = ordered.filter((f) => ids.has(f.id));
+  const rest = ordered.filter((f) => !ids.has(f.id));
+  const ti = rest.findIndex((f) => f.id === target.id);
+  const at = ordered.findIndex((f) => f.id === target.id) > from ? ti + 1 : ti;
+  const next = [...rest.slice(0, at), ...block.map((f) => ({ ...f, page: target.page })), ...rest.slice(at)].map((f, i) => ({ ...f, position: i }));
+  const bad = conditionOrderProblems(next);
+  if (bad.length > 0) return { fields: reflow(ordered), refused: `“${bad[0]}” depends on a question that must stay before it.` };
+  return { fields: reflow(next), refused: null };
+}
+
 /** Move a field to a new flat index (drag and drop). Refuses a move that would put a field before its controller. */
 export function moveField(fields: FormField[], id: string, toIndex: number): { fields: FormField[]; refused: string | null } {
   const ordered = flat(fields);
   const from = ordered.findIndex((f) => f.id === id);
   if (from < 0 || toIndex < 0 || toIndex >= ordered.length || from === toIndex) return { fields: reflow(ordered), refused: null };
+  const deps = dependentsOf(fields, id);
+  if (deps.length > 0) return moveWithDependents(ordered, id, toIndex, from, deps);
   const moved = ordered[from];
   const next = ordered.filter((f) => f.id !== id);
   // The moved field joins the page of the neighbour it lands next to.

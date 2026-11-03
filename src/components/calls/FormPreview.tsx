@@ -9,6 +9,7 @@ import { useMemo, useState } from 'react';
 import { conditionNote, previewPages, validationHints } from '@/lib/calls/preview-logic';
 import type { Answers, AnswerValue, FormField, PlatformMappingKey } from '@/lib/calls/types';
 import { FieldInput } from './FieldInput';
+import { DependentFrame } from './DependentFrame';
 
 const SAMPLES: Record<PlatformMappingKey, string> = {
   company_name: 'Acme Robotics', country: 'Portugal', person_name: 'Alex Example', person_role: 'CEO',
@@ -67,7 +68,8 @@ export function FormPreview({ fields, currency, title }: { fields: FormField[]; 
           const hints = validationHints(f);
           const note = conditionNote(f, fields);
           return (
-            <div key={f.id} data-testid="preview-field">
+            <DependentFrame key={f.id} field={f} all={fields} tag={applicantView}>
+            <div data-testid="preview-field">
               <FieldInput field={f} value={merged[f.id]} currency={currency} tablePreview onChange={(v) => set(f.id, v)} />
               {(hints.length > 0 || (note && !applicantView)) && (
                 <p className="mt-1 text-[11px] text-gray-500" data-testid="field-hints">
@@ -76,6 +78,7 @@ export function FormPreview({ fields, currency, title }: { fields: FormField[]; 
                 </p>
               )}
             </div>
+            </DependentFrame>
           );
         })}
       </div>

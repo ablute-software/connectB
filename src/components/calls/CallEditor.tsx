@@ -14,7 +14,7 @@ import { mainTabsFor, navQuery, parseLinkQuery, resolveNavFor, stepStates, type 
 import { callsApi, type CallState } from './api';
 import { SetupShell } from './SetupShell';
 import { ResultsTab } from './ResultsTab';
-import { GeneralTab, type GeneralPatch } from './GeneralTab';
+import { GeneralTab, type GeneralPatch, type NameClashView } from './GeneralTab';
 import { PhasesTab, type PhaseDraft } from './PhasesTab';
 import { FormTab } from './FormTab';
 import { EligibilityStep } from './EligibilityStep';
@@ -117,7 +117,8 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
 
         if (!res.ok) {
           dirty.current[section] = true; failed.current = true;
-          if (res.body.code === 'conflict') setSave({ state: 'conflict', message: res.body.error });
+          if (res.body.code === 'duplicate_name') { const b = res.body as unknown as NameClashView & { error: string }; setNameClash({ error: b.error, existing: b.existing, suggestions: b.suggestions ?? [] }); setSave({ state: 'error', message: b.error }); }
+          else if (res.body.code === 'conflict') setSave({ state: 'conflict', message: res.body.error });
           else if (res.body.code === 'locked') { setSave({ state: 'error', message: res.body.error }); void load(); }
           else setSave({ state: 'error', message: res.body.error });
           break;
@@ -151,7 +152,10 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
     return () => { window.removeEventListener('beforeunload', beforeUnload); if (timer.current) clearTimeout(timer.current); void flush(); };
   }, [flush]);
 
+  // Prompt 927 (F): the name was refused because another call of the organisation has it — what the server answered (the call that has it, free names), shown under the Name field until the name changes.
+  const [nameClash, setNameClash] = useState<NameClashView | null>(null);
   const editGeneral = (patch: GeneralPatch) => {
+    if ('name' in patch) setNameClash(null);
     callRef.current = { ...callRef.current!, ...patch } as Call; setCall(callRef.current);
     generalPatch.current = { ...generalPatch.current, ...patch };
     schedule('general');
@@ -312,7 +316,7 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
           {nav.step === 'general' && (
             <>
               <GeneralTab call={call} promoterName={server.promoterName} disabled={readOnly} presentationDisabled={!server.canManage || call.status === 'archived'} branding={server.branding}
-                onState={(s) => adopt(s, false)} onChange={editGeneral} />
+                onState={(s) => adopt(s, false)} onChange={editGeneral} nameClash={nameClash} />
               <ContactEmailField callId={callId} initial={call.contactEmail ?? null} canConfigure={server.canManage} />
               <SourceDocumentsPanel callId={callId} canConfigure={server.canManage} locked={readOnly} reloadKey={docsReload} onImport={() => { setImportRunId(null); setImportDocs(true); }} importStatus={importStatus} onReview={reviewProposal} />
               <CallDangerZone callId={callId} name={call.name} actions={server.actions} status={server.effectiveStatus}

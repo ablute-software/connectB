@@ -10,7 +10,7 @@
 // once per entry (`entryId`), and the files shown are that entry's only.
 import { useRef, useState } from 'react';
 import { browserClient } from '@/lib/supabase';
-import { MACROS_REFUSED, acceptAttr, fileFormatsOf, formatOfName, formatsText, isMacroName, maxFileMbOf, maxFilesOf, notAcceptedMessage } from '@/lib/calls/field-config';
+import { MACROS_REFUSED, acceptAttr, fileFormatsOf, fileTooLargeMessage, formatOfName, formatsText, isMacroName, maxFileMbOf, maxFilesOf, notAcceptedMessage, overFileLimit } from '@/lib/calls/field-config';
 import type { FormField } from '@/lib/calls/types';
 import { applicantApi } from '@/lib/calls/applicant/client';
 import type { FileRef } from '@/lib/calls/applicant/answers';
@@ -39,7 +39,7 @@ export function FileQuestion({ field, entryId, applicationId, orgId, files, disa
     if (/\.zip$/i.test(f.name)) { setError('ZIP files are not accepted: their content cannot be checked. Attach the documents one by one.'); return; }
     if (isMacroName(f.name)) { setError(MACROS_REFUSED); return; }
     if (!formatOfName(f.name, formats)) { setError(notAcceptedMessage(formats, f.name)); return; }
-    if (f.size > maxMb * 1024 * 1024) { setError(`The file is too large (maximum ${maxMb} MB).`); return; }
+    if (overFileLimit(f.size, maxMb)) { setError(fileTooLargeMessage(f.size, maxMb)); return; }
     setBusy('Uploading…');
     try {
       const path = `${orgId}/calls/${applicationId}/${crypto.randomUUID()}-${safeName(f.name)}`;

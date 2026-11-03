@@ -3,7 +3,8 @@
 // anything; only its owners/admins create.
 import { NextResponse, type NextRequest } from 'next/server';
 import { authCalls, configurableCallIds, pickPromoter } from '@/lib/calls/access';
-import { createCall, listDeletedCalls, listPromoterCalls, loadCall } from '@/lib/calls/store';
+import { createCall, listDeletedCalls, listPromoterCalls, loadCall, loadPromoterNames } from '@/lib/calls/store';
+import { freeDefaultName, nameClashBody } from '@/lib/calls/call-names';
 import { daysLeft } from '@/lib/calls/deletion';
 import { bootstrapTeam } from '@/lib/calls/team-store';
 import { effectiveStatus } from '@/lib/calls/lifecycle';
@@ -43,7 +44,12 @@ export async function POST(req: NextRequest) {
   if (!promoter.canManage) {
     return NextResponse.json({ ok: false, error: 'Only the owners and administrators of your organisation can create a call.' }, { status: 403 });
   }
-  const name = (typeof body.name === 'string' ? body.name.trim().slice(0, 200) : '') || 'Untitled call';
+  // Prompt 927 (F): two calls of one organisation never share a name. A name that is taken is refused with the call that has it and some free names; no name at all gets the first free "Untitled call", "Untitled call 2"…
+  const names = await loadPromoterNames(auth.admin, promoter.kind, promoter.id);
+  const typed = typeof body.name === 'string' ? body.name.trim().slice(0, 200) : '';
+  const clash = typed ? nameClashBody(names, typed) : null;
+  if (clash) return NextResponse.json({ ok: false, ...clash }, { status: 409 });
+  const name = typed || freeDefaultName(names);
   const created = await createCall(auth.admin, { kind: promoter.kind, promoterId: promoter.id, userId: auth.userId, name });
   const call = (await loadCall(auth.admin, created.id)) ?? created;
   // The organisation's first category ("Administrator", with every permission) if it has none, and the creator in it.

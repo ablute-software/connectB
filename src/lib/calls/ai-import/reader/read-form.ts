@@ -13,7 +13,7 @@ import { defaultGroupConfig, newSubField, parseSimpleValidations } from '../../f
 import { readTemplateTable } from './table';
 import type { FileFormatKey, GroupConfig, SimpleKind, SubField } from '../../types';
 import {
-  ACCESS_CODE, AGE_OF_COMPANY, FRESHNESS_HINT, explicitDocumentAgeMonths, ATTACHMENTS_SECTION, CHOICE_CUE, COMPANY_CONSTITUTED, CV_CUE, DATE_CUE, EMAIL_CUE, FILE_NOUN, FILE_VERB, FOLLOW_UP_INLINE, FORMAT_WORDS, IF_NO, IF_YES,
+  ACCESS_CODE, AGE_OF_COMPANY, FRESHNESS_HINT, explicitDocumentAgeMonths, ATTACHMENTS_SECTION, CHOICE_CUE, COMPANY_CONSTITUTED, CV_CUE, DATE_CUE, EMAIL_CUE, FILE_NOUN, FILE_VERB, FOLLOW_UP_INLINE, FOLLOW_UP_IS_NO, FORMAT_WORDS, IF_NO, IF_YES,
   LIMIT_CUE, LONG_TEXT_CUE, MULTIPLE_CUE, NUMBER_CUE, OPTIONAL_CUE, OTHER_DOCUMENTS, PEOPLE_NOUNS, PER_PERSON, REQUIRED_CUE, SHORT_TEXT_CUE, STRUCTURE_MARKER, TOPICS_PARENT,
   URL_CUE, WH_WORD, YES_NO_CUE, YES_NO_CUE_RAW, YES_NO_THEN_AMOUNT, fold,
 } from './cues';
@@ -358,10 +358,10 @@ export function readForm(docs: ReaderDoc[]): ReaderResult {
       const amount = full.slice(ya.index + ya[0].length - ya[1].length).trim();
       const yes: ProposalFieldItem = { tmpId: nextId(), page, kind: 'yes_no', label: labelOf(base), instruction: null, required: !optional, options: [], expectedType: null, maxAgeMonths: null, number: num, source: 'internal' };
       push(yes, true);
-      push({ tmpId: nextId(), page, kind: 'number', label: `${num} ${sentenceCase(amount)}`, instruction: null, required: true, options: [], expectedType: null, maxAgeMonths: null,
+      push({ tmpId: nextId(), page, kind: 'number', label: sentenceCase(amount), instruction: null, required: true, options: [], expectedType: null, maxAgeMonths: null,
         validations: /€|euros?/i.test(amount) ? { currency: true } : undefined, condition: { tmpId: yes.tmpId, value: 'yes' }, number: `${num}/2`, source: 'internal' }, true);
       resolved++;
-      attention.push({ kind: 'done', what: `${num} asked a yes/no and an amount`, why: 'Split into two questions: the yes/no and the amount, shown only if the answer is Yes.' });
+      attention.push({ kind: 'done', what: `${num} asked a yes/no and an amount`, why: `${num} split into a Yes/No question and a follow-up (the amount) shown only if Yes.` });
       continue;
     }
 
@@ -370,15 +370,17 @@ export function readForm(docs: ReaderDoc[]): ReaderResult {
     if (fu && fu.index > 5) {
       const base = full.slice(0, fu.index + 1);
       const follow = full.slice(fu.index + fu[0].length - fu[1].length).trim();
+      const whenNo = FOLLOW_UP_IS_NO.test(fold(follow));
       const baseRead = readText({ ...it, lines: [base] });
       const baseKind = decideKind(baseRead, { inAttachments, text: base });
       const parent: ProposalFieldItem = { tmpId: nextId(), page, kind: baseKind.kind === 'yes_no' ? 'yes_no' : baseKind.kind, label: labelOf(baseRead.label), instruction: null, required: !optional, options: [], expectedType: null, maxAgeMonths: null, number: num, source: 'internal' };
       push(parent, baseKind.clear || baseKind.kind === 'yes_no');
       const fk = decideKind({ label: follow, options: [], multiple: false, yesNo: false, choiceCue: false }, { inAttachments, text: follow });
-      push({ tmpId: nextId(), page, kind: fk.kind, label: `${num} ${shorten(follow, 250)}`, instruction: null, required: true, options: [], expectedType: null, maxAgeMonths: null,
-        ...(parent.kind === 'yes_no' ? { condition: { tmpId: parent.tmpId, value: 'yes' as const } } : {}), number: `${num}/2`, source: 'internal' }, true);
+      // the follow-up has no number of its own: the mother keeps the number, so the form never shows the same number twice
+      push({ tmpId: nextId(), page, kind: fk.kind, label: shorten(follow, 250), instruction: null, required: true, options: [], expectedType: null, maxAgeMonths: null,
+        ...(parent.kind === 'yes_no' ? { condition: { tmpId: parent.tmpId, value: whenNo ? ('no' as const) : ('yes' as const) } } : {}), number: `${num}/2`, source: 'internal' }, true);
       resolved++;
-      attention.push({ kind: 'done', what: `${num} had a follow-up in the same question`, why: 'Split into two questions: the follow-up is shown only if the answer is Yes.' });
+      attention.push({ kind: 'done', what: `${num} had a follow-up in the same question`, why: `${num} split into a Yes/No question and a follow-up shown only if ${whenNo ? 'No' : 'Yes'}.` });
       continue;
     }
 
