@@ -451,7 +451,6 @@
 .fx-root.fx-lupa-on input, .fx-root.fx-lupa-on textarea, .fx-root.fx-lupa-on select, .fx-root.fx-lupa-on [role="dialog"], .fx-root.fx-lupa-on [role="dialog"] * {cursor:auto}
 @media (max-width:760px) {
   .fx-root {--td:36px;--tgap:5px}
-  .fx-root .fx-lupa {display:none}
 }
 @media (prefers-reduced-motion:reduce) {
   .fx-root .fx-lupa img, .fx-root .fx-tabs button {transition:none}
