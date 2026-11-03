@@ -57,10 +57,10 @@ function evalCss(expr: string, vw: number, vh: number): number {
 const SIZES: [number, number][] = [[1280, 720], [1366, 768], [1440, 790], [1440, 900], [1536, 864], [1920, 1080], [390, 844]];
 
 describe('the lens: CSS formulas = lensLayout = the mockup\'s numbers', () => {
-  it('the photograph is 1045 x 1084 and its lens sits at 50.4% / 46.1%, 10.2% wide (measured from the file)', () => {
-    expect(PHOTO).toEqual({ width: 1045, height: 1084, lensX: 0.504, lensY: 0.461, lensD: 0.102 });
+  it('the photograph is 1150 x 928 and its lens sits at 50.22% / 57.33%, 14.09% wide (measured from the file)', () => {
+    expect(PHOTO).toEqual({ width: 1150, height: 928, lensX: 0.5022, lensY: 0.5733, lensD: 0.1409 });
     expect(SCREEN_LENS).toEqual({ y: 0.46, d: 0.18 });
-    expect(PHOTO.height / PHOTO.width).toBeCloseTo(1.0373206, 6);
+    expect(PHOTO.height / PHOTO.width).toBeCloseTo(0.8069565217, 6);
   });
 
   it('at 1440x900 the lens is 162 px, centred at 720 / 414, and the photograph is drawn so that ITS lens is that one', () => {
