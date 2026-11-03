@@ -9,9 +9,9 @@
 // they add up); every other rule is enforced. The blind option and "comment required for all" cannot change once an evaluation exists.
 import { NextResponse } from 'next/server';
 import { authCall } from '@/lib/calls/access';
-import { parseCriteriaPayload, parseSettingsPayload } from '@/lib/calls/eval-grid';
+import { parseCriteriaPayload, parseSettingsPayload, sameScoring, scoringOf } from '@/lib/calls/eval-grid';
 import { diffProposal, type GridProposal } from '@/lib/calls/eval-grid-reader';
-import { NOT_READY_BODY, bumpGrid, evaluationCounts, evaluationReady, loadCriteria, loadImportRun, loadSettings, markImportApplied, saveSettings, writeCriteria } from '@/lib/calls/eval-grid-store';
+import { NOT_READY_BODY, bumpGrid, evaluationCounts, evaluationReady, loadCriteria, loadImportRun, loadSettings, markImportApplied, recomputeGrades, resultsPublished, saveSettings, writeCriteria } from '@/lib/calls/eval-grid-store';
 import { buildGridView, gridMode } from '@/lib/calls/eval-grid-view';
 import { loadCall, loadFields, loadPhases, logCallEvent } from '@/lib/calls/store';
 
@@ -20,8 +20,8 @@ export const dynamic = 'force-dynamic';
 async function viewOf(admin: Parameters<typeof loadCriteria>[0], callId: string) {
   const call = (await loadCall(admin, callId))!;
   const version = call.evalGridVersion ?? 1;
-  const [criteria, settings, evaluations, phases, fields] = await Promise.all([loadCriteria(admin, callId, version), loadSettings(admin, callId), evaluationCounts(admin, callId), loadPhases(admin, callId), loadFields(admin, callId)]);
-  return buildGridView({ status: call.status, version, rev: call.evalGridRev ?? 0, criteria, settings, evaluations, phases: phases.map((p) => ({ id: p.id, name: p.name })), fields });
+  const [criteria, settings, evaluations, phases, fields, scoringLocked] = await Promise.all([loadCriteria(admin, callId, version), loadSettings(admin, callId), evaluationCounts(admin, callId), loadPhases(admin, callId), loadFields(admin, callId), resultsPublished(admin, callId)]);
+  return buildGridView({ status: call.status, version, rev: call.evalGridRev ?? 0, criteria, settings, evaluations, phases: phases.map((p) => ({ id: p.id, name: p.name })), fields, scoringLocked });
 }
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
@@ -57,6 +57,12 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   if (counts.started > 0 && (ps.settings.blind !== beforeSettings.blind || ps.settings.commentRequiredForAll !== beforeSettings.commentRequiredForAll)) {
     return NextResponse.json({ ok: false, code: 'settings_locked', error: 'Blind evaluation and “comment required for all” cannot change once an evaluation has been started.' }, { status: 409 });
   }
+  // Prompt 922, Adenda 3 — how the criteria are combined: once results were published it is fixed; after the first submitted evaluation a change asks first, recalculates every final score and is recorded.
+  const scoringBefore = scoringOf(beforeSettings); const scoringAfter = scoringOf(ps.settings);
+  const scoringChanged = !sameScoring(scoringBefore, scoringAfter);
+  if (scoringChanged && (await resultsPublished(auth.admin, call.id))) {
+    return NextResponse.json({ ok: false, code: 'scoring_locked', error: 'The results were published: the way the criteria are combined can no longer be changed.' }, { status: 409 });
+  }
   const norm = (cs: { name: string; weight: number; scaleMin: number; scaleMax: number; section: string | null; guidance: string; levels: unknown; commentRequired: boolean; minScore: number | null; linkedFields?: string[]; auto?: unknown; linkNotice?: boolean }[]) =>
     cs.map((c) => [c.name, c.weight, c.scaleMin, c.scaleMax, c.section, c.guidance, c.levels, c.commentRequired, c.minScore, c.linkedFields ?? [], c.auto ?? null, c.linkNotice === true]);
   const criteriaSame = same(norm(before), norm(parsed.criteria));
@@ -64,21 +70,27 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   if (criteriaSame && settingsSame) return NextResponse.json({ ok: true, unchanged: true, ...(await viewOf(auth.admin, call.id)) });
 
   // Only the criteria are frozen by a submitted evaluation; the settings that stay editable (how many evaluators, divergence, deadlines) never make a version.
+  const recalcSentence = `Final scores will be recalculated for all applications: from ${scoringBefore.mode === 'weighted' ? 'weighted' : `equal weight (${scoringBefore.aggregation === 'sum' ? 'sum of points' : 'average'})`} to ${scoringAfter.mode === 'weighted' ? 'weighted' : `equal weight (${scoringAfter.aggregation === 'sum' ? 'sum of points' : 'average'})`}. The ranking follows.`;
+  if (scoringChanged && counts.submitted > 0 && body.confirm !== true && !(mode === 'versioned' && !criteriaSame)) {
+    return NextResponse.json({ ok: false, code: 'needs_confirm', kind: 'scoring', evaluations: counts.submitted, error: `${counts.submitted} evaluation${counts.submitted === 1 ? ' was' : 's were'} already submitted. ${recalcSentence}` }, { status: 409 });
+  }
   let newVersion: number | null = null;
   if (mode === 'versioned' && !criteriaSame) {
     if (body.confirm !== true) {
       return NextResponse.json({
         ok: false, code: 'needs_confirm', evaluations: counts.submitted, nextVersion: version + 1,
-        error: `The grid is frozen because ${counts.submitted} evaluation${counts.submitted === 1 ? ' was' : 's were'} already submitted on version ${version}. This change makes version ${version + 1}; those evaluations keep version ${version} and stay as they are, and the consolidation shows the version of each. Continue?`,
+        error: `The grid is frozen because ${counts.submitted} evaluation${counts.submitted === 1 ? ' was' : 's were'} already submitted on version ${version}. This change makes version ${version + 1}; those evaluations keep version ${version} and stay as they are, and the consolidation shows the version of each.${scoringChanged ? ` ${recalcSentence}` : ''} Continue?`,
       }, { status: 409 });
     }
     newVersion = version + 1;
   }
   const bumped = await bumpGrid(auth.admin, call, body.baseRev as number, newVersion);
   if (!bumped) return NextResponse.json({ ok: false, code: 'conflict', error: 'Someone else changed the evaluation grid. Reload to see their changes.' }, { status: 409 });
+  let recalculated = 0;
   try {
     if (!criteriaSame) await writeCriteria(auth.admin, call.id, bumped.version, parsed.criteria);
     if (!settingsSame) await saveSettings(auth.admin, call.id, ps.settings, auth.userId);
+    if (scoringChanged) recalculated = await recomputeGrades(auth.admin, call.id, scoringAfter);
   } catch (e) {
     console.error('[calls] evaluation grid not saved:', (e as Error).message);
     return NextResponse.json({ ok: false, error: 'The grid could not be saved. Please try again.' }, { status: 500 });
@@ -88,6 +100,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     const run = await loadImportRun(auth.admin, call.id, body.importRunId);
     if (run && run.status === 'proposed') await markImportApplied(auth.admin, call.id, run.id, diffProposal(run.proposal as GridProposal, parsed.criteria));
   }
+  if (scoringChanged) await logCallEvent(auth.admin, call.id, 'eval_scoring_changed', auth.userId, { from: scoringBefore, to: scoringAfter, evaluations: recalculated });
   await logCallEvent(auth.admin, call.id, 'eval_grid_changed', auth.userId, {
     mode, version: bumped.version, criteria: { before: before.length, after: parsed.criteria.length }, settingsChanged: !settingsSame, fromImport: !!body.importRunId,
     before: before.map((c) => `${c.name} ${c.weight}% ${c.scaleMin}–${c.scaleMax}`), after: parsed.criteria.map((c) => `${c.name} ${c.weight}% ${c.scaleMin}–${c.scaleMax}`),

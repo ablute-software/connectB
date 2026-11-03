@@ -1,7 +1,7 @@
 // Prompt 922 (I4) — the consolidation of the evaluation, pure: from the evaluations that exist it builds the board the administrator reads — progress, the ranking by weighted average, the average of each
 // criterion, the divergence between evaluators, who scored below an eliminatory minimum, and the decision — and the table that is exported. Nothing here changes a score or decides anything: a flag is a
 // flag. The ranking only reads SUBMITTED evaluations; an evaluation in progress counts as progress, never as a grade.
-import { belowMinimum, weightedGrade, type Criterion, type GridSettings } from './eval-grid';
+import { belowMinimum, finalGrade, sameScale, WEIGHTED_SCORING, type Criterion, type GridSettings, type Scoring } from './eval-grid';
 
 export type Decision = 'advance' | 'reject' | 'waitlist';
 export const DECISION_LABEL: Record<Decision, string> = { advance: 'Advance', reject: 'Reject', waitlist: 'Waitlist' };
@@ -15,6 +15,8 @@ export interface BoardEval {
 export interface BoardInput {
   apps: BoardApp[]; evaluations: BoardEval[]; assignments: { applicationId: string; userId: string }[];
   criteriaByVersion: Record<number, Criterion[]>; currentVersion: number; divergence: GridSettings['divergence'];
+  /** Adenda 3: how the criteria are combined (the total of the divergence is worked out the same way). Missing = weighted. */
+  scoring?: Scoring;
   decisions: Record<string, { decision: Decision; note: string | null }>;
 }
 
@@ -71,7 +73,7 @@ export function computeBoard(input: BoardInput): { rows: BoardRow[]; progress: B
           if (amplitude > 0 && (range / amplitude) * 100 >= input.divergence.scalePct) divergence.push({ criterionId: c.id, name: c.name, range, limit: round((input.divergence.scalePct / 100) * amplitude), kind: 'criterion' });
         }
         const manual = grid.filter((c) => !c.auto);
-        const gs = (manual.length > 0 && manual.length < grid.length ? same.map((e) => weightedGrade(manual, e.scores).percent) : same.map((e) => e.gradePercent)).filter((g): g is number => typeof g === 'number');
+        const gs = (manual.length > 0 && manual.length < grid.length ? same.map((e) => finalGrade(manual, e.scores, input.scoring ?? WEIGHTED_SCORING).percent) : same.map((e) => e.gradePercent)).filter((g): g is number => typeof g === 'number');
         if (gs.length >= 2) { const range = round(Math.max(...gs) - Math.min(...gs)); if (range >= input.divergence.totalPct) divergence.push({ criterionId: null, name: 'Total', range, limit: input.divergence.totalPct, kind: 'total' }); }
       }
     }
@@ -124,10 +126,23 @@ const csvCell = (v: unknown): string => { const s = safeCell(v); return /[",\n\r
  * The table that is exported: one row per application — rank, reference, startup, how many evaluations, the average, the deviation, the average of each criterion, the flags and the decision. NEVER a comment:
  * not the evaluators' comments per criterion, not the general ones, not the private notes (those stay in the platform, read by administrators).
  */
-export function boardTable(rows: BoardRow[], criteria: Pick<Criterion, 'id' | 'name'>[]): { header: string[]; body: (string | number)[][] } {
-  const header = ['Rank', 'Reference', 'Startup', 'Evaluations submitted', 'Evaluations expected', 'Average grade (%)', 'Deviation', ...criteria.map((c) => `${c.name} (average score)`), 'Divergence', 'Below minimum', 'Grid version', 'Decision', 'Decision note'];
+/** The average of a row as the number a spreadsheet gets, in the unit of the call: points for a sum, the scale for an average on one scale, % otherwise. */
+export function scoreNumber(percent: number | null, criteria: Pick<Criterion, 'scaleMin' | 'scaleMax'>[], scoring: Scoring = WEIGHTED_SCORING): number | '' {
+  if (percent === null) return '';
+  if (scoring.mode === 'equal' && criteria.length > 0) {
+    if (scoring.aggregation === 'sum') { const min = criteria.reduce((n, c) => n + c.scaleMin, 0); const max = criteria.reduce((n, c) => n + c.scaleMax, 0); return round(min + (percent / 100) * (max - min)); }
+    const same = sameScale(criteria);
+    if (same) return round(same.min + (percent / 100) * (same.max - same.min));
+  }
+  return percent;
+}
+const averageHeader = (criteria: Pick<Criterion, 'scaleMin' | 'scaleMax'>[], scoring: Scoring): string => (scoring.mode === 'equal' && scoring.aggregation === 'sum' ? 'Average score (points)' : scoring.mode === 'equal' && sameScale(criteria) ? 'Average score (scale)' : 'Average grade (%)');
+
+export function boardTable(rows: BoardRow[], criteria: (Pick<Criterion, 'id' | 'name'> & Partial<Pick<Criterion, 'scaleMin' | 'scaleMax'>>)[], scoring: Scoring = WEIGHTED_SCORING): { header: string[]; body: (string | number)[][] } {
+  const scales = (criteria as Pick<Criterion, 'scaleMin' | 'scaleMax'>[]).filter((c) => typeof c.scaleMin === 'number' && typeof c.scaleMax === 'number');
+  const header = ['Rank', 'Reference', 'Startup', 'Evaluations submitted', 'Evaluations expected', averageHeader(scales, scoring), 'Deviation', ...criteria.map((c) => `${c.name} (average score)`), 'Divergence', 'Below minimum', 'Grid version', 'Decision', 'Decision note'];
   const body = rows.map((r) => [
-    r.rank ?? '', r.reference ?? '', r.startupName ?? '', r.submitted, r.assigned, r.average ?? '', r.deviation ?? '',
+    r.rank ?? '', r.reference ?? '', r.startupName ?? '', r.submitted, r.assigned, scoreNumber(r.average, scales, scoring), r.deviation ?? '',
     ...criteria.map((c) => r.perCriterion.find((p) => p.criterionId === c.id)?.average ?? ''),
     r.divergence.map((d) => (d.kind === 'total' ? `Total: ${d.range} points apart` : `${d.name}: ${d.range} points apart`)).join('; '),
     r.below.map((b) => `${b.name} (${b.evaluators} evaluator${b.evaluators === 1 ? '' : 's'} below ${b.min})`).join('; '),
@@ -135,7 +150,7 @@ export function boardTable(rows: BoardRow[], criteria: Pick<Criterion, 'id' | 'n
   ]);
   return { header, body };
 }
-export function boardCsv(rows: BoardRow[], criteria: Pick<Criterion, 'id' | 'name'>[]): string {
-  const { header, body } = boardTable(rows, criteria);
+export function boardCsv(rows: BoardRow[], criteria: (Pick<Criterion, 'id' | 'name'> & Partial<Pick<Criterion, 'scaleMin' | 'scaleMax'>>)[], scoring: Scoring = WEIGHTED_SCORING): string {
+  const { header, body } = boardTable(rows, criteria, scoring);
   return `﻿${[header, ...body].map((line) => line.map(csvCell).join(';')).join('\r\n')}\r\n`;                 // BOM + semicolons: opens correctly in Excel in a Portuguese locale
 }

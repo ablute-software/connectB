@@ -4,7 +4,7 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { parseAuto, type AutoScore } from './eval-auto';
-import { DEFAULT_SETTINGS, parseCriteriaPayload, type Criterion, type GridSettings } from './eval-grid';
+import { DEFAULT_SETTINGS, finalGrade, parseCriteriaPayload, scoringOf, type Criterion, type GridSettings, type Scoring } from './eval-grid';
 import type { Call, FormField } from './types';
 
 type Row = Record<string, unknown>;
@@ -41,6 +41,7 @@ export async function loadSettings(admin: SupabaseClient, callId: string): Promi
   if (!r) return { ...DEFAULT_SETTINGS, divergence: { ...DEFAULT_SETTINGS.divergence }, deadlines: [] };
   const d = (r.divergence && typeof r.divergence === 'object' ? r.divergence : {}) as Partial<GridSettings['divergence']>;
   return {
+    scoringMode: r.scoring_mode === 'equal' ? 'equal' : 'weighted', equalAggregation: r.equal_aggregation === 'average' ? 'average' : 'sum',
     evaluatorsPerApplication: r.evaluators_all === true ? 'all' : Number(r.evaluators_per_application ?? 2), blind: r.blind === true, commentRequiredForAll: r.comment_required_all === true,
     divergence: { enabled: d.enabled !== false, scalePct: Number(d.scalePct ?? 40), totalPct: Number(d.totalPct ?? 20) }, deadlines: Array.isArray(r.deadlines) ? (r.deadlines as GridSettings['deadlines']) : [],
   };
@@ -48,10 +49,37 @@ export async function loadSettings(admin: SupabaseClient, callId: string): Promi
 
 export async function saveSettings(admin: SupabaseClient, callId: string, s: GridSettings, actor: string): Promise<void> {
   const { error } = await admin.from('call_eval_settings').upsert({
-    call_id: callId, evaluators_per_application: s.evaluatorsPerApplication === 'all' ? 2 : s.evaluatorsPerApplication, evaluators_all: s.evaluatorsPerApplication === 'all', blind: s.blind,
+    call_id: callId, scoring_mode: scoringOf(s).mode, equal_aggregation: scoringOf(s).aggregation, evaluators_per_application: s.evaluatorsPerApplication === 'all' ? 2 : s.evaluatorsPerApplication, evaluators_all: s.evaluatorsPerApplication === 'all', blind: s.blind,
     comment_required_all: s.commentRequiredForAll, divergence: s.divergence, deadlines: s.deadlines, updated_by: actor, updated_at: new Date().toISOString(),
   }, { onConflict: 'call_id' });
   if (error) throw new Error(`Could not save the evaluation settings: ${error.message}`);
+}
+
+/** Whether any result of this call was published (Prompt 924): from then on the way the criteria are combined cannot change. */
+export async function resultsPublished(admin: SupabaseClient, callId: string): Promise<boolean> {
+  const { data } = await admin.from('call_results').select('id').eq('call_id', callId).limit(1);
+  return ((data ?? []) as Row[]).length > 0;
+}
+
+/**
+ * The final score of EVERY evaluation of the call, worked out again in the way the call combines the criteria now (each on the grid version it was made on). Run when the way changes after evaluations exist: the rankings,
+ * the board and the exports read these. Returns how many evaluations it looked at.
+ */
+export async function recomputeGrades(admin: SupabaseClient, callId: string, scoring: Scoring): Promise<number> {
+  const { data: evs } = await admin.from('call_evaluations').select('id, grid_version, grade_percent').eq('call_id', callId);
+  const rows = (evs ?? []) as Row[];
+  if (rows.length === 0) return 0;
+  const { data: sc } = await admin.from('call_eval_scores').select('evaluation_id, criterion_id, score').in('evaluation_id', rows.map((e) => e.id as string));
+  const byEval = new Map<string, Record<string, number | null>>();
+  for (const s of (sc ?? []) as Row[]) { const m = byEval.get(s.evaluation_id as string) ?? {}; m[s.criterion_id as string] = s.score === null || s.score === undefined ? null : Number(s.score); byEval.set(s.evaluation_id as string, m); }
+  const grids = new Map<number, Criterion[]>();
+  for (const v of new Set(rows.map((e) => Number(e.grid_version ?? 1)))) grids.set(v, await loadCriteria(admin, callId, v));
+  for (const e of rows) {
+    const grade = finalGrade(grids.get(Number(e.grid_version ?? 1)) ?? [], byEval.get(e.id as string) ?? {}, scoring).percent;
+    const prev = e.grade_percent === null || e.grade_percent === undefined ? null : Number(e.grade_percent);
+    if (grade !== prev) await admin.from('call_evaluations').update({ grade_percent: grade, updated_at: new Date().toISOString() }).eq('id', e.id as string);
+  }
+  return rows.length;
 }
 
 /** Evaluations of this call that already exist: started (in progress) and submitted. The first SUBMITTED one freezes the grid; any one locks "blind". */

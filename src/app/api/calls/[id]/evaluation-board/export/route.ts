@@ -20,8 +20,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const board = await loadBoard(auth.admin, auth.call);
   await auth.admin.from('call_events').insert({ call_id: auth.call.id, application_id: null, event: 'eval_exported', actor_user_id: auth.userId, detail: { format, rows: board.rows.length } });
   const headers = { 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff' };
-  if (format === 'csv') return new Response(boardCsv(board.rows, board.criteria), { status: 200, headers: { ...headers, 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="${fileName(auth.call.name, 'csv')}"` } });
-  const { header, body } = boardTable(board.rows, board.criteria);
+  if (format === 'csv') return new Response(boardCsv(board.rows, board.criteria, board.scoring), { status: 200, headers: { ...headers, 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="${fileName(auth.call.name, 'csv')}"` } });
+  const { header, body } = boardTable(board.rows, board.criteria, board.scoring);
   const ws = XLSX.utils.aoa_to_sheet([header, ...body.map((r) => r.map((c) => (typeof c === 'string' ? safeCell(c) : c)))]);
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Evaluation');
   const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;

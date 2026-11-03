@@ -53,7 +53,21 @@ export interface Criterion {
 }
 
 export type DivergenceSettings = { enabled: boolean; scalePct: number; totalPct: number };
+/**
+ * How the criteria are combined into the final score (Prompt 922, Adenda 3, 02/11/2026): "weighted" (each criterion has a weight, the weights add up to 100 %: what the platform always did) or "equal" (every criterion
+ * counts the same; no weights), and then either the SUM of the points ("23 / 30 points") or the AVERAGE ("4.2 / 5", or in % when the scales differ). An existing call is "weighted" and nothing changes for it.
+ */
+export type ScoringMode = 'weighted' | 'equal';
+export type EqualAggregation = 'sum' | 'average';
+export interface Scoring { mode: ScoringMode; aggregation: EqualAggregation }
+export const SCORING_MODES: readonly ScoringMode[] = ['weighted', 'equal'];
+export const AGGREGATIONS: readonly EqualAggregation[] = ['sum', 'average'];
+export const WEIGHTED_SCORING: Scoring = { mode: 'weighted', aggregation: 'sum' };
+
 export interface GridSettings {
+  /** How the criteria are combined: weighted (default) or equal weight, with the sum of the points (default for equal) or the average. */
+  scoringMode?: ScoringMode;
+  equalAggregation?: EqualAggregation;
   /** How many evaluators each application gets: a number (default 2, no maximum) or all of them. */
   evaluatorsPerApplication: number | 'all';
   /** The evaluator does not see who applied (the startup, its people, their emails). The administrator always sees everything. */
@@ -67,7 +81,7 @@ export interface GridSettings {
 }
 
 export const DEFAULT_SETTINGS: GridSettings = {
-  evaluatorsPerApplication: 2, blind: false, commentRequiredForAll: false, divergence: { enabled: true, scalePct: 40, totalPct: 20 }, deadlines: [],
+  scoringMode: 'weighted', equalAggregation: 'sum', evaluatorsPerApplication: 2, blind: false, commentRequiredForAll: false, divergence: { enabled: true, scalePct: 40, totalPct: 20 }, deadlines: [],
 };
 
 export const scaleLevels = (c: Pick<Criterion, 'scaleMin' | 'scaleMax'>): number[] => Array.from({ length: c.scaleMax - c.scaleMin + 1 }, (_, i) => c.scaleMin + i);
@@ -75,6 +89,10 @@ export const scaleLabel = (c: Pick<Criterion, 'scaleMin' | 'scaleMax'>): string 
 export const presetKeyOf = (c: Pick<Criterion, 'scaleMin' | 'scaleMax'>): string => SCALE_PRESETS.find((p) => p.min === c.scaleMin && p.max === c.scaleMax)?.key ?? 'custom';
 
 const round = (n: number, d = 2): number => Math.round(n * 10 ** d) / 10 ** d;
+
+/** The way the settings combine the criteria (a setting missing from an old record is "weighted"). */
+export const scoringOf = (s: Pick<GridSettings, 'scoringMode' | 'equalAggregation'> | null | undefined): Scoring => ({ mode: s?.scoringMode === 'equal' ? 'equal' : 'weighted', aggregation: s?.equalAggregation === 'average' ? 'average' : 'sum' });
+export const sameScoring = (a: Scoring, b: Scoring): boolean => a.mode === b.mode && (a.mode === 'weighted' || a.aggregation === b.aggregation);
 
 // --- Weights -------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -105,6 +123,8 @@ export interface Grade {
   onScale: { value: number; min: number; max: number } | null;
   /** Criteria with a score, of all. */
   scored: number; total: number;
+  /** How it was combined, and (Adenda 3) the points when it is a SUM, and whether the average had to convert different scales to %. */
+  kind?: 'weighted' | 'sum' | 'average'; points?: { value: number; max: number } | null; mixedScales?: boolean;
 }
 
 /** The final grade of one evaluation. `scores` is criterion id → score. Weights are normalised to their sum, so a grid in the middle of being built still gives a coherent figure. */
@@ -117,10 +137,59 @@ export function weightedGrade(criteria: Pick<Criterion, 'id' | 'weight' | 'scale
   return { percent: round(pct, 2), onScale: same ? { value: round(same.min + (pct / 100) * (same.max - same.min), 2), min: same.min, max: same.max } : null, scored, total: criteria.length };
 }
 
-/** "72.5 %" and, when the scale is the same everywhere, "3.9 / 5". */
+/**
+ * The final score of one evaluation in the way the call chose. Weighted: as before. Equal weight: the SUM of the points (the maximum is the sum of the maxima of the scales) or the AVERAGE (on the scale, when every
+ * criterion has the same one; otherwise each score becomes a % of its own scale first). `percent` is always the same position on 0–100 (so rankings, divergence and minimums read one number whatever the mode).
+ */
+export function finalGrade(criteria: Pick<Criterion, 'id' | 'weight' | 'scaleMin' | 'scaleMax'>[], scores: Record<string, number | null | undefined>, scoring: Scoring = WEIGHTED_SCORING): Grade {
+  if (scoring.mode === 'weighted') return { ...weightedGrade(criteria, scores), kind: 'weighted' };
+  const scored = criteria.filter((c) => typeof scores[c.id] === 'number').length;
+  if (criteria.length === 0 || scored < criteria.length) return { percent: null, onScale: null, scored, total: criteria.length, kind: scoring.aggregation, points: null, mixedScales: false };
+  const same = sameScale(criteria);
+  if (scoring.aggregation === 'sum') {
+    const value = criteria.reduce((n, c) => n + (scores[c.id] as number), 0);
+    const max = criteria.reduce((n, c) => n + c.scaleMax, 0); const min = criteria.reduce((n, c) => n + c.scaleMin, 0);
+    return { percent: round(max > min ? ((value - min) / (max - min)) * 100 : 0, 2), onScale: null, scored, total: criteria.length, kind: 'sum', points: { value, max }, mixedScales: !same };
+  }
+  const pct = criteria.reduce((n, c) => n + toPercent(scores[c.id] as number, c), 0) / criteria.length;
+  return { percent: round(pct, 2), onScale: same ? { value: round(same.min + (pct / 100) * (same.max - same.min), 2), min: same.min, max: same.max } : null, scored, total: criteria.length, kind: 'average', points: null, mixedScales: !same };
+}
+
+/** "72.5 %" and, when the scale is the same everywhere, "3.9 / 5" (weighted); "12 / 15 points" (sum); "4.0 / 5", or "78 %" when the scales differ (average). */
 export function gradeText(g: Grade): string {
   if (g.percent === null) return 'N/A';
+  if (g.kind === 'sum' && g.points) return `${g.points.value} / ${g.points.max} points`;
+  if (g.kind === 'average') return g.onScale ? `${g.onScale.value.toFixed(1)} / ${g.onScale.max}` : `${round(g.percent, 1)} %`;
   return g.onScale ? `${g.onScale.value} / ${g.onScale.max} (${g.percent} %)` : `${g.percent} %`;
+}
+
+/** The note that goes with an average over different scales. */
+export const MIXED_SCALES_NOTE = 'Criteria use different scales, so each is converted to % before averaging';
+
+/**
+ * A position on 0–100 (the average of several evaluators, say) in the format of the call: points for a sum ("23.5 / 30 points"), the scale for an average on one scale ("4.2 / 5"), % otherwise. The percent is linear in
+ * the points, so an average of percents converts back exactly.
+ */
+export function scoreText(percent: number | null, criteria: Pick<Criterion, 'scaleMin' | 'scaleMax'>[], scoring: Scoring = WEIGHTED_SCORING): string {
+  if (percent === null) return 'N/A';
+  if (scoring.mode === 'equal' && criteria.length > 0) {
+    if (scoring.aggregation === 'sum') {
+      const min = criteria.reduce((n, c) => n + c.scaleMin, 0); const max = criteria.reduce((n, c) => n + c.scaleMax, 0);
+      return `${round(min + (percent / 100) * (max - min), 1)} / ${max} points`;
+    }
+    const same = sameScale(criteria);
+    if (same) return `${(same.min + (percent / 100) * (same.max - same.min)).toFixed(1)} / ${same.max}`;
+    return `${round(percent, 1)} %`;
+  }
+  return `${percent} %`;
+}
+
+/** What the bar of the grid says: the weights while they are what counts, or how many criteria and how they are combined. */
+export function barLine(cs: Pick<Criterion, 'weight' | 'scaleMin' | 'scaleMax'>[], scoring: Scoring): { ok: boolean; text: string } {
+  if (scoring.mode === 'weighted') { const w = weightsLine(cs); return { ok: w.ok, text: cs.length === 0 ? 'Weights: —' : `${w.ok ? '' : '⚠ '}Weights: ${w.sum} / 100 %${w.ok ? ' ✓' : ''}` }; }
+  const n = `${cs.length} criteri${cs.length === 1 ? 'on' : 'a'}`;
+  if (cs.length === 0) return { ok: false, text: 'No criteria yet' };
+  return { ok: true, text: scoring.aggregation === 'sum' ? `${n} · max ${cs.reduce((t, c) => t + c.scaleMax, 0)} points` : `${n} · average` };
 }
 
 /** Criteria whose score is below their eliminatory minimum — the application is flagged, never excluded. */
@@ -229,16 +298,21 @@ export function parseSettingsPayload(raw: unknown, phaseIds: string[] = []): { o
     if (phaseIds.length > 0 && !phaseIds.includes(phaseId)) return { ok: false, error: 'A deadline must belong to a phase of the call.' };
     deadlines.push({ phaseId, day });
   }
-  return { ok: true, settings: { evaluatorsPerApplication: n, blind: r.blind === true, commentRequiredForAll: r.commentRequiredForAll === true, divergence: { enabled: d.enabled !== false, scalePct, totalPct }, deadlines } };
+  const scoringMode: ScoringMode = r.scoringMode === 'equal' ? 'equal' : 'weighted';
+  const equalAggregation: EqualAggregation = r.equalAggregation === 'average' ? 'average' : 'sum';
+  if (r.scoringMode !== undefined && !(SCORING_MODES as readonly unknown[]).includes(r.scoringMode)) return { ok: false, error: 'Choose weighted or equal weight.' };
+  if (r.equalAggregation !== undefined && !(AGGREGATIONS as readonly unknown[]).includes(r.equalAggregation)) return { ok: false, error: 'Choose the sum of the points or the average.' };
+  return { ok: true, settings: { scoringMode, equalAggregation, evaluatorsPerApplication: n, blind: r.blind === true, commentRequiredForAll: r.commentRequiredForAll === true, divergence: { enabled: d.enabled !== false, scalePct, totalPct }, deadlines } };
 }
 
 /** Whether the grid can be used to evaluate: criteria, weights adding up to 100, and a name on every one. The step says what is wrong. */
-export function gridProblems(cs: Criterion[], fields?: Pick<FormField, 'id' | 'kind' | 'label' | 'options'>[]): string[] {
+export function gridProblems(cs: Criterion[], fields?: Pick<FormField, 'id' | 'kind' | 'label' | 'options'>[], scoring: Scoring = WEIGHTED_SCORING): string[] {
   const out: string[] = [];
   if (cs.length === 0) { out.push('The evaluation grid has no criteria.'); return out; }
+  // With equal weight the weights do not exist as far as the call is concerned: they add up to nothing in particular and never keep it from being confirmed.
   const w = weightsLine(cs);
-  if (!w.ok) out.push(`The weights add up to ${w.sum} %, not 100 %${w.sum < 100 ? ` (${round(100 - w.sum, 3)} % missing)` : ` (${round(w.sum - 100, 3)} % over)`}.`);
-  for (const c of cs) if (c.weight === 0) out.push(`“${c.name}” has a weight of 0 %: it would not count.`);
+  if (scoring.mode === 'weighted' && !w.ok) out.push(`The weights add up to ${w.sum} %, not 100 %${w.sum < 100 ? ` (${round(100 - w.sum, 3)} % missing)` : ` (${round(w.sum - 100, 3)} % over)`}.`);
+  if (scoring.mode === 'weighted') for (const c of cs) if (c.weight === 0) out.push(`“${c.name}” has a weight of 0 %: it would not count.`);
   // A criterion that scores itself needs a complete table of points; a link to a question that is gone must be removed (Adenda 1, B).
   if (fields) {
     for (const c of cs) {
@@ -252,20 +326,23 @@ export function gridProblems(cs: Criterion[], fields?: Pick<FormField, 'id' | 'k
 // --- "As the evaluator will see it" -------------------------------------------------------------------------------------------------------------
 
 /** The formula in words, with the weights ("Final grade = weighted average = Team × 25 % + Technology × 75 %"), and what a score of every level gives. */
-export function formulaText(cs: Pick<Criterion, 'name' | 'weight' | 'scaleMin' | 'scaleMax'>[]): string {
+export function formulaText(cs: Pick<Criterion, 'name' | 'weight' | 'scaleMin' | 'scaleMax'>[], scoring: Scoring = WEIGHTED_SCORING): string {
   if (cs.length === 0) return 'No criteria yet.';
+  if (scoring.mode === 'equal') {
+    return scoring.aggregation === 'sum' ? `Final score = the sum of the points of every criterion (at most ${cs.reduce((n, c) => n + c.scaleMax, 0)} points)` : `Final score = the average of the criteria${sameScale(cs) ? ` on a ${sameScale(cs)!.min}–${sameScale(cs)!.max} scale` : ' (each score converted to % of its own scale first)'}`;
+  }
   const same = sameScale(cs);
   return `Final grade = weighted average${same ? ` on a ${same.min}–${same.max} scale` : ' (each score converted to % of its own scale first)'} = ${cs.map((c) => `${c.name} × ${c.weight} %`).join(' + ')}`;
 }
 
 /** Examples calculated on the grid: every criterion at its maximum, at its minimum, and at the middle. */
-export function exampleGrades(cs: Criterion[]): { label: string; grade: Grade }[] {
+export function exampleGrades(cs: Criterion[], scoring: Scoring = WEIGHTED_SCORING): { label: string; grade: Grade }[] {
   if (cs.length === 0) return [];
   const all = (f: (c: Criterion) => number) => Object.fromEntries(cs.map((c) => [c.id, f(c)]));
   return [
-    { label: 'Every criterion at its maximum', grade: weightedGrade(cs, all((c) => c.scaleMax)) },
-    { label: 'Every criterion at the middle of its scale', grade: weightedGrade(cs, all((c) => Math.round((c.scaleMin + c.scaleMax) / 2))) },
-    { label: 'Every criterion at its minimum', grade: weightedGrade(cs, all((c) => c.scaleMin)) },
+    { label: 'Every criterion at its maximum', grade: finalGrade(cs, all((c) => c.scaleMax), scoring) },
+    { label: 'Every criterion at the middle of its scale', grade: finalGrade(cs, all((c) => Math.round((c.scaleMin + c.scaleMax) / 2)), scoring) },
+    { label: 'Every criterion at its minimum', grade: finalGrade(cs, all((c) => c.scaleMin), scoring) },
   ];
 }
 

@@ -177,7 +177,8 @@ describe('saving and reading the grid', () => {
     const phaseId = db.tables.call_phases.find((p) => p.call_id === id)!.id as string;
     const settings = { evaluatorsPerApplication: 25, blind: true, commentRequiredForAll: true, divergence: { enabled: true, scalePct: 30, totalPct: 15 }, deadlines: [{ phaseId, day: '2026-12-15' }] };
     const r = await put(id, CRITERIA(), { settings });
-    expect(r.body.settings).toEqual(settings);
+    expect(r.body.settings).toMatchObject(settings);
+    expect(r.body.settings).toMatchObject({ scoringMode: 'weighted', equalAggregation: 'sum' });          // a call that never chose is weighted: nothing changes for it
     expect((await put(id, CRITERIA(), { settings: { ...settings, evaluatorsPerApplication: 'all' } })).body.settings.evaluatorsPerApplication).toBe('all');
     expect((await put(id, CRITERIA(), { settings: { ...settings, deadlines: [{ phaseId: 'nope', day: '2026-12-15' }] } })).status).toBe(400);
   });
@@ -253,6 +254,93 @@ describe('the lifecycle: locked, then frozen with versions', () => {
     expect(row(id).eval_grid_version).toBe(1);
     const locked = await put(id, CRITERIA(), { settings: { ...v.settings, blind: true } });
     expect(locked).toMatchObject({ status: 409, body: { code: 'settings_locked' } });
+  });
+});
+
+describe('weighted or not — how the criteria are combined (Prompt 922, Adenda 3)', () => {
+  const NO_WEIGHTS = () => [
+    { name: 'Team', weight: 0, scaleMin: 1, scaleMax: 5 },
+    { name: 'Technology', weight: 0, scaleMin: 1, scaleMax: 5 },
+    { name: 'Market', weight: 0, scaleMin: 1, scaleMax: 5 },
+  ];
+  const withScoring = async (id: string, scoringMode: string, equalAggregation = 'sum') => { const v = await view(id); return put(id, v.criteria, { settings: { ...v.settings, scoringMode, equalAggregation } }); };
+  /** An open call whose first evaluation is submitted: scores 4, 3 and 5 on the three criteria, stored as the grade the evaluator saw. */
+  async function withSubmitted(id: string) {
+    Object.assign(row(id), { status: 'open', opens_at: new Date(Date.now() - DAY).toISOString() });
+    db.tables.call_evaluations.push({ id: 'ev-1', call_id: id, application_id: 'app-1', evaluator_user_id: 'rita', grid_version: 1, status: 'submitted', submitted_at: new Date().toISOString(), grade_percent: 75 });
+    criteriaOf(id).forEach((c, i) => db.tables.call_eval_scores.push({ evaluation_id: 'ev-1', criterion_id: c.id, score: [4, 3, 5][i] }));
+  }
+
+  it('a call that never chose is weighted, exactly as before; the choice is saved and read back, and criteria with no weight are allowed with equal weight', async () => {
+    const id = await newCall();
+    await put(id, CRITERIA());
+    expect((await view(id)).settings).toMatchObject({ scoringMode: 'weighted', equalAggregation: 'sum' });
+    expect((await view(id)).scoringLocked).toBe(false);
+    expect((await put(id, NO_WEIGHTS())).status).toBe(200);                                       // saved as you go …
+    expect((await view(id)).problems.join(' ')).toContain('The weights add up to 0 %');           // … and the step says so while weighted
+    expect((await withScoring(id, 'equal', 'average')).status).toBe(200);
+    const v = await view(id);
+    expect(v.settings).toMatchObject({ scoringMode: 'equal', equalAggregation: 'average' });
+    expect(v.problems.join(' ')).not.toContain('weights');                                        // equal weight: no 100 % requirement
+    expect(v.bar).toEqual({ ok: true, text: '3 criteria · average' });
+    expect(db.tables.call_eval_settings.find((r) => r.call_id === id)).toMatchObject({ scoring_mode: 'equal', equal_aggregation: 'average' });
+    expect((await put(id, v.criteria, { settings: { ...v.settings, scoringMode: 'median' } })).status).toBe(400);
+  });
+
+  it('changing it BEFORE any evaluation is submitted asks nothing and recalculates nothing', async () => {
+    const id = await newCall();
+    await put(id, NO_WEIGHTS());
+    const done = await withScoring(id, 'equal', 'sum');
+    expect(done.status, JSON.stringify(done.body)).toBe(200);
+    expect(db.tables.call_events.some((e) => e.event === 'eval_scoring_changed' && e.call_id === id)).toBe(true);
+    expect(row(id).eval_grid_version).toBe(1);
+  });
+
+  it('with an evaluation already submitted it ASKS first (nothing stored), then recalculates the final score of every application, keeps the grid version, and logs who and when, from and to', async () => {
+    const id = await newCall();
+    await put(id, CRITERIA());
+    await withSubmitted(id);
+    const v = await view(id);
+    expect(v.mode).toBe('versioned');
+    const asked = await withScoring(id, 'equal', 'sum');
+    expect(asked).toMatchObject({ status: 409, body: { code: 'needs_confirm', kind: 'scoring', evaluations: 1 } });
+    expect(asked.body.error).toContain('Final scores will be recalculated for all applications');
+    expect((await view(id)).settings.scoringMode).toBe('weighted');                              // nothing stored by the question
+    const done = await put(id, v.criteria, { settings: { ...v.settings, scoringMode: 'equal', equalAggregation: 'sum' }, confirm: true });
+    expect(done.status, JSON.stringify(done.body)).toBe(200);
+    expect(row(id).eval_grid_version).toBe(1);                                                   // a different way of combining is not a different grid
+    const ev = db.tables.call_events.filter((e) => e.event === 'eval_scoring_changed').pop()!;
+    expect(ev).toMatchObject({ call_id: id });
+    expect(ev.detail).toMatchObject({ from: { mode: 'weighted' }, to: { mode: 'equal', aggregation: 'sum' }, evaluations: 1 });
+  });
+
+  it('the stored final score follows the mode: the weighted grade of 4/3/5 is not the equal-weight one, and going back restores it', async () => {
+    const id = await newCall();
+    await put(id, CRITERIA());
+    await withSubmitted(id);
+    const v = await view(id);
+    const to = (mode: string, agg = 'sum') => put(id, v.criteria, { settings: { ...v.settings, scoringMode: mode, equalAggregation: agg }, confirm: true });
+    const weightedBefore = db.tables.call_evaluations[0].grade_percent;
+    expect((await to('equal', 'sum')).status).toBe(200);
+    const equalGrade = db.tables.call_evaluations[0].grade_percent as number;
+    // Team 1–5 (4), Technology 0–10 (3), Market 1–5 (5): (4+3+5 − 2) / (5+10+5 − 2) = 10 / 18
+    expect(equalGrade).toBeCloseTo(55.56, 1);
+    expect((await to('weighted')).status).toBe(200);
+    expect(db.tables.call_evaluations[0].grade_percent).not.toBe(equalGrade);
+    expect(weightedBefore).toBe(75);
+  });
+
+  it('after the results are published the mode is LOCKED: the view says so and a change is refused; the same value saves fine', async () => {
+    const id = await newCall();
+    await put(id, CRITERIA());
+    await withSubmitted(id);
+    db.tables.call_results.push({ id: 'res-1', call_id: id, application_id: 'app-1', outcome: 'accepted' });
+    const v = await view(id);
+    expect(v.scoringLocked).toBe(true);
+    const refused = await put(id, v.criteria, { settings: { ...v.settings, scoringMode: 'equal' }, confirm: true });
+    expect(refused).toMatchObject({ status: 409, body: { code: 'scoring_locked' } });
+    expect((await view(id)).settings.scoringMode).toBe('weighted');
+    expect((await put(id, v.criteria, { settings: { ...v.settings, divergence: { enabled: false, scalePct: 40, totalPct: 20 } } })).status).toBe(200);
   });
 });
 
