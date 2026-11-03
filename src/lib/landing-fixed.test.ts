@@ -443,7 +443,7 @@ describe('the pointer is a magnifier and the tabs are fixed icons (Nuno, 03/11/2
     expect(cursor).toContain('locked = true');
     expect(cursor).toMatch(/input, textarea, select, \[role="dialog"\]/);
     expect(css).toContain('.fx-root .fx-lupa[data-big="1"] img {transform:scale(');
-    expect(css).toContain('.fx-root.fx-lupa-on, .fx-root.fx-lupa-on * {cursor:none}');
+    expect(css).toContain('.fx-root.fx-lupa-on, .fx-root.fx-lupa-on * {cursor:none!important}');
     expect(css).toContain('.fx-root.fx-lupa-on input');
   });
 
@@ -513,5 +513,18 @@ describe('what the independent review of 03/11/2026 found', () => {
   it('Documents no longer promises the contact form (it moved to the FAQ tabs)', () => {
     expect(MODES.startups.items[0].kicker).not.toMatch(/contact/i);
     expect(MODES.investors.items[0].kicker).not.toMatch(/contact/i);
+  });
+});
+
+describe('Pricing shows its lists, and the magnifier survives a pressed button (Nuno, 03/11/2026)', () => {
+  it('no rule takes the plan lines off the screen on a laptop: the cards are the rich ones he asked to have back', () => {
+    expect(css).not.toMatch(/-pricing"\] \.fx-plans \.fx-plan ul \{position:absolute/);
+    expect(css).toContain('.fx-root [data-id$="-pricing"] .fx-plans .fx-plan ul {display:grid}');
+  });
+
+  it('pressing the button over a link or a logo does not start the browser\'s drag (pointer events would stop and the magnifier would stay behind)', () => {
+    const cursor = readFileSync(join(process.cwd(), 'src/components/landing-fixed/LupaCursor.tsx'), 'utf8');
+    expect(cursor).toContain("window.addEventListener('dragstart', onDrag)");
+    expect(cursor).toContain('e.preventDefault()');
   });
 });

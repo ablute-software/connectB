@@ -28,14 +28,17 @@ export function LupaCursor() {
       el.dataset.show = plain ? '0' : '1';
     };
     const onDown = () => { if (over) { locked = true; setBig(false); } };
+    // pressing the button and moving over a link or a logo starts the browser's own drag: pointer events stop, the magnifier stays behind and the ordinary pointer comes back (Nuno, 03/11/2026)
+    const onDrag = (e: DragEvent) => { if (!(e.target instanceof Element && e.target.closest('input, textarea, select, [role="dialog"]'))) e.preventDefault(); };
     const onLeave = () => { el.dataset.show = '0'; };
     const onEnter = () => { if (root.classList.contains('fx-lupa-on')) el.dataset.show = '1'; };
     window.addEventListener('pointermove', onMove, { passive: true });
     window.addEventListener('pointerdown', onDown, { passive: true });
+    window.addEventListener('dragstart', onDrag);
     document.documentElement.addEventListener('mouseleave', onLeave);
     document.documentElement.addEventListener('mouseenter', onEnter);
     return () => {
-      window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerdown', onDown); window.removeEventListener('dragstart', onDrag);
       document.documentElement.removeEventListener('mouseleave', onLeave); document.documentElement.removeEventListener('mouseenter', onEnter);
       if (raf) cancelAnimationFrame(raf);
       root.classList.remove('fx-lupa-on');

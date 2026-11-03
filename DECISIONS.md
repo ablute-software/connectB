@@ -11601,3 +11601,7 @@ O Overview dos investors repete a receita das startups: frase («Sherlock Deal m
 ## Prompt 935 — dois logos de VCs do catálogo no lugar da Indico e da Faber (Nuno, 03/11/2026)
 
 Entram Shilling VC e Bynd VC (fundos portugueses do catálogo; a base de dados não guarda logos de investidores, por isso os dois ficheiros vêm dos SVG dos próprios sites dos fundos, convertidos para PNG transparente e versão em círculo). Autorização «owner» (pedido dele no chat de 03/11/2026), sem prova da firma em arquivo: para retirar, apagar a linha em landing-logos.json. O mínimo de logos de investidores volta a 16.
+
+## Prompt 935 — Pricing com as listas e a lupa ao carregar no botão (Nuno, 03/11/2026)
+
+Pricing: saiu a regra que escondia as linhas de cada plano nos portáteis; os cartões voltam a ter a lista e a nota, e em ecrãs baixos o tipo aperta para caber sem «See all». Lupa: carregar no botão sobre um link ou um logo iniciava o arrastar do browser (dragstart + pointercancel, reproduzido), os eventos paravam, a lupa ficava para trás e voltava o cursor normal; o dragstart é agora anulado fora dos campos de formulário e o cursor:none passou a !important. O menu nativo do botão direito fora dos ícones continua a existir.
