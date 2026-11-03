@@ -8,8 +8,14 @@
 /** The photograph (public/landing/lens-photo.*): 1376 x 768 px (03/11/2026: the wide version with the continuation on the right); the lens in it, measured from the file. */
 export const PHOTO = { width: 1376, height: 768, lensX: 0.3485, lensY: 0.5738, lensD: 0.1003 } as const;
 
-/** Where the lens must sit on the screen and how big it is: 46% down and 18% of the window's height across (Nuno's brief). */
-export const SCREEN_LENS = { y: 0.46, d: 0.18 } as const;
+/**
+ * Where the lens must sit on the screen and how big it is: 46% down and 18% of the window's height across (Nuno's brief) — as a MINIMUM. The photograph must fill the window with nothing but cropping
+ * (Nuno, 03/11/2026), and the lens sits under the middle place of the wheel, i.e. at the window's centre: the photograph has 34.85% of its width to the left of the lens, so for it to reach the window's left
+ * edge the lens must be at least `lensD / (2 x lensX)` of the window's width across (14.39%). A very wide window stops at 27% of the height (beyond that the margins are the blurred copy).
+ */
+export const SCREEN_LENS = { y: 0.46, d: 0.18, dMax: 0.27 } as const;
+/** The lens as a share of the window's WIDTH below which the photograph would stop short of the window's left edge. */
+export const COVER_LENS_VW = PHOTO.lensD / (2 * PHOTO.lensX);
 
 /** The wheel's discs: a disc is 39% of the lens, between 40 and 80 px; the gap between discs is 37% of a disc. */
 export const WHEEL = { discRatio: 0.39, discMin: 40, discMax: 80, gapRatio: 0.37 } as const;
@@ -25,7 +31,7 @@ export interface LensLayout {
 
 /** The mockup's `lens()`, for a window of `vw` x `vh` px. */
 export function lensLayout(vw: number, vh: number): LensLayout {
-  const ld = SCREEN_LENS.d * vh;
+  const ld = Math.min(Math.max(SCREEN_LENS.d * vh, COVER_LENS_VW * vw), SCREEN_LENS.dMax * vh);
   const scale = ld / (PHOTO.lensD * PHOTO.width);
   const photoW = PHOTO.width * scale;
   const photoH = PHOTO.height * scale;
@@ -90,15 +96,9 @@ export function hasMore(scrollHeight: number, clientHeight: number, open: boolea
   return open || scrollHeight > clientHeight + 4;
 }
 
-/**
- * The heading's rotation (Nuno, 03/11/2026: real smoke, not a blur): every 6 s a bank of smoke (public/landing/smoke.webp) builds over the heading while the text is eaten from its centre outwards
- * (LINE_FOG_MS); under the thickest smoke the text changes; the smoke thins out over LINE_CLEAR_MS while the new text grows from the centre. The whole change takes 2.6 s of the 6.
- */
+/** The heading's rotation: every 6 s, fading out over ~0.9 s, the text changing under the fog. */
 export const LINE_EVERY_MS = 6000;
-export const LINE_FOG_MS = 1100;
-export const LINE_CLEAR_MS = 1500;
-/** The smoke is fetched this long after the page has loaded (it is ~300 KB and is first needed at the first change, 6 s in): nothing competes with the first paint. */
-export const SMOKE_LOAD_DELAY_MS = 2500;
+export const LINE_FOG_MS = 950;
 export function nextLine(current: number, count: number): number {
   return (current + 1) % count;
 }

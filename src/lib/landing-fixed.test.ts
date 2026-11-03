@@ -7,7 +7,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import {
-  LINE_CLEAR_MS, LINE_EVERY_MS, LINE_FOG_MS, PHOTO, SCREEN_LENS, STEP_LOCK_MS, SWIPE_MIN_X, SWIPE_MIN_Y, WHEEL, WHEEL_MIN_DELTA,
+  COVER_LENS_VW, LINE_EVERY_MS, LINE_FOG_MS, PHOTO, SCREEN_LENS, STEP_LOCK_MS, SWIPE_MIN_X, SWIPE_MIN_Y, WHEEL, WHEEL_MIN_DELTA,
   cardCanScroll, hasMore, jumped, lensLayout, nextLine, ringOffset, stepAllowed, stepIndex, swipeStep, wheelX,
 } from './landing-fixed';
 import { CTA, DOC_ORDER, HERO_LINES, MODES, MODE_PATH, heroLineText, isDocId } from '@/content/site/landing-fixed';
@@ -48,7 +48,9 @@ function evalCss(expr: string, vw: number, vh: number): number {
     .replace(/(-?\d*\.?\d+)vh/g, '($1*vh/100)')
     .replace(/(-?\d*\.?\d+)vw/g, '($1*vw/100)')
     .replace(/calc\(/g, '(')
-    .replace(/clamp\(/g, '__clamp(');
+    .replace(/clamp\(/g, '__clamp(')
+    .replace(/(?<![\w-])min\(/g, 'Math.min(')
+    .replace(/(?<![\w-])max\(/g, 'Math.max(');
   return new Function('vw', 'vh', '__clamp', `return ${js};`)(vw, vh, (a: number, b: number, c: number) => Math.min(Math.max(b, a), c)) as number;
 }
 
@@ -57,13 +59,16 @@ const SIZES: [number, number][] = [[1280, 720], [1366, 768], [1440, 790], [1440,
 describe('the lens: CSS formulas = lensLayout = the mockup\'s numbers', () => {
   it('the photograph is 1376 x 768 and its lens sits at 34.85% / 57.38%, 10.03% wide (measured from the file)', () => {
     expect(PHOTO).toEqual({ width: 1376, height: 768, lensX: 0.3485, lensY: 0.5738, lensD: 0.1003 });
-    expect(SCREEN_LENS).toEqual({ y: 0.46, d: 0.18 });
+    expect(SCREEN_LENS).toEqual({ y: 0.46, d: 0.18, dMax: 0.27 });
+    expect(COVER_LENS_VW).toBeCloseTo(0.143902439, 6);
     expect(PHOTO.height / PHOTO.width).toBeCloseTo(0.5581395, 6);
   });
 
-  it('at 1440x900 the lens is 162 px, centred at 720 / 414, and the photograph is drawn so that ITS lens is that one', () => {
+  it('at 1440x900 the lens is 207 px (the size at which the photograph reaches the left edge), centred at 720 / 414, and the photograph is drawn so that ITS lens is that one', () => {
     const l = lensLayout(1440, 900);
-    expect(l.ld).toBeCloseTo(162, 6);
+    expect(l.ld).toBeCloseTo(0.143902439 * 1440, 6);
+    expect(l.photoLeft).toBeLessThanOrEqual(1e-6);
+    expect(l.photoLeft + l.photoW).toBeGreaterThanOrEqual(1440);
     expect(l.lx).toBe(720);
     expect(l.ly).toBeCloseTo(414, 6);
     expect(l.photoLeft + PHOTO.lensX * l.photoW).toBeCloseTo(l.lx, 6);
@@ -72,13 +77,22 @@ describe('the lens: CSS formulas = lensLayout = the mockup\'s numbers', () => {
   });
 
   it('a wheel disc is 39% of the lens between 40 and 80 px, the gap 37% of a disc', () => {
-    expect(lensLayout(1440, 900).d).toBeCloseTo(162 * 0.39, 6);
-    expect(lensLayout(1920, 400).d).toBe(40);      // lens 72 px: 28 -> held at 40
+    expect(lensLayout(1440, 900).d).toBe(80);      // lens 207 px: 81 -> held at 80
+    expect(lensLayout(390, 300).d).toBe(40);       // lens 56 px: 22 -> held at 40
     expect(lensLayout(1920, 2000).d).toBe(80);     // lens 360 px: 140 -> held at 80
     const l = lensLayout(1366, 768);
     expect(l.gap).toBeCloseTo(l.d * WHEEL.gapRatio, 6);
     expect(l.first).toBeCloseTo(l.ld / 2 + l.gap + l.d / 2, 6);
     expect(l.step).toBeCloseTo(l.d + l.gap, 6);
+  });
+
+  it('the photograph fills the window with cropping alone, on every common window up to 16:9 (the lens is under the middle place)', () => {
+    for (const [vw, vh] of [[1280, 720], [1366, 768], [1440, 790], [1440, 900], [1536, 864], [1920, 1080], [390, 844]] as const) {
+      const l = lensLayout(vw, vh);
+      expect(l.photoLeft, `${vw}x${vh} left`).toBeLessThanOrEqual(0.5);
+      expect(l.photoTop, `${vw}x${vh} top`).toBeLessThanOrEqual(0.5);
+      expect(l.photoLeft + l.photoW, `${vw}x${vh} right`).toBeGreaterThanOrEqual(vw - 0.5);
+    }
   });
 
   it.each(SIZES)('the stylesheet\'s calc() at %i x %i gives exactly lensLayout\'s lens, photograph and wheel', (vw, vh) => {
@@ -162,9 +176,8 @@ describe('the wheel and the gestures', () => {
     expect(hasMore(300, 300, true)).toBe(true);
   });
 
-  it('the heading changes every 6 s through a smoke that builds for 1.1 s and clears for 1.5 s, and cycles', () => {
-    expect([LINE_EVERY_MS, LINE_FOG_MS, LINE_CLEAR_MS]).toEqual([6000, 1100, 1500]);
-    expect(LINE_FOG_MS + LINE_CLEAR_MS).toBeLessThan(LINE_EVERY_MS);
+  it('the heading changes every 6 s through a 950 ms fog and cycles', () => {
+    expect([LINE_EVERY_MS, LINE_FOG_MS]).toEqual([6000, 950]);
     expect(nextLine(4, 5)).toBe(0);
     expect(nextLine(0, 3)).toBe(1);
   });

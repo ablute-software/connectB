@@ -1,4 +1,3 @@
-@property --fxr {syntax:'<percentage>';inherits:false;initial-value:0%}
 /* Prompt 935 (02/11/2026) — the fixed landing's stylesheet: the approved mockup (v21) ported mechanically (tools/gen_css.py: every class prefixed fx-, every rule scoped under .fx-root, so nothing leaks into or out of the rest of
    the app) and then the departures that are the point of the port, named below: the lens, the photograph and the wheel placed by CSS alone, the real fonts, real links, and the phone bar. A plain global file, not a CSS module,
    because the panels' copy is HTML strings (src/content/site/landing-fixed-panels.ts) that cannot know a module's hashed class names. */
@@ -7,7 +6,7 @@
   --display:var(--font-fraunces),Georgia,serif; --body:var(--font-inter),system-ui,sans-serif; --wordmark:var(--font-comfortaa), var(--font-inter), sans-serif;
   --gl:max(16px,env(safe-area-inset-left,0px)); --gr:max(16px,env(safe-area-inset-right,0px));
   --vh:1vh; --bar-h:calc(56px + env(safe-area-inset-bottom,0px));
-  --lx:50vw; --ly:calc(var(--vh) * 46); --ld:calc(var(--vh) * 18);
+  --lx:50vw; --ly:calc(var(--vh) * 46); --ld:min(max(calc(var(--vh) * 18),calc(100vw * .1439024390)),calc(var(--vh) * 27));
   --d:clamp(40px,calc(var(--ld) * .39),80px); --gap:calc(var(--d) * .37); --first:calc(var(--ld) / 2 + var(--gap) + var(--d) / 2); --step:calc(var(--d) + var(--gap));
   --pw:calc(var(--ld) / .1003); --ph:calc(var(--pw) * .5581395349);
   --t-xl:clamp(1.35rem,2.6vw,2.2rem); --t-l:1.22rem; --t-m:1.02rem; --t-s:.9rem; --t-xs:.76rem;
@@ -45,21 +44,7 @@
 .fx-root .fx-head .fx-sig {font-family:var(--display);font-style:italic;font-weight:500;font-size:var(--t-l);color:var(--amber);margin:0;letter-spacing:-.01em}
 .fx-root .fx-head h1 {font-family:var(--display);font-weight:600;font-size:clamp(1.5rem,3.1vw,2.7rem);line-height:1.08;margin:0;text-wrap:balance;max-width:min(26ch,100%);font-variation-settings:"opsz" 144;text-shadow:0 2px 24px rgba(0,0,0,.35);transition:opacity .9s ease,filter .9s ease,transform .9s ease;opacity:1;filter:blur(0)}
 .fx-root .fx-head h1 em {font-style:italic;color:var(--amber);font-weight:500}
-/* The change of line is smoke (public/landing/smoke.webp, a band of real smoke made from the supplied animation, turned 90 degrees): while it builds, the text is eaten from its centre outwards (a growing hole in a
-   radial mask); under the thickest smoke the text changes; then the new text grows from the centre while the smoke thins out. --fxr is a registered percentage, so the browser can animate the mask itself. */
-.fx-root .fx-head h1.fx-out {animation:fx-eat 1100ms cubic-bezier(.5,0,.8,.6) forwards;-webkit-mask-image:radial-gradient(ellipse 75% 140% at 50% 50%,transparent var(--fxr),#000 calc(var(--fxr) + 32%));mask-image:radial-gradient(ellipse 75% 140% at 50% 50%,transparent var(--fxr),#000 calc(var(--fxr) + 32%))}
-.fx-root .fx-head h1.fx-in {animation:fx-grow 1500ms cubic-bezier(.2,.5,.4,1) forwards;-webkit-mask-image:radial-gradient(ellipse 75% 140% at 50% 50%,#000 var(--fxr),transparent calc(var(--fxr) + 32%));mask-image:radial-gradient(ellipse 75% 140% at 50% 50%,#000 var(--fxr),transparent calc(var(--fxr) + 32%))}
-@keyframes fx-eat {from {--fxr:-32%;opacity:1;filter:blur(0)} 70% {opacity:.8} to {--fxr:100%;opacity:0;filter:blur(7px)}}
-@keyframes fx-grow {from {--fxr:-32%;opacity:0;filter:blur(7px)} 30% {opacity:.9} to {--fxr:100%;opacity:1;filter:blur(0)}}
-.fx-root .fx-head .fx-smoke {position:absolute;left:50%;top:50%;width:min(95vw,780px);aspect-ratio:3/2;transform:translate(-50%,-50%);pointer-events:none;z-index:1;display:none;-webkit-mask-image:radial-gradient(closest-side,#000 40%,transparent 100%);mask-image:radial-gradient(closest-side,#000 40%,transparent 100%)}
-.fx-root .fx-head .fx-smoke img {display:block;width:100%;height:100%;object-fit:fill}
-.fx-root .fx-head .fx-smoke[data-phase="out"] {display:block;animation:fx-smoke-in 1100ms cubic-bezier(.4,0,.6,1) forwards}
-.fx-root .fx-head .fx-smoke[data-phase="in"] {display:block;animation:fx-smoke-out 1500ms cubic-bezier(.3,.2,.5,1) forwards}
-@keyframes fx-smoke-in {from {opacity:0;scale:.9} to {opacity:.95;scale:1.04}}
-@keyframes fx-smoke-out {from {opacity:.95;scale:1.04} to {opacity:0;scale:1.14}}
-@media (prefers-reduced-motion:reduce) {
-  .fx-root .fx-head .fx-smoke {display:none!important}
-}
+.fx-root .fx-head h1.fx-fog {opacity:0;filter:blur(16px);transform:translateY(4px) scale(1.02)}
 @media (prefers-reduced-motion:reduce) {
   .fx-root .fx-head h1 {transition:none}
 }
@@ -130,7 +115,7 @@
 @media (prefers-reduced-motion:reduce) {
   .fx-root .fx-wheel li, .fx-root .fx-wheel button, .fx-root .fx-card {transition:none}
 }
-.fx-root .fx-card {position:fixed;z-index:4;left:50%;transform:translateX(-50%);top:calc(var(--ly) + var(--ld)/2 + 14px);bottom:max(18px,calc(env(safe-area-inset-bottom,0px) + 18px));width:min(84vw,calc(100vw - var(--gl) - var(--gr)));min-width:0;background:var(--glass);border:1px solid var(--glass-line);border-radius:18px;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.35);transition:top .45s cubic-bezier(.2,.7,.2,1)}
+.fx-root .fx-card {position:fixed;z-index:4;left:50%;transform:translateX(-50%);top:calc(var(--ly) + var(--ld)/2 - 6px);bottom:max(18px,calc(env(safe-area-inset-bottom,0px) + 18px));width:min(84vw,calc(100vw - var(--gl) - var(--gr)));min-width:0;background:var(--glass);border:1px solid var(--glass-line);border-radius:18px;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.35);transition:top .45s cubic-bezier(.2,.7,.2,1)}
 .fx-root .fx-card.fx-open {top:calc(env(safe-area-inset-top,0px) + 64px)}
 /* Nuno, 03/11/2026: on a wide window the card was too wide; 65% of what it was, never narrower than 720 px (a phone keeps its full width) */
 @media (min-width:761px) {
@@ -393,4 +378,8 @@
 .fx-root .fx-bg::after {background:linear-gradient(90deg,rgba(3,28,35,.7) 0,rgba(3,28,35,0) 20%),linear-gradient(180deg,rgba(3,28,35,.55) 0,rgba(3,28,35,.15) 28%,rgba(3,28,35,0) 45%,rgba(3,28,35,.3) 100%)}
 @media (max-width:760px) {
   .fx-root .fx-wheel .fx-lbl {font-size:.6rem;letter-spacing:.09em}
+}
+@media (min-width:761px) and (max-height:899px) {
+  .fx-root .fx-marquee img {width:54px;height:54px}
+  .fx-root .fx-marquee figure {font-size:.72rem;gap:2px}
 }
