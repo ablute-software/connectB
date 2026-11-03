@@ -11,6 +11,7 @@ import { entriesOf, fileValues, groupOf, isHttpUrl, presetEntriesFor, subFieldAs
 import { isTableAnswered } from '@/lib/calls/table';
 import type { Answers, AnswerValue, FormField, SimpleAnswer } from '@/lib/calls/types';
 import { TableInput } from './TableInput';
+import { callsApi } from './api';
 import { ApplicationEligibility } from './ApplicationEligibility';
 import { ELIGIBILITY_LABEL, type EligibilityInfo, type EligibilityState, type EligibilityView } from '@/lib/calls/eligibility-payload';
 import { duplicateSentence, type PossibleDuplicate } from '@/lib/calls/duplicates';
@@ -129,6 +130,32 @@ function Chips({ item }: { item: Item }) {
   );
 }
 
+/** Prompt 927 (A): the applications submitted before applicants were told about the deal flow are not added to a pipeline by themselves; a call administrator can bring them into their own. Hidden when there is nothing to add or no pipeline. */
+function PipelineOffer({ callId }: { callId: string }) {
+  const [offer, setOffer] = useState<{ older: number; done: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState('');
+  useEffect(() => { let live = true; void callsApi.pipelineOffer(callId).then((r) => { if (live && r.ok && r.body.available) setOffer({ older: r.body.older, done: r.body.done }); }); return () => { live = false; }; }, [callId]);
+  if (!offer || (offer.older === 0 && !said)) return null;
+  const add = async () => {
+    setBusy(true);
+    const r = await callsApi.pipelineAdd(callId);
+    setBusy(false);
+    if (r.ok) { setSaid(r.body.added > 0 ? `${r.body.added} applicant${r.body.added === 1 ? '' : 's'} added to your pipeline.` : 'They are already in your pipeline.'); setOffer({ older: r.body.older, done: true }); }
+    else setSaid(r.body.error ?? 'We could not add them.');
+  };
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm" data-testid="pipeline-offer">
+      {said ? <p role="status" className="text-gray-700" data-testid="pipeline-offer-said">{said}</p> : (
+        <>
+          <p className="min-w-0 text-gray-700">{offer.older} application{offer.older === 1 ? ' was' : 's were'} submitted before applicants were told about the deal flow, so {offer.older === 1 ? 'it is' : 'they are'} not in any pipeline yet.</p>
+          <button type="button" disabled={busy || offer.done} onClick={() => void add()} className="shrink-0 rounded-lg border border-[#0E7490] px-3 py-1.5 text-xs font-semibold text-[#0E7490] hover:bg-[#E8F4F8] disabled:opacity-40" data-testid="pipeline-offer-add">{busy ? 'Adding…' : offer.done ? 'Already in your pipeline' : 'Add applicants to my pipeline'}</button>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function SubmissionsTab({ callId, timezone, currency }: { callId: string; timezone: string; currency: string }) {
   const [items, setItems] = useState<Item[] | null>(null);
   const [error, setError] = useState('');
@@ -209,6 +236,7 @@ export function SubmissionsTab({ callId, timezone, currency }: { callId: string;
   return (
     <section data-testid="submissions-tab">
       <h2 className="text-base font-semibold text-gray-900">Applications</h2>
+      <PipelineOffer callId={callId} />
       <p className="mt-1 text-xs text-gray-500">Applications that were submitted, read-only. Applications still being filled in are never shown to the organisation that runs the call.</p>
       {error && <p role="alert" className="mt-3 text-sm text-[#B00000]">{error}</p>}
       {items !== null && items.length > 0 && <SubViews view={view} counts={filterCounts(items)} onView={setView} />}

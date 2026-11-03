@@ -165,7 +165,7 @@ export function ApplicationForm({ initial, initialPage, onSubmitted }: {
       const issues = finalCheck(fields, answersRef.current, lastShown.current ?? undefined);
       lastShown.current = visibleIds(fields, answersRef.current);
       if (issues.length > 0) { setMissing(issues); return; }
-      const r = await applicantApi.submit(appId, submitKey.current ?? crypto.randomUUID(), revisionRef.current);
+      const r = await applicantApi.submit(appId, submitKey.current ?? crypto.randomUUID(), revisionRef.current, initial.call.addsToDealFlow === true);
       if (r.ok) { submitKey.current = null; onSubmitted({ submittedAt: r.body.submittedAt, reference: r.body.reference }); return; }
       if (r.status !== 0) submitKey.current = null; // a definitive answer: the next attempt is a new one
       if (r.body.failures && r.body.failures.length > 0) { setMissing(r.body.failures); return; }
@@ -239,6 +239,9 @@ export function ApplicationForm({ initial, initialPage, onSubmitted }: {
             className="rounded-lg bg-[#0E7490] px-4 py-1.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">Next</button>
         )}
       </div>
+      {canEdit && last && initial.call.addsToDealFlow && (
+        <p className="mt-3 rounded-lg bg-[#E8F4F8] px-3 py-2 text-xs text-[#0A5F75]" data-testid="deal-flow-notice">Your startup&apos;s profile will be added to «{initial.call.promoter}»&apos;s deal flow on Sherlock Deal.</p>
+      )}
       {canEdit && <p className="mt-3 text-[11px] text-gray-400">Deadline: {formatInZone(initial.call.closesAt, initial.call.timezone)}. Your answers are saved as you go; nothing is sent to {initial.call.promoter} until you submit.</p>}
       {missing && <MissingPopup items={missing} onClose={() => setMissing(null)} onGo={(n) => { setMissing(null); void goTo(n); }} />}
     </section>

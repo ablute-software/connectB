@@ -256,7 +256,7 @@ export interface ApplicationState {
   orgId: string;
   /** May it be edited right now? A draft, on a call that accepts applications (the server's clock). */
   canEdit: boolean;
-  call: { name: string; currency: string; /** Prompt 927 (D): the language of the call, for formatting amounts. */ language?: string; timezone: string; opensAt: string | null; closesAt: string | null; promoter: string; contactEmail?: string | null;
+  call: { name: string; currency: string; /** Prompt 927 (D): the language of the call, for formatting amounts. */ language?: string; /** Prompt 927 (A): the entity runs an investor pipeline: a submitted application joins its deal flow (the form says so before submitting). */ addsToDealFlow?: boolean; timezone: string; opensAt: string | null; closesAt: string | null; promoter: string; contactEmail?: string | null;
     /** Prompt 918 (Adenda 2, C): present only when the entity DELETED the call — the day this application goes with it. */
     deletedPurgeAfter?: string | null };
 }
@@ -273,7 +273,7 @@ export async function buildApplicationState(
       return {
         application: { id: app.id, reference: app.reference, status: app.status, lastPage: app.lastPage, revision: app.revision, submittedAt: sub.submittedAt },
         answers: sub.answers, fields, files: frozen, orgId: app.orgId ?? '', canEdit: false,
-        call: { name: call.name, currency: call.currency, language: call.contentLanguage, timezone: call.timezone, opensAt: call.opensAt, closesAt: call.closesAt, promoter, ...(call.deletedAt ? { deletedPurgeAfter: call.purgeAfter ?? null } : {}) },
+        call: { name: call.name, currency: call.currency, language: call.contentLanguage, addsToDealFlow: call.promoterKind === 'catalog_entity', timezone: call.timezone, opensAt: call.opensAt, closesAt: call.closesAt, promoter, ...(call.deletedAt ? { deletedPurgeAfter: call.purgeAfter ?? null } : {}) },
       };
     }
   }
@@ -286,7 +286,7 @@ export async function buildApplicationState(
     files: files.map((f) => ({ id: f.id, fieldId: f.fieldId, entryId: f.entryId ?? null, source: f.source, fileName: f.fileName, size: f.size, versionNumber: f.versionNumber, documentId: f.documentId, ...(newer[f.id] ? { newer: newer[f.id] } : {}) })),
     orgId: app.orgId ?? '',
     canEdit: app.status === 'draft' && accepting === true,
-    call: { name: call.name, currency: call.currency, language: call.contentLanguage, timezone: call.timezone, opensAt: call.opensAt, closesAt: call.closesAt, promoter, ...(call.deletedAt ? { deletedPurgeAfter: call.purgeAfter ?? null } : {}) },
+    call: { name: call.name, currency: call.currency, language: call.contentLanguage, addsToDealFlow: call.promoterKind === 'catalog_entity', timezone: call.timezone, opensAt: call.opensAt, closesAt: call.closesAt, promoter, ...(call.deletedAt ? { deletedPurgeAfter: call.purgeAfter ?? null } : {}) },
   };
 }
 

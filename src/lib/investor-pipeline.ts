@@ -13,6 +13,7 @@
 // written top to bottom. Every stage is timed (pipeline-timing.ts,
 // `[pipeline-timing]` in the logs) so a future regression shows up by
 // stage name instead of being re-discovered live.
+import { loadCallPipelineSource } from './calls/call-pipeline';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { computeMatchScore, type InvestorThesis, type StartupRound } from './investor-match-score';
 import { closedOrgIds } from './org-closed';
@@ -198,7 +199,8 @@ export async function pipelineEligibleOrgIds(admin: SupabaseClient, userId: stri
     : { data: [] as { org_id: string }[] };
   const { orgIds: referredOrgIds } = investorProfile ? await acceptedReferralsForInvestor(admin, investorProfile.id as string) : { orgIds: [] as string[] };
   const portfolio = investorCatalogEntityId ? await portfolioOrgIds(admin, investorCatalogEntityId) : new Set<string>();
-  return [...new Set([...published, ...granted, ...(decisions ?? []).map((d) => d.org_id as string), ...referredOrgIds, ...portfolio])];
+  const fromCalls = await loadCallPipelineSource(admin, userId, investorCatalogEntityId);     // Prompt 927 (A)
+  return [...new Set([...published, ...granted, ...(decisions ?? []).map((d) => d.org_id as string), ...referredOrgIds, ...portfolio, ...fromCalls.byOrg.keys()])];
 }
 
 // Prompt 850 §C moved isTreatedForWaveDosage (and WAVE_SIZE) to
@@ -246,13 +248,15 @@ async function resolveInvestorOrgIds(admin: SupabaseClient, userId: string, emai
   // Stage 1, wave B — needs person.id / investorCatalogEntityId from wave A.
   // P132-A eligibility union sources: an active data-room grant, a recorded
   // decision, and (Prompt 683) a portfolio investment.
-  const [grantedOrgIdList, viewerIsTest, decisionsResult, portfolioOrgIdsSet] = await timeBlock('stage1.waveB', () => Promise.all([
+  const [grantedOrgIdList, viewerIsTest, decisionsResult, portfolioOrgIdsSet, callSource] = await timeBlock('stage1.waveB', () => Promise.all([
     activeGrantOrgIds(admin, email, person?.id ?? null),
     resolveViewerIsTest(admin, investorCatalogEntityId),
     investorCatalogEntityId
       ? admin.from('investor_relationship_decisions').select('org_id, decision, reason_detail, decided_at, decided_by').eq('investor_catalog_entity_id', investorCatalogEntityId)
       : Promise.resolve({ data: [] as Decision[] }),
     investorCatalogEntityId ? portfolioOrgIds(admin, investorCatalogEntityId) : Promise.resolve(new Set<string>()),
+    // Prompt 927 (A): the startups that applied to a call this person administers or evaluates (a relationship, like a portfolio company; the tag is theirs alone).
+    loadCallPipelineSource(admin, userId, investorCatalogEntityId),
   ]));
   const grantedOrgIds = new Set(grantedOrgIdList);
   const decisionByOrg = new Map((decisionsResult.data ?? []).map((d) => [d.org_id, d]));
@@ -273,12 +277,12 @@ async function resolveInvestorOrgIds(admin: SupabaseClient, userId: string, emai
   //      recorded portfolio investment.
   //   B. Discovery — published MatchDeal profiles matching the mandate
   //      (P120-A, unchanged).
-  const orgIds = [...new Set([...publishedOrgIds, ...grantedOrgIdList, ...decidedOrgIds, ...referredOrgIdsViaReferral, ...portfolioOrgIdsSet])];
+  const orgIds = [...new Set([...publishedOrgIds, ...grantedOrgIdList, ...decidedOrgIds, ...referredOrgIdsViaReferral, ...portfolioOrgIdsSet, ...callSource.byOrg.keys()])];
   const usualCoInvestors = (investorProfile as { usual_co_investors: string | null }).usual_co_investors;
   return {
     investorProfile, orgIds, usualCoInvestors, person, investorCatalogEntityId, viewerPlanTier, trackingCountByStage,
     referredOrgIdsViaReferralSet, referrerNameByOrgId, grantedOrgIds, viewerIsTest, decisionByOrg, decidedOrgIds, portfolioOrgIdsSet,
-    publishedOrgIds,
+    publishedOrgIds, callSource,
   };
 }
 
@@ -311,9 +315,9 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   const {
     investorProfile, orgIds, usualCoInvestors, person, investorCatalogEntityId, viewerPlanTier, trackingCountByStage,
     referredOrgIdsViaReferralSet, referrerNameByOrgId, grantedOrgIds, viewerIsTest, decisionByOrg, decidedOrgIds, portfolioOrgIdsSet,
-    publishedOrgIds,
+    publishedOrgIds, callSource,
   } = resolved;
-  if (orgIds.length === 0) return { linked: true as const, waves: [], usualCoInvestors, quota: null as PipelineQuota | null };
+  if (orgIds.length === 0) return { linked: true as const, waves: [], usualCoInvestors, quota: null as PipelineQuota | null, callFilter: callSource.calls };
 
   // Stage 2, wave A — everything that only needs orgIds / investorCatalogEntityId
   // / email, with no dependency on each other. roundValuationBasisAvailable()
@@ -597,6 +601,9 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       // only (a badge) — pipelineStage is derived the same way for every
       // other card, never special-cased for this flag (§1's own rule 2).
       viaPortfolio: portfolioOrgIdsSet.has(org.id as string),
+      // Prompt 927 (A): applied to a call of this person's firm — the tag(s) naming the call(s), only in THIS person's own pipeline.
+      viaCall: callSource.byOrg.has(org.id as string),
+      callTags: callSource.byOrg.get(org.id as string) ?? [],
       followOnSignals: followOnSignalsByOrg.get(org.id as string) ?? [],
       isArchived: archivedOrgIds.has(org.id as string),
       // Prompt 345 §B/§C — set below, after this array exists (needs its
@@ -672,8 +679,8 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   // Prompt 153 — nor to the monthlyCap admission gate below, same reasoning:
   // a real grant/decision/investment is consent (or a fact) that already
   // happened, not a discovery-quota spend.
-  const relationshipCards = resolvedCards.filter((c) => c.viaGrant || c.viaDecision || c.viaReferral || c.viaPortfolio);
-  const discoveryCards = resolvedCards.filter((c) => !c.viaGrant && !c.viaDecision && !c.viaReferral && !c.viaPortfolio);
+  const relationshipCards = resolvedCards.filter((c) => c.viaGrant || c.viaDecision || c.viaReferral || c.viaPortfolio || c.viaCall);
+  const discoveryCards = resolvedCards.filter((c) => !c.viaGrant && !c.viaDecision && !c.viaReferral && !c.viaPortfolio && !c.viaCall);
 
   // Prompt 715 Pedido G — replaces the old "admit everything the month's
   // budget affords, all at once" model. Reservation is now PROGRESSIVE (one
@@ -883,7 +890,7 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   }));
 
   console.log(`[pipeline-timing] TOTAL: ${Date.now() - pipelineStart}ms`);
-  return { linked: true as const, waves: projectedWaves, usualCoInvestors, quota };
+  return { linked: true as const, waves: projectedWaves, usualCoInvestors, quota, callFilter: callSource.calls };
 }
 
 function fmtDateOnly(iso: string | undefined): string {

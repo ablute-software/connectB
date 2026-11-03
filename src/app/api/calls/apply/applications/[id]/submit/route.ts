@@ -21,7 +21,7 @@ export const maxDuration = 30;
 export const POST = withActingOrg(async function POST(req: Request, { params }: { params: { id: string } }) {
   const a = await authApplication(req, params.id);
   if (a.error) return a.error;
-  const body = (await req.json().catch(() => ({}))) as { key?: unknown; baseRevision?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { key?: unknown; baseRevision?: unknown; pipelineNotice?: unknown };
   const key = typeof body.key === 'string' && body.key.trim().length >= 8 && body.key.length <= 100 ? body.key.trim() : null;
   if (!key) return NextResponse.json({ ok: false, error: 'An idempotency key is required.' }, { status: 400 });
 
@@ -75,6 +75,10 @@ export const POST = withActingOrg(async function POST(req: Request, { params }: 
     };
     const [status, code, error2] = map[res.reason ?? ''] ?? [500, 'error', 'We could not submit. Please try again.'];
     return NextResponse.json({ ok: false, code, error: error2 }, { status });
+  }
+  // Prompt 927 (A): the applicant was SHOWN that the startup joins the entity's deal flow as they submitted: that is recorded, and only then may the application reach a pipeline (never before, never for a draft).
+  if (res.already !== true && body.pipelineNotice === true && a.call.promoterKind === 'catalog_entity') {
+    await a.admin.from('call_applications').update({ pipeline_notice_at: new Date().toISOString() }).eq('id', a.app.id);
   }
   // The receipt (email and in-app notice) goes out once, only for a submission that was just created, never for a repeat of the same request.
   if (res.already !== true) await notifySubmissionReceived(a.admin, a.call, a.app, a.userId).catch((e) => console.error('[calls] submission notice failed:', (e as Error).message));

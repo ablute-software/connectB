@@ -97,6 +97,9 @@ export const callsApi = {
   list: (kind: PromoterKind) => call<{ promoter: PromoterInfo; calls: CallListItem[]; deleted?: DeletedCallItem[] }>(`/api/calls?kind=${kind}`),
   create: (kind: PromoterKind, name?: string) => call<{ call: Call }>('/api/calls', send('POST', { kind, name })),
   get: (id: string) => call<CallState>(`/api/calls/${id}`),
+  /** Prompt 927 (A): "Add applicants to my pipeline" — the applications that predate the notice, brought into the caller's own pipeline. */
+  pipelineOffer: (id: string) => call<{ available: boolean; older: number; done: boolean }>(`/api/calls/${id}/pipeline`),
+  pipelineAdd: (id: string) => call<{ added: number; older: number; done: boolean }>(`/api/calls/${id}/pipeline`, send('POST')),
   patchGeneral: (id: string, baseVersion: number, patch: Record<string, unknown>) => call<CallState>(`/api/calls/${id}`, send('PATCH', { baseVersion, ...patch })),
   putPhases: (id: string, baseVersion: number, phases: Pick<CallPhase, 'id' | 'name' | 'startsOn' | 'endsOn'>[]) =>
     call<CallState>(`/api/calls/${id}/phases`, send('PUT', { baseVersion, phases })),

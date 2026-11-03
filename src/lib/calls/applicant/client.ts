@@ -41,6 +41,7 @@ export const applicantApi = {
     call<FileBody>(`/api/calls/apply/applications/${id}/files`, send('POST', { fieldId, entryId, kind: 'vault', documentId })),
   removeFile: (id: string, fileId: string) => call<{ revision?: number }>(`/api/calls/apply/applications/${id}/files/${fileId}`, send('DELETE')),
   refreshFile: (id: string, fileId: string) => call<Pick<FileBody, 'file'>>(`/api/calls/apply/applications/${id}/files/${fileId}/refresh`, send('POST')),
-  submit: (id: string, key: string, baseRevision: number) =>
-    call<{ submittedAt: string; reference: string | null; already: boolean; failures?: SubmitFailure[] }>(`/api/calls/apply/applications/${id}/submit`, send('POST', { key, baseRevision })),
+  /** `pipelineNotice`: the form SHOWED the notice that the startup's profile joins the entity's deal flow (Prompt 927, A); the server adds nothing to any pipeline without it. */
+  submit: (id: string, key: string, baseRevision: number, pipelineNotice = false) =>
+    call<{ submittedAt: string; reference: string | null; already: boolean; failures?: SubmitFailure[] }>(`/api/calls/apply/applications/${id}/submit`, send('POST', { key, baseRevision, ...(pipelineNotice ? { pipelineNotice: true } : {}) })),
 };
