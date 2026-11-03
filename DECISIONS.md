@@ -11597,3 +11597,7 @@ O Overview dos investors repete a receita das startups: frase («Sherlock Deal m
 ## Prompt 935 — o que a revisão independente achou (03/11/2026)
 
 .fx-paper (folha do Share securely) colidia com a folha dos textos legais do popup de Documentos e encolhia-a para 34x42 px: renomeada para .fx-shpaper. O som de boas-vindas cancela-se se a landing sair (Back/outra rota) e uma página restaurada do histórico (bfcache) já não fica desvanecida e bloqueada. O separador Documents deixou de prometer «contact» (o contacto está nas FAQ).
+
+## Prompt 935 — dois logos de VCs do catálogo no lugar da Indico e da Faber (Nuno, 03/11/2026)
+
+Entram Shilling VC e Bynd VC (fundos portugueses do catálogo; a base de dados não guarda logos de investidores, por isso os dois ficheiros vêm dos SVG dos próprios sites dos fundos, convertidos para PNG transparente e versão em círculo). Autorização «owner» (pedido dele no chat de 03/11/2026), sem prova da firma em arquivo: para retirar, apagar a linha em landing-logos.json. O mínimo de logos de investidores volta a 16.
