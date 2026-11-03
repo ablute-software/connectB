@@ -443,3 +443,12 @@ describe('the pointer is a magnifier and the tabs are fixed icons (Nuno, 03/11/2
     expect(css).toContain('.fx-root .fx-lupa[data-big="1"] img {transform:scale(3)}');
   });
 });
+
+describe('the logo strip is fixed and never stops (Nuno, 03/11/2026)', () => {
+  it('nothing pauses it (no hover pause, no click) and it is pinned to the bottom of the headline block, so a headline of one or two lines does not move it', () => {
+    expect(css).not.toContain('animation-play-state:paused');
+    expect(css).toContain('animation-play-state:running!important');
+    expect(css).toContain('.fx-root .fx-head {grid-template-rows:minmax(0,1fr) auto;align-content:stretch}');
+    expect(css).toMatch(/\.fx-head \.fx-qstrip \{[^}]*align-self:end/);
+  });
+});

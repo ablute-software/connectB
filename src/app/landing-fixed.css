@@ -243,7 +243,6 @@
 .fx-root .fx-marquee .fx-strip {overflow:hidden;min-width:0;-webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent)}
 .fx-root .fx-marquee .fx-track {display:flex;gap:18px;width:max-content;animation:fx-logos 40s linear infinite;align-items:start}
 .fx-root .fx-marquee.fx-logos-i .fx-track {animation-duration:70s}
-.fx-root .fx-marquee:hover .fx-track {animation-play-state:paused}
 .fx-root .fx-marquee figure {margin:0;display:grid;justify-items:center;gap:4px;font-size:.76rem;color:var(--fg-2);width:96px;text-align:center;line-height:1.2}
 .fx-root .fx-marquee img {width:62px;height:62px;border-radius:50%;box-shadow:0 0 0 1px rgba(255,255,255,.12)}
 @keyframes fx-logos {to{transform:translateX(-50%)}}
@@ -462,7 +461,7 @@
 /* the headline: static, big, with one muted line and one pill under it */
 .fx-root .fx-head {gap:.6rem;grid-template-columns:minmax(0,1fr);padding-top:10px}
 /* the logos: one quiet strip under the button (monochrome, faint, nearly still), hidden where there is no height for it */
-.fx-root .fx-head .fx-qstrip {width:min(760px,100%);min-width:0;overflow:hidden;margin-top:clamp(22px,3.6vh,44px)}
+.fx-root .fx-head .fx-qstrip {width:min(760px,100%);min-width:0;overflow:hidden;align-self:end;margin:0;padding:2px 0 6px}
 .fx-root .fx-qstrip .fx-marquee {border-top:0;margin:0;padding:0;display:block}
 .fx-root .fx-qstrip .fx-cap {display:none}
 /* the startups' strip says TRUSTED BY, small and in the logos' own faded tone (Nuno, 03/11/2026); the investors' strip stays without a caption */
@@ -471,7 +470,8 @@
 .fx-root .fx-qstrip .fx-marquee.fx-logos-i {--spd:10}
 .fx-root .fx-qstrip .fx-marquee img {border-radius:0;box-shadow:none;background:none;width:auto;max-width:calc(var(--fw) * 2.4px);height:calc(var(--fw) * 1px);object-fit:contain;filter:grayscale(1) brightness(0) invert(1);opacity:.4}
 .fx-root .fx-qstrip .fx-marquee figure {width:auto}
-.fx-root .fx-qstrip .fx-marquee .fx-track {animation-duration:calc(var(--cnt,27) * (var(--fw) * 2 + var(--gp)) / var(--spd) * 1s)}
+/* the strip never stops: no pause on hover, none on a click (Nuno, 03/11/2026) */
+.fx-root .fx-qstrip .fx-marquee .fx-track {animation-play-state:running!important;animation-duration:calc(var(--cnt,27) * (var(--fw) * 2 + var(--gp)) / var(--spd) * 1s)}
 @media (max-height:800px) {
   .fx-root .fx-head .fx-qstrip {display:none}
 }
@@ -558,3 +558,6 @@
 }
 /* the type grows to fill the card: FixedLanding measures the selected panel and sets --fxk (1 to 1.4) as high as it still fits; zoom scales the letters, the spacing and the pictures together */
 .fx-root .fx-card .fx-body > section {zoom:var(--fxk,1)}
+/* the headline block is two rows: the headline in the space that is left (it can be one line or two, and it changes), the strip fixed at the bottom of the block: it no longer moves with the title above it (Nuno, 03/11/2026) */
+.fx-root .fx-head {grid-template-rows:minmax(0,1fr) auto;align-content:stretch}
+.fx-root .fx-head h1 {align-self:center;padding-bottom:22px}
