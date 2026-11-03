@@ -275,7 +275,7 @@ export function FixedLanding({ initialMode, signedIn, children }: { initialMode:
           <picture>
             <source srcSet="/landing/lens-photo.avif" type="image/avif" />
             <source srcSet="/landing/lens-photo.webp" type="image/webp" />
-            <img className="fx-photo" src="/landing/lens-photo.webp" alt="" decoding="async" fetchPriority="high" width={1376} height={768} />
+            <img className="fx-photo" src="/landing/lens-photo.webp" alt="" decoding="async" fetchPriority="high" width={1045} height={1084} />
           </picture>
           {/* eslint-enable @next/next/no-img-element */}
         </div>

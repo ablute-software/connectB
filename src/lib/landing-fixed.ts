@@ -5,17 +5,11 @@
 // as CSS `calc()` on `dvh`/`vw` (landing-fixed.module.css), so the first paint is already right, nothing waits for an image and nothing moves afterwards (CLS 0). `lensLayout` is the JavaScript form of the
 // same formulas: the test compares it with the mockup's numbers at several window sizes, and with the CSS formulas by evaluating them.
 
-/** The photograph (public/landing/lens-photo.*): 1376 x 768 px (03/11/2026: the wide version with the continuation on the right); the lens in it, measured from the file. */
-export const PHOTO = { width: 1376, height: 768, lensX: 0.3485, lensY: 0.5738, lensD: 0.1003 } as const;
+/** The photograph (public/landing/lens-photo.*): 1045 x 1084 px; the lens in it, measured from the file. */
+export const PHOTO = { width: 1045, height: 1084, lensX: 0.504, lensY: 0.461, lensD: 0.102 } as const;
 
-/**
- * Where the lens must sit on the screen and how big it is: 46% down and 18% of the window's height across (Nuno's brief) — as a MINIMUM. The photograph must fill the window with nothing but cropping
- * (Nuno, 03/11/2026), and the lens sits under the middle place of the wheel, i.e. at the window's centre: the photograph has 34.85% of its width to the left of the lens, so for it to reach the window's left
- * edge the lens must be at least `lensD / (2 x lensX)` of the window's width across (14.39%). A very wide window stops at 27% of the height (beyond that the margins are the blurred copy).
- */
-export const SCREEN_LENS = { y: 0.46, d: 0.18, dMax: 0.27 } as const;
-/** The lens as a share of the window's WIDTH below which the photograph would stop short of the window's left edge. */
-export const COVER_LENS_VW = PHOTO.lensD / (2 * PHOTO.lensX);
+/** Where the lens must sit on the screen and how big it is: 46% down and 18% of the window's height across (Nuno's brief; the position was right, 03/11/2026: left alone). */
+export const SCREEN_LENS = { y: 0.46, d: 0.18 } as const;
 
 /** The wheel's discs: a disc is 39% of the lens, between 40 and 80 px; the gap between discs is 37% of a disc. */
 export const WHEEL = { discRatio: 0.39, discMin: 40, discMax: 80, gapRatio: 0.37 } as const;
@@ -31,7 +25,7 @@ export interface LensLayout {
 
 /** The mockup's `lens()`, for a window of `vw` x `vh` px. */
 export function lensLayout(vw: number, vh: number): LensLayout {
-  const ld = Math.min(Math.max(SCREEN_LENS.d * vh, COVER_LENS_VW * vw), SCREEN_LENS.dMax * vh);
+  const ld = SCREEN_LENS.d * vh;
   const scale = ld / (PHOTO.lensD * PHOTO.width);
   const photoW = PHOTO.width * scale;
   const photoH = PHOTO.height * scale;
