@@ -13,7 +13,7 @@ import {
 import { CTA, DOC_ORDER, HERO_LINES, MODES, MODE_PATH, heroLineText, isDocId } from '@/content/site/landing-fixed';
 import { PANEL_FAQ, PANEL_HTML } from '@/content/site/landing-fixed-panels';
 import { InvestorPricing, StartupPricing, landingMarquees } from '@/components/landing-fixed/Panels';
-import { escapeHtml, marqueeHtml } from './landing-fixed-logos';
+import { escapeHtml, marqueeHtml, marqueeRepeat } from './landing-fixed-logos';
 import { INVESTOR_PLANS, MATCHDEAL_WEEKLY, PLANS, SEAT_COUNT_LABEL } from './plans';
 import { landingLogosFor, logoStripVisible } from '@/content/site/logo-strip';
 import { aiClauseParagraphs } from '@/components/landing-fixed/LegalChapters';
@@ -299,7 +299,9 @@ describe('the logos: only the authorized ones, drawn as white discs, escaped', (
       const logos = landingLogosFor(mode);
       if (!logoStripVisible(logos)) { expect(m[mode]).toBe(''); continue; }
       expect(m[mode].match(/<figure>/g)).toHaveLength(logos.length);
-      expect(m[mode].match(/<figure aria-hidden="true">/g)).toHaveLength(logos.length);
+      expect(m[mode].match(/<figure aria-hidden="true">/g)).toHaveLength(logos.length * (marqueeRepeat(logos.length) * 2 - 1));
+      // each half of the track is wider than the widest strip, so the row never shows an end (Nuno, 03/11/2026)
+      expect(logos.length * marqueeRepeat(logos.length) * 94).toBeGreaterThanOrEqual(2200);
       expect(m[mode]).not.toContain('base64');
     }
   });
