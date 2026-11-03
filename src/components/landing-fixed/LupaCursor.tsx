@@ -1,7 +1,7 @@
 'use client';
 // Nuno, 03/11/2026: the mouse pointer is a small magnifier (public/landing/lupa.png, the glass is at the pointer). Over one of the tab icons it grows, and so does the icon under it; a click pins the place,
 // and the magnifier is small again so the pointer can go down to the card's buttons. Only on a device with a mouse (fine pointer, hover); on a phone the icons are tapped. It follows the pointer
-// with transform, in a requestAnimationFrame, never by re-rendering; 'any-pointer' (not the primary one): a laptop with a touch screen reports touch as its primary pointer and would never show it; the page's own cursor is hidden only once the first move arrives (without JavaScript nothing changes), and stays on form fields.
+// with transform, in a requestAnimationFrame, never by re-rendering; no media query decides whether to show it (a laptop with a touch screen reports touch as its primary pointer, and some setups report no fine pointer at all): the first move of a MOUSE or PEN pointer (never a finger) turns it on; the page's own cursor is hidden only once the first move arrives (without JavaScript nothing changes), and stays on form fields.
 import { useEffect, useRef } from 'react';
 
 /** The glass' centre in the picture, as a fraction of its width and height (measured from the file). */
@@ -10,7 +10,6 @@ const HOT = { x: 0.3235, y: 0.3696 } as const;
 export function LupaCursor() {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!window.matchMedia('(any-pointer: fine)').matches) return;
     const el = ref.current;
     const root = el?.closest('.fx-root');
     if (!el || !root) return;

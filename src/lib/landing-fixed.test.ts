@@ -425,9 +425,9 @@ describe('the pointer is a magnifier and the tabs are fixed icons (Nuno, 03/11/2
     expect(comp).not.toMatch(/ringOffset|setJumping|fx-wheel/);
   });
 
-  it('the magnifier: whenever any fine pointer exists (on a touch laptop the primary pointer is touch), small by default, big over an icon, small again after a click, ordinary pointer on form fields and the documents popup', () => {
-    expect(cursor).toContain("(any-pointer: fine)");
-    expect(cursor).not.toContain('(hover: hover)');
+  it('the magnifier: from the first move of a mouse or pen (no media query decides it; a finger never turns it on), small by default, big over an icon, small again after a click, ordinary pointer on form fields and the documents popup', () => {
+    expect(cursor).not.toContain('matchMedia');
+    expect(cursor).toContain("e.pointerType === 'touch'");
     expect(cursor).toContain("closest('[data-tab]')");
     expect(cursor).toContain('locked = true');
     expect(cursor).toMatch(/input, textarea, select, \[role="dialog"\]/);
