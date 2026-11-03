@@ -1,10 +1,11 @@
 // Prompt 905 — the rules a call's form obeys when someone ANSWERS it, in one pure module: the editor's
 // preview runs it in the browser, and Prompt 906's submit runs the very same functions on the server
 // (spec §6.2: "as condições são verificadas também no servidor"). No I/O, no React.
+import { formatMoney } from './currencies';
 import { MAX_NUMBER_DIGITS, type AnswerValue, type Answers, type FieldCondition, type FormField } from './types';
 import {
   FILE_FORMATS, MACROS_REFUSED, MAX_URL_LENGTH, entriesOf, fileFormatsOf, fileValues, formatOfName, groupMin, declaredTypeMessage, isMacroName, notAcceptedMessage, groupOf, groupStarted, isEmail, isFileValue, isGroupEntry, isHttpUrl,
-  maxFileMbOf, maxFilesOf, presetEntriesFor, subFieldAsField,
+  fileTooLargeMessage, maxFileMbOf, maxFilesOf, overFileLimit, presetEntriesFor, subFieldAsField,
 } from './field-config';
 import { isTableAnswer, isTableAnswered, tableIssues } from './table';
 
@@ -95,8 +96,10 @@ export function sanitizeNumberInput(raw: string): string {
 const CURRENCY_SYMBOL: Record<string, string> = { EUR: '€', USD: '$', GBP: '£' };
 
 /** "500000" -> "500 000", or "500 000 €" when `currency` is given. Empty input -> "". */
-export function formatNumberDisplay(digits: string, currency?: string | null): string {
+export function formatNumberDisplay(digits: string, currency?: string | null, language?: string | null): string {
   if (!digits) return '';
+  // Prompt 927 (D): with the call's language the amount is formatted by Intl.NumberFormat in that language ("€500,000" in English, "500 000 €" in Portuguese); without one it keeps the plain layout.
+  if (currency && language) return formatMoney(digits, currency, language);
   const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
   if (!currency) return grouped;
   return `${grouped} ${CURRENCY_SYMBOL[currency] ?? currency}`;
@@ -205,7 +208,7 @@ export function validateAnswer(field: FormField, value: AnswerValue): string | n
         if (isMacroName(f.fileName)) return MACROS_REFUSED;
         if (!formatOfName(f.fileName, formats)) return notAcceptedMessage(formats, f.fileName);
         if (f.mime && !allowedMime.includes(f.mime)) return declaredTypeMessage(formats, f.fileName, f.mime);
-        if (f.size > maxMb * 1024 * 1024) return `The file is too large (maximum ${maxMb} MB).`;
+        if (overFileLimit(f.size, maxMb)) return fileTooLargeMessage(f.size, maxMb);
       }
       return null;
     }

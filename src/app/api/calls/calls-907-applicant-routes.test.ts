@@ -242,6 +242,24 @@ describe('I2 — saving the draft', () => {
 });
 
 describe('I2 — documents', () => {
+  it('Prompt 927 (E): 12 MB is the ceiling whatever is stored — 11.9 MB is accepted, 12.1 MB is refused with the sentence, an old limit of 25 MB (or none) counts as 12, and the refused object is removed', async () => {
+    const d = await draftOf(); const id = d.state.application.id;
+    const MB = 1024 * 1024;
+    const stored = db.tables.call_form_fields.find((x) => x.id === F.deck)!;
+    for (const legacy of [{ maxFileMb: 25 }, { maxFileMb: 999 }, {}]) {
+      stored.validations = legacy;
+      const big = putObject(ORG_A, 'big.pdf', new Uint8Array([...PDF, ...new Uint8Array(Math.round(12.05 * MB))]));
+      const refused = await attachDeck(id, big, 'big.pdf');
+      expect(refused.status, JSON.stringify(legacy)).toBe(400);
+      expect(refused.body.error).toBe('This file is 12.1 MB. The maximum is 12 MB.');
+      expect(storage.objects.has(big)).toBe(false);
+    }
+    stored.validations = { maxFileMb: 25 };
+    const almost = await attachDeck(id, putObject(ORG_A, 'almost.pdf', new Uint8Array([...PDF, ...new Uint8Array(Math.round(11.9 * MB))])), 'almost.pdf');
+    expect(almost.status, JSON.stringify(almost.body)).toBe(200);
+    expect(almost.body.file.size).toBeGreaterThan(11.8 * MB);
+  });
+
   it('an uploaded PDF is checked on the server (a real PDF by its bytes, the question\'s size limit) and registered for that question only', async () => {
     const d = await draftOf(); const id = d.state.application.id;
     const ok = await attachDeck(id, putObject(ORG_A, 'deck.pdf'));

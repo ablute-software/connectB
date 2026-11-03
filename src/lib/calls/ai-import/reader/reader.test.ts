@@ -86,6 +86,25 @@ describe('what it solves, and says it did', () => {
     expect(r.fields.map((f) => [f.number, f.kind])).toEqual([['1.1', 'yes_no'], ['1.1/2', 'short_text'], ['1.2', 'short_text']]);
     expect(r.fields[1].condition).toMatchObject({ value: 'yes' });
   });
+  it('Prompt 927 (B): the follow-up has NO number of its own — the mother keeps it, so a number is never shown twice — and the review says what was done', () => {
+    const r = read(`6. Anexos\n6.4.2 Já apresentou anteriormente uma Candidatura junto da Portugal Ventures? Se sim, qual?\n6.4.3 Nome\n4.4 Os promotores estão disponíveis para investir?\nSim ou não. Quanto (em euros)?`);
+    const mother = by(r, '6.4.2'); const dep = by(r, '6.4.2/2');
+    expect(mother).toMatchObject({ kind: 'yes_no', label: '6.4.2 Já apresentou anteriormente uma Candidatura junto da Portugal Ventures?' });
+    expect(dep).toMatchObject({ kind: 'short_text', label: 'Se sim, qual?', condition: { tmpId: mother.tmpId, value: 'yes' } });
+    expect(by(r, '4.4/2').label).toBe('Quanto (em euros)?');
+    const shown = r.fields.map((f) => f.label.match(/^\d+(?:\.\d+)+/)?.[0]).filter(Boolean);
+    expect(new Set(shown).size).toBe(shown.length);                                          // no number appears in two labels
+    expect(r.attention.find((x) => x.what.startsWith('6.4.2'))?.why).toBe('6.4.2 split into a Yes/No question and a follow-up shown only if Yes.');
+  });
+  it('Prompt 927 (B): "Se não", "Caso afirmativo", "If so" and "If not" are followed too — with the right answer as the condition', () => {
+    const pt = read(`1. Equipa\n1.1 A equipa é completa? Se não, porquê?\n1.2 Tem apoios? Caso afirmativo, quais?`);
+    expect(by(pt, '1.1/2')).toMatchObject({ label: 'Se não, porquê?', condition: { value: 'no' } });
+    expect(by(pt, '1.2/2')).toMatchObject({ kind: 'short_text', condition: { value: 'yes' } });
+    const en = read(`1. Team\n1.1 Have you applied before? If so, which one?\n1.2 Is the team complete? If not, why?`);
+    expect(by(en, '1.1/2')).toMatchObject({ kind: 'short_text', label: 'If so, which one?', condition: { value: 'yes' } });
+    expect(by(en, '1.2/2')).toMatchObject({ label: 'If not, why?', condition: { value: 'no' } });
+    expect(en.attention.find((x) => x.what.startsWith('1.2'))?.why).toBe('1.2 split into a Yes/No question and a follow-up shown only if No.');
+  });
   it('a document with "the following topics" keeps the topics as its instruction, not as questions', () => {
     const r = read(`6. Anexos\n6.1 Inclua uma apresentação em formato powerpoint, a qual deverá abordar os seguintes tópicos:\n6.1.1 Equipa de gestão;\n6.1.2 Mercado;\n6.1.3 Modelo de negócio;\n6.2 Nome`);
     expect(r.fields.map((f) => f.number)).toEqual(['6.1', '6.2']);
@@ -234,6 +253,9 @@ describe.skipIf(!fs.existsSync(REAL))('the real INNOV-ID form (the PDF the Nuno 
     expect(by(r, '6.4')).toMatchObject({ kind: 'group' });
     expect(by(r, '6.4').group?.subFields.map((s) => s.kind)).toEqual(['short_text', 'number', 'short_text', 'short_text', 'long_text', 'email', 'file']);
     expect(by(r, '6.4.2/2').condition?.value).toBe('yes');
+    expect(by(r, '6.4.2/2').label).toBe('Se sim, qual?');                                          // Prompt 927 (B): no number of its own
+    const shown = r.fields.map((f) => f.label.match(/^\d+(?:\.\d+)+/)?.[0]).filter(Boolean);
+    expect(new Set(shown).size, 'a number is shown twice').toBe(shown.length);
     expect(['6.5.1', '6.5.2', '6.5.4'].map((n) => by(r, n).kind)).toEqual(['file', 'file', 'file']);
     expect(by(r, '6.5.3').kind).toBe('short_text');                                           // the access code is text
     expect(by(r, '6.6').validations).toMatchObject({ maxFiles: 10 });

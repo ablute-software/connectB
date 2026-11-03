@@ -10,7 +10,7 @@ import type { ResultKey } from './results';
 
 export const MAX_REASON = 2000;
 export const MAX_RESPONSE = 2000;
-export const MAX_CONTEST_FILE_MB = 10;
+export const MAX_CONTEST_FILE_MB = 12;        // Prompt 927 (E): the same ceiling as every file of a call
 export const DAY_MS = 86_400_000;
 export const WARN_DAYS = 30;
 /** Postponing the deletion once moves it by this many months. */

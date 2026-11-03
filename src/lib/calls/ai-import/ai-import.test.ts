@@ -174,7 +174,7 @@ describe('accepted items become form fields', () => {
     expect(fields[1].options).toEqual([{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }]);
     expect(fields[2].options.map((o) => o.label)).toEqual(['A', 'B']);
     expect(new Set(fields[2].options.map((o) => o.id)).size).toBe(2);
-    expect(fields[3]).toMatchObject({ kind: 'file', expectedType: 'Registration', maxAgeMonths: 3, validations: { maxFileMb: 10 } });
+    expect(fields[3]).toMatchObject({ kind: 'file', expectedType: 'Registration', maxAgeMonths: 3, validations: { maxFileMb: 12 } });
     expect(fields.every((f) => f.condition === null && f.platformMapping === null)).toBe(true);
   });
 });

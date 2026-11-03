@@ -3,6 +3,7 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { formatDayInZone } from './tz';
+import { fileTooLargeMessage, overFileLimit } from './field-config';
 import { loadCall, loadPhases, promoterName } from './store';
 import { loadCriteria } from './eval-grid-store';
 import { loadBoard } from './eval-board-store';
@@ -73,7 +74,7 @@ export async function createContestation(
     const bytes = Buffer.from(await blob.arrayBuffer());
     if (isZipName(name)) return reject('ZIP files are not accepted. Attach a PDF.');
     if (formatOfBytes(bytes, name) !== 'pdf') return reject('Only a PDF file can be attached.');
-    if (bytes.length > MAX_CONTEST_FILE_MB * 1024 * 1024) return reject(`The file is too large (maximum ${MAX_CONTEST_FILE_MB} MB).`);
+    if (overFileLimit(bytes.length, MAX_CONTEST_FILE_MB)) return reject(fileTooLargeMessage(bytes.length, MAX_CONTEST_FILE_MB));
     const verdict = await scanWithVirusTotal(bytes);
     if (verdict.status === 'flagged') return reject(`Upload blocked: ${verdict.detail}`);
     void sha256Hex;

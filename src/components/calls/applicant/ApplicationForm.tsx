@@ -25,6 +25,8 @@ import { fileValue } from '@/lib/calls/applicant/answers';
 import type { ApplicationState } from '@/lib/calls/applicant/store';
 import { formatInZone } from '@/lib/calls/tz';
 import { FieldInput } from '../FieldInput';
+import { DependentFrame } from '../DependentFrame';
+import { CallLanguageProvider } from '../CallLanguage';
 import { SaveStatus, type SaveState } from '../SaveStatus';
 import { FileQuestion, type StateFile } from './FileQuestion';
 
@@ -179,6 +181,7 @@ export function ApplicationForm({ initial, initialPage, onSubmitted }: {
   };
 
   return (
+    <CallLanguageProvider value={initial.call.language ?? null}>
     <section data-testid="application-form" aria-label="Application">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-gray-500">Application <b className="font-mono text-gray-700" data-testid="reference">{initial.application.reference}</b> · {initial.call.promoter}</p>
@@ -204,7 +207,8 @@ export function ApplicationForm({ initial, initialPage, onSubmitted }: {
           // only what was typed; "required" is checked at submission. A table shows its problems cell by cell, so it has no message of its own under the whole question.
           const err = canEdit && f.kind !== 'table' && isAnswered(v) ? validateAnswer(f, v) : null;
           return (
-            <FieldInput key={f.id} field={f} value={v} error={err ?? undefined} currency={initial.call.currency} disabled={!canEdit} onChange={(nv) => change(f.id, nv)}
+            <DependentFrame key={f.id} field={f} all={fields}>
+            <FieldInput field={f} value={v} error={err ?? undefined} currency={initial.call.currency} disabled={!canEdit} onChange={(nv) => change(f.id, nv)}
               fileControl={f.kind === 'file' ? (
                 <FileQuestion field={f} applicationId={appId} orgId={initial.orgId} files={filesOf(v)} disabled={!canEdit}
                   onAttached={(file) => attached(file, { questionId: f.id })} onRemoved={removed} onUpdated={updated} />
@@ -213,6 +217,7 @@ export function ApplicationForm({ initial, initialPage, onSubmitted }: {
                 <FileQuestion field={subFieldAsField(sub)} entryId={entryId} applicationId={appId} orgId={initial.orgId} files={filesOf(entryValue)} disabled={!canEdit}
                   onAttached={(file) => attached(file, { questionId: sub.id, groupId: f.id, entryId })} onRemoved={removed} onUpdated={updated} />
               ) : undefined} />
+            </DependentFrame>
           );
         })}
       </div>
@@ -237,6 +242,7 @@ export function ApplicationForm({ initial, initialPage, onSubmitted }: {
       {canEdit && <p className="mt-3 text-[11px] text-gray-400">Deadline: {formatInZone(initial.call.closesAt, initial.call.timezone)}. Your answers are saved as you go; nothing is sent to {initial.call.promoter} until you submit.</p>}
       {missing && <MissingPopup items={missing} onClose={() => setMissing(null)} onGo={(n) => { setMissing(null); void goTo(n); }} />}
     </section>
+    </CallLanguageProvider>
   );
 }
 

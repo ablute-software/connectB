@@ -14,7 +14,7 @@ import { authApplication } from '@/lib/calls/applicant/auth';
 import { addFile, loadFiles, loadVaultPdf, objectSize, removeFileRow } from '@/lib/calls/applicant/store';
 import { fileAnswer } from '@/lib/calls/applicant/answers';
 import { scanWithVirusTotal, sha256Hex } from '@/lib/upload-security';
-import { fileFormatsOf, fileQuestions, formatsText, maxFileMbOf, maxFilesOf } from '@/lib/calls/field-config';
+import { fileFormatsOf, fileQuestions, fileTooLargeMessage, formatsText, maxFileMbOf, maxFilesOf, overFileLimit } from '@/lib/calls/field-config';
 import { checkFile } from '@/lib/calls/applicant/file-format';
 import { logCallEvent } from '@/lib/calls/store';
 
@@ -36,7 +36,7 @@ export const POST = withActingOrg(async function POST(req: Request, { params }: 
   const formats = fileFormatsOf(field.validations);
   const maxFiles = maxFilesOf(field.validations);
   const maxMb = maxFileMbOf(field.validations);
-  const tooBig = (bytes: number) => bytes > maxMb * 1024 * 1024;
+  const tooBig = (bytes: number) => overFileLimit(bytes, maxMb);
 
   // A File question inside a group has one file (or several) PER ENTRY: the entry says whose it is.
   const entryId = field.groupId ? (typeof body.entryId === 'string' && /^[A-Za-z0-9_-]{4,64}$/.test(body.entryId) ? body.entryId : null) : null;
@@ -65,7 +65,7 @@ export const POST = withActingOrg(async function POST(req: Request, { params }: 
     // What it REALLY is (by its bytes, and for the old Office formats by the streams inside), whether it carries macros, and whether this question takes it: every refusal says why and what is accepted.
     const checked = checkFile(bytes, name, formats);
     if (!checked.ok) return reject(checked.error);
-    if (tooBig(bytes.length)) return reject(`The file is too large (maximum ${maxMb} MB).`);
+    if (tooBig(bytes.length)) return reject(fileTooLargeMessage(bytes.length, maxMb));
     const verdict = await scanWithVirusTotal(bytes);
     if (verdict.status === 'flagged') return reject(`Upload blocked: ${verdict.detail}`);
     const row = await addFile(a.admin, {
@@ -84,7 +84,7 @@ export const POST = withActingOrg(async function POST(req: Request, { params }: 
     if (!doc) return NextResponse.json({ ok: false, error: 'That document is not available in your Vault as a PDF.' }, { status: 404 });
     const size = doc.sizeBytes ?? (await objectSize(a.admin, doc.storagePath));
     if (size === null) return NextResponse.json({ ok: false, error: 'We could not read the size of that document. Please try another or upload it.' }, { status: 400 });
-    if (tooBig(size)) return NextResponse.json({ ok: false, error: `The file is too large (maximum ${maxMb} MB).` }, { status: 400 });
+    if (tooBig(size)) return NextResponse.json({ ok: false, error: fileTooLargeMessage(size, maxMb) }, { status: 400 });
     const row = await addFile(a.admin, {
       applicationId: a.app.id, callId: a.call.id, orgId: a.orgId, fieldId: field.id, entryId, source: 'vault', fileName: doc.name, size, sha256: doc.sha256, storagePath: doc.storagePath,
       documentId: doc.id, versionId: doc.versionId, versionNumber: doc.version, userId: a.userId,

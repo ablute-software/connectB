@@ -188,7 +188,7 @@ describe('building the form', () => {
   it('new fields have sensible defaults; Yes/No has no stored default answer; files are PDF with a size cap', () => {
     expect(newField('single_choice').options).toHaveLength(2);
     expect(newField('yes_no').options.map((o) => o.id)).toEqual(['yes', 'no']);
-    expect(newField('file').validations.maxFileMb).toBe(10);
+    expect(newField('file').validations.maxFileMb).toBe(12);
     expect(newField('short_text').options).toEqual([]);
   });
 
@@ -326,7 +326,7 @@ describe('what the server accepts', () => {
     ]);
     expect(t.validations).toEqual({ maxLength: 20000, maxWords: 50 });
     expect(n.validations).toEqual({ currency: true });
-    expect(file.validations).toEqual({ maxFileMb: 50 });
+    expect(file.validations).toEqual({ maxFileMb: 12 });
     expect([file.expectedType, file.maxAgeMonths]).toEqual(['Financials', 12]);
     expect([big.expectedType, big.maxAgeMonths]).toEqual([null, null]);
   });

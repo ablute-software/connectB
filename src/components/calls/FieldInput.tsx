@@ -6,6 +6,7 @@ import { formatNumberDisplay, sanitizeNumberInput } from '@/lib/calls/form-logic
 import { acceptAttr, fileFormatsOf, fileValues, formatsText, maxFileMbOf, maxFilesOf } from '@/lib/calls/field-config';
 import { URL_HINT_LABELS, platformMappingLabel, type AnswerValue, type FormField, type SimpleAnswer, type SubField } from '@/lib/calls/types';
 import { GroupInput } from './GroupInput';
+import { useCallLanguage } from './CallLanguage';
 import { TableInput } from './TableInput';
 import { TablePreview } from './TablePreview';
 
@@ -26,6 +27,7 @@ export function FieldInput({ field, value, error, currency, disabled, onChange, 
   /** Prompt 923: a Table question is drawn by the editor's preview (Desktop / Phone, "Open full preview") — the entity's side, never the applicant's form. */
   tablePreview?: boolean;
 }) {
+  const language = useCallLanguage();
   const border = error ? 'border-[#B00000]' : 'border-gray-300';
   const id = `f-${field.id}${idSuffix ? `-${idSuffix}` : ''}`;
   const aria = compact ? field.label : undefined;
@@ -77,7 +79,7 @@ export function FieldInput({ field, value, error, currency, disabled, onChange, 
             // A minus sign, a comma, a dot or a letter never even reaches the field.
             onKeyDown={(e) => { if (e.key.length === 1 && !/\d/.test(e.key) && !e.ctrlKey && !e.metaKey) e.preventDefault(); }} />
           <p className="mt-1 min-h-[1rem] text-xs font-medium text-gray-600" data-testid="number-formatted" aria-live="polite">
-            {formatNumberDisplay(text, field.validations.currency ? currency : null)}
+            {formatNumberDisplay(text, field.validations.currency ? currency : null, language)}
           </p>
         </>
       );

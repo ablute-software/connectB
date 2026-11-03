@@ -5,6 +5,7 @@ import { withActingOrg } from '@/lib/acting-org';
 import { authApplication } from '@/lib/calls/applicant/auth';
 import { loadFiles, loadVaultPdf, objectSize, repinVaultFile } from '@/lib/calls/applicant/store';
 import { DEFAULT_MAX_FILE_MB, MAX_FILE_MB_CEILING } from '@/lib/calls/types';
+import { fileTooLargeMessage } from '@/lib/calls/field-config';
 import { logCallEvent } from '@/lib/calls/store';
 
 export const dynamic = 'force-dynamic';
@@ -23,7 +24,7 @@ export const POST = withActingOrg(async function POST(req: Request, { params }: 
   const size = latest.sizeBytes ?? (await objectSize(a.admin, latest.storagePath));
   const field = a.fields.find((f) => f.id === file.fieldId);
   const maxMb = Math.min(field?.validations.maxFileMb ?? DEFAULT_MAX_FILE_MB, MAX_FILE_MB_CEILING);
-  if (size === null || size > maxMb * 1024 * 1024) return NextResponse.json({ ok: false, error: size === null ? 'We could not read the size of the new version.' : `The new version is too large (maximum ${maxMb} MB).` }, { status: 400 });
+  if (size === null || size > maxMb * 1024 * 1024) return NextResponse.json({ ok: false, error: size === null ? 'We could not read the size of the new version.' : fileTooLargeMessage(size, maxMb) }, { status: 400 });
   if (!(await repinVaultFile(a.admin, file.id, latest, size))) return NextResponse.json({ ok: false, error: 'We could not update the document.' }, { status: 500 });
   await logCallEvent(a.admin, a.call.id, 'vault_document_updated', a.userId, { applicationId: a.app.id, documentId: file.documentId, from: file.versionNumber, to: latest.version });
   return NextResponse.json({ ok: true, file: { id: file.id, fieldId: file.fieldId, source: 'vault', fileName: latest.name, size, versionNumber: latest.version, documentId: file.documentId } });

@@ -29,6 +29,10 @@ export function fileFormatsOf(v: FileCfg | undefined): FileFormatKey[] {
 }
 export const maxFilesOf = (v: FileCfg | undefined): number => Math.min(MAX_FILES_CEILING, Math.max(1, Math.floor(v?.maxFiles ?? 1)));
 export const maxFileMbOf = (v: FileCfg | undefined): number => Math.min(v?.maxFileMb ?? DEFAULT_MAX_FILE_MB, MAX_FILE_MB_CEILING);
+/** True when a file of this many bytes is over the limit of `maxMb` megabytes (12 MB itself is accepted). */
+export const overFileLimit = (bytes: number, maxMb: number): boolean => bytes > maxMb * 1024 * 1024;
+/** The sentence every refusal of a size uses — in the browser before sending, and on the server for every path that takes a file: "This file is 18.4 MB. The maximum is 12 MB." The size is rounded UP to a tenth, so it never reads as if it were within the limit. */
+export const fileTooLargeMessage = (bytes: number, maxMb: number): string => `This file is ${(Math.ceil((bytes / (1024 * 1024)) * 10) / 10).toFixed(1)} MB. The maximum is ${maxMb} MB.`;
 export const acceptAttr = (formats: FileFormatKey[]): string => formats.map((f) => FILE_FORMATS[f].accept).join(',');
 /** "PDF", "PDF or Word", "PDF, Word or Excel". */
 export function formatsText(formats: FileFormatKey[]): string {
@@ -185,7 +189,9 @@ export function parseSimpleValidations(kind: SimpleKind, raw: unknown): Omit<Fie
   if (kind === 'number' && v.currency === true) out.currency = true;
   if (kind === 'url' && typeof v.urlHint === 'string' && (URL_HINTS as readonly string[]).includes(v.urlHint)) out.urlHint = v.urlHint as UrlHint;
   if (kind === 'file') {
-    out.maxFileMb = clampInt(v.maxFileMb, 1, MAX_FILE_MB_CEILING) ?? DEFAULT_MAX_FILE_MB;
+    // Prompt 927 (E): at most 12 MB, and "no limit" (nothing, 0, a negative, text) is the default 12 — never a limit of 1 MB by accident and never an unlimited one.
+    const wantedMb = typeof v.maxFileMb === 'number' || typeof v.maxFileMb === 'string' ? Math.floor(Number(v.maxFileMb)) : NaN;
+    out.maxFileMb = Number.isFinite(wantedMb) && wantedMb >= 1 ? Math.min(MAX_FILE_MB_CEILING, wantedMb) : DEFAULT_MAX_FILE_MB;
     const chosen = Array.isArray(v.fileFormats) ? FILE_FORMAT_KEYS.filter((k) => (v.fileFormats as unknown[]).includes(k)) : [];
     if (chosen.length > 0) out.fileFormats = chosen;           // omitted = PDF only, as before: existing questions stay as they are
     const mf = clampInt(v.maxFiles, 1, MAX_FILES_CEILING); if (mf && mf > 1) out.maxFiles = mf;

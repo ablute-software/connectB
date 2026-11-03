@@ -38,7 +38,7 @@ describe('the applicant\'s inputs', () => {
     expect(several).toContain('multiple=""'); expect(several).toContain('.docx'); expect(several).toContain('application/pdf');
     expect(several).toContain('PDF or Word only, up to 5 MB each · up to 3 files');
     const single = input(newField('file', 1, 0));
-    expect(single).not.toContain('multiple'); expect(single).toContain('PDF only, up to 10 MB');
+    expect(single).not.toContain('multiple'); expect(single).toContain('PDF only, up to 12 MB');
     expect(single).not.toContain('.docx');
   });
   it('a File question of the applicant lists each attached file with its own Remove, offers "Add another file" up to the maximum, and no ZIP', () => {
@@ -48,7 +48,7 @@ describe('the applicant\'s inputs', () => {
     expect(html).toContain('plan.pdf'); expect(html).toContain('cv.docx');
     expect((html.match(/data-testid="attached-file"/g) ?? [])).toHaveLength(2);
     expect(html).toContain('Add another file');
-    expect(html).toContain('PDF or Word only, up to 10 MB each · up to 3 files');
+    expect(html).toContain('PDF or Word only, up to 12 MB each · up to 3 files');
     expect(html).toContain('choose-from-vault');                      // a PDF question may still take one from the Vault
     expect(html).not.toMatch(/\.zip/i);
     const full = render(createElement(FileQuestion, { field: q, applicationId: 'a1', orgId: 'o1', files: [...files, { ...files[0], id: 'f3', fileName: 'x.pdf' }], disabled: false, onAttached: () => {}, onRemoved: () => {}, onUpdated: () => {} }));

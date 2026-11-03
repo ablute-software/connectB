@@ -13,7 +13,8 @@ import { diffCorrections } from '@/lib/calls/ai-import/corrections';
 import { resolveImportNotices } from '@/lib/calls/ai-import/notify';
 import { parseFieldsPayload } from '@/lib/calls/form-builder';
 import { parseGeneralPatch, parsePhasesPayload } from '@/lib/calls/mappers';
-import { bumpConfig, loadFields, logCallEvent, replaceFields, replacePhases } from '@/lib/calls/store';
+import { bumpConfig, loadFields, loadPromoterNames, logCallEvent, replaceFields, replacePhases } from '@/lib/calls/store';
+import { nameClashBody } from '@/lib/calls/call-names';
 import { buildCallState } from '@/lib/calls/state';
 
 export const dynamic = 'force-dynamic';
@@ -70,6 +71,11 @@ export async function POST(req: Request, { params }: { params: { id: string; run
     const parsed = parseGeneralPatch({ ...g }, auth.call);
     if (!parsed.ok) return bad(parsed.error);
     generalPatch = parsed.patch as Record<string, unknown>;
+    // Prompt 927 (F): the name the document proposes cannot be one that another call of the organisation already has.
+    if (typeof generalPatch.name === 'string' && generalPatch.name !== auth.call.name) {
+      const clash = nameClashBody(await loadPromoterNames(auth.admin, auth.call.promoterKind, auth.call.promoterId), generalPatch.name, auth.call.id);
+      if (clash) return bad(`${clash.error} Choose another name (for example «${clash.suggestions[0] ?? `${generalPatch.name} 2`}»), or leave the name out of what you apply.`, 409, { code: clash.code, existing: clash.existing, suggestions: clash.suggestions });
+    }
   }
   let phases: ReturnType<typeof parsePhasesPayload> | null = null;
   if (hasPhases) {

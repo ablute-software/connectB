@@ -158,6 +158,7 @@ describe.skipIf(!CHROME)('the evaluator screens (real browser)', () => {
       const srv = server(payload({ grid: { version: 1, criteria: three, commentRequiredForAll: false, scoring: { mode: 'equal', aggregation } } }));
       const { page, errors } = await open(1280, srv);
       await level(page, 0, 4).click(); await level(page, 1, 3).click(); await level(page, 2, 5).click();
+      await page.waitForFunction((x) => document.querySelector('[data-testid="grade-ring-text"]')?.textContent?.includes(x), expected, { timeout: 8000 });
       expect(await page.locator('[data-testid="grade-ring-text"]').innerText()).toContain(expected);
       expect(await page.locator('[data-testid="eval-criterion"]').first().innerText()).not.toMatch(/weight/i);       // no weight beside a criterion
       expect(await page.locator('[data-testid="eval-criterion"]').first().innerText()).toContain('scale 1–5');
@@ -170,6 +171,7 @@ describe.skipIf(!CHROME)('the evaluator screens (real browser)', () => {
     const srv = server(payload({ grid: { version: 1, criteria: mixed, commentRequiredForAll: false, scoring: { mode: 'equal', aggregation: 'average' } } }));
     const { page } = await open(1280, srv);
     await level(page, 0, 4).click(); await level(page, 1, 6).click();
+    await page.waitForFunction(() => document.querySelector('[data-testid="grade-ring-text"]')?.textContent?.includes('67.5 %'), null, { timeout: 8000 });
     expect(await page.locator('[data-testid="grade-ring-text"]').innerText()).toContain('67.5 %');                   // (75 % + 60 %) / 2
     expect(await page.locator('[data-testid="eval-mixed-note"]').innerText()).toContain('converted to % before averaging');
     await page.close();

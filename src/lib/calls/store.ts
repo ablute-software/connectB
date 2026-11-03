@@ -12,6 +12,7 @@ import { newFieldId } from './form-builder';
 import { copyEligibility } from './eligibility-store';
 import { copyAlloc } from './eval-alloc-store';
 import { copyEvalGrid } from './eval-grid-store';
+import { freeCopyName, type NamedCall } from './call-names';
 
 type Row = Record<string, unknown>;
 
@@ -123,6 +124,13 @@ export async function restoreCall(admin: SupabaseClient, callId: string, actor: 
 }
 
 /** The organisation's deleted calls, newest deletion first. */
+/** Every call of this organisation whose name still counts — active, archived and deleted-but-restorable — for the rule "two calls never share a name" (Prompt 927, F). */
+export async function loadPromoterNames(admin: SupabaseClient, kind: PromoterKind, promoterId: string): Promise<NamedCall[]> {
+  const col = kind === 'incubator' ? 'incubator_id' : 'catalog_entity_id';
+  const { data } = await admin.from('calls').select('id, name, deleted_at, delete_purge_after').eq(col, promoterId);
+  return ((data ?? []) as Row[]).map((r) => ({ id: r.id as string, name: (r.name as string) ?? '', deletedAt: (r.deleted_at as string | null) ?? null, purgeAfter: (r.delete_purge_after as string | null) ?? null }));
+}
+
 export async function listDeletedCalls(admin: SupabaseClient, kind: PromoterKind, promoterId: string): Promise<Call[]> {
   const col = kind === 'incubator' ? 'incubator_id' : 'catalog_entity_id';
   const { data } = await admin.from('calls').select('*').eq(col, promoterId);
@@ -271,7 +279,8 @@ export async function duplicateCall(admin: SupabaseClient, source: Call, actor: 
   const [phases, fields] = await Promise.all([loadPhases(admin, source.id), loadFields(admin, source.id)]);
   const col = source.promoterKind === 'incubator' ? { incubator_id: source.promoterId } : { catalog_entity_id: source.promoterId };
   const { data, error } = await admin.from('calls').insert({
-    promoter_kind: source.promoterKind, ...col, name: `${source.name} (copy)`.slice(0, 200), description: source.description,
+    // Prompt 927 (F): a copy is born with a name that is free ("X (copy)", then "X (copy 2)"…), so it never has to be renamed before it can be saved.
+    promoter_kind: source.promoterKind, ...col, name: freeCopyName(await loadPromoterNames(admin, source.promoterKind, source.promoterId), source.name), description: source.description,
     timezone: source.timezone, visibility: source.visibility, limit_unit: source.limitUnit, allow_multiple: source.allowMultiple,
     content_language: source.contentLanguage, currency: source.currency, duplicated_from: source.id, created_by: actor,
     // Dates are NOT copied: a copy is a new edition and must be given its own.
