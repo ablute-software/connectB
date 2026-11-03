@@ -115,6 +115,10 @@
 }
 .fx-root .fx-card {position:fixed;z-index:4;left:50%;transform:translateX(-50%);top:calc(var(--ly) + var(--ld)/2 + 14px);bottom:max(18px,calc(env(safe-area-inset-bottom,0px) + 18px));width:min(84vw,calc(100vw - var(--gl) - var(--gr)));min-width:0;background:var(--glass);border:1px solid var(--glass-line);border-radius:18px;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.35);transition:top .45s cubic-bezier(.2,.7,.2,1)}
 .fx-root .fx-card.fx-open {top:calc(env(safe-area-inset-top,0px) + 64px)}
+/* Nuno, 03/11/2026: on a wide window the card was too wide; 65% of what it was, never narrower than 720 px (a phone keeps its full width) */
+@media (min-width:761px) {
+  .fx-root .fx-card {width:max(calc(min(84vw,100vw - var(--gl) - var(--gr)) * .65),min(820px,100vw - var(--gl) - var(--gr)))}
+}
 .fx-root .fx-card .fx-top {display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:8px 20px 7px;border-bottom:1px solid var(--glass-line);flex-wrap:wrap;cursor:pointer;user-select:none}
 .fx-root .fx-card .fx-top h2 {margin:0;font-family:var(--display);font-weight:500;font-size:var(--t-l);font-variation-settings:"opsz" 48}
 .fx-root .fx-card .fx-top .fx-mono {font-size:var(--t-xs);color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
