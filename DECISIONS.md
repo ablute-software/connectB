@@ -11572,3 +11572,7 @@ Relatório em `docs/calls/PROMPT_927_A_PIPELINE.md`. Migração **aditiva** `202
 ## Prompt 935 — o quadro flutuante do pipeline no Overview das startups (Nuno, 03/11/2026)
 
 O Overview das startups ganha o quadro inclinado e animado da versão anterior (janela «Sherlock Deal · Pipeline» com três colunas e dois chips), marcado «Example», sem dados reais; movimento parado com prefers-reduced-motion; chips escondidos no telemóvel. Texto ao lado: «Sherlock Deal matches startups with the investors that fit them, and puts startups that match their mandate in front of investors.» Só o lado startups.
+
+## Prompt 935 — som de boas-vindas nos botões de conta (Nuno, 03/11/2026)
+
+«Create account» e «Claim your profile» (só estes dois; «Start free» e os planos ficam como estavam) tocam `public/landing/welcome.mp3` (1,75 s) enquanto a landing desvanece (1,6 s) e abrem /signup ou /claim quando o som acaba. O clique é apanhado na fase de captura, antes do `Link`, que abriria a página de imediato; ctrl/cmd/shift/botão do meio mantêm o comportamento normal. Se o som falhar (bloqueado, não carrega, sem dispositivo) ou passarem 8 s, a página abre na mesma. `mp3` entra na exclusão do middleware.

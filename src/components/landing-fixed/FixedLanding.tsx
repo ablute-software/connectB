@@ -11,9 +11,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { LogoLockup } from '@/components/Logo';
 import { WheelIcon } from '@/components/landing-fixed/Icons';
 import { LupaCursor } from '@/components/landing-fixed/LupaCursor';
+import { isWelcomeLink, WELCOME_FALLBACK_MS, WELCOME_SOUND } from '@/lib/landing-welcome';
 import {
   CONTACT_MIN_MESSAGE, CONTACT_SUBJECTS, CTA, HERO_LINES, MODES, MODE_PATH, SIGN_IN, isDocId,
   type DocId, type HeroLine, type LandingMode,
@@ -47,6 +49,38 @@ export function FixedLanding({ initialMode, signedIn, strip, children }: { initi
   const def = MODES[mode];
   const N = def.items.length;
   const [cur, setCur] = useState(def.home);
+  // Nuno, 03/11/2026: "Create account" / "Claim your profile" play a short welcome while the page fades, and the sign-up opens when it ends
+  const router = useRouter();
+  const [leaving, setLeaving] = useState(false);
+  const welcome = useRef<HTMLAudioElement | null>(null);
+  const leave = useRef(false);
+  useEffect(() => {
+    const a = new Audio(WELCOME_SOUND);
+    a.preload = 'auto';
+    welcome.current = a;
+    return () => { a.pause(); welcome.current = null; };
+  }, []);
+  const onRootClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const a = e.target instanceof Element ? e.target.closest('a') : null;
+    if (!a || !isWelcomeLink(a.getAttribute('href'), a.textContent) || a.target === '_blank') return;
+    // in the capture phase, before the Link's own handler would open the page at once
+    e.preventDefault();
+    e.stopPropagation();
+    if (leave.current) return;
+    leave.current = true;
+    setLeaving(true);
+    const href = a.getAttribute('href') as string;
+    let gone = false;
+    const go = () => { if (gone) return; gone = true; router.push(href); };
+    // whatever goes wrong with the sound (blocked, not loaded, silent device), the sign-up still opens
+    const t = window.setTimeout(go, WELCOME_FALLBACK_MS);
+    const audio = welcome.current;
+    if (!audio) { go(); return; }
+    audio.addEventListener('ended', () => { window.clearTimeout(t); go(); }, { once: true });
+    audio.addEventListener('error', () => { window.clearTimeout(t); go(); }, { once: true });
+    audio.play().catch(() => { window.clearTimeout(t); go(); });
+  };
   // the place under the magnifier (a preview); it goes away when the pointer leaves the icons, the pinned one (cur) stays
   const [peek, setPeek] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
@@ -255,7 +289,7 @@ export function FixedLanding({ initialMode, signedIn, strip, children }: { initi
   const title = contact ? 'Contact' : item.label;
 
   return (
-    <div className="fx-root">
+    <div className={leaving ? 'fx-root fx-leaving' : 'fx-root'} onClickCapture={onRootClick}>
       <div ref={mainRef} id="fx-main">
         <div className="fx-bg" aria-hidden="true">
           {/* eslint-disable @next/next/no-img-element -- the photograph is placed by CSS to the pixel (landing-fixed.css); next/image would add a wrapper and its own sizing */}

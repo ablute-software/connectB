@@ -14,6 +14,7 @@ import { CTA, DOC_ORDER, HERO_LINES, MODES, MODE_PATH, heroLineText, isDocId } f
 import { PANEL_FAQ, PANEL_HTML } from '@/content/site/landing-fixed-panels';
 import { InvestorPricing, StartupPricing, landingMarquees } from '@/components/landing-fixed/Panels';
 import { SLOT_PX, escapeHtml, marqueeHtml, marqueeRepeat } from './landing-fixed-logos';
+import { WELCOME_SOUND, isWelcomeLink } from './landing-welcome';
 import { INVESTOR_PLANS, MATCHDEAL_WEEKLY, PLANS, SEAT_COUNT_LABEL } from './plans';
 import { landingLogosFor, logoStripVisible } from '@/content/site/logo-strip';
 import { aiClauseParagraphs } from '@/components/landing-fixed/LegalChapters';
@@ -450,5 +451,34 @@ describe('the logo strip is fixed and never stops (Nuno, 03/11/2026)', () => {
     expect(css).toContain('animation-play-state:running!important');
     expect(css).toContain('.fx-root .fx-head {grid-template-rows:minmax(0,1fr) auto;align-content:stretch}');
     expect(css).toMatch(/\.fx-head \.fx-qstrip \{[^}]*align-self:end/);
+  });
+});
+
+describe('the welcome sound on the account buttons (Nuno, 03/11/2026)', () => {
+  const comp = readFileSync(join(process.cwd(), 'src/components/landing-fixed/FixedLanding.tsx'), 'utf8');
+
+  it('only "Create account" and "Claim your profile", pointing at /signup and /claim, start the welcome; the plans\' "Start free" and the others stay plain links', () => {
+    expect(isWelcomeLink('/signup', 'Create account')).toBe(true);
+    expect(isWelcomeLink('/claim', ' Claim  your profile ')).toBe(true);
+    expect(isWelcomeLink('/signup', 'Start free')).toBe(false);
+    expect(isWelcomeLink('/signup', 'Choose this plan')).toBe(false);
+    expect(isWelcomeLink('/login', 'Create account')).toBe(false);
+    expect(isWelcomeLink(null, 'Create account')).toBe(false);
+  });
+
+  it('the sound ships, is small, is served without a session, and the page opens the sign-up when it ends — or when it cannot play', () => {
+    const size = statSync(join(process.cwd(), 'public/landing/welcome.mp3')).size;
+    expect(size).toBeGreaterThan(1000);
+    expect(size).toBeLessThan(120_000);
+    expect(WELCOME_SOUND).toBe('/landing/welcome.mp3');
+    const mw = readFileSync(join(process.cwd(), 'src/middleware.ts'), 'utf8');
+    expect(mw.match(/matcher: \[(.*)\]/)![1]).toContain('mp3');
+    expect(comp).toContain("audio.addEventListener('ended'");
+    expect(comp).toContain("audio.addEventListener('error'");
+    expect(comp).toContain('audio.play().catch(');
+    expect(comp).toContain('WELCOME_FALLBACK_MS');
+    expect(comp).toContain('onClickCapture={onRootClick}');
+    expect(comp).toContain('if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;');
+    expect(css).toContain('.fx-root.fx-leaving #fx-main {opacity:0');
   });
 });

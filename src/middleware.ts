@@ -218,5 +218,5 @@ export const config = {
   // through to the isPublic check below with no matching PUBLIC entry.
   // Never caught locally: dev:verify runs in demo mode, which returns
   // NextResponse.next() before any of this logic runs at all.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico|woff2?|mp4|webm)$).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico|woff2?|mp4|webm|mp3)$).*)'],
 };

@@ -598,3 +598,9 @@
   .fx-root .fx-board {padding:0}
   .fx-root .fx-cols {padding:8px;gap:6px}
 }
+/* The welcome: the page fades to its dark ground while the sound plays (Nuno, 03/11/2026) */
+.fx-root #fx-main {transition:opacity 1.6s ease}
+.fx-root.fx-leaving #fx-main {opacity:0;pointer-events:none}
+@media (prefers-reduced-motion:reduce) {
+  .fx-root #fx-main {transition:opacity .3s}
+}
