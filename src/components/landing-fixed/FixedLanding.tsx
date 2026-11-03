@@ -13,12 +13,13 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { LogoLockup } from '@/components/Logo';
 import { WheelIcon } from '@/components/landing-fixed/Icons';
+import { LupaCursor } from '@/components/landing-fixed/LupaCursor';
 import {
   CONTACT_MIN_MESSAGE, CONTACT_SUBJECTS, CTA, HERO_LINES, MODES, MODE_PATH, SIGN_IN, isDocId,
   type DocId, type HeroLine, type LandingMode,
 } from '@/content/site/landing-fixed';
 import {
-  FIT_MAX, LINE_EVERY_MS, LINE_FOG_MS, WHEEL_MIN_DELTA, cardCanScroll, fitScale, hasMore, jumped, nextLine, ringOffset, stepAllowed, stepIndex, swipeStep,
+  FIT_MAX, LINE_EVERY_MS, LINE_FOG_MS, fitScale, hasMore, nextLine, stepAllowed, stepIndex,
 } from '@/lib/landing-fixed';
 
 // The legal text is only fetched when someone opens the popup.
@@ -41,18 +42,19 @@ function Heading({ line }: { line: HeroLine }) {
 
 type SendState = 'idle' | 'sending' | 'sent' | 'error';
 
-export function FixedLanding({ initialMode, signedIn, children }: { initialMode: LandingMode; signedIn: boolean; children: React.ReactNode }) {
+export function FixedLanding({ initialMode, signedIn, strip, children }: { initialMode: LandingMode; signedIn: boolean; strip: Record<LandingMode, string>; children: React.ReactNode }) {
   const [mode, setMode] = useState<LandingMode>(initialMode);
   const def = MODES[mode];
   const N = def.items.length;
   const [cur, setCur] = useState(def.home);
+  // the place under the magnifier (a preview); it goes away when the pointer leaves the icons, the pinned one (cur) stays
+  const [peek, setPeek] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
   const [more, setMore] = useState(false);
   const [contact, setContact] = useState(false);
   const [doc, setDoc] = useState<DocId | null>(null);
   const [line, setLine] = useState(0);
   const [fog, setFog] = useState(false);
-  const [jumping, setJumping] = useState<ReadonlySet<number>>(new Set());
 
   const bodyRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLDivElement>(null);
@@ -64,28 +66,20 @@ export function FixedLanding({ initialMode, signedIn, children }: { initialMode:
   const live = useRef({ cur, N, doc, open, mode });
   live.current = { cur, N, doc, open, mode };
 
-  const item = def.items[cur];
+  const shown = peek ?? cur;
+  const item = def.items[shown];
   const lines = HERO_LINES[mode];
 
-  /* ---------- the wheel ---------- */
+  /* ---------- the icons (fixed) ---------- */
+  // Pinning a place (a click, Enter, a tap) keeps it and its card while the pointer moves down to the card's buttons.
   const go = useCallback((n: number) => {
-    const { N: count, cur: from } = live.current;
+    const { N: count } = live.current;
     const next = ((n % count) + count) % count;
-    // a place that goes round the back of the ring is hidden, moved and shown again: it never slides across the screen
-    const before = Array.from({ length: count }, (_, i) => ringOffset(i, from, count));
-    const j = new Set<number>();
-    for (let i = 0; i < count; i++) if (jumped(before[i], ringOffset(i, next, count), count)) j.add(i);
-    setJumping(j);
     setContact(false);
     setOpen(false);
+    setPeek(null);
     setCur(next);
   }, []);
-
-  useEffect(() => {
-    if (jumping.size === 0) return;
-    const a = requestAnimationFrame(() => requestAnimationFrame(() => setJumping(new Set())));
-    return () => cancelAnimationFrame(a);
-  }, [jumping]);
 
   const step = useCallback((dir: 1 | -1) => {
     const { doc: openDoc, cur: c, N: count } = live.current;
@@ -98,38 +92,15 @@ export function FixedLanding({ initialMode, signedIn, children }: { initialMode:
     go(stepIndex(c, dir, count));
   }, [go]);
 
-  // the wheel, the arrow keys and the swipe
+  // the arrow keys move the pinned place along the row
   useEffect(() => {
-    const body = bodyRef.current;
-    const onWheel = (e: WheelEvent) => {
-      if (live.current.doc) return;
-      const t = e.target as Node | null;
-      if (body && t && body.contains(t) && cardCanScroll(e.deltaY, body.scrollTop, body.clientHeight, body.scrollHeight)) return;
-      e.preventDefault();
-      if (Math.abs(e.deltaY) < WHEEL_MIN_DELTA) return;
-      step(e.deltaY > 0 ? 1 : -1);
-    };
-    let tx: number | null = null; let ty: number | null = null; let inCard = false;
-    const onStart = (e: TouchEvent) => { tx = e.touches[0].clientX; ty = e.touches[0].clientY; inCard = !!(body && e.target instanceof Node && body.contains(e.target)); };
-    const onEnd = (e: TouchEvent) => {
-      if (tx === null || ty === null) return;
-      const dx = e.changedTouches[0].clientX - tx; const dy = e.changedTouches[0].clientY - ty; tx = ty = null;
-      const s = swipeStep(dx, dy, inCard);
-      if (s !== 0 && !live.current.doc) step(s);
-    };
     const onKey = (e: KeyboardEvent) => {
       if (live.current.doc) return;
       if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); step(1); }
       else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); step(-1); }
     };
-    window.addEventListener('wheel', onWheel, { passive: false });
-    window.addEventListener('touchstart', onStart, { passive: true });
-    window.addEventListener('touchend', onEnd, { passive: true });
     window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('wheel', onWheel); window.removeEventListener('touchstart', onStart);
-      window.removeEventListener('touchend', onEnd); window.removeEventListener('keydown', onKey);
-    };
+    return () => window.removeEventListener('keydown', onKey);
   }, [step]);
 
   // a link to #<place> opens on that place
@@ -149,7 +120,10 @@ export function FixedLanding({ initialMode, signedIn, children }: { initialMode:
     b.scrollTop = 0; // the panel's bottom is read against the body's box: scrolled, it would read short
     // scrollHeight can never be below clientHeight, so "fits" is read from where the panel ends against where the body's content box ends
     const limit = () => b.getBoundingClientRect().top + b.clientTop + b.clientHeight - parseFloat(getComputedStyle(b).paddingBottom);
-    const fits = (k: number) => { b.style.setProperty('--fxk', String(k)); return sec.getBoundingClientRect().bottom <= limit() - 1 && b.scrollWidth <= b.clientWidth; };
+// a card that fills its box by design (the template centres its content) would always read as "full": the bottom of the last leaf (text, picture) drawn inside is what counts
+    const drawnBottom = () => { let m = 0; sec.querySelectorAll<HTMLElement>('*').forEach((e) => { if (e.children.length === 0) m = Math.max(m, e.getBoundingClientRect().bottom); }); return m; };
+    const fitsAt = (k: number) => { b.style.setProperty('--fxk', String(k)); return drawnBottom() <= limit() - 1 && b.scrollWidth <= b.clientWidth; };
+    const fits = (k: number) => { return fitsAt(k); };
     b.style.setProperty('--fxk', String(fitScale(fits, FIT_MAX)));
   }, []);
   // Which panel shows: the server marked the home one; from here the selected one (or the contact form) does.
@@ -200,7 +174,7 @@ export function FixedLanding({ initialMode, signedIn, children }: { initialMode:
     e.preventDefault();
     if (m === live.current.mode) return;
     setMode(m);
-    setCur(MODES[m].home); setContact(false); setOpen(false); setJumping(new Set());
+    setCur(MODES[m].home); setPeek(null); setContact(false); setOpen(false);
     try { window.history.replaceState(null, '', MODE_PATH[m]); } catch { /* the address bar stays as it was */ }
   };
 
@@ -276,25 +250,24 @@ export function FixedLanding({ initialMode, signedIn, children }: { initialMode:
     }
   };
 
-  /* ---------- what the wheel draws ---------- */
-  const offsets = useMemo(() => def.items.map((_, i) => ringOffset(i, cur, N)), [def, cur, N]);
+  /* ---------- what the card shows ---------- */
   const cta = CTA[mode];
   const title = contact ? 'Contact' : item.label;
-  const kicker = contact ? 'Opens here, not in a new page' : item.kicker;
 
   return (
     <div className="fx-root">
       <div ref={mainRef} id="fx-main">
         <div className="fx-bg" aria-hidden="true">
           {/* eslint-disable @next/next/no-img-element -- the photograph is placed by CSS to the pixel (landing-fixed.css); next/image would add a wrapper and its own sizing */}
-          <img className="fx-blur" src="/landing/lens-photo-blur.webp" alt="" decoding="async" fetchPriority="high" width={360} height={373} />
           <picture>
-            <source srcSet="/landing/lens-photo.avif" type="image/avif" />
-            <source srcSet="/landing/lens-photo.webp" type="image/webp" />
-            <img className="fx-photo" src="/landing/lens-photo.webp" alt="" decoding="async" fetchPriority="high" width={1150} height={928} />
+            <source srcSet="/landing/fog.avif" type="image/avif" />
+            <source srcSet="/landing/fog.webp" type="image/webp" />
+            <img className="fx-photo" src="/landing/fog.webp" alt="" decoding="async" fetchPriority="high" width={1396} height={1127} />
           </picture>
           {/* eslint-enable @next/next/no-img-element */}
         </div>
+
+        <LupaCursor />
 
         <nav className="fx-nav" aria-label="Main">
           <Link className="fx-brand" href={MODE_PATH[mode]}>
@@ -315,30 +288,35 @@ export function FixedLanding({ initialMode, signedIn, children }: { initialMode:
         <main id="fx-content">
         <div className="fx-head">
           <h1 className={fog ? 'fx-fog' : undefined}><Heading line={lines[line] ?? lines[0]} /></h1>
+          <div className="fx-qstrip" dangerouslySetInnerHTML={{ __html: strip[mode] }} />
         </div>
 
-        <div className="fx-wheel" role="tablist" aria-label="Sections">
-          <ul role="presentation">
-            {def.items.map((it, i) => {
-              const o = offsets[i];
-              // on an even ring one place sits straight behind the lens, opposite the selected one: it stays hidden, so the wheel shows three places each side and is balanced (Nuno, 03/11/2026); it shows up as soon as the wheel turns
-              const hid = N % 2 === 0 && Math.abs(o) === N / 2;
-              const cls = [o === 0 ? 'fx-on' : '', Math.abs(o) >= 3 ? 'fx-far' : '', hid ? 'fx-hid' : '', jumping.has(i) ? 'fx-jump' : ''].filter(Boolean).join(' ');
-              return (
-                <li key={`${mode}-${it.id}`} role="presentation" aria-hidden={hid || undefined} className={cls || undefined} style={{ '--s': Math.sign(o), '--k': Math.max(Math.abs(o) - 1, 0) } as React.CSSProperties}>
-                  <button type="button" role="tab" aria-label={it.label} aria-selected={o === 0} tabIndex={hid ? -1 : undefined} onClick={() => go(i)}><WheelIcon name={it.icon} /></button>
-                  <span className="fx-lbl" aria-hidden="true">{it.short}</span>
-                </li>
-              );
-            })}
-          </ul>
+        <div className="fx-tabs" role="tablist" aria-label="Sections" onMouseLeave={() => setPeek(null)}>
+          {def.items.map((it, i) => (
+            <button
+              key={`${mode}-${it.id}`}
+              type="button"
+              role="tab"
+              data-tab=""
+              className={i === cur ? 'fx-pinned' : undefined}
+              aria-label={it.label}
+              title={it.label}
+              aria-selected={i === cur}
+              onMouseEnter={() => setPeek(i)}
+              onFocus={() => setPeek(i)}
+              onBlur={() => setPeek(null)}
+              onClick={() => go(i)}
+              onContextMenu={(e) => { e.preventDefault(); go(i); }}
+            >
+              <WheelIcon name={it.icon} />
+            </button>
+          ))}
         </div>
         <span className="fx-sr" aria-live="polite">{title}</span>
 
         <div className={`fx-card${open ? ' fx-open' : ''}${more ? ' fx-has-more' : ''}`} id="fx-card" onTransitionEnd={checkMore}>
           <div className="fx-top" onClick={() => { if (more) setOpen((o) => !o); }}>
             <h2>{title}</h2>
-            <span className="fx-mono">{kicker}</span>
             <button className="fx-exp" type="button" aria-expanded={open} onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}>
               {open ? 'Less ' : 'See all '}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
             </button>

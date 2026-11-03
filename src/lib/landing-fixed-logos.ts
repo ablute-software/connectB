@@ -4,6 +4,8 @@ import type { LandingLogo } from '@/lib/landing-logos';
 
 /** Where a logo's white-disc version lives: public/landing/logos-circle/, same file name as the logo's own file (the strip draws 48 px discs; the files are 144 px, palette-compressed). */
 export const logoCircleSrc = (l: Pick<LandingLogo, 'file'>): string => `/landing/logos-circle/${l.file}`;
+/** The logo's own file (a transparent drawing), for the quiet monochrome strip under the headline. */
+export const logoPlainSrc = (l: Pick<LandingLogo, 'file'>): string => `/landing/logos/${l.file}`;
 
 export const logoCaption = (l: Pick<LandingLogo, 'name'>): string => l.name;
 
@@ -22,10 +24,10 @@ export const marqueeRepeat = (count: number): number => Math.max(1, Math.ceil(WI
  * The strip: a caption and the logos in two equal halves (everything after the first copy hidden from assistive technology), so the track can slide by half its width and loop with no seam. Each half repeats the
  * logos enough times to be wider than any strip, so the row never shows an end. Empty string when there is nothing to show: the caller decides that (stripVisible).
  */
-export function marqueeHtml(logos: readonly Pick<LandingLogo, 'file' | 'name'>[], caption: string, kind: 's' | 'i'): string {
+export function marqueeHtml(logos: readonly Pick<LandingLogo, 'file' | 'name'>[], caption: string, kind: 's' | 'i', plain = false): string {
   if (logos.length === 0) return '';
   const fig = (l: Pick<LandingLogo, 'file' | 'name'>, visible: boolean) =>
-    `<figure${visible ? '' : ' aria-hidden="true"'}><img src="${escapeHtml(logoCircleSrc(l))}" width="64" height="64" alt="${visible ? escapeHtml(l.name) : ''}" loading="lazy" decoding="async"><figcaption>${escapeHtml(logoCaption(l))}</figcaption></figure>`;
+    `<figure${visible ? '' : ' aria-hidden="true"'}><img src="${escapeHtml(plain ? logoPlainSrc(l) : logoCircleSrc(l))}" width="64" height="64" alt="${visible ? escapeHtml(l.name) : ''}" loading="lazy" decoding="async"><figcaption>${escapeHtml(logoCaption(l))}</figcaption></figure>`;
   const copies = marqueeRepeat(logos.length) * 2;
   const track = Array.from({ length: copies }, (_, c) => logos.map((l) => fig(l, c === 0)).join('')).join('');
   // --cnt: the figures in one half of the track, so the stylesheet can give the turn the duration that makes a constant speed in px per second whatever the size of the logos

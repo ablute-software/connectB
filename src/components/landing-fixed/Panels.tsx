@@ -49,7 +49,7 @@ export function StartupPricing() {
           cta={{ label: pd.ctaLabel, href: '/contact', doc: 'contact' }}
         />
       </div>
-      <p className="fx-fine">* Curated pipeline: investors reviewed by the Sherlock Deal team before they reach your list. Prices exclude VAT.</p>
+      <p className="fx-fine">* Reviewed by our team before it reaches your list. Prices exclude VAT.</p>
     </div>
   );
 }
@@ -79,7 +79,7 @@ export function InvestorPricing() {
           cta={{ label: pd.ctaLabel, href: '/contact', doc: 'contact' }}
         />
       </div>
-      <p className="fx-fine">Prices exclude VAT. Data rooms and due-diligence files need the startup’s permission.</p>
+      <p className="fx-fine">Prices exclude VAT.</p>
     </div>
   );
 }
@@ -89,29 +89,16 @@ export function landingMarquees(): Record<LandingMode, string> {
   const s = landingLogosFor('startups');
   const i = landingLogosFor('investors');
   return {
-    startups: logoStripVisible(s) ? marqueeHtml(s, 'Trusted by many great startups', 's') : '',
-    investors: logoStripVisible(i) ? marqueeHtml(i, LOGO_STRIP_LABEL.investors, 'i') : '',
+    startups: logoStripVisible(s) ? marqueeHtml(s, 'Trusted by', 's', true) : '',
+    investors: logoStripVisible(i) ? marqueeHtml(i, LOGO_STRIP_LABEL.investors, 'i', true) : '',
   };
 }
 
 /** The public pages the landing links to (it has no footer): About, the FAQ page and the article. Kept here so the links stay one set. */
 export const SITE_LINKS = '<p class="fx-fine fx-sitelinks">More: <a href="/about">About</a> · <a href="/faq">FAQ</a> · <a href="/for-startups">How to find investors</a></p>';
 
-/** A static panel's markup with the logo strip put at the end of its `.fx-panel` (the overviews). */
-function withMarquee(html: string, marquee: string): string {
-  const i = html.lastIndexOf('</div>');
-  return i < 0 ? html : html.slice(0, i) + marquee + html.slice(i);
-}
-
-/** The links at the end of the Documents panel's side column (the shorter of its two), so they add no height to the panel. */
-function withSiteLinks(html: string): string {
-  const last = html.lastIndexOf('</div>');
-  const side = html.lastIndexOf('</div>', last - 1);
-  return side < 0 ? html : html.slice(0, side) + SITE_LINKS + html.slice(side);
-}
-
 /** Every panel of both modes, in a `<section data-id>` each; `contact` is the form's place, filled in by the client. */
-export function Panels({ mode: current, marquee }: { mode: LandingMode; marquee: Record<LandingMode, string> }) {
+export function Panels({ mode: current }: { mode: LandingMode }) {
   const home = MODES[current].items[MODES[current].home].id;
   const ids = new Set<string>();
   for (const m of ['startups', 'investors'] as const) for (const it of MODES[m].items) ids.add(it.id);
@@ -125,10 +112,7 @@ export function Panels({ mode: current, marquee }: { mode: LandingMode; marquee:
         const shared = { 'data-id': id, 'data-mode': attr, hidden: attr !== 'any' && attr !== (current === 'startups' ? 's' : 'i'), className: id === home ? 'fx-on' : undefined };
         if (id === 's-pricing') return <section key={id} {...shared}><StartupPricing /></section>;
         if (id === 'i-pricing') return <section key={id} {...shared}><InvestorPricing /></section>;
-        let html = PANEL_HTML[id as StaticPanelId];
-        if (id === 's-overview') html = withMarquee(html, marquee.startups);
-        if (id === 'i-overview') html = withMarquee(html, marquee.investors);
-        if (id === 'docs') html = withSiteLinks(html);
+        const html = PANEL_HTML[id as StaticPanelId];
         return <section key={id} {...shared} dangerouslySetInnerHTML={{ __html: html }} />;
       })}
     </>

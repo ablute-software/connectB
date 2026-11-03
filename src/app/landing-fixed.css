@@ -8,8 +8,8 @@
   --vh:1vh; --bar-h:calc(56px + env(safe-area-inset-bottom,0px));
   --lx:50vw; --ly:calc(var(--vh) * 46); --ld:calc(var(--vh) * 18);
   --d:clamp(40px,calc(var(--ld) * .39),80px); --gap:calc(var(--d) * .37); --first:calc(var(--ld) / 2 + var(--gap) + var(--d) / 2); --step:calc(var(--d) + var(--gap));
-  --pw:calc(var(--ld) / .1409); --ph:calc(var(--pw) * .8069565217);
-  --t-xl:clamp(1.35rem,2.6vw,2.2rem); --t-l:1.22rem; --t-m:1.02rem; --t-s:.9rem; --t-xs:.76rem;
+  --pw:calc(var(--ld) / .1418); --ph:calc(var(--pw) * .8073065903);
+  --t-xl:clamp(1.35rem,2.6vw,2.2rem); --t-hero:clamp(2.25rem,2.9vw,3.5rem); --t-l:1.22rem; --t-lead:clamp(1.0625rem,.55vw + .65rem,1.25rem); --t-m:1.02rem; --t-s:.9rem; --t-xs:.76rem;
   color-scheme:dark;}
 .fx-root * {box-sizing:border-box}
 .fx-root {position:fixed;inset:0;margin:0;font-family:var(--body);color:var(--fg);background:var(--ink);overflow:hidden;-webkit-font-smoothing:antialiased;font-size:var(--t-m);line-height:1.45}
@@ -18,7 +18,7 @@
 .fx-root .fx-bg {position:fixed;inset:0;z-index:0;background:#031c23;overflow:hidden}
 .fx-root .fx-bg .fx-blur {position:absolute;inset:-6%;width:112%;height:112%;max-width:none;object-fit:cover;object-position:50% 60%;}
 /* the blur, darkening and desaturation are baked into lens-photo-blur.webp (a filter on a window-sized layer is what a throttled phone chokes on) */
-.fx-root .fx-bg .fx-photo {position:absolute;max-width:none;width:var(--pw);height:var(--ph);left:calc(var(--lx) - var(--pw) * .5022);top:calc(var(--ly) - var(--ph) * .5733);-webkit-mask-image:linear-gradient(90deg,transparent,#000 9%,#000 91%,transparent),linear-gradient(180deg,transparent,#000 8%,#000 90%,transparent);-webkit-mask-composite:source-in;mask-image:linear-gradient(90deg,transparent,#000 9%,#000 91%,transparent),linear-gradient(180deg,transparent,#000 8%,#000 90%,transparent);mask-composite:intersect}
+.fx-root .fx-bg .fx-photo {position:absolute;inset:0;width:100%;height:100%;max-width:none;object-fit:cover;object-position:62% 30%}
 .fx-root .fx-bg::after {content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(3,28,35,.55) 0,rgba(3,28,35,.15) 28%,rgba(3,28,35,0) 45%,rgba(3,28,35,.3) 100%)}
 .fx-root .fx-nav {position:fixed;z-index:3;left:0;right:0;top:env(safe-area-inset-top,0px);display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:1rem;padding:16px var(--gr) 0 var(--gl);max-width:1440px;margin:0 auto}
 .fx-root .fx-brand {display:flex;align-items:center;gap:.6rem;text-decoration:none;color:#fff;font-family:var(--wordmark);font-weight:700;font-size:1.15rem;justify-self:start}
@@ -418,6 +418,12 @@
 @media (min-width:761px) and (min-height:1000px) {
   .fx-root .fx-marquee {--fw:104}
 }
+@media (min-width:761px) and (max-height:999px) {
+  .fx-root .fx-marquee {--fw:76}
+}
+@media (min-width:761px) and (max-height:999px) {
+  .fx-root .fx-marquee {--fw:76}
+}
 @media (min-width:761px) and (max-height:880px) {
   .fx-root .fx-marquee {--fw:64}
 }
@@ -426,6 +432,130 @@
 }
 @media (max-width:760px) {
   .fx-root .fx-marquee, .fx-root .fx-marquee.fx-logos-i {--fw:40;--gp:14;--spd:30}
+}
+/* ===== Fixed icons and a magnifier for a pointer (Nuno, 03/11/2026) ===== */
+/* the tabs are a fixed row of round icons at the height the lens used to have; the one under the magnifier grows, and a click keeps it big (no icon is ever white) */
+.fx-root {--td:clamp(52px,6.2vh,70px);--tgap:clamp(18px,2.2vw,34px)}
+.fx-root .fx-tabs {position:fixed;z-index:3;left:0;right:0;top:var(--ly);transform:translateY(-50%);display:flex;justify-content:center;align-items:center;gap:var(--tgap);padding:0 var(--gl)}
+.fx-root .fx-tabs button {width:var(--td);height:var(--td);flex:0 0 auto;border-radius:50%;border:1.5px solid rgba(255,255,255,.3);background:rgba(10,34,41,.55);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);color:#fff;display:grid;place-items:center;cursor:pointer;padding:0;transition:transform .2s cubic-bezier(.2,.8,.2,1),background .2s,color .2s,border-color .2s,box-shadow .2s}
+.fx-root .fx-tabs button svg {width:44%;height:44%;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.fx-root .fx-tabs button:hover, .fx-root .fx-tabs button:focus-visible, .fx-root .fx-tabs button.fx-pinned {transform:scale(1.5);z-index:2;border-color:rgba(255,255,255,.75);box-shadow:0 0 28px rgba(120,200,215,.35)}
+.fx-root .fx-tabs button.fx-pinned {z-index:1}
+.fx-root .fx-tabs button:hover, .fx-root .fx-tabs button:focus-visible {z-index:3}
+/* the magnifier: small by default, big over an icon (the icon under it grows too); the glass is at the pointer */
+.fx-root .fx-lupa {position:fixed;left:0;top:0;z-index:60;width:64px;pointer-events:none;margin-left:calc(var(--hx) * -64px);margin-top:calc(var(--hy) * -57px);opacity:0;transition:opacity .15s;will-change:transform}
+.fx-root .fx-lupa[data-show="1"] {opacity:1}
+.fx-root .fx-lupa img {display:block;width:64px;height:auto;transform-origin:calc(var(--hx) * 100%) calc(var(--hy) * 100%);transform:scale(1);transition:transform .2s cubic-bezier(.2,.8,.2,1);filter:drop-shadow(0 3px 6px rgba(0,0,0,.45))}
+.fx-root .fx-lupa[data-big="1"] img {transform:scale(3)}
+.fx-root.fx-lupa-on, .fx-root.fx-lupa-on * {cursor:none}
+.fx-root.fx-lupa-on input, .fx-root.fx-lupa-on textarea, .fx-root.fx-lupa-on select, .fx-root.fx-lupa-on [role="dialog"], .fx-root.fx-lupa-on [role="dialog"] * {cursor:auto}
+@media (max-width:760px) {
+  .fx-root {--td:36px;--tgap:5px}
+  .fx-root .fx-lupa {display:none}
+}
+@media (prefers-reduced-motion:reduce) {
+  .fx-root .fx-lupa img, .fx-root .fx-tabs button {transition:none}
+}
+/* the card's glass 5 points more transparent (Nuno, 03/11/2026): .58 -> .53 */
+.fx-root .fx-card {background:rgba(8,28,36,.53)}
+/* ===== The design review (Nuno, 03/11/2026): one scale, one template ===== */
+/* One scale at 1920x1080: headline 60, card title 32, hero object 56, lead 20, body 18, small 15, smallest 14 px; it follows the window's width only (clamp), never the card's content, never the tab. */
+/* the headline: static, big, with one muted line and one pill under it */
+.fx-root .fx-head {gap:.6rem;grid-template-columns:minmax(0,1fr);padding-top:10px}
+/* the logos: one quiet strip under the button (monochrome, faint, nearly still), hidden where there is no height for it */
+.fx-root .fx-head .fx-qstrip {width:min(760px,100%);min-width:0;overflow:hidden;margin-top:clamp(22px,3.6vh,44px)}
+.fx-root .fx-qstrip .fx-marquee {border-top:0;margin:0;padding:0;display:block}
+.fx-root .fx-qstrip .fx-cap {display:none}
+/* the startups' strip says TRUSTED BY, small and in the logos' own faded tone (Nuno, 03/11/2026); the investors' strip stays without a caption */
+.fx-root .fx-qstrip .fx-marquee.fx-logos-s .fx-cap {display:block;text-align:center;font-size:.75rem;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.4);margin:0 0 10px}
+.fx-root .fx-qstrip .fx-marquee {--fw:34;--gp:34;--spd:10}
+.fx-root .fx-qstrip .fx-marquee.fx-logos-i {--spd:10}
+.fx-root .fx-qstrip .fx-marquee img {border-radius:0;box-shadow:none;background:none;width:auto;max-width:calc(var(--fw) * 2.4px);height:calc(var(--fw) * 1px);object-fit:contain;filter:grayscale(1) brightness(0) invert(1);opacity:.4}
+.fx-root .fx-qstrip .fx-marquee figure {width:auto}
+.fx-root .fx-qstrip .fx-marquee .fx-track {animation-duration:calc(var(--cnt,27) * (var(--fw) * 2 + var(--gp)) / var(--spd) * 1s)}
+@media (max-height:800px) {
+  .fx-root .fx-head .fx-qstrip {display:none}
+}
+@media (max-width:760px) {
+  .fx-root .fx-head .fx-qstrip {display:none}
+}
+/* the wheel: the lens is the one big thing, the others are quiet, and no label sits on the photograph (the card's title says where you are) */
+/* the card: a mid-tone glass over a photograph that is darker behind it, white type, one template for every tab */
+.fx-root .fx-tpl {display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.35fr);grid-template-areas:"lead obj" "act obj";column-gap:56px;row-gap:22px;align-content:center;align-items:center;min-height:100%}
+.fx-root .fx-card .fx-body > section.fx-on {display:grid;min-height:100%}
+.fx-root .fx-tpl > .fx-lead {grid-area:lead;align-self:end}
+.fx-root .fx-tpl > .fx-obj {grid-area:obj}
+.fx-root .fx-tpl > .fx-actrow {grid-area:act;align-self:start}
+.fx-root .fx-tpl > .fx-lead {font-size:var(--t-lead);line-height:1.45}
+.fx-root .fx-lead {margin:0;font-size:var(--t-lead);line-height:1.4;color:rgba(255,255,255,.82)}
+.fx-root .fx-obj {display:grid;gap:10px;justify-items:start;width:100%}
+.fx-root .fx-obj .fx-ex {font-size:.8125rem;letter-spacing:0;text-transform:none;color:rgba(255,255,255,.8);border-color:rgba(255,255,255,.3);padding:2px 10px;border-radius:999px;margin:0}
+.fx-root .fx-big {margin:0;font-family:var(--display);font-weight:600;font-size:var(--t-hero);line-height:1.05;letter-spacing:-.02em;color:#fff}
+.fx-root .fx-line {margin:0;font-size:var(--t-m);color:rgba(255,255,255,.92)}
+.fx-root .fx-why {margin:0;font-size:var(--t-m);color:#fff}
+.fx-root .fx-more {margin:0;font-size:var(--t-s);color:rgba(255,255,255,.72)}
+.fx-root .fx-more a {color:#fff}
+.fx-root .fx-quote {margin:0;font-family:var(--display);font-size:clamp(1.4rem,1.7vw,1.9rem);line-height:1.25;color:#fff;font-weight:500}
+.fx-root .fx-counts {display:flex;flex-wrap:wrap;gap:12px 36px}
+.fx-root .fx-counts div {display:grid;gap:2px}
+.fx-root .fx-counts b {font-family:var(--display);font-size:var(--t-hero);font-weight:600;line-height:1;color:#fff}
+.fx-root .fx-counts span {font-size:var(--t-m);color:rgba(255,255,255,.85)}
+.fx-root .fx-chips {display:flex;flex-wrap:wrap;gap:8px}
+.fx-root .fx-chip {display:inline-flex;align-items:center;min-height:36px;padding:0 14px;border-radius:999px;font-size:var(--t-s);color:#fff;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.24);text-decoration:none}
+.fx-root a.fx-chip:hover {background:rgba(255,255,255,.24)}
+.fx-root .fx-profiles {list-style:none;margin:0;padding:0;display:grid;gap:10px;width:100%}
+.fx-root .fx-profiles li {display:grid;grid-template-columns:52px minmax(0,15em) minmax(0,1fr);gap:16px;align-items:center}
+.fx-root .fx-profiles img {width:52px;height:52px;border-radius:50%;background:#fff;box-shadow:0 0 0 1px rgba(255,255,255,.3)}
+.fx-root .fx-profiles b {font-size:1.25rem;font-weight:600;color:#fff}
+.fx-root .fx-profiles em {font-style:normal;font-size:var(--t-m);color:rgba(255,255,255,.8)}
+.fx-root .fx-actrow {margin-top:4px}
+.fx-root .fx-actrow .fx-btn {min-height:46px;padding:0 24px;font-size:1rem}
+/* the FAQ: three questions, the answer opens under the one you pick */
+.fx-root [data-id$="-faq"] summary {font-size:var(--t-m)}
+/* the pricing cards: the plan, one big price, one line, one button */
+.fx-root [data-id$="-pricing"] .fx-plan .fx-name {font-size:var(--t-m)}
+.fx-root [data-id$="-pricing"] .fx-plan .fx-price {font-size:clamp(2rem,2.3vw,2.75rem);line-height:1.05}
+.fx-root [data-id$="-pricing"] .fx-plan .fx-diff {font-size:var(--t-m);font-weight:500;display:block}
+@media (max-width:900px) {
+  .fx-root .fx-tpl {grid-template-columns:minmax(0,1fr);grid-template-areas:"lead" "obj" "act";row-gap:14px}
+  .fx-root .fx-tpl > .fx-lead {align-self:start}
+}
+@media (max-width:760px) {
+  .fx-root .fx-tpl {gap:12px}
+  .fx-root .fx-profiles li {grid-template-columns:44px 1fr}
+  .fx-root .fx-profiles em {grid-column:2}
+  .fx-root .fx-counts b, .fx-root .fx-big {font-size:2rem}
+}
+/* laptops: the plan lines and the profile rows get tighter, so the card still shows everything without "See all" */
+@media (min-width:761px) and (max-height:999px) {
+  .fx-root [data-id$="-pricing"] .fx-plans .fx-plan ul {position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+  .fx-root [data-id$="-pricing"] .fx-plan {padding-bottom:12px}
+  .fx-root .fx-profiles {gap:6px}
+  .fx-root .fx-profiles li {grid-template-columns:40px minmax(0,13em) minmax(0,1fr)}
+  .fx-root .fx-profiles img {width:40px;height:40px}
+  .fx-root .fx-profiles b {font-size:1.0625rem}
+  .fx-root .fx-profiles em {font-size:var(--t-s)}
+}
+@media (min-width:761px) and (max-height:800px) {
+  .fx-root .fx-profiles li:nth-child(3) {position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+}
+@media (min-width:761px) and (max-height:800px) {
+  .fx-root [data-id$="-pricing"] .fx-plan {padding:8px 12px;gap:2px}
+  .fx-root [data-id$="-pricing"] .fx-plan .fx-price {font-size:1.75rem}
+  .fx-root [data-id$="-pricing"] .fx-plan .fx-btn {min-height:36px}
+  .fx-root [data-id$="-pricing"] .fx-fine {margin-top:4px}
+}
+@media (min-width:761px) and (max-height:760px) {
+  .fx-root [data-id$="-pricing"] .fx-plan {padding:6px 11px}
+  .fx-root [data-id$="-pricing"] .fx-plan .fx-price {font-size:1.5rem}
+  .fx-root [data-id$="-pricing"] .fx-plan .fx-diff {font-size:.9375rem}
+  .fx-root [data-id$="-pricing"] .fx-plan .fx-btn {min-height:32px}
+  .fx-root .fx-card .fx-top {padding:10px 28px}
+}
+@media (max-width:760px) {
+  .fx-root .fx-lead {font-size:1rem}
+  .fx-root .fx-counts {display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .fx-root .fx-counts span {font-size:.875rem}
 }
 /* the type grows to fill the card: FixedLanding measures the selected panel and sets --fxk (1 to 1.4) as high as it still fits; zoom scales the letters, the spacing and the pictures together */
 .fx-root .fx-card .fx-body > section {zoom:var(--fxk,1)}

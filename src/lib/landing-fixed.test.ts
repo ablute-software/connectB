@@ -57,10 +57,10 @@ function evalCss(expr: string, vw: number, vh: number): number {
 const SIZES: [number, number][] = [[1280, 720], [1366, 768], [1440, 790], [1440, 900], [1536, 864], [1920, 1080], [390, 844]];
 
 describe('the lens: CSS formulas = lensLayout = the mockup\'s numbers', () => {
-  it('the photograph is 1150 x 928 and its lens sits at 50.22% / 57.33%, 14.09% wide (measured from the file)', () => {
-    expect(PHOTO).toEqual({ width: 1150, height: 928, lensX: 0.5022, lensY: 0.5733, lensD: 0.1409 });
+  it('the photograph is 1396 x 1127 and its lens sits at 50.18% / 57.28%, 14.18% wide (measured from the file)', () => {
+    expect(PHOTO).toEqual({ width: 1396, height: 1127, lensX: 0.5018, lensY: 0.5728, lensD: 0.1418 });
     expect(SCREEN_LENS).toEqual({ y: 0.46, d: 0.18 });
-    expect(PHOTO.height / PHOTO.width).toBeCloseTo(0.8069565217, 6);
+    expect(PHOTO.height / PHOTO.width).toBeCloseTo(0.8073065903, 6);
   });
 
   it('at 1440x900 the lens is 162 px, centred at 720 / 414, and the photograph is drawn so that ITS lens is that one', () => {
@@ -88,18 +88,10 @@ describe('the lens: CSS formulas = lensLayout = the mockup\'s numbers', () => {
     expect(evalCss('var(--ly)', vw, vh)).toBeCloseTo(l.ly, 6);
     expect(evalCss('var(--ld)', vw, vh)).toBeCloseTo(l.ld, 6);
     expect(evalCss('var(--lx)', vw, vh)).toBeCloseTo(l.lx, 6);
-    expect(evalCss('var(--pw)', vw, vh)).toBeCloseTo(l.photoW, 4);
-    expect(evalCss('var(--ph)', vw, vh)).toBeCloseTo(l.photoH, 4);
     expect(evalCss('var(--d)', vw, vh)).toBeCloseTo(l.d, 6);
     expect(evalCss('var(--gap)', vw, vh)).toBeCloseTo(l.gap, 6);
     expect(evalCss('var(--first)', vw, vh)).toBeCloseTo(l.first, 6);
     expect(evalCss('var(--step)', vw, vh)).toBeCloseTo(l.step, 6);
-    // the photograph's corner: the rule that places it
-    const rule = /\.fx-photo \{[^}]*\}/.exec(css)![0];
-    const left = /left:([^;]+);/.exec(rule)![1];
-    const top = /top:([^;]+);/.exec(rule)![1];
-    expect(evalCss(left, vw, vh)).toBeCloseTo(l.photoLeft, 4);
-    expect(evalCss(top, vw, vh)).toBeCloseTo(l.photoTop, 4);
   });
 
   it('a wheel place sits at side x (first + (|offset| - 1) x step): the stylesheet\'s --x equals wheelX', () => {
@@ -219,7 +211,7 @@ describe('the copy keeps the product\'s rules', () => {
   it('every demo is marked as an example', () => {
     for (const [id, html] of Object.entries(PANEL_HTML)) {
       // the Documents panel lists documents (not a demo of the product); the FAQ panels have no data
-      if (id === 'docs' || (!html.includes('fx-demo') && !html.includes('fx-icard') && !html.includes('fx-agenda'))) continue;
+      if (id === 'docs' || !html.includes('fx-obj')) continue;
       expect(html, id).toMatch(/fx-ex">[^<]*(Example|example)/);
     }
   });
@@ -232,8 +224,8 @@ describe('the copy keeps the product\'s rules', () => {
   });
 
   it('the questions of the FAQPage are the panels\' own (the structured data says what the page says)', () => {
-    expect(PANEL_FAQ.s).toHaveLength(5);
-    expect(PANEL_FAQ.i).toHaveLength(4);
+    expect(PANEL_FAQ.s).toHaveLength(3);
+    expect(PANEL_FAQ.i).toHaveLength(3);
     for (const [q, a] of [...PANEL_FAQ.s, ...PANEL_FAQ.i]) {
       expect(q.length).toBeGreaterThan(5);
       expect(a.length).toBeGreaterThan(20);
@@ -316,11 +308,11 @@ describe('the logos: only the authorized ones, drawn as white discs, escaped', (
     expect(marqueeHtml([], 'x', 's')).toBe('');
   });
 
-  it('the photograph and the discs stay within their weight budgets (the first paint waits for the photograph)', () => {
+  it('the background and the pointer stay within their weight budgets (the first paint waits for the background)', () => {
     const size = (p: string) => statSync(join(process.cwd(), p)).size;
-    expect(size('public/landing/lens-photo.avif')).toBeLessThan(60_000);
-    expect(size('public/landing/lens-photo.webp')).toBeLessThan(90_000);
-    expect(size('public/landing/lens-photo-blur.webp')).toBeLessThan(10_000);
+    expect(size('public/landing/fog.avif')).toBeLessThan(60_000);
+    expect(size('public/landing/fog.webp')).toBeLessThan(90_000);
+    expect(size('public/landing/lupa.png')).toBeLessThan(60_000);
   });
 });
 
@@ -368,8 +360,9 @@ describe('the stylesheet is safe to ship in the app', () => {
 describe('what Lighthouse measured on the first build (02/11/2026) stays fixed', () => {
   const comp = read('src/components/landing-fixed/FixedLanding.tsx');
 
-  it('the wheel list is not announced as a list (a tablist owns its tabs through it: aria-required-children / list), and the logo link has no label that differs from its visible text (label-content-name-mismatch)', () => {
-    expect(comp).toContain('<ul role="presentation">');
+  it('the tabs are one tablist of buttons (no list in between: aria-required-children / list), and the logo link has no label that differs from its visible text (label-content-name-mismatch)', () => {
+    expect(comp).toContain('<div className="fx-tabs" role="tablist"');
+    expect(comp).not.toContain('<ul role="presentation">');
     expect(comp).toMatch(/<Link className="fx-brand" href=\{MODE_PATH\[mode\]\}>/);
   });
 
@@ -415,5 +408,37 @@ describe('the blurred backdrop covers the whole window (Prompt 935, Nuno 03/11/2
     const rule = css.match(/\.fx-root \.fx-bg \.fx-blur \{[^}]*\}/)![0];
     expect(rule).toContain('width:112%');
     expect(rule).toContain('max-width:none');
+  });
+});
+
+describe('the pointer is a magnifier and the tabs are fixed icons (Nuno, 03/11/2026)', () => {
+  const comp = readFileSync(join(process.cwd(), 'src/components/landing-fixed/FixedLanding.tsx'), 'utf8');
+  const cursor = readFileSync(join(process.cwd(), 'src/components/landing-fixed/LupaCursor.tsx'), 'utf8');
+
+  it('a fixed row of icon buttons: hovering or focusing one previews it, a click, Enter, a tap or a right click pins it', () => {
+    expect(comp).toContain('data-tab=""');
+    expect(comp).toContain('onMouseEnter={() => setPeek(i)}');
+    expect(comp).toContain('onFocus={() => setPeek(i)}');
+    expect(comp).toContain('onClick={() => go(i)}');
+    expect(comp).toContain('onContextMenu={(e) => { e.preventDefault(); go(i); }}');
+    expect(comp).toContain('const shown = peek ?? cur;');
+    expect(comp).not.toMatch(/ringOffset|setJumping|fx-wheel/);
+  });
+
+  it('the magnifier: only with a fine pointer that hovers, small by default, big over an icon, small again after a click, ordinary pointer on form fields and the documents popup', () => {
+    expect(cursor).toContain("(pointer: fine) and (hover: hover)");
+    expect(cursor).toContain("closest('[data-tab]')");
+    expect(cursor).toContain('locked = true');
+    expect(cursor).toMatch(/input, textarea, select, \[role="dialog"\]/);
+    expect(css).toContain('.fx-root .fx-lupa[data-big="1"] img {transform:scale(');
+    expect(css).toContain('.fx-root.fx-lupa-on, .fx-root.fx-lupa-on * {cursor:none}');
+    expect(css).toContain('.fx-root.fx-lupa-on input');
+  });
+
+  it('the icons are fixed (nothing rotates), the one under the magnifier grows and so does the pinned one, and no icon is ever white', () => {
+    expect(css).toContain('.fx-root .fx-tabs {position:fixed');
+    expect(css).toMatch(/\.fx-tabs button\.fx-pinned \{transform:scale\(1\.5\)/);
+    expect(css).not.toMatch(/\.fx-tabs button[^{]*\{[^}]*background:#fff/);
+    expect(css).toContain('.fx-root .fx-lupa[data-big="1"] img {transform:scale(3)}');
   });
 });

@@ -39,7 +39,7 @@ export async function FixedLandingPage({ mode, fontClass }: { mode: LandingMode;
   }
 
   // the photograph is what the first paint waits for: ask for the best format the browser can read before the page's own CSS is parsed
-  ReactDOM.preload('/landing/lens-photo.avif', { as: 'image', type: 'image/avif', fetchPriority: 'high' });
+  ReactDOM.preload('/landing/fog.avif', { as: 'image', type: 'image/avif', fetchPriority: 'high' });
 
   const path = mode === 'startups' ? '/' : '/investors';
   const data = mode === 'startups'
@@ -53,8 +53,8 @@ export async function FixedLandingPage({ mode, fontClass }: { mode: LandingMode;
 
   return (
     <div className={fontClass}>
-      <FixedLanding initialMode={mode} signedIn={signedIn}>
-        <Panels mode={mode} marquee={landingMarquees()} />
+      <FixedLanding initialMode={mode} signedIn={signedIn} strip={landingMarquees()}>
+        <Panels mode={mode} />
       </FixedLanding>
       <JsonLd data={data} />
     </div>
