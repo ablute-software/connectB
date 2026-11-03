@@ -10,8 +10,8 @@ export const logoCaption = (l: Pick<LandingLogo, 'name'>): string => l.name;
 const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => ESC[c]);
 
-/** One logo + its gap is at most this wide (the 76 px figure + 18 px gap of the widest layout). */
-const SLOT_PX = 94;
+/** One logo + its gap is at most this wide (the 96 px figure + 18 px gap of the widest layout). */
+export const SLOT_PX = 114;
 /** The widest strip the page can draw (a 4K window is 3840 px, the card is never wider than ~2200 px at that size). */
 const WIDEST_STRIP_PX = 2200;
 

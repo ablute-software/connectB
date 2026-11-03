@@ -275,7 +275,7 @@ export function FixedLanding({ initialMode, signedIn, children }: { initialMode:
           <picture>
             <source srcSet="/landing/lens-photo.avif" type="image/avif" />
             <source srcSet="/landing/lens-photo.webp" type="image/webp" />
-            <img className="fx-photo" src="/landing/lens-photo.webp" alt="" decoding="async" fetchPriority="high" width={1045} height={1084} />
+            <img className="fx-photo" src="/landing/lens-photo.webp" alt="" decoding="async" fetchPriority="high" width={1376} height={768} />
           </picture>
           {/* eslint-enable @next/next/no-img-element */}
         </div>
@@ -305,10 +305,12 @@ export function FixedLanding({ initialMode, signedIn, children }: { initialMode:
           <ul role="presentation">
             {def.items.map((it, i) => {
               const o = offsets[i];
-              const cls = [o === 0 ? 'fx-on' : '', Math.abs(o) >= 3 ? 'fx-far' : '', jumping.has(i) ? 'fx-jump' : ''].filter(Boolean).join(' ');
+              // on an even ring one place sits straight behind the lens, opposite the selected one: it stays hidden, so the wheel shows three places each side and is balanced (Nuno, 03/11/2026); it shows up as soon as the wheel turns
+              const hid = N % 2 === 0 && Math.abs(o) === N / 2;
+              const cls = [o === 0 ? 'fx-on' : '', Math.abs(o) >= 3 ? 'fx-far' : '', hid ? 'fx-hid' : '', jumping.has(i) ? 'fx-jump' : ''].filter(Boolean).join(' ');
               return (
-                <li key={`${mode}-${it.id}`} role="presentation" className={cls || undefined} style={{ '--s': Math.sign(o), '--k': Math.max(Math.abs(o) - 1, 0) } as React.CSSProperties}>
-                  <button type="button" role="tab" aria-label={it.label} aria-selected={o === 0} onClick={() => go(i)}><WheelIcon name={it.icon} /></button>
+                <li key={`${mode}-${it.id}`} role="presentation" aria-hidden={hid || undefined} className={cls || undefined} style={{ '--s': Math.sign(o), '--k': Math.max(Math.abs(o) - 1, 0) } as React.CSSProperties}>
+                  <button type="button" role="tab" aria-label={it.label} aria-selected={o === 0} tabIndex={hid ? -1 : undefined} onClick={() => go(i)}><WheelIcon name={it.icon} /></button>
                   <span className="fx-lbl" aria-hidden="true">{it.short}</span>
                 </li>
               );

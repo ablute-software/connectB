@@ -8,8 +8,8 @@
   --vh:1vh; --bar-h:calc(56px + env(safe-area-inset-bottom,0px));
   --lx:50vw; --ly:calc(var(--vh) * 46); --ld:calc(var(--vh) * 18);
   --d:clamp(40px,calc(var(--ld) * .39),80px); --gap:calc(var(--d) * .37); --first:calc(var(--ld) / 2 + var(--gap) + var(--d) / 2); --step:calc(var(--d) + var(--gap));
-  --pw:calc(var(--ld) / .102); --ph:calc(var(--pw) * 1.0373206);
-  --t-xl:clamp(1.35rem,2.6vw,2.2rem); --t-l:1.08rem; --t-m:.9rem; --t-s:.78rem; --t-xs:.66rem;
+  --pw:calc(var(--ld) / .1003); --ph:calc(var(--pw) * .5581395349);
+  --t-xl:clamp(1.35rem,2.6vw,2.2rem); --t-l:1.22rem; --t-m:1.02rem; --t-s:.9rem; --t-xs:.76rem;
   color-scheme:dark;}
 .fx-root * {box-sizing:border-box}
 .fx-root {position:fixed;inset:0;margin:0;font-family:var(--body);color:var(--fg);background:var(--ink);overflow:hidden;-webkit-font-smoothing:antialiased;font-size:var(--t-m);line-height:1.45}
@@ -18,7 +18,7 @@
 .fx-root .fx-bg {position:fixed;inset:0;z-index:0;background:#031c23;overflow:hidden}
 .fx-root .fx-bg .fx-blur {position:absolute;inset:-6%;width:112%;height:112%;max-width:none;object-fit:cover;object-position:50% 60%;}
 /* the blur, darkening and desaturation are baked into lens-photo-blur.webp (a filter on a window-sized layer is what a throttled phone chokes on) */
-.fx-root .fx-bg .fx-photo {position:absolute;max-width:none;width:var(--pw);height:var(--ph);left:calc(var(--lx) - var(--pw) * .504);top:calc(var(--ly) - var(--ph) * .461);-webkit-mask-image:linear-gradient(90deg,transparent,rgba(0,0,0,.2) 5%,rgba(0,0,0,.55) 11%,rgba(0,0,0,.85) 16%,#000 21%,#000 79%,rgba(0,0,0,.85) 84%,rgba(0,0,0,.55) 89%,rgba(0,0,0,.2) 95%,transparent),linear-gradient(180deg,transparent,#000 8%,#000 90%,transparent);-webkit-mask-composite:source-in;mask-image:linear-gradient(90deg,transparent,rgba(0,0,0,.2) 5%,rgba(0,0,0,.55) 11%,rgba(0,0,0,.85) 16%,#000 21%,#000 79%,rgba(0,0,0,.85) 84%,rgba(0,0,0,.55) 89%,rgba(0,0,0,.2) 95%,transparent),linear-gradient(180deg,transparent,#000 8%,#000 90%,transparent);mask-composite:intersect}
+.fx-root .fx-bg .fx-photo {position:absolute;max-width:none;width:var(--pw);height:var(--ph);left:calc(var(--lx) - var(--pw) * .3485);top:calc(var(--ly) - var(--ph) * .5738);-webkit-mask-image:linear-gradient(90deg,transparent,rgba(0,0,0,.35) 4%,rgba(0,0,0,.8) 8%,#000 12%,#000 90%,rgba(0,0,0,.6) 95%,transparent),linear-gradient(180deg,transparent,#000 8%,#000 90%,transparent);-webkit-mask-composite:source-in;mask-image:linear-gradient(90deg,transparent,rgba(0,0,0,.35) 4%,rgba(0,0,0,.8) 8%,#000 12%,#000 90%,rgba(0,0,0,.6) 95%,transparent),linear-gradient(180deg,transparent,#000 8%,#000 90%,transparent);mask-composite:intersect}
 .fx-root .fx-bg::after {content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(3,28,35,.55) 0,rgba(3,28,35,.15) 28%,rgba(3,28,35,0) 45%,rgba(3,28,35,.3) 100%)}
 .fx-root .fx-nav {position:fixed;z-index:3;left:0;right:0;top:env(safe-area-inset-top,0px);display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:1rem;padding:16px var(--gr) 0 var(--gl);max-width:1440px;margin:0 auto}
 .fx-root .fx-brand {display:flex;align-items:center;gap:.6rem;text-decoration:none;color:#fff;font-family:var(--wordmark);font-weight:700;font-size:1.15rem;justify-self:start}
@@ -51,7 +51,7 @@
 .fx-root .fx-head p {margin:0;color:var(--fg-2);font-size:var(--t-m);max-width:min(62ch,100%);text-shadow:0 1px 12px rgba(0,0,0,.4)}
 .fx-root .fx-head .fx-cta {display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center;margin-top:.35rem}
 @media (max-height:880px) {
-  .fx-root {--t-l:1rem;--t-m:.84rem;--t-s:.74rem;--t-xs:.62rem}
+  .fx-root {--t-l:1.12rem;--t-m:.94rem;--t-s:.84rem;--t-xs:.72rem}
   .fx-root .fx-card .fx-body {padding:9px 18px 10px}
   .fx-root .fx-panel {gap:8px 18px}
   .fx-root .fx-icard, .fx-root .fx-box, .fx-root .fx-plan {padding:8px 10px}
@@ -78,7 +78,7 @@
   .fx-root .fx-fine {display:none}
   .fx-root .fx-plan {gap:4px}
   .fx-root .fx-plan ul {margin:2px 0 6px}
-  .fx-root {--t-m:.8rem;--t-s:.71rem;--t-xs:.6rem}
+  .fx-root {--t-m:.9rem;--t-s:.8rem;--t-xs:.7rem}
   .fx-root .fx-card .fx-top {padding:6px 18px 5px}
   .fx-root .fx-marquee img {width:38px;height:38px}
   .fx-root .fx-marquee figure {width:60px}
@@ -99,10 +99,12 @@
 .fx-root .fx-wheel button {width:var(--d,70px);height:var(--d,70px);border-radius:50%;border:1.5px solid rgba(255,255,255,.22);background:rgba(10,34,41,.5);backdrop-filter:blur(8px);color:#fff;display:grid;place-items:center;cursor:pointer;transition:transform .45s,background .35s,border-color .35s,opacity .35s;opacity:.9;padding:0}
 .fx-root .fx-wheel button svg {width:42%;height:42%;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .fx-root .fx-wheel li.fx-far button {opacity:.55}
+.fx-root .fx-wheel li.fx-hid {opacity:0;pointer-events:none}
+.fx-root .fx-wheel li.fx-hid button {pointer-events:none}
 .fx-root .fx-wheel li.fx-on {width:var(--ld);z-index:1}
 .fx-root .fx-wheel li.fx-on button {width:var(--ld);height:var(--ld);background:transparent;border-color:transparent;backdrop-filter:none;color:var(--ink);opacity:1;box-shadow:none}
 .fx-root .fx-wheel li.fx-on button svg {width:40%;height:40%;stroke-width:2;filter:drop-shadow(0 1px 0 rgba(255,255,255,.6))}
-.fx-root .fx-wheel .fx-lbl {position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);white-space:normal;width:calc(var(--d,70px) + var(--gap,22px) - 6px);text-align:center;line-height:1.2;font-size:.6rem;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.55);font-weight:500;pointer-events:none;transition:opacity .3s}
+.fx-root .fx-wheel .fx-lbl {position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);white-space:normal;width:calc(var(--d,70px) + var(--gap,22px) - 6px);text-align:center;line-height:1.2;font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.55);font-weight:500;pointer-events:none;transition:opacity .3s}
 .fx-root .fx-wheel li.fx-on .fx-lbl {opacity:0}
 .fx-root .fx-wheel li.fx-far .fx-lbl {opacity:.6}
 .fx-root .fx-sr {position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
@@ -242,8 +244,8 @@
 .fx-root .fx-marquee .fx-track {display:flex;gap:18px;width:max-content;animation:fx-logos 40s linear infinite;align-items:start}
 .fx-root .fx-marquee.fx-logos-i .fx-track {animation-duration:70s}
 .fx-root .fx-marquee:hover .fx-track {animation-play-state:paused}
-.fx-root .fx-marquee figure {margin:0;display:grid;justify-items:center;gap:3px;font-size:.62rem;color:var(--fg-2);width:76px;text-align:center;line-height:1.2}
-.fx-root .fx-marquee img {width:48px;height:48px;border-radius:50%;box-shadow:0 0 0 1px rgba(255,255,255,.12)}
+.fx-root .fx-marquee figure {margin:0;display:grid;justify-items:center;gap:4px;font-size:.76rem;color:var(--fg-2);width:96px;text-align:center;line-height:1.2}
+.fx-root .fx-marquee img {width:62px;height:62px;border-radius:50%;box-shadow:0 0 0 1px rgba(255,255,255,.12)}
 @keyframes fx-logos {to{transform:translateX(-50%)}}
 @media (prefers-reduced-motion:reduce) {
   /* still: one row of whole logos (the rest pushed out of sight by the strip), without the second copy that only exists for the loop's seam */
@@ -318,4 +320,62 @@
 /* a phone reads at 12 px and up: the mockup's 10-11 px labels are for a laptop (Lighthouse font-size: 60% of the text must be 12 px or more) */
 @media (max-width:760px) {
   .fx-root {--t-m:.9rem;--t-s:.8rem;--t-xs:.75rem}
+}
+
+/* Nuno, 03/11/2026: the type is bigger in every panel, so each panel keeps what matters most and drops the rest from the screen (the words stay in the HTML for crawlers). On a window with room for it (>= 1000 px tall) nothing is dropped. */
+@media (min-width:761px) {
+  .fx-root .fx-panel .fx-side p ~ p {display:none}
+  .fx-root .fx-fine {display:none}
+  .fx-root .fx-plans .fx-plan ul li:nth-child(n+3) {display:none}
+  .fx-root .fx-demo table tbody tr:nth-child(n+4) {display:none}
+}
+@media (min-width:761px) and (min-height:1000px) {
+  .fx-root .fx-panel .fx-side p ~ p {display:block}
+  .fx-root .fx-fine {display:block}
+  .fx-root .fx-plans .fx-plan ul li:nth-child(n+3) {display:list-item}
+  .fx-root .fx-demo table tbody tr:nth-child(n+4) {display:table-row}
+}
+@media (min-width:761px) and (max-height:999px) {
+  .fx-root [data-id="docs"] .fx-promise {display:none}
+  .fx-root .fx-doclist li span {display:none}
+  .fx-root .fx-plans .fx-plan ul {display:none}
+  .fx-root .fx-cards .fx-icard .fx-meta {display:none}
+  .fx-root .fx-cards .fx-chk li:nth-child(2) {display:none}
+  .fx-root [data-id="i-discover"] .fx-icard .fx-meta {display:none}
+  .fx-root [data-id="i-discover"] .fx-box h4:nth-of-type(2), .fx-root [data-id="i-discover"] .fx-box ul:nth-of-type(2) {display:none}
+  .fx-root .fx-marquee {margin-top:6px;padding-top:6px}
+}
+@media (min-width:761px) and (max-height:999px) {
+  .fx-root [data-id="s-find"] .fx-chk li:nth-child(1) {display:none}
+  .fx-root [data-id="s-ai"] .fx-box:nth-child(2) > p {display:none}
+  .fx-root [data-id="i-overview"] .fx-rows li:nth-child(3) {display:none}
+  .fx-root [data-id="i-discover"] .fx-chk li:nth-child(2) {display:none}
+  .fx-root [data-id="i-review"] .fx-box:nth-child(2) > p {display:none}
+}
+@media (min-width:761px) and (max-height:999px) {
+  .fx-root [data-id$="-overview"] .fx-act {display:none}
+  .fx-root [data-id="i-review"] .fx-box:nth-child(1) .fx-list li:nth-child(3) {display:none}
+  .fx-root .fx-cards .fx-icard {padding:6px 10px}
+}
+@media (min-width:761px) and (max-height:800px) {
+  .fx-root .fx-panel .fx-promise {display:none}
+}
+@media (min-width:761px) and (max-height:800px) {
+  .fx-root .fx-plans .fx-plan .fx-diff {display:none}
+  .fx-root .fx-rows li {padding-top:3px;padding-bottom:3px}
+}
+@media (min-width:761px) and (max-height:760px) {
+  .fx-root [data-id="s-faq"] details:nth-of-type(5) {display:none}
+}
+/* names and reasons are read whole, never cut with "..." (Nuno, 03/11/2026): two columns: the name and why it fits (the profile line stays in the HTML, off the screen) */
+@media (min-width:761px) {
+  .fx-root .fx-rows li {grid-template-columns:minmax(0,12em) minmax(0,1fr);column-gap:10px}
+  .fx-root .fx-rows li b {white-space:normal;overflow:visible;text-overflow:clip}
+  .fx-root .fx-rows li em {white-space:normal;overflow:visible;text-overflow:clip}
+  .fx-root .fx-rows li span {display:none}
+}
+/* the blurred room that continues the photograph to the left is darker at the very edge, so the lamp does not appear twice */
+.fx-root .fx-bg::after {background:linear-gradient(90deg,rgba(3,28,35,.7) 0,rgba(3,28,35,0) 20%),linear-gradient(180deg,rgba(3,28,35,.55) 0,rgba(3,28,35,.15) 28%,rgba(3,28,35,0) 45%,rgba(3,28,35,.3) 100%)}
+@media (max-width:760px) {
+  .fx-root .fx-wheel .fx-lbl {font-size:.6rem;letter-spacing:.09em}
 }

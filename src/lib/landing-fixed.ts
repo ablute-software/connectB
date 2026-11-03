@@ -5,8 +5,8 @@
 // as CSS `calc()` on `dvh`/`vw` (landing-fixed.module.css), so the first paint is already right, nothing waits for an image and nothing moves afterwards (CLS 0). `lensLayout` is the JavaScript form of the
 // same formulas: the test compares it with the mockup's numbers at several window sizes, and with the CSS formulas by evaluating them.
 
-/** The photograph (public/landing/lens-photo.*): 1045 x 1084 px; the lens in it, measured from the file. */
-export const PHOTO = { width: 1045, height: 1084, lensX: 0.504, lensY: 0.461, lensD: 0.102 } as const;
+/** The photograph (public/landing/lens-photo.*): 1376 x 768 px (03/11/2026: the wide version with the continuation on the right); the lens in it, measured from the file. */
+export const PHOTO = { width: 1376, height: 768, lensX: 0.3485, lensY: 0.5738, lensD: 0.1003 } as const;
 
 /** Where the lens must sit on the screen and how big it is: 46% down and 18% of the window's height across (Nuno's brief). */
 export const SCREEN_LENS = { y: 0.46, d: 0.18 } as const;

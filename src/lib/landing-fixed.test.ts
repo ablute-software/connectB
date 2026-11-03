@@ -13,7 +13,7 @@ import {
 import { CTA, DOC_ORDER, HERO_LINES, MODES, MODE_PATH, heroLineText, isDocId } from '@/content/site/landing-fixed';
 import { PANEL_FAQ, PANEL_HTML } from '@/content/site/landing-fixed-panels';
 import { InvestorPricing, StartupPricing, landingMarquees } from '@/components/landing-fixed/Panels';
-import { escapeHtml, marqueeHtml, marqueeRepeat } from './landing-fixed-logos';
+import { SLOT_PX, escapeHtml, marqueeHtml, marqueeRepeat } from './landing-fixed-logos';
 import { INVESTOR_PLANS, MATCHDEAL_WEEKLY, PLANS, SEAT_COUNT_LABEL } from './plans';
 import { landingLogosFor, logoStripVisible } from '@/content/site/logo-strip';
 import { aiClauseParagraphs } from '@/components/landing-fixed/LegalChapters';
@@ -55,10 +55,10 @@ function evalCss(expr: string, vw: number, vh: number): number {
 const SIZES: [number, number][] = [[1280, 720], [1366, 768], [1440, 790], [1440, 900], [1536, 864], [1920, 1080], [390, 844]];
 
 describe('the lens: CSS formulas = lensLayout = the mockup\'s numbers', () => {
-  it('the photograph is 1045 x 1084 and its lens sits at 50.4% / 46.1%, 10.2% wide (measured from the file)', () => {
-    expect(PHOTO).toEqual({ width: 1045, height: 1084, lensX: 0.504, lensY: 0.461, lensD: 0.102 });
+  it('the photograph is 1376 x 768 and its lens sits at 34.85% / 57.38%, 10.03% wide (measured from the file)', () => {
+    expect(PHOTO).toEqual({ width: 1376, height: 768, lensX: 0.3485, lensY: 0.5738, lensD: 0.1003 });
     expect(SCREEN_LENS).toEqual({ y: 0.46, d: 0.18 });
-    expect(PHOTO.height / PHOTO.width).toBeCloseTo(1.0373206, 6);
+    expect(PHOTO.height / PHOTO.width).toBeCloseTo(0.5581395, 6);
   });
 
   it('at 1440x900 the lens is 162 px, centred at 720 / 414, and the photograph is drawn so that ITS lens is that one', () => {
@@ -301,7 +301,7 @@ describe('the logos: only the authorized ones, drawn as white discs, escaped', (
       expect(m[mode].match(/<figure>/g)).toHaveLength(logos.length);
       expect(m[mode].match(/<figure aria-hidden="true">/g)).toHaveLength(logos.length * (marqueeRepeat(logos.length) * 2 - 1));
       // each half of the track is wider than the widest strip, so the row never shows an end (Nuno, 03/11/2026)
-      expect(logos.length * marqueeRepeat(logos.length) * 94).toBeGreaterThanOrEqual(2200);
+      expect(logos.length * marqueeRepeat(logos.length) * SLOT_PX).toBeGreaterThanOrEqual(2200);
       expect(m[mode]).not.toContain('base64');
     }
   });
