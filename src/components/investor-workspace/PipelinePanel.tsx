@@ -16,6 +16,7 @@ import Link from 'next/link';
 import { InteractionLogDrawer } from './InteractionLogDrawer';
 import { ArchivePanel } from './ArchivePanel';
 import { WatchingPanel } from './WatchingPanel';
+import { CallTagChips, type CallTag } from './CallTagChips';
 import { LockedWave } from './LockedWave';
 import { InvestorPipelineFunnel } from './InvestorPipelineFunnel';
 import { useInvestorPipelineRowDrag, useReducedMotion, type DraggableCard } from './useInvestorPipelineRowDrag';
@@ -51,6 +52,9 @@ interface Card extends DraggableCard {
   // this investor's firm as `invested` in their own pipeline). Badge only —
   // pipelineStage is derived the same way as any other card.
   viaPortfolio?: boolean;
+  // Prompt 927 (A): this startup applied to a call of the firm — the tag(s) naming the call, in this person's pipeline only.
+  viaCall?: boolean;
+  callTags?: CallTag[];
   followOnSignals?: FollowOnPayload[];
   isArchived?: boolean;
   trackingCount: number; hasDataRoomAccess: boolean;
@@ -89,7 +93,7 @@ interface Wave {
   unlocked: boolean;
   hiddenCount?: number;
 }
-interface PipelineResponse { linked: boolean; waves?: Wave[]; usualCoInvestors?: string | null; quota?: PipelineQuota | null }
+interface PipelineResponse { linked: boolean; waves?: Wave[]; usualCoInvestors?: string | null; quota?: PipelineQuota | null; callFilter?: { id: string; name: string }[] }
 
 const REASON_MAX_LEN = 1000;
 const STAGE_LABELS: Record<string, string> = { pre_seed: 'Pre-seed', seed: 'Seed', series_a: 'Series A', series_b_plus: 'Series B+', growth: 'Growth' };
@@ -260,6 +264,8 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
   useEffect(() => {
     fetch('/api/portal/watchlist').then((r) => r.json()).then((d) => setWatchingCount((d.items ?? []).length)).catch(() => setWatchingCount(null));
   }, []);
+  // Prompt 927 (A): 'off' = every startup; 'any' = only those that came from a call; or one call's id.
+  const [callFilter, setCallFilter] = useState<string>('off');
   const [sectorFilter, setSectorFilter] = useState<string>('all');
   const [countryFilter, setCountryFilter] = useState<string>('all');
   const [stageFilter, setStageFilter] = useState<string>('all');
@@ -490,6 +496,8 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
   const stageOptions = [...new Set(allCards.map((c) => c.stage).filter((v): v is string => !!v))];
 
   function passesFilter(c: AnyCard) {
+    if (callFilter === 'any' && (isUnavailable(c) || !(c.callTags ?? []).length)) return false;
+    if (callFilter !== 'off' && callFilter !== 'any' && (isUnavailable(c) || !(c.callTags ?? []).some((t) => t.callId === callFilter))) return false;
     if (sectorFilter !== 'all' && (isUnavailable(c) || !c.sectors.includes(sectorFilter))) return false;
     if (countryFilter !== 'all' && (isUnavailable(c) || c.country !== countryFilter)) return false;
     if (stageFilter !== 'all' && (isUnavailable(c) || c.stage !== stageFilter)) return false;
@@ -559,6 +567,14 @@ function PipelinePanelInner({ onOpenStartup: _onOpenStartup }: { onOpenStartup: 
             className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${secondaryFilter === 'watching' ? 'bg-[#0E7490] text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
             👁 Watching{watchingCount != null ? ` (${watchingCount})` : ''}
           </button>
+          {(data.callFilter ?? []).length > 0 && (
+            <select value={callFilter} onChange={(e) => setCallFilter(e.target.value)} aria-label="From calls" data-testid="from-calls"
+              className={`max-w-[180px] rounded-full border px-2.5 py-1 text-[11px] ${callFilter !== 'off' ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0A5F75]' : 'border-gray-200 bg-white text-gray-600'}`}>
+              <option value="off">From calls</option>
+              <option value="any">Any call</option>
+              {(data.callFilter ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          )}
           {/* Prompt 686 A.3 — same pattern as the founder pipeline page
               (Prompt 672): with the panel open the list is too narrow for
               four controls beside each other, so they collapse behind this
@@ -814,6 +830,7 @@ function PipelineRow({
               <span className="shrink-0 text-sm font-semibold text-gray-900 group-hover:underline">{c.name}</span>
               {c.hype && <span className="shrink-0 rounded-full bg-orange-500 px-1.5 py-0.5 text-[9px] font-bold text-white" title="Hype — trending among investors on your plan">🔥</span>}
               {c.isWatching && <span className="shrink-0 text-[11px]" title="You're watching this startup for changes">👁</span>}
+              {(c.callTags ?? []).length > 0 && <CallTagChips tags={c.callTags!} />}
               {/* Prompt 686 A.4 — with the panel open, the collapsed row shows
                   avatar + name + the stage pill (the one-liner already sits
                   in the panel's own header) instead of the one-liner. */}

@@ -925,6 +925,10 @@ Indicar:
 - **Ficheiros até 12 MB.** O máximo da plataforma e o valor por omissão são 12 MB; a entidade escolhe menos, nunca mais nem «sem limite». Todos os caminhos de ficheiro (pergunta, vários ficheiros, grupo, Vault, contestação) recusam acima do limite com «This file is 18.4 MB. The maximum is 12 MB.»; o navegador avisa antes de enviar.
 - **Nomes de call únicos por organização.** Compara-se sem maiúsculas, acentos nem espaços a mais; contam as calls ativas, as arquivadas e as apagadas dentro dos 30 dias (não as purgadas). Verifica-se ao criar, ao mudar o nome, ao duplicar e ao importar. Um nome repetido recebe «There is already a call named «X» in your organisation», o caminho para ela e 3 nomes livres (ano, edição, número) gerados sem IA. Uma call nova sem nome é «Untitled call», «Untitled call 2», …; uma cópia nasce com «X (copy)», «X (copy 2)». **O índice único na base de dados ainda não foi criado**, porque existem nomes repetidos que o Nuno decide (relatório).
 
+## 27.2 Os candidatos na pipeline da entidade (Prompt 927, parte A — 03/11/2026)
+
+Uma candidatura **submetida** a uma call de uma firma investidora faz a startup aparecer na Pipeline de quem administra a call («Configure call») e, só das candidaturas atribuídas e nunca numa call às cegas, dos avaliadores, com a etiqueta «From call · C1» e o filtro «From calls». Calcula-se ao ler a pipeline (uma fonte de relação, fora das ondas de descoberta); só as pessoas da organização que corre a call veem a etiqueta. O formulário do candidato mostra «Your startup's profile will be added to «Entity»'s deal flow on Sherlock Deal.» antes de submeter, e nada vai para uma pipeline sem o aviso mostrado (`call_applications.pipeline_notice_at`). As candidaturas anteriores entram por «Add applicants to my pipeline» (`call_pipeline_backfills`). Uma call de incubadora não tem pipeline de investidor.
+
 ## 28. Piloto: Portugal Ventures
 
 - **10 seats** (plano custom, pré-atribuído).

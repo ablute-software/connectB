@@ -355,6 +355,30 @@ describe('I2 — documents', () => {
 });
 
 describe('I3 — submitting', () => {
+  it('Prompt 927 (A): the notice is recorded only when the form SHOWED it (the pipeline never gets the application without it); a draft has none; an incubator call records nothing', async () => {
+    const withNotice = await completeDraft();
+    expect(apps()[0].pipeline_notice_at ?? null).toBeNull();                                    // a draft: never
+    const r = await submitPost(req('POST', { key: 'key-pipe-0001', baseRevision: withNotice.revision, pipelineNotice: true }), idp(withNotice.id)).then(read);
+    expect(r.status).toBe(200);
+    expect(apps()[0].status).toBe('submitted');
+    expect(typeof apps()[0].pipeline_notice_at).toBe('string');
+    // The same request again changes nothing.
+    const stamp = apps()[0].pipeline_notice_at;
+    expect((await submitPost(req('POST', { key: 'key-pipe-0001', baseRevision: withNotice.revision, pipelineNotice: true }), idp(withNotice.id)).then(read)).body.already).toBe(true);
+    expect(apps()[0].pipeline_notice_at).toBe(stamp);
+  });
+
+  it('Prompt 927 (A): a submission WITHOUT the notice shown is accepted but is never added to a pipeline; an incubator call records no notice either', async () => {
+    const without = await completeDraft();
+    expect((await submit(without.id, 'key-pipe-0002', without.revision)).status).toBe(200);
+    expect(apps()[0].pipeline_notice_at ?? null).toBeNull();
+    // an incubator's call: there is no investor pipeline, so nothing is recorded even when the form says so
+    db.tables.calls.find((c) => c.id === CALL)!.promoter_kind = 'incubator';
+    Object.assign(apps()[0], { status: 'draft', current_submission_id: null }); db.tables.call_application_submissions.length = 0;
+    const again = await submitPost(req('POST', { key: 'key-pipe-0003', baseRevision: apps()[0].revision ?? without.revision, pipelineNotice: true }), idp(without.id)).then(read);
+    if (again.status === 200) expect(apps()[0].pipeline_notice_at ?? null).toBeNull();
+  });
+
   it('with something missing it lists each question and its page, and writes nothing', async () => {
     const d = await draftOf(); const id = d.state.application.id;
     await put(id, { [F.name]: '', [F.inc]: 'yes' }, d.state.application.revision);

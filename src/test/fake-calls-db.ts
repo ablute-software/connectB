@@ -37,6 +37,8 @@ export function callsDb(): CallsDb {
     'call_result_settings', 'call_result_feedback', 'call_result_grades', 'call_result_batches', 'call_results', 'call_result_sends',
     // Prompt 924 (I3)
     'call_contestations', 'call_data_summaries',
+    // Prompt 927 (A)
+    'call_pipeline_backfills',
   ];
   return { tables: Object.fromEntries(names.map((n) => [n, []])), users: new Map(), clock: Date.UTC(2026, 9, 9, 12, 0, 0), seq: 0 };
 }
