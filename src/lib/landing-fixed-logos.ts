@@ -10,8 +10,8 @@ export const logoCaption = (l: Pick<LandingLogo, 'name'>): string => l.name;
 const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => ESC[c]);
 
-/** One logo + its gap is at most this wide (the 96 px figure + 18 px gap of the widest layout). */
-export const SLOT_PX = 114;
+/** One logo + its gap is at most this wide (the narrowest desktop figure (56 px) + its 20 px gap; the others are wider, so a half is never shorter than the strip of the widest layout). */
+export const SLOT_PX = 76;
 /** The widest strip the page can draw (a 4K window is 3840 px, the card is never wider than ~2200 px at that size). */
 const WIDEST_STRIP_PX = 2200;
 
@@ -28,5 +28,6 @@ export function marqueeHtml(logos: readonly Pick<LandingLogo, 'file' | 'name'>[]
     `<figure${visible ? '' : ' aria-hidden="true"'}><img src="${escapeHtml(logoCircleSrc(l))}" width="64" height="64" alt="${visible ? escapeHtml(l.name) : ''}" loading="lazy" decoding="async"><figcaption>${escapeHtml(logoCaption(l))}</figcaption></figure>`;
   const copies = marqueeRepeat(logos.length) * 2;
   const track = Array.from({ length: copies }, (_, c) => logos.map((l) => fig(l, c === 0)).join('')).join('');
-  return `<div class="fx-marquee fx-logos-${kind}"><div class="fx-cap">${escapeHtml(caption)}</div><div class="fx-strip"><div class="fx-track">${track}</div></div></div>`;
+  // --cnt: the figures in one half of the track, so the stylesheet can give the turn the duration that makes a constant speed in px per second whatever the size of the logos
+  return `<div class="fx-marquee fx-logos-${kind}"><div class="fx-cap">${escapeHtml(caption)}</div><div class="fx-strip"><div class="fx-track" style="--cnt:${logos.length * marqueeRepeat(logos.length)}">${track}</div></div></div>`;
 }

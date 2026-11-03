@@ -18,7 +18,7 @@ import {
   type DocId, type HeroLine, type LandingMode,
 } from '@/content/site/landing-fixed';
 import {
-  LINE_EVERY_MS, LINE_FOG_MS, WHEEL_MIN_DELTA, cardCanScroll, hasMore, jumped, nextLine, ringOffset, stepAllowed, stepIndex, swipeStep,
+  FIT_MAX, LINE_EVERY_MS, LINE_FOG_MS, WHEEL_MIN_DELTA, cardCanScroll, fitScale, hasMore, jumped, nextLine, ringOffset, stepAllowed, stepIndex, swipeStep,
 } from '@/lib/landing-fixed';
 
 // The legal text is only fetched when someone opens the popup.
@@ -140,6 +140,18 @@ export function FixedLanding({ initialMode, signedIn, children }: { initialMode:
   }, []);
 
   /* ---------- the card ---------- */
+  // The type fills the card: the selected panel is measured at a scale from 1 to FIT_MAX and keeps the largest one at which nothing overflows. Not on a phone (the card scrolls there) and not for the contact form.
+  const fitType = useCallback(() => {
+    const b = bodyRef.current;
+    if (!b) return;
+    const sec = b.querySelector<HTMLElement>(':scope > section.fx-on');
+    if (!sec || sec.dataset.id === 'contact' || window.innerWidth <= 760) { b.style.removeProperty('--fxk'); return; }
+    b.scrollTop = 0; // the panel's bottom is read against the body's box: scrolled, it would read short
+    // scrollHeight can never be below clientHeight, so "fits" is read from where the panel ends against where the body's content box ends
+    const limit = () => b.getBoundingClientRect().top + b.clientTop + b.clientHeight - parseFloat(getComputedStyle(b).paddingBottom);
+    const fits = (k: number) => { b.style.setProperty('--fxk', String(k)); return sec.getBoundingClientRect().bottom <= limit() - 1 && b.scrollWidth <= b.clientWidth; };
+    b.style.setProperty('--fxk', String(fitScale(fits, FIT_MAX)));
+  }, []);
   // Which panel shows: the server marked the home one; from here the selected one (or the contact form) does.
   useLayoutEffect(() => {
     const body = bodyRef.current;
@@ -152,14 +164,18 @@ export function FixedLanding({ initialMode, signedIn, children }: { initialMode:
       sec.classList.toggle('fx-on', !contact && sec.dataset.id === item.id);
     });
     body.scrollTop = 0;
-  }, [mode, item.id, contact]);
+    fitType();
+  }, [mode, item.id, contact, fitType]);
 
   const checkMore = useCallback(() => {
     const b = bodyRef.current;
-    if (b) setMore(hasMore(b.scrollHeight, b.clientHeight, live.current.open));
-  }, []);
+    if (!b) return;
+    fitType();
+    setMore(hasMore(b.scrollHeight, b.clientHeight, live.current.open));
+  }, [fitType]);
   useEffect(() => {
     const a = requestAnimationFrame(checkMore);
+    document.fonts?.ready.then(checkMore).catch(() => {});
     window.addEventListener('resize', checkMore);
     return () => { cancelAnimationFrame(a); window.removeEventListener('resize', checkMore); };
   }, [checkMore, item.id, contact, open, mode]);

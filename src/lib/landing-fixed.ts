@@ -96,3 +96,17 @@ export const LINE_FOG_MS = 950;
 export function nextLine(current: number, count: number): number {
   return (current + 1) % count;
 }
+
+/** The type fills the card (Nuno, 03/11/2026): the largest scale in [1, FIT_MAX] at which the panel still fits, found by bisection. `fits(k)` sets the scale and says whether nothing overflows. */
+export const FIT_MAX = 1.4;
+export function fitScale(fits: (k: number) => boolean, max: number = FIT_MAX, steps = 7): number {
+  if (!fits(1)) return 1;
+  if (fits(max)) return max;
+  let lo = 1;
+  let hi = max;
+  for (let i = 0; i < steps; i++) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) lo = mid; else hi = mid;
+  }
+  return Math.floor(lo * 100) / 100;
+}
