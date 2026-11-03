@@ -561,3 +561,40 @@
 /* the headline block is two rows: the headline in the space that is left (it can be one line or two, and it changes), the strip fixed at the bottom of the block: it no longer moves with the title above it (Nuno, 03/11/2026) */
 .fx-root .fx-head {grid-template-rows:minmax(0,1fr) auto;align-content:stretch}
 .fx-root .fx-head h1 {align-self:center;padding-bottom:22px}
+/* The floating pipeline board of the previous site, in the Overview card (Nuno, 03/11/2026): a tilted window that floats, cards that slide in, two chips that drift. An example, never the founder's data. */
+.fx-root .fx-board {position:relative;width:100%;max-width:640px;padding:10px 14px 16px 0}
+.fx-root .fx-win {background:#fdfefe;border-radius:14px;box-shadow:0 18px 44px rgba(3,18,23,.45);overflow:hidden;transform:rotate(-1.2deg);animation:fxFloat 7s ease-in-out infinite;color:var(--ink)}
+.fx-root .fx-wbar {display:flex;align-items:center;gap:6px;padding:7px 12px;border-bottom:1px solid #dbe7ea;background:#fff}
+.fx-root .fx-wbar i {width:9px;height:9px;border-radius:50%;display:block;background:#f2726f}
+.fx-root .fx-wbar i:nth-child(2) {background:#f5c26b}
+.fx-root .fx-wbar i:nth-child(3) {background:#67c587}
+.fx-root .fx-wbar span {margin-left:8px;font-size:.7rem;color:#5c7a82;font-weight:600;letter-spacing:.04em}
+.fx-root .fx-cols {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:9px}
+.fx-root .fx-bt {display:flex;justify-content:space-between;margin-bottom:7px;font-size:.66rem;text-transform:uppercase;letter-spacing:.08em;color:#5c7a82}
+.fx-root .fx-bt b {color:var(--teal)}
+.fx-root .fx-bc {background:#fff;border:1px solid #dbe7ea;border-radius:9px;padding:6px 8px;margin-bottom:6px;box-shadow:0 2px 6px rgba(12,39,46,.05);opacity:0;transform:translateY(10px);animation:fxCardIn .6s forwards}
+.fx-root .fx-bcol:nth-child(2) .fx-bc {animation-delay:.15s}
+.fx-root .fx-bcol:nth-child(3) .fx-bc {animation-delay:.3s}
+.fx-root .fx-bc span {display:block;font-size:.7rem;line-height:1.25;font-weight:600;color:var(--ink)}
+.fx-root .fx-tg {display:inline-block;margin-top:4px;font-size:.58rem;font-weight:600;font-style:normal;padding:2px 8px;border-radius:999px}
+.fx-root .fx-tg.t {background:#e0f0f3;color:#1d6370}
+.fx-root .fx-tg.d {background:#fde8e7;color:#a33c38}
+.fx-root .fx-tg.w {background:#f9efd9;color:#8a6414}
+.fx-root .fx-tg.o {background:#e2f4e8;color:#20714a}
+.fx-root .fx-chip {position:absolute;display:grid;gap:1px;background:#fff;color:var(--ink);border-radius:11px;box-shadow:0 12px 30px rgba(3,18,23,.4);padding:8px 13px;font-size:.78rem;animation:fxFloat 6s ease-in-out infinite}
+.fx-root .fx-chip b {font-weight:700}
+.fx-root .fx-chip span {font-size:.66rem;color:#5c7a82}
+.fx-root .fx-c1 {top:-4px;right:0;animation-delay:.8s}
+.fx-root .fx-c2 {bottom:10px;left:-8px;animation-delay:1.6s}
+@keyframes fxFloat {0%,100% {transform:translateY(0) rotate(var(--r,0deg))} 50% {transform:translateY(-8px) rotate(var(--r,0deg))}}
+.fx-root .fx-win {--r:-1.2deg}
+@keyframes fxCardIn {to {opacity:1;transform:translateY(0)}}
+@media (prefers-reduced-motion:reduce) {
+  .fx-root .fx-win, .fx-root .fx-chip {animation:none}
+  .fx-root .fx-bc {animation:none;opacity:1;transform:none}
+}
+@media (max-width:760px) {
+  .fx-root .fx-chip {display:none}
+  .fx-root .fx-board {padding:0}
+  .fx-root .fx-cols {padding:8px;gap:6px}
+}

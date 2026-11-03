@@ -11568,3 +11568,7 @@ Relatório em `docs/calls/PROMPT_927_A_PIPELINE.md`. Migração **aditiva** `202
 - **Privacidade (regra de raiz).** Nada de desempenho privado do fundador sobe para uma superfície de investidor: a etiqueta só leva o nome da call e o estado de **elegibilidade da candidatura** (o que a própria entidade já vê na call).
 - **Limite honesto:** o painel real da Pipeline (`PipelinePanel`) não tem aparelho de testes no Chrome (importa módulos de fonte que o empacotador de testes não resolve), por isso **não há captura da pipeline**: testei a lógica (`call-pipeline.test.ts`), as rotas, o aviso no formulário real e a etiqueta (`call-tag.test.ts`).
 - **Testes:** `call-pipeline.test.ts` (6), `calls-927-pipeline-routes.test.ts` (2), `deal-flow-notice.test.ts` (2), `call-tag.test.ts` (4) e 2 em `calls-907-applicant-routes.test.ts`.
+
+## Prompt 935 — o quadro flutuante do pipeline no Overview das startups (Nuno, 03/11/2026)
+
+O Overview das startups ganha o quadro inclinado e animado da versão anterior (janela «Sherlock Deal · Pipeline» com três colunas e dois chips), marcado «Example», sem dados reais; movimento parado com prefers-reduced-motion; chips escondidos no telemóvel. Texto ao lado: «Sherlock Deal matches startups with the investors that fit them, and puts startups that match their mandate in front of investors.» Só o lado startups.
