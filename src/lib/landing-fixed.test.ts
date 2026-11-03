@@ -1,7 +1,7 @@
 // Prompt 935 (02/11/2026) — what the fixed landing promises, pinned. Four kinds of promise: the geometry (the stylesheet's calc() formulas ARE src/lib/landing-fixed.ts's lensLayout — one reference, two
 // forms, compared here by evaluating the CSS), the gestures' rules, the copy's rules (every demo marked as an example, no promise of a result, prices from plans.ts), and the stylesheet's safety (scoped, and
 // the root has nothing that would trap a fixed child). The measured side — 96 panel fits, captures, focus trap — is in docs/screenshots-landing-fixed-20261102/ and the report.
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -392,5 +392,16 @@ describe('the photograph is served without a session (Prompt 935 hotfix)', () =>
     const mw = readFileSync(join(process.cwd(), 'src/middleware.ts'), 'utf8');
     const matcher = mw.match(/matcher: \[(.*)\]/)![1];
     for (const ext of ['avif', 'webp']) expect(matcher).toContain(ext);
+  });
+});
+
+describe('every file the landing ships is reachable without a session (Prompt 935, adenda 1)', () => {
+  it('each extension under public/landing is excluded by the middleware matcher', () => {
+    const mw = readFileSync(join(process.cwd(), 'src/middleware.ts'), 'utf8');
+    const exts = new Set(mw.match(/\(\?:([a-z0-9?|]+)\)\$/)![1].replace('woff2?', 'woff|woff2').split('|'));
+    const walk = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [e.name]));
+    // README.md is a note for people, not something a page references
+    const missing = walk(join(process.cwd(), 'public/landing')).filter((n) => n !== 'README.md').map((n) => n.split('.').pop()!).filter((x) => !exts.has(x));
+    expect(missing).toEqual([]);
   });
 });
