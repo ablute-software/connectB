@@ -407,3 +407,11 @@ describe('every file the landing ships is reachable without a session (Prompt 93
     expect(missing).toEqual([]);
   });
 });
+
+describe('the blurred backdrop covers the whole window (Prompt 935, Nuno 03/11/2026)', () => {
+  it('.fx-blur is wider than the window on purpose, so it must not inherit the global img max-width (it stopped 115 px short on the right at 1920 px)', () => {
+    const rule = css.match(/\.fx-root \.fx-bg \.fx-blur \{[^}]*\}/)![0];
+    expect(rule).toContain('width:112%');
+    expect(rule).toContain('max-width:none');
+  });
+});
