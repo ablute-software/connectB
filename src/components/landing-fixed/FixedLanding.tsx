@@ -18,7 +18,7 @@ import {
   type DocId, type HeroLine, type LandingMode,
 } from '@/content/site/landing-fixed';
 import {
-  LINE_EVERY_MS, LINE_FOG_MS, WHEEL_MIN_DELTA, cardCanScroll, hasMore, jumped, nextLine, ringOffset, stepAllowed, stepIndex, swipeStep,
+  LINE_CLEAR_MS, LINE_EVERY_MS, LINE_FOG_MS, SMOKE_LOAD_DELAY_MS, WHEEL_MIN_DELTA, cardCanScroll, hasMore, jumped, nextLine, ringOffset, stepAllowed, stepIndex, swipeStep,
 } from '@/lib/landing-fixed';
 
 // The legal text is only fetched when someone opens the popup.
@@ -51,7 +51,8 @@ export function FixedLanding({ initialMode, signedIn, children }: { initialMode:
   const [contact, setContact] = useState(false);
   const [doc, setDoc] = useState<DocId | null>(null);
   const [line, setLine] = useState(0);
-  const [fog, setFog] = useState(false);
+  const [fog, setFog] = useState<'idle' | 'out' | 'in'>('idle');
+  const [smokeOn, setSmokeOn] = useState(false);
   const [jumping, setJumping] = useState<ReadonlySet<number>>(new Set());
 
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -166,15 +167,18 @@ export function FixedLanding({ initialMode, signedIn, children }: { initialMode:
 
   /* ---------- the heading ---------- */
   useEffect(() => {
-    setLine(0); setFog(false);
+    setLine(0); setFog('idle');
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     let swap: ReturnType<typeof setTimeout> | undefined;
+    let clear: ReturnType<typeof setTimeout> | undefined;
     let i = 0;
+    const load = setTimeout(() => setSmokeOn(true), SMOKE_LOAD_DELAY_MS);
     const t = setInterval(() => {
-      setFog(true);
-      swap = setTimeout(() => { i = nextLine(i, HERO_LINES[mode].length); setLine(i); setFog(false); }, LINE_FOG_MS);
+      setFog('out');
+      // under the thickest smoke the text changes, and the new one grows from the centre while the smoke thins out
+      swap = setTimeout(() => { i = nextLine(i, HERO_LINES[mode].length); setLine(i); setFog('in'); clear = setTimeout(() => setFog('idle'), LINE_CLEAR_MS); }, LINE_FOG_MS);
     }, LINE_EVERY_MS);
-    return () => { clearInterval(t); if (swap) clearTimeout(swap); };
+    return () => { clearInterval(t); clearTimeout(load); if (swap) clearTimeout(swap); if (clear) clearTimeout(clear); };
   }, [mode]);
 
   /* ---------- the audience switch ---------- */
@@ -298,7 +302,8 @@ export function FixedLanding({ initialMode, signedIn, children }: { initialMode:
 
         <main id="fx-content">
         <div className="fx-head">
-          <h1 className={fog ? 'fx-fog' : undefined}><Heading line={lines[line] ?? lines[0]} /></h1>
+          <h1 className={fog === 'idle' ? undefined : `fx-${fog}`}><Heading line={lines[line] ?? lines[0]} /></h1>
+          <span className="fx-smoke" data-phase={fog} aria-hidden="true">{smokeOn && <img src="/landing/smoke.webp" alt="" width={360} height={240} decoding="async" />}</span>
         </div>
 
         <div className="fx-wheel" role="tablist" aria-label="Sections">

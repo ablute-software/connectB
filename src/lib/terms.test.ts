@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shouldGateTerms, isDuplicateAcceptance, getTermsMarkdown, TERMS_VERSION } from './terms';
+import { shouldGateTerms, isDuplicateAcceptance, getTermsMarkdown, TERMS_VERSION, TERMS_DISPLAY_VERSION } from './terms';
 
 describe('shouldGateTerms', () => {
   it('demo mode (no Supabase configured) never gates', () => {
@@ -37,11 +37,17 @@ describe('isDuplicateAcceptance', () => {
 });
 
 describe('getTermsMarkdown', () => {
-  it('returns the current version verbatim by default, unfilled placeholders included', () => {
+  it('returns the current version verbatim by default, with the header filled in and no placeholder dot left (Nuno, 03/11/2026)', () => {
     const text = getTermsMarkdown();
-    expect(text).toContain(`Version ${TERMS_VERSION}`);
-    expect(text).toContain('[●]');
+    expect(text).toContain(`Version ${TERMS_DISPLAY_VERSION} — Nov 2026`);
+    expect(text).not.toContain('[●]');
+    expect(text).not.toContain('share capital of');
     expect(text).toContain('Exotictarget');
+  });
+
+  it('the displayed version is not the acceptance key: a header fix must not make everyone accept again', () => {
+    expect(TERMS_VERSION).toBe('3.0');
+    expect(TERMS_DISPLAY_VERSION).toBe('3.12');
   });
 
   it('falls back to the current version for an unknown version string', () => {

@@ -90,9 +90,15 @@ export function hasMore(scrollHeight: number, clientHeight: number, open: boolea
   return open || scrollHeight > clientHeight + 4;
 }
 
-/** The heading's rotation: every 6 s, fading out over ~0.9 s, the text changing under the fog. */
+/**
+ * The heading's rotation (Nuno, 03/11/2026: real smoke, not a blur): every 6 s a bank of smoke (public/landing/smoke.webp) builds over the heading while the text is eaten from its centre outwards
+ * (LINE_FOG_MS); under the thickest smoke the text changes; the smoke thins out over LINE_CLEAR_MS while the new text grows from the centre. The whole change takes 2.6 s of the 6.
+ */
 export const LINE_EVERY_MS = 6000;
-export const LINE_FOG_MS = 950;
+export const LINE_FOG_MS = 1100;
+export const LINE_CLEAR_MS = 1500;
+/** The smoke is fetched this long after the page has loaded (it is ~300 KB and is first needed at the first change, 6 s in): nothing competes with the first paint. */
+export const SMOKE_LOAD_DELAY_MS = 2500;
 export function nextLine(current: number, count: number): number {
   return (current + 1) % count;
 }

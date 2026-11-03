@@ -157,7 +157,7 @@ describe('how the two landing pages carry the metadata, the schema and the wirin
 
   it('the visible heading of the home is the approved first line, in the server HTML', () => {
     expect(content).toContain("['Crack the case on your ', 'fundraise.']");
-    expect(read('src/components/landing-fixed/FixedLanding.tsx')).toContain('<h1 className={fog ? \'fx-fog\' : undefined}><Heading line={lines[line] ?? lines[0]} /></h1>');
+    expect(read('src/components/landing-fixed/FixedLanding.tsx')).toContain('<Heading line={lines[line] ?? lines[0]} /></h1>');
   });
 });
 

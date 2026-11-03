@@ -7,7 +7,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import {
-  LINE_EVERY_MS, LINE_FOG_MS, PHOTO, SCREEN_LENS, STEP_LOCK_MS, SWIPE_MIN_X, SWIPE_MIN_Y, WHEEL, WHEEL_MIN_DELTA,
+  LINE_CLEAR_MS, LINE_EVERY_MS, LINE_FOG_MS, PHOTO, SCREEN_LENS, STEP_LOCK_MS, SWIPE_MIN_X, SWIPE_MIN_Y, WHEEL, WHEEL_MIN_DELTA,
   cardCanScroll, hasMore, jumped, lensLayout, nextLine, ringOffset, stepAllowed, stepIndex, swipeStep, wheelX,
 } from './landing-fixed';
 import { CTA, DOC_ORDER, HERO_LINES, MODES, MODE_PATH, heroLineText, isDocId } from '@/content/site/landing-fixed';
@@ -162,8 +162,9 @@ describe('the wheel and the gestures', () => {
     expect(hasMore(300, 300, true)).toBe(true);
   });
 
-  it('the heading changes every 6 s through a 950 ms fog and cycles', () => {
-    expect([LINE_EVERY_MS, LINE_FOG_MS]).toEqual([6000, 950]);
+  it('the heading changes every 6 s through a smoke that builds for 1.1 s and clears for 1.5 s, and cycles', () => {
+    expect([LINE_EVERY_MS, LINE_FOG_MS, LINE_CLEAR_MS]).toEqual([6000, 1100, 1500]);
+    expect(LINE_FOG_MS + LINE_CLEAR_MS).toBeLessThan(LINE_EVERY_MS);
     expect(nextLine(4, 5)).toBe(0);
     expect(nextLine(0, 3)).toBe(1);
   });

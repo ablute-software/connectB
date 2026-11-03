@@ -21,8 +21,8 @@
 // exported string.
 export const TERMS_V3_MARKDOWN = `# Sherlock Deal — Terms & Conditions of Use
 
-**Version 3.0 — [●] 2026**
-**Provider:** **Exotictarget, Lda** (operator of the Sherlock Deal platform — "**Exotictarget**", "**we**", "**us**"), a limited liability company incorporated under the laws of Portugal, registered with the Commercial Registry under single registration and tax identification number (NIPC) **515206415**, with registered office at Rua Salvato Feijó, Torre Active Centre, Y, 4900-415 Viana do Castelo, Portugal, share capital of €[●].
+**Version 3.12 — Nov 2026**
+**Provider:** **Exotictarget, Lda** (operator of the Sherlock Deal platform — "**Exotictarget**", "**we**", "**us**"), a limited liability company incorporated under the laws of Portugal, registered with the Commercial Registry under single registration and tax identification number (NIPC) **515206415**, with registered office at Rua Salvato Feijó, Torre Active Centre, Y, 4900-415 Viana do Castelo, Portugal.
 **Contact:** [legal@sherlockdeal.com — confirm] · **Platform:** the Sherlock Deal web application, available at sherlockdeal.com (the "**Platform**").
 
 > These Terms are drafted in English, the working language of the Platform. Where mandatory rules of Portuguese or European Union law grant you rights that these Terms do not reflect, those rules prevail. A Portuguese-language version may be made available; in case of divergence, the version accepted by the User at registration prevails to the extent permitted by law.
@@ -203,5 +203,5 @@ The Platform interoperates with third-party services (for example, payment proce
 
 By ticking "I have read and accept the Terms & Conditions" at first login, the User declares that it has read, understood and accepts these Terms in full, and that its acceptance, recorded electronically with date and time, has the legal value of a written declaration for the purposes of articles 3 and 25 et seq. of Decree-Law no. 7/2004. The full text may be consulted at any time in Support → Terms & Conditions and may be stored and reproduced by the User.
 
-*[Remaining fields to complete before publication: share capital (€[●]), version date, contact emails (legal/support/abuse), and the links to the Privacy Policy, Cookie Policy and sub-processor list. This document is a draft prepared to reflect Portuguese and EU law applicable to an online B2B platform; it should be reviewed by a Portuguese lawyer before entering into production, in particular Clauses 5, 8, 13 and 17 and the CIAB adhesion.]*
+*[Remaining fields to complete before publication: contact emails (legal/support/abuse), and the links to the Privacy Policy, Cookie Policy and sub-processor list. This document is a draft prepared to reflect Portuguese and EU law applicable to an online B2B platform; it should be reviewed by a Portuguese lawyer before entering into production, in particular Clauses 5, 8, 13 and 17 and the CIAB adhesion.]*
 `;

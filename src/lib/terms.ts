@@ -18,6 +18,13 @@ import { TERMS_V3_MARKDOWN } from '../content/terms/v3';
 // acceptance rows recorded against it (old history) remain resolvable.
 export const TERMS_VERSION = '3.0';
 
+/**
+ * The version as the document and the pages show it (Nuno, 03/11/2026: "Version 3.12 — Nov 2026"). Display only: TERMS_VERSION above is the
+ * KEY of the acceptances already recorded and of shouldGateTerms, so changing it would make every signed-in user accept again, which a header
+ * fix (placeholders filled in, no clause changed) must not do. When the legal text changes in substance, bump TERMS_VERSION and this together.
+ */
+export const TERMS_DISPLAY_VERSION = '3.12';
+
 const TERMS_MARKDOWN_BY_VERSION: Record<string, string> = {
   '1.0': TERMS_V1_MARKDOWN,
   '2.0': TERMS_V2_MARKDOWN,
