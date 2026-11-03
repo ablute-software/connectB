@@ -377,3 +377,26 @@
 @media (max-width:760px) {
   .fx-root .fx-wheel .fx-lbl {font-size:.6rem;letter-spacing:.09em}
 }
+/* Pricing (Nuno, 03/11/2026): the plan cards run across the whole width of the card (they sat in the first of the panel's two columns, with the second one empty) and keep their full detail: every line of each plan and the footnote. */
+@media (min-width:761px) {
+  .fx-root .fx-panel > .fx-plans, .fx-root .fx-panel > .fx-fine {grid-column:1/-1}
+  .fx-root [data-id$="-pricing"] .fx-plans .fx-plan ul {display:grid}
+  .fx-root [data-id$="-pricing"] .fx-plans .fx-plan ul li:nth-child(n+3) {display:list-item}
+  .fx-root [data-id$="-pricing"] .fx-fine {display:block}
+}
+@media (min-width:761px) and (max-height:999px) {
+  .fx-root [data-id$="-pricing"] .fx-plan {padding:9px 11px;gap:3px}
+  .fx-root [data-id$="-pricing"] .fx-plan .fx-name {font-size:1.02rem;line-height:1.15}
+  .fx-root [data-id$="-pricing"] .fx-plan .fx-price {font-size:1.3rem}
+  .fx-root [data-id$="-pricing"] .fx-plan ul {gap:2px;margin:1px 0 6px}
+  .fx-root [data-id$="-pricing"] .fx-plan .fx-btn {min-height:34px}
+}
+@media (min-width:761px) and (max-height:999px) {
+  .fx-root [data-id$="-pricing"] .fx-fine {margin-top:4px}
+  .fx-root [data-id$="-pricing"] .fx-panel {gap:6px}
+}
+@media (min-width:761px) and (max-height:760px) {
+  .fx-root [data-id$="-pricing"] .fx-plan {padding:7px 10px}
+  .fx-root [data-id$="-pricing"] .fx-plan .fx-btn {min-height:30px}
+  .fx-root [data-id$="-pricing"] .fx-plan .fx-price {font-size:1.2rem}
+}
