@@ -5,7 +5,8 @@ import { NextResponse } from 'next/server';
 import { authCall } from '@/lib/calls/access';
 import { notifyCallCancelled, notifyDeadlineExtended } from '@/lib/calls/applicant/notices';
 import { loadRules } from '@/lib/calls/eligibility-store';
-import { loadCriteria } from '@/lib/calls/eval-grid-store';
+import { scoringOf } from '@/lib/calls/eval-grid';
+import { loadCriteria, loadSettings as loadEvalSettings } from '@/lib/calls/eval-grid-store';
 import { CONFIRM_NAME_ERROR, nameMatches } from '@/lib/calls/deletion';
 import { archiveCall, closeEarly, confirmCall, editConfiguration, extendDeadline, publishCall, readiness, reopenCall, type Transition } from '@/lib/calls/lifecycle';
 import { generateLinkToken, loadFields, loadPhases, logCallEvent, snapshotConfig, softDeleteCall, transitionCall, wasClosedEarly } from '@/lib/calls/store';
@@ -40,7 +41,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   switch (body.action) {
     case 'confirm': {
       const [phases, fields, rules, criteria] = await Promise.all([loadPhases(auth.admin, call.id), loadFields(auth.admin, call.id), loadRules(auth.admin, call.id, call.eligibilityVersion ?? 1), loadCriteria(auth.admin, call.id, call.evalGridVersion ?? 1)]);
-      transition = confirmCall(call, readiness(call, phases, fields, now, rules, criteria), auth.userId, now);
+      transition = confirmCall(call, readiness(call, phases, fields, now, rules, criteria, scoringOf(await loadEvalSettings(auth.admin, call.id))), auth.userId, now);
       break;
     }
     case 'edit': transition = editConfiguration(call); break;

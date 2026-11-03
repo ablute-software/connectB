@@ -4,7 +4,7 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { computeBoard, type BoardEval, type BoardInput, type BoardRow, type BoardProgress, type Decision } from './eval-board';
-import type { Criterion } from './eval-grid';
+import { scoringOf, type Criterion, type Scoring } from './eval-grid';
 import { loadCriteria, loadSettings } from './eval-grid-store';
 import { loadAssignments, loadFitApplications } from './eval-assign-store';
 import { decisionLock } from './results-store';
@@ -14,7 +14,7 @@ type Row = Record<string, unknown>;
 export const DECISIONS: Decision[] = ['advance', 'reject', 'waitlist'];
 export const MAX_DECISION_NOTE = 1000;
 
-export interface Board { rows: BoardRow[]; progress: BoardProgress; criteria: Criterion[]; version: number; closed: boolean; closedAt: string | null }
+export interface Board { rows: BoardRow[]; progress: BoardProgress; criteria: Criterion[]; version: number; closed: boolean; closedAt: string | null; /** Adenda 3: how the criteria are combined, so the screen and the exports speak in the call's unit. */ scoring: Scoring }
 
 export async function loadBoard(admin: SupabaseClient, call: Call): Promise<Board> {
   const version = call.evalGridVersion ?? 1;
@@ -52,8 +52,8 @@ export async function loadBoard(admin: SupabaseClient, call: Call): Promise<Boar
   for (const v of versions) criteriaByVersion[v] = await loadCriteria(admin, call.id, v);
   const decisions: BoardInput['decisions'] = {};
   for (const d of (decRes.data ?? []) as Row[]) decisions[d.application_id as string] = { decision: d.decision as Decision, note: (d.note as string | null) ?? null };
-  const { rows, progress } = computeBoard({ apps, evaluations, assignments: assignments.map((a) => ({ applicationId: a.applicationId, userId: a.userId })), criteriaByVersion, currentVersion: version, divergence: settings.divergence, decisions });
-  return { rows, progress, criteria: criteriaByVersion[version] ?? [], version, closed: !!call.evaluationClosedAt, closedAt: call.evaluationClosedAt ?? null };
+  const { rows, progress } = computeBoard({ apps, evaluations, assignments: assignments.map((a) => ({ applicationId: a.applicationId, userId: a.userId })), criteriaByVersion, currentVersion: version, divergence: settings.divergence, decisions, scoring: scoringOf(settings) });
+  return { rows, progress, criteria: criteriaByVersion[version] ?? [], version, closed: !!call.evaluationClosedAt, closedAt: call.evaluationClosedAt ?? null, scoring: scoringOf(settings) };
 }
 
 export type Move = { ok: true } | { ok: false; status: number; error: string };

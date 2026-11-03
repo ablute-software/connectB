@@ -9,7 +9,7 @@
 // coverage of the form. No second permanent list of questions.
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  SCALE_PRESETS, gradeText, levelsToText, presetKeyOf, sameScale, scaleLabel, scaleLevels, textToLevels, weightedGrade, weightsLine, MAX_SCALE_LEVELS, type Criterion, type GridSettings,
+  SCALE_PRESETS, MIXED_SCALES_NOTE, barLine, gradeText, levelsToText, presetKeyOf, sameScale, scaleLabel, scaleLevels, scoringOf, textToLevels, weightedGrade, MAX_SCALE_LEVELS, type Criterion, type GridSettings,
 } from '@/lib/calls/eval-grid';
 import { GRID_NOTICE_TEXT } from '@/lib/calls/eval-grid-text';
 import type { GridView } from '@/lib/calls/eval-grid-view';
@@ -40,7 +40,8 @@ const newId = (): string => {
 };
 const fresh = (scale = { min: 1, max: 5 }): Draft => ({ id: newId(), section: null, position: 0, name: '', guidance: '', weight: '', format: 'scale', scaleMin: scale.min, scaleMax: scale.max, levels: [], commentRequired: false, minScore: '', levelsText: '', linkedFields: [], auto: null, linkNotice: false });
 const toDraft = (c: Criterion, source?: Draft['source']): Draft => ({ ...c, weight: String(c.weight), minScore: c.minScore === null ? '' : String(c.minScore), levelsText: levelsToText(c.levels), ...(source ? { source } : {}) });
-const toPayload = (d: Draft) => ({ id: d.id, section: d.section, name: d.name, guidance: d.guidance, weight: d.weight === '' ? NaN : Number(d.weight), format: 'scale', scaleMin: d.scaleMin, scaleMax: d.scaleMax, levels: textToLevels(d.levelsText), commentRequired: d.commentRequired, minScore: d.minScore === '' ? null : Number(d.minScore), linkedFields: d.linkedFields ?? [], auto: d.auto ?? null, linkNotice: d.linkNotice === true });
+/** With equal weight the weights do not count: whatever is stored goes back as it is (0 for a new criterion), so that coming back to "Weighted" finds them as they were. */
+const toPayload = (d: Draft, equal = false) => ({ id: d.id, section: d.section, name: d.name, guidance: d.guidance, weight: equal ? Number(d.weight) || 0 : d.weight === '' ? NaN : Number(d.weight), format: 'scale', scaleMin: d.scaleMin, scaleMax: d.scaleMax, levels: textToLevels(d.levelsText), commentRequired: d.commentRequired, minScore: d.minScore === '' ? null : Number(d.minScore), linkedFields: d.linkedFields ?? [], auto: d.auto ?? null, linkNotice: d.linkNotice === true });
 /** A new scale can leave points of a table outside it: those answers go back to "no points yet" (the step says so), never to a value the server would refuse. */
 const clampAuto = (d: Draft, patch: Partial<Draft>): Partial<Draft> => {
   if (!d.auto || (patch.scaleMin === undefined && patch.scaleMax === undefined)) return patch;
@@ -57,7 +58,7 @@ export function EvalGridStep({ callId, canManage, onCriteriaChanged }: { callId:
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [ask, setAsk] = useState<string | null>(null);
+  const [ask, setAsk] = useState<{ text: string; kind: 'scoring' | 'version' } | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [templates, setTemplates] = useState<{ id: string; name: string; criteria: number }[]>([]);
   const [saveName, setSaveName] = useState<string | null>(null);
@@ -87,7 +88,9 @@ export function EvalGridStep({ callId, canManage, onCriteriaChanged }: { callId:
 
   const editable = !!view && canManage && (view.mode === 'edit' || view.mode === 'versioned');
   const criteria = useMemo(() => drafts.map(asCriterion), [drafts]);
-  const weights = weightsLine(criteria);
+  const scoring = scoringOf(settings);
+  const equal = scoring.mode === 'equal';
+  const bar = barLine(criteria, scoring);
   const fields = view?.fields ?? [];
   const linkedCount = useMemo(() => { const ids = new Set(drafts.flatMap((d) => d.linkedFields ?? [])); return fields.filter((f) => ids.has(f.id)).length; }, [drafts, fields]);
   const update = (id: string, patch: Partial<Draft>) => { setDrafts((ds) => ds.map((d) => (d.id === id ? { ...d, ...clampAuto(d, patch) } : d))); setDirty(true); };
@@ -98,10 +101,10 @@ export function EvalGridStep({ callId, canManage, onCriteriaChanged }: { callId:
   async function save(confirm = false) {
     if (!view || !settings) return;
     setBusy(true); setError('');
-    const r = await callsApi.saveEvalGrid(callId, view.rev, drafts.map(toPayload), settings, confirm, runRef.current);
+    const r = await callsApi.saveEvalGrid(callId, view.rev, drafts.map((d) => toPayload(d, equal)), settings, confirm, runRef.current);
     setBusy(false);
     if (!r.ok) {
-      if (r.body.code === 'needs_confirm') { setAsk(r.body.error ?? 'Continue?'); return; }
+      if (r.body.code === 'needs_confirm') { setAsk({ text: r.body.error ?? 'Continue?', kind: (r.body as { kind?: string }).kind === 'scoring' ? 'scoring' : 'version' }); return; }
       if (r.body.code === 'conflict') { setError(r.body.error ?? 'Someone else changed the grid.'); void load(); return; }
       setError(r.body.error ?? 'The grid could not be saved.'); return;
     }
@@ -150,7 +153,7 @@ export function EvalGridStep({ callId, canManage, onCriteriaChanged }: { callId:
     const each = Math.floor((room / picked.length) * 100) / 100;
     const first = Math.round((room - each * (picked.length - 1)) * 100) / 100;
     const last = drafts[drafts.length - 1];
-    const made = picked.map((f, k): Draft => ({ ...fresh(last ? { min: last.scaleMin, max: last.scaleMax } : undefined), name: chipText(f, 60), weight: String(k === 0 ? first : each), linkedFields: [f.id] }));
+    const made = picked.map((f, k): Draft => ({ ...fresh(last ? { min: last.scaleMin, max: last.scaleMax } : undefined), name: chipText(f, 60), weight: equal ? '0' : String(k === 0 ? first : each), linkedFields: [f.id] }));
     setDrafts((ds) => [...ds, ...made]); setOpenIds(new Set()); setDirty(true); setCreateSel([]); setPicker(null);
   };
 
@@ -158,6 +161,7 @@ export function EvalGridStep({ callId, canManage, onCriteriaChanged }: { callId:
 
   const same = sameScale(criteria);
   const summary = [
+    equal ? `Equal weight · ${scoring.aggregation === 'sum' ? 'Sum of points' : 'Average'}` : 'Weighted',
     criteria.length === 0 ? 'No criteria yet' : same ? `Scale ${same.min}–${same.max}` : 'Several scales',
     settings.evaluatorsPerApplication === 'all' ? 'every evaluator per application' : `${settings.evaluatorsPerApplication} evaluator${settings.evaluatorsPerApplication === 1 ? '' : 's'} per application`,
     `Blind: ${settings.blind ? 'on' : 'off'}`,
@@ -180,7 +184,7 @@ export function EvalGridStep({ callId, canManage, onCriteriaChanged }: { callId:
       </section>
 
       {tab === 'preview' ? (
-        <EvaluatorPreview criteria={criteria} fields={fields} />
+        <EvaluatorPreview criteria={criteria} fields={fields} scoring={scoring} />
       ) : (
         <>
           <section className="rounded-lg border border-gray-200 bg-white" data-testid="grid-run">
@@ -188,16 +192,17 @@ export function EvalGridStep({ callId, canManage, onCriteriaChanged }: { callId:
               <span className="min-w-0"><span className="block text-sm font-semibold text-gray-900">How the evaluation runs</span><span className="block text-xs text-gray-600 [overflow-wrap:anywhere]" data-testid="grid-settings-summary">{summary}</span></span>
               <span aria-hidden="true" className="shrink-0 text-gray-500">{settingsOpen ? '▾' : '▸'}</span>
             </button>
-            {settingsOpen && <div className="border-t border-gray-100"><SettingsPanel settings={settings} view={view} editable={editable} onChange={setSet} /></div>}
+            {settingsOpen && <div className="border-t border-gray-100"><SettingsPanel settings={settings} view={view} editable={editable} onChange={setSet} mixedScales={criteria.length > 0 && !same} /></div>}
           </section>
 
           <section className="min-w-0 space-y-2 rounded-lg border border-gray-200 bg-white p-3" data-testid="grid-bar">
             <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
-              <p className={`text-sm font-semibold ${weights.ok ? 'text-emerald-900' : 'text-amber-950'}`} aria-live="polite" data-testid="grid-weights">{drafts.length === 0 ? 'Weights: —' : `${weights.ok ? '' : '⚠ '}Weights: ${weights.sum} / 100 %${weights.ok ? ' ✓' : ''}`}</p>
+              <p className={`text-sm font-semibold ${bar.ok ? 'text-emerald-900' : 'text-amber-950'}`} aria-live="polite" data-testid="grid-weights">{bar.text}</p>
               <button type="button" className="text-sm font-medium text-[#0E7490] hover:underline" data-testid="form-coverage" onClick={() => setPicker({ kind: 'coverage' })}>Form coverage ({linkedCount} / {fields.length})</button>
               <span className="text-xs text-gray-500" data-testid="grid-coverage">{linkedCount} of {fields.length} question{fields.length === 1 ? '' : 's'} linked</span>
             </div>
-            {!weights.ok && drafts.length > 0 && <p className="text-xs text-amber-900">Saved as you go; the call cannot be confirmed until the weights add up to 100 %.</p>}
+            {!equal && !bar.ok && drafts.length > 0 && <p className="text-xs text-amber-900">Saved as you go; the call cannot be confirmed until the weights add up to 100 %.</p>}
+            {equal && scoring.aggregation === 'average' && !same && criteria.length > 0 && <p className="text-xs text-gray-600" data-testid="mixed-scales-note">{MIXED_SCALES_NOTE}</p>}
             {editable && (
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <button type="button" className={PRIMARY} data-testid="add-criterion" onClick={addCriterion} disabled={busy}>+ Add criterion</button>
@@ -230,7 +235,7 @@ export function EvalGridStep({ callId, canManage, onCriteriaChanged }: { callId:
               </div>
             )}
             {drafts.map((d, i) => (
-              <CriterionCard key={d.id} d={d} index={i} total={drafts.length} editable={editable} open={openIds.has(d.id)} removing={removing === d.id} fields={fields} suggestion={suggestions[d.name]}
+              <CriterionCard key={d.id} d={d} index={i} total={drafts.length} equal={equal} editable={editable} open={openIds.has(d.id)} removing={removing === d.id} fields={fields} suggestion={suggestions[d.name]}
                 onToggle={() => toggleCard(d.id)} onChange={(p) => update(d.id, p)} onOpenPicker={() => setPicker({ kind: 'link', id: d.id })} onDuplicate={() => duplicate(i)}
                 onMove={(dir) => { setDrafts((ds) => { const n = [...ds]; const j = i + dir; if (j < 0 || j >= n.length) return ds; [n[i], n[j]] = [n[j], n[i]]; return n; }); setDirty(true); }}
                 onAskRemove={() => setRemoving(d.id)} onKeep={() => setRemoving(null)} onRemove={() => { setDrafts((ds) => ds.filter((x) => x.id !== d.id)); setRemoving(null); setDirty(true); }} />
@@ -239,9 +244,9 @@ export function EvalGridStep({ callId, canManage, onCriteriaChanged }: { callId:
 
           {ask && (
             <div className="rounded-lg border border-[#0E7490] bg-white p-3" role="group" aria-label="Confirm the change" data-testid="grid-confirm">
-              <p className="text-sm text-gray-800">{ask}</p>
+              <p className="text-sm text-gray-800">{ask.text}</p>
               <div className="mt-2 flex flex-wrap gap-2">
-                <button type="button" disabled={busy} className={PRIMARY} data-testid="grid-confirm-yes" onClick={() => void save(true)}>{busy ? 'Saving…' : 'Yes, make the new version'}</button>
+                <button type="button" disabled={busy} className={PRIMARY} data-testid="grid-confirm-yes" onClick={() => void save(true)}>{busy ? 'Saving…' : ask.kind === 'scoring' ? 'Yes, recalculate' : 'Yes, make the new version'}</button>
                 <button type="button" disabled={busy} className={BTN} data-testid="grid-confirm-no" onClick={() => setAsk(null)}>Cancel</button>
               </div>
             </div>
@@ -289,8 +294,8 @@ function Help({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function CriterionCard({ d, index, total, editable, open, removing, fields, suggestion, onToggle, onChange, onOpenPicker, onDuplicate, onMove, onAskRemove, onKeep, onRemove }: {
-  d: Draft; index: number; total: number; editable: boolean; open: boolean; removing: boolean; fields: LinkableField[]; suggestion?: string[]; onToggle: () => void; onChange: (p: Partial<Draft>) => void; onOpenPicker: () => void;
+function CriterionCard({ d, index, total, equal, editable, open, removing, fields, suggestion, onToggle, onChange, onOpenPicker, onDuplicate, onMove, onAskRemove, onKeep, onRemove }: {
+  d: Draft; index: number; total: number; equal: boolean; editable: boolean; open: boolean; removing: boolean; fields: LinkableField[]; suggestion?: string[]; onToggle: () => void; onChange: (p: Partial<Draft>) => void; onOpenPicker: () => void;
   onDuplicate: () => void; onMove: (dir: -1 | 1) => void; onAskRemove: () => void; onKeep: () => void; onRemove: () => void;
 }) {
   const preset = presetKeyOf(d);
@@ -300,7 +305,7 @@ function CriterionCard({ d, index, total, editable, open, removing, fields, sugg
   const linked = d.linkedFields ?? [];
   const warnings: string[] = [];
   if (!d.name.trim()) warnings.push('needs a name');
-  if (d.weight === '') warnings.push('needs a weight');
+  if (!equal && d.weight === '') warnings.push('needs a weight');
   if (linked.some((id) => !fields.some((f) => f.id === id))) warnings.push('a linked question was removed');
   if (d.auto) { const f = fields.find((x) => x.id === d.auto!.fieldId); if (autoProblems(d.auto, f && { kind: f.kind, label: f.label, options: f.options }, d.name || 'This criterion').length > 0) warnings.push('points to complete'); }
   if (d.linkNotice && linked.length === 0) warnings.push('link it to the questions');
@@ -312,7 +317,7 @@ function CriterionCard({ d, index, total, editable, open, removing, fields, sugg
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-semibold text-gray-900" data-testid="criterion-title">{d.name.trim() || `Criterion ${index + 1}`}</span>
             <span className="block text-xs text-gray-600 [overflow-wrap:anywhere]" data-testid="criterion-summary">
-              {d.weight === '' ? 'no weight' : `${d.weight} %`} · scale {scaleLabel(d)} · {linked.length === 0 ? 'no questions linked' : `${linked.length} question${linked.length === 1 ? '' : 's'}`}
+              {equal ? '' : `${d.weight === '' ? 'no weight' : `${d.weight} %`} · `}scale {scaleLabel(d)} · {linked.length === 0 ? 'no questions linked' : `${linked.length} question${linked.length === 1 ? '' : 's'}`}
               {d.auto ? ' · automatic' : ''}{warnings.length > 0 && <span className="ml-1 font-medium text-amber-900" data-testid="criterion-warning">⚠ {warnings[0]}</span>}
             </span>
           </span>
@@ -343,9 +348,9 @@ function CriterionCard({ d, index, total, editable, open, removing, fields, sugg
           <div><label className={LABEL} htmlFor={`cn-${d.id}`}>Name</label>
             <AutoTextarea id={`cn-${d.id}`} className={INPUT} value={d.name} disabled={!editable} maxLength={160} placeholder="e.g. Team" onChange={(name) => onChange({ name })} /></div>
           <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
-            <div><label className={LABEL} htmlFor={`cw-${d.id}`}>Weight (%)</label>
-              <input id={`cw-${d.id}`} inputMode="decimal" autoComplete="off" className={INPUT} disabled={!editable} value={d.weight} placeholder="e.g. 25" data-testid="criterion-weight" onChange={(e) => onChange({ weight: e.target.value.replace(/[^\d.,]/g, '').replace(',', '.').slice(0, 7) })} /></div>
-            <div><label className={LABEL} htmlFor={`cp-${d.id}`}>Scale</label>
+            {!equal && <div><label className={LABEL} htmlFor={`cw-${d.id}`}>Weight (%)</label>
+              <input id={`cw-${d.id}`} inputMode="decimal" autoComplete="off" className={INPUT} disabled={!editable} value={d.weight} placeholder="e.g. 25" data-testid="criterion-weight" onChange={(e) => onChange({ weight: e.target.value.replace(/[^\d.,]/g, '').replace(',', '.').slice(0, 7) })} /></div>}
+            <div className={equal ? 'col-span-2' : ''}><label className={LABEL} htmlFor={`cp-${d.id}`}>Scale</label>
               <select id={`cp-${d.id}`} className={INPUT} disabled={!editable} value={preset} data-testid="criterion-scale"
                 onChange={(e) => { const p = SCALE_PRESETS.find((x) => x.key === e.target.value); if (p) onChange({ scaleMin: p.min, scaleMax: p.max, minScore: '', levelsText: '' }); else onChange({ scaleMin: d.scaleMin, scaleMax: d.scaleMax === d.scaleMin + 4 && preset !== 'custom' ? d.scaleMax + 1 : d.scaleMax }); }}>
                 {SCALE_PRESETS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}<option value="custom">Custom…</option>
@@ -388,12 +393,41 @@ function CriterionCard({ d, index, total, editable, open, removing, fields, sugg
   );
 }
 
-function SettingsPanel({ settings, view, editable, onChange }: { settings: GridSettings; view: GridView; editable: boolean; onChange: (p: Partial<GridSettings>) => void }) {
+function SettingsPanel({ settings, view, editable, onChange, mixedScales }: { settings: GridSettings; view: GridView; editable: boolean; onChange: (p: Partial<GridSettings>) => void; mixedScales: boolean }) {
   const locked = view.settingsLocked;
+  const scoring = scoringOf(settings);
+  const scoringOff = !editable || view.scoringLocked;
   const all = settings.evaluatorsPerApplication === 'all';
   return (
     <section className="min-w-0 space-y-3 rounded-lg border border-gray-200 bg-white p-4" aria-label="Evaluation settings" data-testid="grid-settings">
       <h4 className="text-sm font-semibold text-gray-900">How the evaluation runs</h4>
+      <fieldset disabled={scoringOff} className="min-w-0" data-testid="set-scoring">
+        <legend className={LABEL}>How are the criteria combined?</legend>
+        <div className="mt-1 grid min-w-0 gap-2 sm:grid-cols-2" role="radiogroup" aria-label="How are the criteria combined?">
+          {([['weighted', 'Weighted', 'Each criterion has a weight, and the weights add up to 100 %.'], ['equal', 'Equal weight', 'Every criterion counts the same. No weights to share out.']] as const).map(([k, label, hint]) => (
+            <label key={k} className={`min-w-0 cursor-pointer rounded-lg border p-2.5 text-sm ${scoring.mode === k ? 'border-[#0E7490] bg-[#E8F4F8]' : 'border-gray-200 hover:bg-gray-50'}`}>
+              <span className="flex items-center gap-2 font-semibold text-gray-900"><input type="radio" name="scoring-mode" checked={scoring.mode === k} data-testid={`scoring-${k}`} onChange={() => onChange({ scoringMode: k })} />{label}</span>
+              <span className="mt-1 block text-xs text-gray-600">{hint}</span>
+            </label>
+          ))}
+        </div>
+        {scoring.mode === 'equal' && (
+          <div className="mt-3" data-testid="set-aggregation">
+            <p className={LABEL}>Final score</p>
+            <div className="mt-1 grid min-w-0 gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Final score">
+              {([['sum', 'Sum of points', 'The sum of the points of every criterion, shown as “23 / 30 points”.'], ['average', 'Average', 'The average of the criteria, on the scale (“4.2 / 5”) or in % when the scales differ.']] as const).map(([k, label, hint]) => (
+                <label key={k} className={`min-w-0 cursor-pointer rounded-lg border p-2.5 text-sm ${scoring.aggregation === k ? 'border-[#0E7490] bg-[#E8F4F8]' : 'border-gray-200 hover:bg-gray-50'}`}>
+                  <span className="flex items-center gap-2 font-semibold text-gray-900"><input type="radio" name="scoring-aggregation" checked={scoring.aggregation === k} data-testid={`aggregation-${k}`} onChange={() => onChange({ equalAggregation: k })} />{label}</span>
+                  <span className="mt-1 block text-xs text-gray-600">{hint}</span>
+                </label>
+              ))}
+            </div>
+            {scoring.aggregation === 'average' && mixedScales && <p className="mt-1.5 text-[11px] text-gray-600" data-testid="aggregation-note">{MIXED_SCALES_NOTE}.</p>}
+          </div>
+        )}
+        {view.scoringLocked && <p className="mt-2 rounded bg-gray-50 px-2 py-1.5 text-xs text-gray-700" data-testid="scoring-locked">The results were published: the way the criteria are combined can no longer change.</p>}
+        {!view.scoringLocked && view.evaluations.submitted > 0 && <p className="mt-2 text-[11px] text-gray-500">Evaluations were already submitted: changing this asks first and recalculates every final score.</p>}
+      </fieldset>
       <div>
         <label className={LABEL} htmlFor="set-n">Evaluators per application</label>
         <div className="mt-1 flex flex-wrap items-center gap-3">

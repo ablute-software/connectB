@@ -5,7 +5,7 @@
 // Draft -> Confirmed (validated) -> Scheduled / Open -> Closed -> (evaluation, later stages) -> Archived.
 import { UNTITLED, UNTITLED_DOCUMENT, conditionOrderProblems } from './form-builder';
 import { ruleProblems, type EligibilityRule } from './eligibility';
-import { gridProblems, type Criterion } from './eval-grid';
+import { gridProblems, WEIGHTED_SCORING, type Criterion, type Scoring } from './eval-grid';
 import { isChoiceKind, type Call, type CallPhase, type CallStatus, type FormField } from './types';
 
 export type EditorTab = 'general' | 'phases' | 'form' | 'eligibility' | 'grid' | 'preview' | 'team' | 'submissions';
@@ -42,7 +42,7 @@ export function summarise(phases: CallPhase[], fields: FormField[]): CallSummary
  * What is still missing before the administrator may confirm. Empty = ready. Each issue names the tab to go to.
  * (Eligibility, team and evaluation join this list in the next stage.)
  */
-export function readiness(call: Call, phases: CallPhase[], fields: FormField[], now: Date = new Date(), rules: EligibilityRule[] = [], criteria: Criterion[] = []): ReadinessIssue[] {
+export function readiness(call: Call, phases: CallPhase[], fields: FormField[], now: Date = new Date(), rules: EligibilityRule[] = [], criteria: Criterion[] = [], scoring: Scoring = WEIGHTED_SCORING): ReadinessIssue[] {
   const issues: ReadinessIssue[] = [];
   if (!call.name.trim()) issues.push({ tab: 'general', message: 'Give the call a name.', target: 'name' });
   if (!call.opensAt) issues.push({ tab: 'general', message: 'Set when applications open.', target: 'opens' });
@@ -94,7 +94,7 @@ export function readiness(call: Call, phases: CallPhase[], fields: FormField[], 
   // Prompt 918 (I2): a rule whose question went away or changed cannot work; the call is not ready until it is fixed or removed.
   for (const r of rules) for (const p of ruleProblems(r, fields, call)) issues.push({ tab: 'eligibility', message: p, target: r.id });
   // Prompt 922 (I1): an evaluation grid that is started must be usable — weights adding up to 100 %. (No grid at all is fine: a call may have no evaluation.)
-  if (criteria.length > 0) for (const p of gridProblems(criteria, fields)) issues.push({ tab: 'grid', message: p });
+  if (criteria.length > 0) for (const p of gridProblems(criteria, fields, scoring)) issues.push({ tab: 'grid', message: p });
   return issues;
 }
 

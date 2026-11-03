@@ -8,7 +8,8 @@ import { countApplications, loadCloseReason, loadEvents, loadFields, loadPhases,
 import type { CloseReason } from './closing';
 import type { Promoter } from './access';
 import { loadRules } from './eligibility-store';
-import { loadCriteria } from './eval-grid-store';
+import { scoringOf } from './eval-grid';
+import { loadCriteria, loadSettings as loadEvalSettings } from './eval-grid-store';
 import type { Call } from './types';
 
 /**
@@ -44,7 +45,7 @@ export async function buildCallState(admin: SupabaseClient, call: Call, promoter
     loadRules(admin, synced.id, synced.eligibilityVersion ?? 1),
     loadCriteria(admin, synced.id, synced.evalGridVersion ?? 1),
   ]);
-  const issues = readiness(synced, phases, fields, now, rules, criteria);
+  const issues = readiness(synced, phases, fields, now, rules, criteria, scoringOf(await loadEvalSettings(admin, synced.id)));
   // The images the General step shows (reached through the signed-in route), and whether the entity's own profile already has a logo (then an uploaded one is not offered for the profile).
   const branding = (await brandingOf(admin, [synced], 'editor')).get(synced.id)!;
   const profileLogoUrl = (await profileLogos(admin, [synced])).get(`${synced.promoterKind}:${synced.promoterId}`) ?? null;

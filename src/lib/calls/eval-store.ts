@@ -12,7 +12,7 @@ import { createNotice } from './applicant/notices';
 import { loadSubmission } from './applicant/store';
 import { GENERIC_EMAIL_DOMAINS } from './duplicates';
 import { autoDrift, autoResultsFor, liveScores, overrideMove, resolveScore, type AutoResult, type HeldScore, type ScoreSource } from './eval-auto';
-import { belowMinimum, weightedGrade, type Criterion, type GridSettings } from './eval-grid';
+import { belowMinimum, finalGrade, scoringOf, type Criterion, type GridSettings, type Scoring } from './eval-grid';
 import { loadCriteria, loadSettings } from './eval-grid-store';
 import { buildRedactor, identifiersOf, maskAnswers, maskFileName, type Redactor } from './eval-mask';
 import { localDay } from './eligibility';
@@ -97,7 +97,7 @@ export interface EvaluationPayload {
   application: { id: string; reference: string | null; startupName: string | null; submittedAt: string | null; version: number };
   fields: FormField[]; answers: Record<string, AnswerValue>; currency: string;
   documents: { fileId: string; fieldId: string; fileName: string; size: number | null; url: string }[];
-  grid: { version: number; criteria: Criterion[]; commentRequiredForAll: boolean };
+  grid: { version: number; criteria: Criterion[]; commentRequiredForAll: boolean; /** Adenda 3: how the criteria are combined (weights are shown only when weighted). */ scoring: Scoring };
   evaluation: { id: string | null; status: EvalState; scores: ScoreMap; overallComment: string; privateNote: string; revision: number; gradePercent: number | null; submittedAt: string | null; reopenedCount: number };
   below: { id: string; name: string; score: number; min: number }[];
   /** Criteria that score themselves from an answer (Adenda 1, B): what the answer is worth, why, and whether the evaluator may change it. */
@@ -164,7 +164,7 @@ export async function buildPayload(auth: CallAuth, gate: Extract<Gate, { ok: tru
     application: { id: gate.app.id, reference: gate.app.reference, startupName: gate.masked ? null : startupName, submittedAt: gate.app.submittedAt, version: sub?.version ?? 1 },
     fields: snapFields, answers, currency: call.currency,
     documents: docs.map((d) => ({ fileId: d.fileId, fieldId: d.fieldId, fileName: d.fileName, size: d.size, url: `${base}/${d.fileId}` })),
-    grid: { version, criteria, commentRequiredForAll: gate.settings.commentRequiredForAll },
+    grid: { version, criteria, commentRequiredForAll: gate.settings.commentRequiredForAll, scoring: scoringOf(gate.settings) },
     evaluation: { id: ev.row?.id ?? null, status: state, scores: shown, overallComment: ev.row?.overallComment ?? '', privateNote: ev.row?.privateNote ?? '', revision: ev.row?.revision ?? 0, gradePercent: ev.row?.gradePercent ?? null, submittedAt: ev.row?.submittedAt ?? null, reopenedCount: ev.row?.reopenedCount ?? 0 },
     below: belowMinimum(criteria, numericScores(shown)),
     autos: Object.fromEntries(criteria.filter((c) => c.auto).map((c) => [c.id, { status: results[c.id].status, points: results[c.id].status === 'scored' ? (results[c.id] as Extract<AutoResult, { status: 'scored' }>).points : null, because: results[c.id].because, override: c.auto!.override, fieldId: c.auto!.fieldId }])),
@@ -227,7 +227,7 @@ export async function saveDraft(auth: CallAuth, gate: Extract<Gate, { ok: true }
     if (up.error) return bad(500, 'Your score could not be saved. Please try again.');
   }
   scores = await syncAuto(admin, cur.row.id, criteria, results, scores);
-  const grade = weightedGrade(criteria, numericScores(scores)).percent;
+  const grade = finalGrade(criteria, numericScores(scores), scoringOf(gate.settings)).percent;
   const revision = cur.row.revision + 1;
   const patch: Row = { revision, grade_percent: grade, updated_at: new Date().toISOString() };
   if (typeof input.overallComment === 'string') patch.overall_comment = input.overallComment;
@@ -286,7 +286,7 @@ export async function submitEvaluation(auth: CallAuth, gate: Extract<Gate, { ok:
   const scores = await syncAuto(admin, cur.row.id, criteria, results, cur.scores);
   const missing = missingForSubmit(criteria, scores, gate.settings.commentRequiredForAll);
   if (missing.length) return bad(422, missingSentence(missing), 'incomplete', { missing });
-  const grade = weightedGrade(criteria, numericScores(scores)).percent;
+  const grade = finalGrade(criteria, numericScores(scores), scoringOf(gate.settings)).percent;
   const at = new Date().toISOString();
   const upd = await admin.from('call_evaluations').update({ status: 'submitted', submitted_at: at, grade_percent: grade, revision: cur.row.revision + 1, updated_at: at }).eq('id', cur.row.id).eq('status', 'in_progress').select('id');
   if (upd.error || (upd.data ?? []).length === 0) return bad(409, 'You already submitted this evaluation.', 'submitted');

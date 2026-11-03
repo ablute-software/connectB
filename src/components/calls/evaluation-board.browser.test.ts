@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { computeBoard, type BoardEval, type Decision } from '@/lib/calls/eval-board';
-import type { Criterion } from '@/lib/calls/eval-grid';
+import type { Criterion, Scoring } from '@/lib/calls/eval-grid';
 
 const CHROME = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/chromium']
   .filter((p): p is string => !!p).find((p) => fs.existsSync(p));
@@ -43,16 +43,16 @@ describe.skipIf(!CHROME)('the evaluation board (real browser)', () => {
   }, 240_000);
   afterAll(async () => { await browser?.close(); }, 60_000);
 
-  function server(opts: { canDecide?: boolean; empty?: boolean } = {}) {
+  function server(opts: { canDecide?: boolean; empty?: boolean; scoring?: Scoring } = {}) {
     const state = { decisions: {} as Record<string, { decision: Decision; note: string | null }>, closed: false, posts: [] as Record<string, unknown>[] };
     const board = () => {
       const apps = opts.empty ? [] : [{ applicationId: 'a', reference: 'REF-001', startupName: 'Acme Robotics with_a_very_long_unbroken_name_that_cannot_wrap_anywhere_1234567890' }, { applicationId: 'b', reference: 'REF-002', startupName: 'Blue Health' }, { applicationId: 'c', reference: 'REF-003', startupName: null }, { applicationId: 'd', reference: 'REF-004', startupName: 'Dark Mode' }];
       const { rows, progress } = computeBoard({
         apps, assignments: opts.empty ? [] : [{ applicationId: 'a', userId: 'u1' }, { applicationId: 'a', userId: 'u2' }, { applicationId: 'b', userId: 'u1' }, { applicationId: 'b', userId: 'u2' }, { applicationId: 'c', userId: 'u1' }],
         evaluations: opts.empty ? [] : [ev('a', 'u1', { t: 5, m: 10 }, 100), ev('a', 'u2', { t: 1, m: 4 }, 30), ev('b', 'u1', { t: 4, m: 8 }, 80), ev('b', 'u2', { t: 3 }, 0, 'in_progress')],
-        criteriaByVersion: { 1: CRITERIA }, currentVersion: 1, divergence: { enabled: true, scalePct: 40, totalPct: 20 }, decisions: state.decisions,
+        criteriaByVersion: { 1: CRITERIA }, currentVersion: 1, divergence: { enabled: true, scalePct: 40, totalPct: 20 }, decisions: state.decisions, scoring: opts.scoring,
       });
-      return { ok: true, canDecide: opts.canDecide !== false, rows, progress, criteria: CRITERIA, version: 1, closed: state.closed, closedAt: state.closed ? '2026-10-25T10:00:00Z' : null };
+      return { ok: true, canDecide: opts.canDecide !== false, rows, progress, criteria: CRITERIA, version: 1, closed: state.closed, closedAt: state.closed ? '2026-10-25T10:00:00Z' : null, scoring: opts.scoring ?? { mode: 'weighted', aggregation: 'sum' } };
     };
     return {
       state,
@@ -107,6 +107,21 @@ describe.skipIf(!CHROME)('the evaluation board (real browser)', () => {
     await page.screenshot({ path: path.join(SHOTS, 'board-1280.png'), fullPage: true });
     expect(errors).toEqual([]);
     await page.close();
+  }, 120_000);
+
+  it('weighted or not (Adenda 3): the ranking shows the score in the unit of the call — points for a sum, % when the average is over different scales — and the order does not change', async () => {
+    const SHOTS3 = path.join(process.cwd(), 'docs/calls/screenshots-922-adenda3'); fs.mkdirSync(SHOTS3, { recursive: true });
+    const sum = await open(1280, server({ scoring: { mode: 'equal', aggregation: 'sum' } }));
+    const rows = sum.page.locator('[data-testid="board-row"]');
+    expect(await rows.first().innerText()).toContain('REF-002');
+    expect(await rows.first().locator('[data-testid="board-average"]').innerText()).toContain('12.2 / 15 points');      // 80 % of the way from the minimum (1) to the maximum (15)
+    expect(await rows.nth(1).locator('[data-testid="board-average"]').innerText()).toContain('10.1 / 15 points');
+    await sum.page.screenshot({ path: path.join(SHOTS3, 'board-sum-1280.png'), fullPage: true });
+    expect(sum.errors).toEqual([]);
+    await sum.page.close();
+    const avg = await open(1280, server({ scoring: { mode: 'equal', aggregation: 'average' } }));          // the two criteria use different scales: % it is
+    expect(await avg.page.locator('[data-testid="board-row"]').first().locator('[data-testid="board-average"]').innerText()).toContain('80 %');
+    await avg.page.close();
   }, 120_000);
 
   it('a decision is made IN the page: choose, write a note, save; the row shows it and the count follows; change it; remove it; nothing is sent to the applicant', async () => {

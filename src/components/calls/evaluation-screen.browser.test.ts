@@ -32,7 +32,7 @@ const payload = (over: Partial<EvaluationPayload> = {}): EvaluationPayload => ({
   fields: FIELDS, currency: 'EUR',
   answers: { f1: 'Acme Robotics', f2: 'We build robots for health care with a_very_long_unbroken_word_that_cannot_wrap_anywhere_1234567890 and more words after it.', f3: [{ fileId: 'file-1', fileName: 'certidao.pdf', size: 2048 }] } as never,
   documents: [{ fileId: 'file-1', fieldId: 'f3', fileName: 'certidao.pdf', size: 2048, url: '/api/calls/c1/evaluations/a1/documents/file-1' }],
-  grid: { version: 1, criteria: CRITERIA, commentRequiredForAll: false },
+  grid: { version: 1, criteria: CRITERIA, commentRequiredForAll: false, scoring: { mode: 'weighted', aggregation: 'sum' } },
   evaluation: { id: null, status: 'not_started', scores: {}, overallComment: '', privateNote: '', revision: 0, gradePercent: null, submittedAt: null, reopenedCount: 0 },
   below: [], autos: {}, drift: [], deadline: { day: '2026-12-15', daysLeft: 3 }, colleagues: null,
   ...over,
@@ -148,6 +148,30 @@ describe.skipIf(!CHROME)('the evaluator screens (real browser)', () => {
     await page.screenshot({ path: path.join(SHOTS, 'evaluation-1280.png'), fullPage: true });
     expect(errors).toEqual([]);
     expect(dialogs).toEqual([]);
+    await page.close();
+  }, 120_000);
+
+  it('weighted or not (Adenda 3): with equal weight the criteria show no weight and the final score is "12 / 15 points" (sum) or "4.0 / 5" (average); with different scales the average says it converts to %', async () => {
+    const SHOTS3 = path.join(process.cwd(), 'docs/calls/screenshots-922-adenda3'); fs.mkdirSync(SHOTS3, { recursive: true });
+    const three = [crit('k1', 'Team', 0, 1, 5), crit('k2', 'Market', 0, 1, 5), crit('k3', 'Technology', 0, 1, 5)];
+    for (const [aggregation, expected, file] of [['sum', '12 / 15 points', 'evaluator-final-score-sum-1280.png'], ['average', '4.0 / 5', 'evaluator-final-score-average-1280.png']] as const) {
+      const srv = server(payload({ grid: { version: 1, criteria: three, commentRequiredForAll: false, scoring: { mode: 'equal', aggregation } } }));
+      const { page, errors } = await open(1280, srv);
+      await level(page, 0, 4).click(); await level(page, 1, 3).click(); await level(page, 2, 5).click();
+      expect(await page.locator('[data-testid="grade-ring-text"]').innerText()).toContain(expected);
+      expect(await page.locator('[data-testid="eval-criterion"]').first().innerText()).not.toMatch(/weight/i);       // no weight beside a criterion
+      expect(await page.locator('[data-testid="eval-criterion"]').first().innerText()).toContain('scale 1–5');
+      expect(await page.locator('[data-testid="eval-mixed-note"]').count()).toBe(0);                                  // the same scale everywhere: nothing to explain
+      await page.screenshot({ path: path.join(SHOTS3, file), fullPage: true });
+      expect(errors).toEqual([]);
+      await page.close();
+    }
+    const mixed = [crit('k1', 'Team', 0, 1, 5), crit('k2', 'Technology', 0, 0, 10)];
+    const srv = server(payload({ grid: { version: 1, criteria: mixed, commentRequiredForAll: false, scoring: { mode: 'equal', aggregation: 'average' } } }));
+    const { page } = await open(1280, srv);
+    await level(page, 0, 4).click(); await level(page, 1, 6).click();
+    expect(await page.locator('[data-testid="grade-ring-text"]').innerText()).toContain('67.5 %');                   // (75 % + 60 %) / 2
+    expect(await page.locator('[data-testid="eval-mixed-note"]').innerText()).toContain('converted to % before averaging');
     await page.close();
   }, 120_000);
 
@@ -321,7 +345,7 @@ describe.skipIf(!CHROME)('the evaluator screens (real browser)', () => {
       crit('k6', 'Raised', 25, 1, 5, { auto: auto('f6', 'number') }),
     ];
     const p = payload({
-      blind: true, fields: closed, grid: { version: 1, criteria, commentRequiredForAll: false },
+      blind: true, fields: closed, grid: { version: 1, criteria, commentRequiredForAll: false, scoring: { mode: 'weighted', aggregation: 'sum' } },
       answers: { f1: '[hidden]', f2: 'We build robots for [the startup].', f3: [{ fileId: 'file-1', fileName: 'Document 1.pdf', size: 2048 }], f4: 'f4-o1', f5: 'yes' } as never,
       autos: { k4: { status: 'scored', points: 3, because: 'Seed', override: false, fieldId: 'f4' }, k5: { status: 'scored', points: 5, because: 'Yes', override: true, fieldId: 'f5' }, k6: { status: 'missing', points: null, because: 'The question was not answered.', override: false, fieldId: 'f6' } },
       evaluation: { id: null, status: 'not_started', scores: { k4: { score: 3, comment: '', source: 'auto', autoValue: 3 }, k5: { score: 5, comment: '', source: 'auto', autoValue: 5 } }, overallComment: '', privateNote: '', revision: 0, gradePercent: null, submittedAt: null, reopenedCount: 0 },
@@ -375,7 +399,7 @@ describe.skipIf(!CHROME)('the evaluator screens (real browser)', () => {
   it('an administrator is warned when a submitted evaluation no longer matches the application answer; the automatic and changed scores of colleagues are marked', async () => {
     const p = payload({
       role: 'admin', canEdit: false,
-      grid: { version: 1, criteria: [crit('k4', 'Stage', 50, 1, 5, { auto: { fieldId: 'f4', kind: 'single_choice', options: {}, yes: null, no: null, ranges: [], multi: 'sum', override: true } as never }), crit('k1', 'Team', 50, 1, 5)], commentRequiredForAll: false },
+      grid: { version: 1, criteria: [crit('k4', 'Stage', 50, 1, 5, { auto: { fieldId: 'f4', kind: 'single_choice', options: {}, yes: null, no: null, ranges: [], multi: 'sum', override: true } as never }), crit('k1', 'Team', 50, 1, 5)], commentRequiredForAll: false, scoring: { mode: 'weighted', aggregation: 'sum' } },
       evaluation: { id: 'ev1', status: 'submitted', scores: { k4: { score: 3, comment: '', source: 'auto', autoValue: 3 }, k1: { score: 4, comment: '' } }, overallComment: '', privateNote: '', revision: 3, gradePercent: 70, submittedAt: '2026-10-20T09:00:00Z', reopenedCount: 0 },
       drift: [{ criterionId: 'k4', name: 'Stage', held: 3, now: 5 }],
       colleagues: [{ userId: 'u2', evaluator: 'Rita', scores: { k4: { score: 5, comment: 'They raised more.', source: 'override', autoValue: 3 }, k1: { score: 2, comment: '' } }, overallComment: '', gradePercent: 60, drift: [] }],
@@ -390,7 +414,7 @@ describe.skipIf(!CHROME)('the evaluator screens (real browser)', () => {
   it('what the evaluator sees on a criterion, in this order: name, weight and scale; the guidance; the linked questions (number and whole text) with the applicant\'s answer, folded when long; the scale buttons and the description of the level chosen; "Add comment"', async () => {
     const long = 'We build robots for health care. '.repeat(30);
     const criteria = [crit('k1', 'Team', 100, 1, 5, { guidance: 'Look at how complete the team is.', linkedFields: ['f2', 'f1'], levels: [{ from: 5, to: 5, text: 'an excellent team' }] })];
-    const p = payload({ grid: { version: 1, criteria, commentRequiredForAll: false }, answers: { f1: 'Acme Robotics', f2: long, f3: [] } as never });
+    const p = payload({ grid: { version: 1, criteria, commentRequiredForAll: false, scoring: { mode: 'weighted', aggregation: 'sum' } }, answers: { f1: 'Acme Robotics', f2: long, f3: [] } as never });
     const { page, errors, overflow } = await open(1280, server(p));
     const card = page.locator('[data-testid="eval-criterion"]').first();
     const top = (sel: string) => card.locator(sel).first().evaluate((e) => e.getBoundingClientRect().top);

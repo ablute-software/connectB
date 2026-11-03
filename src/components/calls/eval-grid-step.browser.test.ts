@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import * as XLSX from 'xlsx';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { DEFAULT_SETTINGS, parseCriteriaPayload, parseSettingsPayload, type Criterion, type GridSettings } from '@/lib/calls/eval-grid';
+import { DEFAULT_SETTINGS, parseCriteriaPayload, parseSettingsPayload, sameScoring, scoringOf, type Criterion, type GridSettings } from '@/lib/calls/eval-grid';
 import { buildGridView } from '@/lib/calls/eval-grid-view';
 import { readGridDocument } from '@/lib/calls/eval-grid-import';
 import { proposalToCriteria } from '@/lib/calls/eval-grid-reader';
@@ -18,6 +18,7 @@ const CHROME = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Applica
 const ORIGIN = 'http://evalgrid.test';
 const PHASES = [{ id: '20000000-0000-4000-8000-000000000001', name: 'First screening' }, { id: '20000000-0000-4000-8000-000000000002', name: 'Pitch day' }];
 const SHOTS = path.join(process.cwd(), 'docs/calls/screenshots-922-i1');
+const SHOTS3 = path.join(process.cwd(), 'docs/calls/screenshots-922-adenda3');
 
 describe.skipIf(!CHROME)('the evaluation grid step (real browser)', () => {
   let bundle = ''; let css = '';
@@ -47,18 +48,18 @@ describe.skipIf(!CHROME)('the evaluation grid step (real browser)', () => {
     const bytes = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
     xlsxPath = path.join(os.tmpdir(), `eval-grid-${process.pid}.xlsx`); fs.writeFileSync(xlsxPath, bytes);
     reading = await readGridDocument('grid.xlsx', bytes);
-    fs.mkdirSync(SHOTS, { recursive: true });
+    fs.mkdirSync(SHOTS, { recursive: true }); fs.mkdirSync(SHOTS3, { recursive: true });
     const { chromium } = await import('playwright');
     browser = await chromium.launch({ executablePath: CHROME, headless: true, args: ['--no-sandbox'] });
   }, 240_000);
   afterAll(async () => { await browser?.close(); fs.rmSync(xlsxPath, { force: true }); }, 60_000);
 
-  function server(opts: { status?: CallStatus; submitted?: number; started?: number; unavailable?: boolean; templates?: { id: string; name: string; criteria: number }[] } = {}) {
+  function server(opts: { status?: CallStatus; submitted?: number; started?: number; unavailable?: boolean; scoringLocked?: boolean; templates?: { id: string; name: string; criteria: number }[] } = {}) {
     const state = {
       criteria: [] as Criterion[], settings: { ...DEFAULT_SETTINGS, divergence: { ...DEFAULT_SETTINGS.divergence }, deadlines: [] } as GridSettings, rev: 0, version: 1,
       status: opts.status ?? 'draft' as CallStatus, puts: [] as unknown[], templates: [...(opts.templates ?? [])], savedTemplates: [] as string[], importRun: null as string | null,
     };
-    const view = () => buildGridView({ status: state.status, version: state.version, rev: state.rev, criteria: state.criteria, settings: state.settings, evaluations: { started: opts.started ?? opts.submitted ?? 0, submitted: opts.submitted ?? 0 }, phases: PHASES });
+    const view = () => buildGridView({ status: state.status, version: state.version, rev: state.rev, criteria: state.criteria, settings: state.settings, evaluations: { started: opts.started ?? opts.submitted ?? 0, submitted: opts.submitted ?? 0 }, phases: PHASES, scoringLocked: opts.scoringLocked });
     return {
       state,
       handle: (method: string, url: string, body: Record<string, unknown> | null): { status: number; body: unknown } => {
@@ -81,8 +82,11 @@ describe.skipIf(!CHROME)('the evaluation grid step (real browser)', () => {
         if (!parsed.ok) return { status: 400, body: { ok: false, error: parsed.error } };
         const ps = parseSettingsPayload(body?.settings, PHASES.map((p) => p.id));
         if (!ps.ok) return { status: 400, body: { ok: false, error: ps.error } };
-        if ((opts.submitted ?? 0) > 0 && body?.confirm !== true) return { status: 409, body: { ok: false, code: 'needs_confirm', evaluations: opts.submitted, nextVersion: state.version + 1, error: `${opts.submitted} evaluations were already submitted on version ${state.version}. This change makes version ${state.version + 1}; those evaluations keep theirs. Continue?` } };
-        if ((opts.submitted ?? 0) > 0) state.version += 1;
+        // Adenda 3: a different way of combining the criteria, on a grid that stays as it is, asks for its own confirmation and does NOT make a new version
+        const scoringOnly = !sameScoring(scoringOf(state.settings), scoringOf(ps.settings)) && parsed.criteria.length === state.criteria.length && parsed.criteria.every((c, i) => c.name === state.criteria[i].name && c.weight === state.criteria[i].weight && c.scaleMin === state.criteria[i].scaleMin && c.scaleMax === state.criteria[i].scaleMax);
+        if (scoringOnly && (opts.submitted ?? 0) > 0 && body?.confirm !== true) return { status: 409, body: { ok: false, code: 'needs_confirm', kind: 'scoring', evaluations: opts.submitted, error: `${opts.submitted} evaluations were already submitted. Final scores will be recalculated for all applications. The ranking follows.` } };
+        if (!scoringOnly && (opts.submitted ?? 0) > 0 && body?.confirm !== true) return { status: 409, body: { ok: false, code: 'needs_confirm', evaluations: opts.submitted, nextVersion: state.version + 1, error: `${opts.submitted} evaluations were already submitted on version ${state.version}. This change makes version ${state.version + 1}; those evaluations keep theirs. Continue?` } };
+        if ((opts.submitted ?? 0) > 0 && !scoringOnly) state.version += 1;
         state.criteria = parsed.criteria; state.settings = ps.settings; state.rev += 1;
         return { status: 200, body: { ok: true, ...view() } };
       },
@@ -168,7 +172,7 @@ describe.skipIf(!CHROME)('the evaluation grid step (real browser)', () => {
     const srv = server();
     const { page } = await open(1280, srv);
     await ready(page);
-    expect(await page.locator('[data-testid="grid-settings-summary"]').innerText()).toBe('No criteria yet · 2 evaluators per application · Blind: off · Divergence alert: 40 %');
+    expect(await page.locator('[data-testid="grid-settings-summary"]').innerText()).toBe('Weighted · No criteria yet · 2 evaluators per application · Blind: off · Divergence alert: 40 %');
     const c = await addCriterion(page, 'Impact', '100', 'custom');
     await c.locator('[data-testid="criterion-min"]').fill('0');
     await c.locator('[data-testid="criterion-max"]').fill('20');
@@ -182,7 +186,7 @@ describe.skipIf(!CHROME)('the evaluation grid step (real browser)', () => {
     await page.locator('[data-testid="set-blind"]').check();
     await page.locator('input[aria-label="Deadline for Pitch day"]').fill('2026-12-15');
     await page.locator('[data-testid="grid-settings-toggle"]').click();                                // fold it: the summary follows what was set
-    expect(await page.locator('[data-testid="grid-settings-summary"]').innerText()).toBe('Scale 0–20 · 25 evaluators per application · Blind: on · Divergence alert: 40 %');
+    expect(await page.locator('[data-testid="grid-settings-summary"]').innerText()).toBe('Weighted · Scale 0–20 · 25 evaluators per application · Blind: on · Divergence alert: 40 %');
     await page.locator('[data-testid="grid-save"]').click();
     await page.waitForFunction(() => document.querySelectorAll('[data-testid="grid-dirty"]').length === 0);
     expect(srv.state.criteria[0]).toMatchObject({ scaleMin: 0, scaleMax: 20, minScore: 3, commentRequired: true, levels: [{ from: 20, to: 20, text: 'outstanding' }, { from: 0, to: 5, text: 'weak' }] });
@@ -317,6 +321,94 @@ describe.skipIf(!CHROME)('the evaluation grid step (real browser)', () => {
     const b = await open(1280, off);
     await b.page.waitForSelector('[data-testid="grid-loading"]');
     expect(await b.page.locator('[data-testid="grid-loading"]').innerText()).toBe('Evaluation is not available yet. It will be switched on shortly.');
+    await b.page.close();
+  }, 120_000);
+
+  it('weighted or not (Adenda 3): "Equal weight" hides every weight, the bar says how many criteria and the maximum, "Average" notes mixed scales, the rehearsal gives the score in points, and the choice is saved', async () => {
+    const srv = server();
+    const { page, errors, dialogs, overflow } = await open(1280, srv);
+    await ready(page);
+    await openSettings(page);
+    // weighted is what a call does until it is told otherwise; the choice is two cards, the aggregation appears only for equal weight
+    expect(await page.locator('[data-testid="scoring-weighted"]').isChecked()).toBe(true);
+    expect(await page.locator('[data-testid="set-aggregation"]').count()).toBe(0);
+    await page.screenshot({ path: path.join(SHOTS3, 'how-it-runs-weighted-1280.png'), fullPage: true });
+    await page.locator('[data-testid="scoring-equal"]').check();
+    expect(await page.locator('[data-testid="aggregation-sum"]').isChecked()).toBe(true);       // sum of points is the default
+    await page.screenshot({ path: path.join(SHOTS3, 'how-it-runs-equal-sum-1280.png'), fullPage: true });
+    await page.locator('[data-testid="grid-settings-toggle"]').click();
+    expect(await page.locator('[data-testid="grid-settings-summary"]').innerText()).toContain('Equal weight · Sum of points');
+    // criteria with no weight at all: the field is not there, and nothing asks for 100 %
+    for (const [name, scale] of [['Team', '1-5'], ['Technology', '0-10'], ['Market', '1-5']]) {
+      await page.locator('[data-testid="add-criterion"]').click();
+      const card = page.locator('[data-testid="criterion-card"][data-open="true"]');
+      expect(await card.locator('[data-testid="criterion-weight"]').count()).toBe(0);
+      await card.locator('textarea').first().fill(name);
+      await card.locator('[data-testid="criterion-scale"]').selectOption(scale);
+    }
+    expect(await page.locator('[data-testid="grid-weights"]').innerText()).toBe('3 criteria · max 20 points');
+    expect(await page.locator('[data-testid="criterion-summary"]').first().innerText()).toBe('scale 1–5 · no questions linked');
+    expect(await page.locator('text=/weights add up/i').count()).toBe(0);
+    await page.screenshot({ path: path.join(SHOTS3, 'equal-weight-bar-and-card-1280.png'), fullPage: true });
+    // the rehearsal: the score in points, no weight beside any criterion
+    await page.locator('[data-testid="grid-tab-preview"]').click();
+    await page.waitForSelector('[data-testid="evaluator-preview"]');
+    const crit = page.locator('[data-testid="preview-criterion"]');
+    await crit.nth(0).getByRole('radio', { name: '4', exact: true }).click();
+    await crit.nth(1).getByRole('radio', { name: '3', exact: true }).click();
+    await crit.nth(2).getByRole('radio', { name: '5', exact: true }).click();
+    expect(await page.locator('[data-testid="grade-ring-text"]').innerText()).toContain('12 / 20 points');
+    expect(await crit.first().innerText()).not.toMatch(/weight/i);
+    expect(await page.locator('[data-testid="preview-formula"]').innerText()).toContain('the sum of the points of every criterion (at most 20 points)');
+    await page.screenshot({ path: path.join(SHOTS3, 'preview-equal-sum-1280.png'), fullPage: true });
+    // average: on different scales it converts each to % first and says so
+    await page.locator('[data-testid="grid-tab-build"]').click();
+    await openSettings(page);
+    await page.locator('[data-testid="aggregation-average"]').check();
+    expect(await page.locator('[data-testid="aggregation-note"]').innerText()).toContain('different scales');
+    expect(await page.locator('[data-testid="grid-weights"]').innerText()).toBe('3 criteria · average');
+    expect(await page.locator('[data-testid="mixed-scales-note"]').count()).toBe(1);
+    await page.screenshot({ path: path.join(SHOTS3, 'how-it-runs-equal-average-1280.png'), fullPage: true });
+    expect(srv.state.puts).toEqual([]);                                                          // nothing is saved by playing with it
+    await page.locator('[data-testid="grid-save"]').click();
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid="grid-dirty"]').length === 0);
+    expect(srv.state.settings).toMatchObject({ scoringMode: 'equal', equalAggregation: 'average' });
+    expect(srv.state.criteria.map((c) => c.weight)).toEqual([0, 0, 0]);
+    // coming back to Weighted finds the weights as they were stored, and asks for 100 % again
+    await openSettings(page);
+    await page.locator('[data-testid="scoring-weighted"]').check();
+    expect(await page.locator('[data-testid="grid-weights"]').innerText()).toContain('⚠ Weights: 0 / 100 %');
+    expect(await overflow()).toBeLessThanOrEqual(0);
+    expect(errors).toEqual([]);
+    expect(dialogs).toEqual([]);
+    await page.close();
+  }, 120_000);
+
+  it('changing it after an evaluation was submitted asks IN the page first ("Final scores will be recalculated for all applications"), does not make a new grid version; after the results are published it is locked', async () => {
+    const srv = server({ status: 'open', submitted: 2 });
+    srv.state.criteria = [{ id: 'c-1', section: null, position: 0, name: 'Team', guidance: '', weight: 100, format: 'scale', scaleMin: 1, scaleMax: 5, levels: [], commentRequired: false, minScore: null }];
+    const { page, dialogs } = await open(1280, srv);
+    await ready(page);
+    await openSettings(page);
+    expect(await page.locator('[data-testid="set-scoring"]').innerText()).toContain('changing this asks first and recalculates every final score');
+    await page.locator('[data-testid="scoring-equal"]').check();
+    await page.locator('[data-testid="grid-save"]').click();
+    await page.waitForSelector('[data-testid="grid-confirm"]');
+    expect(await page.locator('[data-testid="grid-confirm"]').innerText()).toContain('Final scores will be recalculated for all applications');
+    expect(srv.state.rev).toBe(0);                                                               // asking stores nothing
+    await page.screenshot({ path: path.join(SHOTS3, 'confirm-recalculate-1280.png'), fullPage: true });
+    await page.locator('[data-testid="grid-confirm-yes"]').click();
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid="grid-confirm"]').length === 0);
+    expect(srv.state.settings.scoringMode).toBe('equal');
+    expect(srv.state.version).toBe(1);                                                           // a different way of combining is not a different grid
+    expect(dialogs).toEqual([]);
+    await page.close();
+    const locked = server({ status: 'open', submitted: 2, scoringLocked: true });
+    const b = await open(1280, locked);
+    await ready(b.page);
+    await openSettings(b.page);
+    expect(await b.page.locator('[data-testid="scoring-locked"]').innerText()).toContain('can no longer change');
+    expect(await b.page.locator('[data-testid="scoring-equal"]').isDisabled()).toBe(true);
     await b.page.close();
   }, 120_000);
 

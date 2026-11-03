@@ -4,7 +4,7 @@
 // administrator reads. "Submit evaluation" asks IN the page, then the evaluation is read-only — only an administrator reopens it, with a reason. When the evaluation is blind the server already sent the application
 // masked, and says so at the top. Nothing is a browser dialog. The files open through the platform (never a Storage address).
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
-import { belowMinimum, gradeText, levelDescription, scaleLabel, scaleLevels, weightedGrade, type Criterion } from '@/lib/calls/eval-grid';
+import { MIXED_SCALES_NOTE, belowMinimum, finalGrade, gradeText, levelDescription, scaleLabel, scaleLevels, type Criterion, type Scoring } from '@/lib/calls/eval-grid';
 import { isEmptyDraft, mergeDraft, withDraft, type Draft } from '@/lib/calls/eval-draft';
 import { fieldTitle, linkableFields } from '@/lib/calls/eval-links';
 import type { EvaluationPayload } from '@/lib/calls/eval-store';
@@ -83,7 +83,8 @@ export function EvaluationScreen({ callId, applicationId, onBack }: { callId: st
   const server = data?.evaluation.scores ?? {};
   const scores = useMemo(() => withDraft(server, draft), [server, draft]);
   const numeric = useMemo(() => Object.fromEntries(Object.entries(scores).map(([k, v]) => [k, v.score])), [scores]);
-  const grade = weightedGrade(criteria, numeric);
+  const scoring: Scoring = data?.grid.scoring ?? { mode: 'weighted', aggregation: 'sum' };
+  const grade = finalGrade(criteria, numeric, scoring);
   const below = belowMinimum(criteria, numeric);
   const overall = draft.overallComment ?? data?.evaluation.overallComment ?? '';
   const note = draft.privateNote ?? data?.evaluation.privateNote ?? '';
@@ -161,6 +162,7 @@ export function EvaluationScreen({ callId, applicationId, onBack }: { callId: st
         <div className="min-w-0 text-sm text-gray-700">
           <p><b>{grade.scored} of {grade.total}</b> criteria scored.</p>
           {grade.percent === null && <p className="text-xs text-gray-500">The grade appears when every criterion has a score.</p>}
+          {scoring.mode === 'equal' && scoring.aggregation === 'average' && grade.mixedScales && <p className="text-[11px] text-gray-500" data-testid="eval-mixed-note">{MIXED_SCALES_NOTE}.</p>}
           {below.length > 0 && <p className="mt-1 text-xs text-amber-900" data-testid="eval-below">Below the minimum: {below.map((b) => `${b.name} (${b.score} < ${b.min})`).join(', ')}. The application is flagged for the administrator, never excluded.</p>}
         </div>
       </div>
@@ -176,7 +178,7 @@ export function EvaluationScreen({ callId, applicationId, onBack }: { callId: st
           const held = scores[c.id]?.score ?? null;
           const overridden = !!auto && auto.status === 'scored' && auto.override && held !== null && held !== auto.points;
           return <CriterionScore key={c.id} c={c} entry={scores[c.id]} editable={editable} need={needs(c.id)} forced={data.grid.commentRequiredForAll || c.commentRequired || overridden} showComment={comments.has(c.id)} hover={hover?.id === c.id ? hover.level : null}
-            auto={auto} overridden={overridden} submitted={submitted}
+            auto={auto} overridden={overridden} submitted={submitted} weighted={scoring.mode === 'weighted'}
             linked={(c.linkedFields ?? []).flatMap((id) => { const f = data.fields.find((x) => x.id === id); return f ? [{ field: f, title: fieldTitle(numbered.find((n) => n.id === id) ?? { number: 0, label: f.label }) }] : []; })} answers={data.answers} docs={docs} currency={data.currency} onOpenAnswer={openAnswer}
             onHover={(level) => setHover(level === null ? null : { id: c.id, level })} onScore={(score) => change({ scores: { [c.id]: { score } } })} onComment={(comment) => change({ scores: { [c.id]: { comment } } })} onShowComment={() => setComments((s) => new Set(s).add(c.id))} />;
         })}
@@ -288,9 +290,9 @@ function LinkedAnswer({ field, value, docs, currency, onOpen }: { field: Evaluat
 }
 
 type AutoView = EvaluationPayload['autos'][string];
-function CriterionScore({ c, entry, editable, need, forced, showComment, hover, auto, overridden, submitted, linked, answers, docs, currency, onOpenAnswer, onHover, onScore, onComment, onShowComment }: {
+function CriterionScore({ c, entry, editable, need, forced, showComment, hover, auto, overridden, submitted, weighted, linked, answers, docs, currency, onOpenAnswer, onHover, onScore, onComment, onShowComment }: {
   c: Criterion; entry: { score: number | null; comment: string } | undefined; editable: boolean; need: 'score' | 'comment' | undefined; forced: boolean; showComment: boolean; hover: number | null;
-  auto: AutoView | undefined; overridden: boolean; submitted: boolean; linked: { field: EvaluationPayload['fields'][number]; title: string }[]; answers: EvaluationPayload['answers']; docs: ComponentProps<typeof AnswerView>['docs']; currency: string; onOpenAnswer: (fieldId: string) => void;
+  auto: AutoView | undefined; overridden: boolean; submitted: boolean; weighted: boolean; linked: { field: EvaluationPayload['fields'][number]; title: string }[]; answers: EvaluationPayload['answers']; docs: ComponentProps<typeof AnswerView>['docs']; currency: string; onOpenAnswer: (fieldId: string) => void;
   onHover: (level: number | null) => void; onScore: (score: number | null) => void; onComment: (c: string) => void; onShowComment: () => void;
 }) {
   const score = entry?.score ?? null;
@@ -304,7 +306,7 @@ function CriterionScore({ c, entry, editable, need, forced, showComment, hover, 
     <li className={`min-w-0 rounded-lg border bg-white p-3 ${need ? 'border-[#B00000]' : 'border-gray-200'}`} data-testid="eval-criterion" data-missing={need ?? undefined}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-3">
         <p className="min-w-0 text-sm font-semibold text-gray-900 [overflow-wrap:anywhere]">{c.name}</p>
-        <span className="shrink-0 text-xs text-gray-500">weight {c.weight} % · scale {scaleLabel(c)}</span>
+        <span className="shrink-0 text-xs text-gray-500">{weighted ? `weight ${c.weight} % · ` : ''}scale {scaleLabel(c)}</span>
       </div>
       {c.guidance && <p className="mt-1 text-xs text-gray-600 [overflow-wrap:anywhere]">{c.guidance}</p>}
       {linked.length > 0 && (

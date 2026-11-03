@@ -3,7 +3,7 @@
 // final grade in a ring that shows N/A until every criterion has a score, the formula in words and the examples worked out. Nothing is saved here: it is a rehearsal (the screen of the evaluators, I3, uses
 // the same pieces).
 import { useMemo, useState } from 'react';
-import { exampleGrades, formulaText, gradeText, levelDescription, scaleLabel, scaleLevels, weightedGrade, belowMinimum, type Criterion } from '@/lib/calls/eval-grid';
+import { MIXED_SCALES_NOTE, WEIGHTED_SCORING, exampleGrades, finalGrade, formulaText, gradeText, levelDescription, scaleLabel, scaleLevels, belowMinimum, type Criterion, type Scoring } from '@/lib/calls/eval-grid';
 import { fieldTitle, type LinkableField } from '@/lib/calls/eval-links';
 
 export function GradeRing({ percent, label }: { percent: number | null; label: string }) {
@@ -22,11 +22,11 @@ export function GradeRing({ percent, label }: { percent: number | null; label: s
 }
 
 /** `fields` (Adenda 2): the questions of the form, so that a linked criterion shows WHAT it is about, with a stand-in where the applicant's answer will appear. */
-export function EvaluatorPreview({ criteria, fields = [] }: { criteria: Criterion[]; fields?: LinkableField[] }) {
+export function EvaluatorPreview({ criteria, fields = [], scoring = WEIGHTED_SCORING }: { criteria: Criterion[]; fields?: LinkableField[]; scoring?: Scoring }) {
   const [scores, setScores] = useState<Record<string, number>>({});
   const [hover, setHover] = useState<{ id: string; level: number } | null>(null);
   const [comments, setComments] = useState<Set<string>>(new Set());
-  const grade = useMemo(() => weightedGrade(criteria, scores), [criteria, scores]);
+  const grade = useMemo(() => finalGrade(criteria, scores, scoring), [criteria, scores, scoring]);
   const flagged = useMemo(() => belowMinimum(criteria, scores), [criteria, scores]);
   if (criteria.length === 0) return <p className="rounded-lg border border-dashed border-gray-300 p-4 text-center text-sm text-gray-500" data-testid="preview-empty">Add criteria to see how the evaluators will see the grid.</p>;
   return (
@@ -47,7 +47,7 @@ export function EvaluatorPreview({ criteria, fields = [] }: { criteria: Criterio
             <li key={c.id} className="min-w-0 rounded-lg border border-gray-200 bg-white p-3" data-testid="preview-criterion">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <p className="min-w-0 text-sm font-semibold text-gray-900 [overflow-wrap:anywhere]">{c.name || 'Untitled criterion'}</p>
-                <span className="shrink-0 text-xs text-gray-500">weight {c.weight} % · scale {scaleLabel(c)}</span>
+                <span className="shrink-0 text-xs text-gray-500">{scoring.mode === 'weighted' ? `weight ${c.weight} % · ` : ''}scale {scaleLabel(c)}</span>
               </div>
               {c.section && <p className="text-[11px] uppercase tracking-wide text-gray-400">{c.section}</p>}
               {c.guidance && <p className="mt-1 text-xs text-gray-600 [overflow-wrap:anywhere]" data-testid="preview-guidance">{c.guidance}</p>}
@@ -81,9 +81,10 @@ export function EvaluatorPreview({ criteria, fields = [] }: { criteria: Criterio
       </ul>
       <section className="rounded-lg border border-gray-200 bg-white p-3" data-testid="preview-formula">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">The formula</p>
-        <p className="mt-1 text-sm text-gray-900 [overflow-wrap:anywhere]">{formulaText(criteria)}</p>
+        <p className="mt-1 text-sm text-gray-900 [overflow-wrap:anywhere]">{formulaText(criteria, scoring)}</p>
+        {scoring.mode === 'equal' && scoring.aggregation === 'average' && grade.mixedScales && <p className="mt-1 text-[11px] text-gray-600" data-testid="preview-mixed-note">{MIXED_SCALES_NOTE}.</p>}
         <ul className="mt-2 space-y-0.5 text-xs text-gray-700" data-testid="preview-examples">
-          {exampleGrades(criteria).map((e) => <li key={e.label}>{e.label}: <b>{gradeText(e.grade)}</b></li>)}
+          {exampleGrades(criteria, scoring).map((e) => <li key={e.label}>{e.label}: <b>{gradeText(e.grade)}</b></li>)}
         </ul>
       </section>
     </div>

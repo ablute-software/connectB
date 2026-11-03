@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { DECISION_LABEL, type BoardRow, type Decision } from '@/lib/calls/eval-board';
 import type { Board } from '@/lib/calls/eval-board-store';
+import { WEIGHTED_SCORING, scoreText } from '@/lib/calls/eval-grid';
 import { callsApi } from './api';
 import { AutoTextarea } from './AutoTextarea';
 
@@ -85,7 +86,7 @@ export function EvaluationBoard({ callId, onOpen }: { callId: string; onOpen: (a
                     <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs"><span className={`rounded-full px-2 py-0.5 font-medium ${STATE_TEXT[r.state].tone}`} data-testid="board-state">{STATE_TEXT[r.state].label}</span><span className="text-gray-600" data-testid="board-count">{r.submitted} of {r.assigned} submitted</span>{r.decision && <span className={`rounded-full px-2 py-0.5 font-medium ${DECISION_TONE[r.decision.decision]}`} data-testid="board-decision">{DECISION_LABEL[r.decision.decision]}</span>}</p>
                   </div>
                 </div>
-                <div className="text-right" data-testid="board-average">{r.average === null ? <span className="text-sm text-gray-400">No grade yet</span> : <><span className="text-lg font-bold text-gray-900">{r.average} %</span>{r.deviation !== null && <span className="block text-[11px] text-gray-500">deviation {r.deviation}</span>}</>}</div>
+                <div className="text-right" data-testid="board-average">{r.average === null ? <span className="text-sm text-gray-400">No grade yet</span> : <><span className="text-lg font-bold text-gray-900">{scoreText(r.average, board.criteria, board.scoring ?? WEIGHTED_SCORING)}</span>{r.deviation !== null && <span className="block text-[11px] text-gray-500">deviation {r.deviation}</span>}</>}</div>
               </div>
               {(r.divergence.length > 0 || r.below.length > 0 || r.overrides.length > 0) && (
                 <ul className="mt-2 flex flex-wrap gap-1.5" data-testid="board-flags">
