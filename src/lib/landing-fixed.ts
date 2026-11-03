@@ -98,7 +98,7 @@ export function nextLine(current: number, count: number): number {
 }
 
 /** The type fills the card (Nuno, 03/11/2026): the largest scale in [1, FIT_MAX] at which the panel still fits, found by bisection. `fits(k)` sets the scale and says whether nothing overflows. */
-export const FIT_MAX = 1.4;
+export const FIT_MAX = 1.12;
 export function fitScale(fits: (k: number) => boolean, max: number = FIT_MAX, steps = 7): number {
   if (!fits(1)) return 1;
   if (fits(max)) return max;

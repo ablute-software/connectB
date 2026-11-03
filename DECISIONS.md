@@ -11576,3 +11576,24 @@ O Overview das startups ganha o quadro inclinado e animado da versão anterior (
 ## Prompt 935 — som de boas-vindas nos botões de conta (Nuno, 03/11/2026)
 
 «Create account» e «Claim your profile» (só estes dois; «Start free» e os planos ficam como estavam) tocam `public/landing/welcome.mp3` (1,75 s) enquanto a landing desvanece (1,6 s) e abrem /signup ou /claim quando o som acaba. O clique é apanhado na fase de captura, antes do `Link`, que abriria a página de imediato; ctrl/cmd/shift/botão do meio mantêm o comportamento normal. Se o som falhar (bloqueado, não carrega, sem dispositivo) ou passarem 8 s, a página abre na mesma. `mp3` entra na exclusão do middleware.
+
+## Prompt 935 — ordem dos separadores, FAQ em cinco grupos, carrossel contínuo, texto mais pequeno (Nuno, 03/11/2026)
+
+- Startups: Documents, Pricing, Share securely, Overview (ao centro, três de cada lado), Find investors, AI assistant, FAQ. «Your fundraise» sai; o seu exemplo (próxima ação numa conversa) passou para Find investors. O ícone do AI deixa de ser uma folha e passa a ser faíscas. Investors ficou com os oito separadores de antes.
+- Documents já não tem «Write to us» nem a frase da resposta; ambos estão nas duas FAQ.
+- FAQ das startups: as 20 perguntas dele em cinco grupos (ele escreveu «6 grupos» mas listou cinco), `src/content/site/landing-faq.ts`; preços, quota mensal, alvos e países lidos de plans.ts, pipeline-unlock.ts e facts.ts. O FAQPage do JSON-LD passa a ter as 20.
+- Carrossel: o saltar/recomeçar vinha de o React reescrever o HTML da faixa a cada troca de título (a animação nascia de novo); agora a faixa é um componente memorizado. Cada logo tem uma largura fixa (a imagem preguiçosa já não muda o comprimento da pista) e carrega logo. A faixa fica na mesma posição em todos os títulos (medido).
+- Texto menor: escala de tipo reduzida e FIT_MAX 1.4 -> 1.12.
+- Investors: Indico e Faber saem do carrossel e das linhas do Overview (entram Portugal Ventures e LINCE). O mínimo de logos de investidores passa de 16 para 15 enquanto não houver dois novos.
+
+## Prompt 935 — Share securely segundo o esboço do Nuno; Example dentro do quadro do Overview (03/11/2026)
+
+O separador Share securely passa a ter o desenho que ele enviou: à esquerda «SHARE SECURELY», «Your documents. The right people. Your rules.» e três linhas com ícone; à direita o acesso bloqueado de um investidor (Awaiting NDA, NDA required before access, Pitch deck e Financial forecast Locked). Sem botão, como no esboço; a marca Example fica no rodapé do cartão. No Overview das startups a marca Example passou para a barra de título do quadro, para não ocupar uma linha.
+
+## Prompt 935 — Overview dos investors: o quadro adaptado (Nuno, 03/11/2026)
+
+O Overview dos investors repete a receita das startups: frase («Sherlock Deal matches investors with the startups that fit their mandate, and puts investors in front of startups looking for what they back.») e um quadro flutuante de «deal flow» (empresa, match, próxima ação) com dois chips, marcado Example na barra de título, sem percentagens. Saem as três linhas de perfis verificados com logos; o botão continua «Claim your profile». Nas duas barras de título a marca Example fica à esquerda do título, porque o chip a tapava.
+
+## Prompt 935 — o que a revisão independente achou (03/11/2026)
+
+.fx-paper (folha do Share securely) colidia com a folha dos textos legais do popup de Documentos e encolhia-a para 34x42 px: renomeada para .fx-shpaper. O som de boas-vindas cancela-se se a landing sair (Back/outra rota) e uma página restaurada do histórico (bfcache) já não fica desvanecida e bloqueada. O separador Documents deixou de prometer «contact» (o contacto está nas FAQ).

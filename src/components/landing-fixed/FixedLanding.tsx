@@ -8,7 +8,7 @@
 //
 // The overlay of the documents popup is NOT portalled to <body>, against the project's usual rule for full-window overlays: its stylesheet is scoped under `.fx-root`, and `.fx-root` itself is the fixed,
 // full-window box with no transform, filter, backdrop-filter, perspective, contain or will-change (pinned by landing-fixed.test.ts), so a `position: fixed` child of it is the window's, which is what the rule protects.
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -44,6 +44,11 @@ function Heading({ line }: { line: HeroLine }) {
 
 type SendState = 'idle' | 'sending' | 'sent' | 'error';
 
+/** The logo strip is its own memoised component: the headline changes every few seconds and re-renders FixedLanding, and a re-render must never touch the strip's DOM (a rewritten track starts its animation over, which is the jump Nuno saw — 03/11/2026). */
+const QuietStrip = memo(function QuietStrip({ html }: { html: string }) {
+  return <div className="fx-qstrip" dangerouslySetInnerHTML={{ __html: html }} />;
+});
+
 export function FixedLanding({ initialMode, signedIn, strip, children }: { initialMode: LandingMode; signedIn: boolean; strip: Record<LandingMode, string>; children: React.ReactNode }) {
   const [mode, setMode] = useState<LandingMode>(initialMode);
   const def = MODES[mode];
@@ -54,11 +59,16 @@ export function FixedLanding({ initialMode, signedIn, strip, children }: { initi
   const [leaving, setLeaving] = useState(false);
   const welcome = useRef<HTMLAudioElement | null>(null);
   const leave = useRef(false);
+  // what is pending after the click: cancelled when the landing goes away (Back, another route), so the sign-up never opens behind the user's back
+  const pending = useRef<(() => void) | null>(null);
   useEffect(() => {
     const a = new Audio(WELCOME_SOUND);
     a.preload = 'auto';
     welcome.current = a;
-    return () => { a.pause(); welcome.current = null; };
+    // coming back to the page from the history (bfcache) must not find it faded and locked
+    const onShow = (e: PageTransitionEvent) => { if (e.persisted) { pending.current?.(); pending.current = null; leave.current = false; setLeaving(false); } };
+    window.addEventListener('pageshow', onShow);
+    return () => { window.removeEventListener('pageshow', onShow); pending.current?.(); pending.current = null; a.pause(); welcome.current = null; };
   }, []);
   const onRootClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -72,14 +82,16 @@ export function FixedLanding({ initialMode, signedIn, strip, children }: { initi
     setLeaving(true);
     const href = a.getAttribute('href') as string;
     let gone = false;
-    const go = () => { if (gone) return; gone = true; router.push(href); };
+    const go = () => { if (gone) return; gone = true; pending.current = null; router.push(href); };
     // whatever goes wrong with the sound (blocked, not loaded, silent device), the sign-up still opens
     const t = window.setTimeout(go, WELCOME_FALLBACK_MS);
     const audio = welcome.current;
     if (!audio) { go(); return; }
-    audio.addEventListener('ended', () => { window.clearTimeout(t); go(); }, { once: true });
-    audio.addEventListener('error', () => { window.clearTimeout(t); go(); }, { once: true });
-    audio.play().catch(() => { window.clearTimeout(t); go(); });
+    const done = () => { window.clearTimeout(t); go(); };
+    audio.addEventListener('ended', done, { once: true });
+    audio.addEventListener('error', done, { once: true });
+    pending.current = () => { gone = true; window.clearTimeout(t); audio.removeEventListener('ended', done); audio.removeEventListener('error', done); };
+    audio.play().catch(done);
   };
   // the place under the magnifier (a preview); it goes away when the pointer leaves the icons, the pinned one (cur) stays
   const [peek, setPeek] = useState<number | null>(null);
@@ -322,7 +334,7 @@ export function FixedLanding({ initialMode, signedIn, strip, children }: { initi
         <main id="fx-content">
         <div className="fx-head">
           <h1 className={fog ? 'fx-fog' : undefined}><Heading line={lines[line] ?? lines[0]} /></h1>
-          <div className="fx-qstrip" dangerouslySetInnerHTML={{ __html: strip[mode] }} />
+          <QuietStrip html={strip[mode]} />
         </div>
 
         <div className="fx-tabs" role="tablist" aria-label="Sections" onMouseLeave={() => setPeek(null)}>

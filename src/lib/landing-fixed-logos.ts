@@ -27,7 +27,7 @@ export const marqueeRepeat = (count: number): number => Math.max(1, Math.ceil(WI
 export function marqueeHtml(logos: readonly Pick<LandingLogo, 'file' | 'name'>[], caption: string, kind: 's' | 'i', plain = false): string {
   if (logos.length === 0) return '';
   const fig = (l: Pick<LandingLogo, 'file' | 'name'>, visible: boolean) =>
-    `<figure${visible ? '' : ' aria-hidden="true"'}><img src="${escapeHtml(plain ? logoPlainSrc(l) : logoCircleSrc(l))}" width="64" height="64" alt="${visible ? escapeHtml(l.name) : ''}" loading="lazy" decoding="async"><figcaption>${escapeHtml(logoCaption(l))}</figcaption></figure>`;
+    `<figure${visible ? '' : ' aria-hidden="true"'}><img src="${escapeHtml(plain ? logoPlainSrc(l) : logoCircleSrc(l))}" width="64" height="64" alt="${visible ? escapeHtml(l.name) : ''}" loading="${plain ? 'eager' : 'lazy'}" decoding="async"><figcaption>${escapeHtml(logoCaption(l))}</figcaption></figure>`;
   const copies = marqueeRepeat(logos.length) * 2;
   const track = Array.from({ length: copies }, (_, c) => logos.map((l) => fig(l, c === 0)).join('')).join('');
   // --cnt: the figures in one half of the track, so the stylesheet can give the turn the duration that makes a constant speed in px per second whatever the size of the logos

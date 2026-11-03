@@ -5,7 +5,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
   overview: (<><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 10h18M9 10v10" /></>),
   find: (<><circle cx="11" cy="11" r="6" /><path d="M16 16l5 5" /></>),
   fundraise: (<><path d="M4 18l5-6 4 3 7-9" /><path d="M14 6h6v6" /></>),
-  ai: (<><path d="M5 4h11l3 3v13H5z" /><path d="M8 11h8M8 15h5" /></>),
+  ai: (<><path d="M10 4l1.9 5.1L17 11l-5.1 1.9L10 18l-1.9-5.1L3 11l5.1-1.9z" /><path d="M18 3v4M16 5h4M18.5 15v4M16.5 17h4" /></>),
   share: (<><rect x="4" y="10" width="16" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></>),
   pricing: (<><path d="M20 12l-8 8-8-8V4h8z" /><circle cx="8" cy="8" r="1.2" /></>),
   docs: (<><path d="M7 3h7l4 4v14H7z" /><path d="M14 3v4h4M10 12h5M10 16h5" /></>),

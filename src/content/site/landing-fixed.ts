@@ -24,22 +24,21 @@ export interface ModeDef {
 
 export const MODES: Record<LandingMode, ModeDef> = {
   startups: {
-    home: 4,
+    home: 3,
     items: [
-      { id: 'docs', icon: 'docs', label: 'Documents', short: 'Documents', kicker: 'Terms, privacy, contact' },
-      { id: 's-faq', icon: 'faq', label: 'FAQ', short: 'FAQ', kicker: 'Questions founders ask' },
-      { id: 's-share', icon: 'share', label: 'Share securely', short: 'Share securely', kicker: 'Data room, per investor' },
+      { id: 'docs', icon: 'docs', label: 'Documents', short: 'Documents', kicker: 'Terms, privacy, data rights' },
       { id: 's-pricing', icon: 'pricing', label: 'Pricing', short: 'Pricing', kicker: 'Plans that grow up with you' },
+      { id: 's-share', icon: 'share', label: 'Share securely', short: 'Share securely', kicker: 'Data room, per investor' },
       { id: 's-overview', icon: 'overview', label: 'Overview', short: 'Overview', kicker: 'Your round, one place' },
-      { id: 's-find', icon: 'find', label: 'Find investors', short: 'Find investors', kicker: 'Your suspect list' },
-      { id: 's-fundraise', icon: 'fundraise', label: 'Your fundraise', short: 'Your fundraise', kicker: 'Every conversation, next step' },
+      { id: 's-find', icon: 'find', label: 'Find investors', short: 'Find investors', kicker: 'Your suspect list, every next step' },
       { id: 's-ai', icon: 'ai', label: 'AI assistant', short: 'AI assistant', kicker: 'Drafts from confirmed facts' },
+      { id: 's-faq', icon: 'faq', label: 'FAQ', short: 'FAQ', kicker: 'Questions founders ask' },
     ],
   },
   investors: {
     home: 4,
     items: [
-      { id: 'docs', icon: 'docs', label: 'Documents', short: 'Documents', kicker: 'Terms, privacy, contact' },
+      { id: 'docs', icon: 'docs', label: 'Documents', short: 'Documents', kicker: 'Terms, privacy, data rights' },
       { id: 'i-faq', icon: 'faq', label: 'FAQ', short: 'FAQ', kicker: 'Questions investors ask' },
       { id: 'i-mandate', icon: 'mandate', label: 'Your mandate', short: 'Your mandate', kicker: 'The criteria behind every match' },
       { id: 'i-pricing', icon: 'pricing', label: 'Access & pricing', short: 'Access', kicker: 'Seats and plans' },

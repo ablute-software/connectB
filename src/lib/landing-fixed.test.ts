@@ -12,6 +12,7 @@ import {
 } from './landing-fixed';
 import { CTA, DOC_ORDER, HERO_LINES, MODES, MODE_PATH, heroLineText, isDocId } from '@/content/site/landing-fixed';
 import { PANEL_FAQ, PANEL_HTML } from '@/content/site/landing-fixed-panels';
+import { STARTUP_FAQ_GROUPS } from '@/content/site/landing-faq';
 import { InvestorPricing, StartupPricing, landingMarquees } from '@/components/landing-fixed/Panels';
 import { SLOT_PX, escapeHtml, marqueeHtml, marqueeRepeat } from './landing-fixed-logos';
 import { WELCOME_SOUND, isWelcomeLink } from './landing-welcome';
@@ -165,15 +166,17 @@ describe('the wheel and the gestures', () => {
 });
 
 describe('the two wheels and the headings', () => {
-  it('eight places each, unique ids, the Overview selected at first, Documents shared', () => {
+  it('seven places for startups (the Overview in the middle, three each side) and eight for investors, unique ids, the Overview selected at first, Documents shared', () => {
     for (const m of ['startups', 'investors'] as const) {
       const ids = MODES[m].items.map((i) => i.id);
-      expect(ids).toHaveLength(8);
-      expect(new Set(ids).size).toBe(8);
+      const n = m === 'startups' ? 7 : 8;
+      expect(ids).toHaveLength(n);
+      expect(new Set(ids).size).toBe(n);
       expect(MODES[m].items[MODES[m].home].label).toBe('Overview');
       expect(ids).toContain('docs');
     }
-    expect(MODES.startups.items.map((i) => i.label)).toEqual(['Documents', 'FAQ', 'Share securely', 'Pricing', 'Overview', 'Find investors', 'Your fundraise', 'AI assistant']);
+    expect(MODES.startups.items.map((i) => i.label)).toEqual(['Documents', 'Pricing', 'Share securely', 'Overview', 'Find investors', 'AI assistant', 'FAQ']);
+    expect(MODES.startups.home).toBe(3);
     expect(MODES.investors.items.map((i) => i.label)).toEqual(['Documents', 'FAQ', 'Your mandate', 'Access & pricing', 'Overview', 'Discover startups', 'Review & decide', 'Your pipeline']);
   });
 
@@ -213,19 +216,20 @@ describe('the copy keeps the product\'s rules', () => {
     for (const [id, html] of Object.entries(PANEL_HTML)) {
       // the Documents panel lists documents (not a demo of the product); the FAQ panels have no data
       if (id === 'docs' || !html.includes('fx-obj')) continue;
-      expect(html, id).toMatch(/fx-ex">[^<]*(Example|example)/);
+      expect(html, id).toMatch(/fx-ex[^"]*">[^<]*(Example|example)/);
     }
   });
 
   it('no promise of a result: no "guarantee", no reply rate, no closing time, no "most popular"', () => {
-    // "guarantee" only to deny it (the FAQ's question "Does Sherlock Deal invest, or guarantee that I'll raise?" answers "No, on both")
-    expect(everything.replace("guarantee that I'll raise?</summary><p>No, on both", '')).not.toMatch(/guarant/i);
+    // "guarantee" only to deny it (the FAQ's question "Does Sherlock Deal invest directly, or guarantee that I'll raise?" answers "No, to both", and says it does not guarantee a response)
+    expect(everything.replace("guarantee that I'll raise?</summary><p>No, to both", '').replace("advise or guarantee a response", '')).not.toMatch(/guarant/i);
     expect(everything).not.toMatch(/most popular/i);
     expect(everything).not.toMatch(/reply rate|response rate|close(s|d)? in \d+|\d+\s?% of (founders|investors|startups)/i);
   });
 
   it('the questions of the FAQPage are the panels\' own (the structured data says what the page says)', () => {
-    expect(PANEL_FAQ.s).toHaveLength(3);
+    expect(PANEL_FAQ.s).toHaveLength(20);
+    expect(STARTUP_FAQ_GROUPS.map((g) => g.items.length)).toEqual([5, 5, 5, 3, 2]);
     expect(PANEL_FAQ.i).toHaveLength(3);
     for (const [q, a] of [...PANEL_FAQ.s, ...PANEL_FAQ.i]) {
       expect(q.length).toBeGreaterThan(5);
@@ -236,7 +240,13 @@ describe('the copy keeps the product\'s rules', () => {
   });
 
   it('the contact promise is the live form\'s ("a couple of business days"), never "one working day"; nothing is "saved as PDF"', () => {
-    expect(PANEL_HTML.docs).toContain('We usually reply within a couple of business days');
+    // the promise and the way to write to us live in the FAQ tabs now, not in Documents (Nuno, 03/11/2026)
+    for (const id of ['s-faq', 'i-faq'] as const) {
+      expect(PANEL_HTML[id]).toContain('We usually reply within a couple of business days');
+      expect(PANEL_HTML[id]).toContain('data-doc="contact">Write to us</a>');
+    }
+    expect(PANEL_HTML.docs).not.toContain('Write to us');
+    expect(PANEL_HTML.docs).not.toContain('We usually reply');
     expect(everything).not.toMatch(/one working day|saved as PDF/i);
   });
 
@@ -480,5 +490,28 @@ describe('the welcome sound on the account buttons (Nuno, 03/11/2026)', () => {
     expect(comp).toContain('onClickCapture={onRootClick}');
     expect(comp).toContain('if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;');
     expect(css).toContain('.fx-root.fx-leaving #fx-main {opacity:0');
+  });
+});
+
+describe('what the independent review of 03/11/2026 found', () => {
+  const comp = readFileSync(join(process.cwd(), 'src/components/landing-fixed/FixedLanding.tsx'), 'utf8');
+
+  it('the Share panel\'s sheet has its own class: ".fx-paper" is the legal text\'s sheet in the Documents popup, and a width and height on it made every legal document unreadable', () => {
+    expect(css).not.toMatch(/\.fx-root \.fx-paper \{[^}]*(width|height)/);
+    expect(css).toContain('.fx-root .fx-shpaper {');
+    expect(PANEL_HTML['s-share']).toContain('fx-shpaper');
+    expect(PANEL_HTML['s-share']).not.toContain('"fx-paper"');
+  });
+
+  it('the welcome never outlives the landing: leaving cancels it, and a page restored from the history is not left faded and locked', () => {
+    expect(comp).toContain('pending.current?.()');
+    expect(comp).toContain("window.addEventListener('pageshow', onShow)");
+    expect(comp).toContain('if (e.persisted)');
+    expect(comp).toContain('setLeaving(false)');
+  });
+
+  it('Documents no longer promises the contact form (it moved to the FAQ tabs)', () => {
+    expect(MODES.startups.items[0].kicker).not.toMatch(/contact/i);
+    expect(MODES.investors.items[0].kicker).not.toMatch(/contact/i);
   });
 });
