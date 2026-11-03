@@ -386,3 +386,11 @@ describe('what Lighthouse measured on the first build (02/11/2026) stays fixed',
     expect(css).toMatch(/@media \(max-width:760px\) \{\s*\.fx-root \{--t-m:\.9rem;--t-s:\.8rem;--t-xs:\.75rem\}/);
   });
 });
+
+describe('the photograph is served without a session (Prompt 935 hotfix)', () => {
+  it('the middleware matcher leaves every format the landing ships alone, AVIF included', () => {
+    const mw = readFileSync(join(process.cwd(), 'src/middleware.ts'), 'utf8');
+    const matcher = mw.match(/matcher: \[(.*)\]/)![1];
+    for (const ext of ['avif', 'webp']) expect(matcher).toContain(ext);
+  });
+});
