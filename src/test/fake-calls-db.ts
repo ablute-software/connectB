@@ -39,6 +39,8 @@ export function callsDb(): CallsDb {
     'call_contestations', 'call_data_summaries',
     // Prompt 927 (A)
     'call_pipeline_backfills',
+    // Prompt 925
+    'call_selection_rules', 'call_selection_runs', 'call_selection_items',
   ];
   return { tables: Object.fromEntries(names.map((n) => [n, []])), users: new Map(), clock: Date.UTC(2026, 9, 9, 12, 0, 0), seq: 0 };
 }
@@ -68,7 +70,10 @@ const DEFAULTS: Record<string, (db: CallsDb) => Row> = {
   call_eval_conflicts: () => ({ application_id: null, note: null, declared_by: null }),
   call_evaluations: () => ({ status: 'in_progress', overall_comment: '', private_note: '', grade_percent: null, revision: 0, reopened_count: 0, submitted_at: null, submission_id: null }),
   call_eval_scores: () => ({ comment: '' }),
-  call_eval_decisions: () => ({ note: null, is_current: true }),
+  call_eval_decisions: () => ({ note: null, is_current: true, origin: 'manual', proposal_run_id: null }),
+  call_selection_rules: () => ({ manual_order: [], is_current: true }),
+  call_selection_runs: () => ({ summary: {}, applied_at: null, applied_by: null }),
+  call_selection_items: () => ({ position: null, explanation: '', quota_ids: [], amount: null, tie: false, budget_skipped: false }),
   call_processing_tasks: () => ({ kind: 'eligibility', rules_version: 1, status: 'queued', attempts: 0, max_attempts: 5, run_after: new Date().toISOString(), locked_at: null, last_error: null, started_at: null, finished_at: null }),
   call_application_eligibility: () => ({ source: 'engine', rule_results: [], overrides: {}, reason: null, is_current: true, created_by: null }),
   call_eligibility_corrections: () => ({ submission_id: null, rule_id: null, rule_kind: null, doc_type: null, rules_version: null, engine_status: null, engine_outcome: null, engine_reason: null, engine_evidence: null, is_call_exception: false }),

@@ -10,6 +10,7 @@ import type { Promoter } from './access';
 import { loadRules } from './eligibility-store';
 import { scoringOf } from './eval-grid';
 import { loadCriteria, loadSettings as loadEvalSettings } from './eval-grid-store';
+import { loadRules as loadSelectionRules } from './selection-store';
 import type { Call } from './types';
 
 /**
@@ -68,6 +69,8 @@ export async function buildCallState(admin: SupabaseClient, call: Call, promoter
     eligibilityRules: rules.length,
     // The evaluation grid's step state (Prompt 922): how many criteria are in force.
     evalCriteria: criteria.length,
+    // Prompt 925: the step "Selection rules" is ✓ once rules exist (their version).
+    selectionRules: (await loadSelectionRules(admin, synced.id)).version,
     branding: { ...branding, profileLogoUrl },
     summary: summarise(phases, fields),
     // Prompt 907: the entity sees what was SUBMITTED and a total (the delete rule needs "has anyone applied?"), never how many are still being

@@ -474,6 +474,10 @@ A lista aparece em blocos, por esta ordem, e cada bloco ordenado por nota:
 - O administrador pode mover candidaturas entre blocos, sempre com justificação registada.
 - A seriação de uma fase intermédia serve para decidir quem passa à fase seguinte; a da última fase serve para a decisão final.
 
+### 11.5. Como ficou (Prompt 925, 03/11/2026 — vale sobre o que está acima)
+
+A seriação é uma **proposta** (Advance / Waitlist / Reject, explicada candidatura a candidatura) calculada por um módulo puro (`src/lib/calls/selection.ts`) a partir das regras do passo **Setup → «Selection rules»** (mínimos na unidade da call, vagas, orçamento, cotas sobre respostas fechadas, lista de espera, desempate em cadeia), e aplicada por quem tem «Final decision» no quadro de avaliação («Apply proposal», decisões com origem `proposal`; mudar uma exige justificação). A ordem do cálculo: Fit e avaliadas → mínimos → ordenar por nota com desempate → lugares mínimos das cotas → vagas restantes (máximos das cotas e orçamento) → Waitlist → Reject. Nesta versão há **um conjunto de regras por call** (não por fase) e a proposta é uma lista com a frase de cada candidatura, não blocos coloridos.
+
 ## 12. Evaluation — grelha e avaliação humana
 
 ### 12.1. Modalidades (por fase)

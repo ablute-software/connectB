@@ -52,6 +52,7 @@ export interface CallState {
   teamMembers?: number;
   eligibilityRules?: number;
   evalCriteria?: number;
+  selectionRules?: number;
   /** Prompt 918 (Adenda 1, C): the cover and logo the page will show, where the logo comes from, and the entity's own profile logo (if any). */
   branding?: { coverUrl: string | null; logoUrl: string | null; logoSource: 'call' | 'profile' | null; profileLogoUrl: string | null };
   summary: CallSummary;
@@ -143,6 +144,11 @@ export const callsApi = {
   reopenEvaluation: (id: string, applicationId: string, evaluatorUserId: string, reason: string) => call<object>(`/api/calls/${id}/evaluations/${applicationId}/reopen`, send('POST', { evaluatorUserId, reason })),
   declareConflict: (id: string, applicationId: string, note: string) => call<object>(`/api/calls/${id}/evaluations/${applicationId}/conflict`, send('POST', { note })),
   /** Prompt 922 (I4): the board of the evaluation (ranking, flags, decisions) and what an administrator does on it. */
+  /** Prompt 925: the selection — its rules (Setup) and its proposal (the evaluation board). */
+  getSelectionRules: (id: string) => call<Record<string, unknown>>(`/api/calls/${id}/selection`),
+  putSelectionRules: (id: string, baseVersion: number, rules: unknown) => call<{ version: number }>(`/api/calls/${id}/selection`, send('PUT', { baseVersion, rules })),
+  selectionRun: (id: string) => call<Record<string, unknown>>(`/api/calls/${id}/selection/run`),
+  selectionAct: (id: string, body: { action: 'propose' } | { action: 'apply'; runId: string } | { action: 'ties'; order: string[] }) => call<Record<string, unknown>>(`/api/calls/${id}/selection/run`, send('POST', body)),
   evaluationBoard: (id: string) => call<Board & { canDecide: boolean }>(`/api/calls/${id}/evaluation-board`),
   evaluationBoardAct: (id: string, body: { action: 'decide'; applicationId: string; decision: string | null; note?: string } | { action: 'close' } | { action: 'reopen' }) => call<Board & { canDecide: boolean }>(`/api/calls/${id}/evaluation-board`, send('POST', body)),
   myEvaluations: () => call<{ calls: MineCall[]; remaining: number }>('/api/calls/my-evaluations'),

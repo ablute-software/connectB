@@ -17,7 +17,7 @@ export interface BoardInput {
   criteriaByVersion: Record<number, Criterion[]>; currentVersion: number; divergence: GridSettings['divergence'];
   /** Adenda 3: how the criteria are combined (the total of the divergence is worked out the same way). Missing = weighted. */
   scoring?: Scoring;
-  decisions: Record<string, { decision: Decision; note: string | null }>;
+  decisions: Record<string, { decision: Decision; note: string | null; origin?: 'proposal' | 'manual' }>;
 }
 
 export interface DivergenceFlag { criterionId: string | null; name: string; range: number; limit: number; kind: 'criterion' | 'total' }
@@ -33,7 +33,7 @@ export interface BoardRow {
   /** The criteria of the grid in force that scored themselves, and where an evaluator changed the automatic point (the value beside the new one). */
   autoCriteria: string[];
   overrides: { criterionId: string; name: string; auto: number; chosen: number; evaluators: number }[];
-  decision: { decision: Decision; note: string | null } | null;
+  decision: { decision: Decision; note: string | null; /** Prompt 925: where it came from — "Apply proposal" or a person. */ origin?: 'proposal' | 'manual' } | null;
 }
 export interface BoardProgress { applications: number; assigned: number; started: number; submitted: number; complete: number; unassigned: number; decided: number }
 
@@ -138,7 +138,10 @@ export function scoreNumber(percent: number | null, criteria: Pick<Criterion, 's
 }
 const averageHeader = (criteria: Pick<Criterion, 'scaleMin' | 'scaleMax'>[], scoring: Scoring): string => (scoring.mode === 'equal' && scoring.aggregation === 'sum' ? 'Average score (points)' : scoring.mode === 'equal' && sameScale(criteria) ? 'Average score (scale)' : 'Average grade (%)');
 
-export function boardTable(rows: BoardRow[], criteria: (Pick<Criterion, 'id' | 'name'> & Partial<Pick<Criterion, 'scaleMin' | 'scaleMax'>>)[], scoring: Scoring = WEIGHTED_SCORING): { header: string[]; body: (string | number)[][] } {
+/** Prompt 925: what the latest selection proposal says about each application, for the exports (the proposal, its explanation and where the decision came from). */
+export type SelectionColumns = Map<string, { proposal: string; explanation: string; rank: number | null; origin: string | null }>;
+
+export function boardTable(rows: BoardRow[], criteria: (Pick<Criterion, 'id' | 'name'> & Partial<Pick<Criterion, 'scaleMin' | 'scaleMax'>>)[], scoring: Scoring = WEIGHTED_SCORING, selection?: SelectionColumns): { header: string[]; body: (string | number)[][] } {
   const scales = (criteria as Pick<Criterion, 'scaleMin' | 'scaleMax'>[]).filter((c) => typeof c.scaleMin === 'number' && typeof c.scaleMax === 'number');
   const header = ['Rank', 'Reference', 'Startup', 'Evaluations submitted', 'Evaluations expected', averageHeader(scales, scoring), 'Deviation', ...criteria.map((c) => `${c.name} (average score)`), 'Divergence', 'Below minimum', 'Grid version', 'Decision', 'Decision note'];
   const body = rows.map((r) => [
@@ -148,9 +151,13 @@ export function boardTable(rows: BoardRow[], criteria: (Pick<Criterion, 'id' | '
     r.below.map((b) => `${b.name} (${b.evaluators} evaluator${b.evaluators === 1 ? '' : 's'} below ${b.min})`).join('; '),
     r.gridVersions.join(', '), r.decision ? DECISION_LABEL[r.decision.decision] : '', r.decision?.note ?? '',
   ]);
+  if (selection && selection.size > 0) {
+    header.push('Selection place', 'Proposal', 'Explanation of the proposal', 'Decision origin');
+    body.forEach((line, i) => { const s = selection.get(rows[i].applicationId); line.push(s?.rank ?? '', s?.proposal ? DECISION_LABEL[s.proposal as Decision] : '', s?.explanation ?? '', rows[i].decision ? (rows[i].decision!.origin === 'proposal' ? 'Proposal' : 'Manual') : ''); });
+  }
   return { header, body };
 }
-export function boardCsv(rows: BoardRow[], criteria: (Pick<Criterion, 'id' | 'name'> & Partial<Pick<Criterion, 'scaleMin' | 'scaleMax'>>)[], scoring: Scoring = WEIGHTED_SCORING): string {
-  const { header, body } = boardTable(rows, criteria, scoring);
+export function boardCsv(rows: BoardRow[], criteria: (Pick<Criterion, 'id' | 'name'> & Partial<Pick<Criterion, 'scaleMin' | 'scaleMax'>>)[], scoring: Scoring = WEIGHTED_SCORING, selection?: SelectionColumns): string {
+  const { header, body } = boardTable(rows, criteria, scoring, selection);
   return `﻿${[header, ...body].map((line) => line.map(csvCell).join(';')).join('\r\n')}\r\n`;                 // BOM + semicolons: opens correctly in Excel in a Portuguese locale
 }

@@ -8,6 +8,7 @@ import { scoringOf, type Criterion, type Scoring } from './eval-grid';
 import { loadCriteria, loadSettings } from './eval-grid-store';
 import { loadAssignments, loadFitApplications } from './eval-assign-store';
 import { decisionLock } from './results-store';
+import { appliedProposalFor } from './selection-store';
 import type { Call } from './types';
 
 type Row = Record<string, unknown>;
@@ -21,7 +22,7 @@ export async function loadBoard(admin: SupabaseClient, call: Call): Promise<Boar
   const [fit, assignments, settings, evRes, decRes] = await Promise.all([
     loadFitApplications(admin, call.id), loadAssignments(admin, call.id), loadSettings(admin, call.id),
     admin.from('call_evaluations').select('id, application_id, evaluator_user_id, status, grid_version, grade_percent').eq('call_id', call.id),
-    admin.from('call_eval_decisions').select('application_id, decision, note').eq('call_id', call.id).eq('is_current', true),
+    admin.from('call_eval_decisions').select('application_id, decision, note, origin').eq('call_id', call.id).eq('is_current', true),
   ]);
   const evRows = (evRes.data ?? []) as Row[];
   const { data: scoreRows } = evRows.length ? await admin.from('call_eval_scores').select('evaluation_id, criterion_id, score, source, auto_value').in('evaluation_id', evRows.map((e) => e.id as string)) : { data: [] };
@@ -51,7 +52,7 @@ export async function loadBoard(admin: SupabaseClient, call: Call): Promise<Boar
   const criteriaByVersion: Record<number, Criterion[]> = {};
   for (const v of versions) criteriaByVersion[v] = await loadCriteria(admin, call.id, v);
   const decisions: BoardInput['decisions'] = {};
-  for (const d of (decRes.data ?? []) as Row[]) decisions[d.application_id as string] = { decision: d.decision as Decision, note: (d.note as string | null) ?? null };
+  for (const d of (decRes.data ?? []) as Row[]) decisions[d.application_id as string] = { decision: d.decision as Decision, note: (d.note as string | null) ?? null, origin: d.origin === 'proposal' ? 'proposal' : 'manual' };
   const { rows, progress } = computeBoard({ apps, evaluations, assignments: assignments.map((a) => ({ applicationId: a.applicationId, userId: a.userId })), criteriaByVersion, currentVersion: version, divergence: settings.divergence, decisions, scoring: scoringOf(settings) });
   return { rows, progress, criteria: criteriaByVersion[version] ?? [], version, closed: !!call.evaluationClosedAt, closedAt: call.evaluationClosedAt ?? null, scoring: scoringOf(settings) };
 }
@@ -67,13 +68,16 @@ export async function setDecision(admin: SupabaseClient, call: Call, application
   // Prompt 924 (I2): once the result of an application is published — or its phase is scheduled to be — its decision is fixed. Only an accepted contestation changes it (I3).
   const lock = await decisionLock(admin, call, applicationId);
   if (lock) return { ok: false, status: 409, error: lock };
-  const { data: cur } = await admin.from('call_eval_decisions').select('id, decision, note').eq('application_id', applicationId).eq('is_current', true).maybeSingle();
+  const { data: cur } = await admin.from('call_eval_decisions').select('id, decision, note, origin').eq('application_id', applicationId).eq('is_current', true).maybeSingle();
   const prev = cur as Row | null;
   if (decision === null && !prev) return { ok: true };
-  if (prev && prev.decision === decision && ((prev.note as string | null) ?? '') === text) return { ok: true };
+  if (prev && prev.decision === decision && ((prev.note as string | null) ?? '') === text && prev.origin !== 'proposal') return { ok: true };
+  // Prompt 925: once a proposal was applied, changing what it says needs a reason (it is kept, with who changed it). Confirming the same decision by hand is allowed without one.
+  const proposed = await appliedProposalFor(admin, call.id, applicationId);
+  if (proposed && decision !== proposed && !text) return { ok: false, status: 400, error: 'Say why you are changing the proposal: a reason is needed.' };
   if (prev) await admin.from('call_eval_decisions').update({ is_current: false }).eq('id', prev.id as string);
   if (decision !== null) {
-    const ins = await admin.from('call_eval_decisions').insert({ call_id: call.id, application_id: applicationId, decision, note: text || null, decided_by: actor, is_current: true });
+    const ins = await admin.from('call_eval_decisions').insert({ call_id: call.id, application_id: applicationId, decision, note: text || null, decided_by: actor, is_current: true, origin: 'manual' });
     if (ins.error) return { ok: false, status: 500, error: 'The decision could not be saved. Please try again.' };
   }
   await admin.from('call_events').insert({ call_id: call.id, application_id: applicationId, event: 'eval_decision', actor_user_id: actor, detail: { before: prev ? { decision: prev.decision, note: prev.note ?? null } : null, after: decision === null ? null : { decision, note: text || null } } });

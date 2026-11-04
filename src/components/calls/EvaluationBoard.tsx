@@ -8,6 +8,7 @@ import type { Board } from '@/lib/calls/eval-board-store';
 import { WEIGHTED_SCORING, scoreText } from '@/lib/calls/eval-grid';
 import { callsApi } from './api';
 import { AutoTextarea } from './AutoTextarea';
+import { SelectionPanel } from './SelectionPanel';
 
 const BTN = 'min-h-[44px] rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 sm:min-h-0 sm:py-1 sm:text-xs';
 const PRIMARY = 'min-h-[44px] rounded-lg bg-[#0E7490] px-4 py-1.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40 sm:min-h-0';
@@ -46,6 +47,7 @@ export function EvaluationBoard({ callId, onOpen }: { callId: string; onOpen: (a
 
   return (
     <section className="min-w-0 space-y-4" aria-label="Evaluation board" data-testid="board">
+      <SelectionPanel callId={callId} onChanged={() => void load()} />
       <div className="min-w-0 rounded-lg border border-gray-200 bg-white p-4">
         <h3 className="text-sm font-semibold text-gray-900">How far the evaluation is</h3>
         <div className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-gray-100" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label="Evaluations submitted" data-testid="board-bar"><div className="h-full rounded-full bg-[#0E7490]" style={{ width: `${pct}%` }} /></div>

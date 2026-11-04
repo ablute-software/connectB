@@ -18,6 +18,7 @@ export const STEPS = [
   { key: 'eligibility', label: 'Eligibility rules' },
   { key: 'team', label: 'Team & distribution' },
   { key: 'grid', label: 'Evaluation grid' },
+  { key: 'selection', label: 'Selection rules' },
   { key: 'review', label: 'Review & publish' },
 ] as const;
 export type StepKey = (typeof STEPS)[number]['key'];
@@ -108,7 +109,7 @@ const notStarted = (): StepState => ({ kind: 'not_started', count: 0, icon: '○
 const attention = (n: number): StepState => ({ kind: 'attention', count: n, icon: '⚠', label: `${n} to fix` });
 const soon = (label: string): StepState => ({ kind: 'soon', count: 0, icon: '·', label });
 
-export interface StepContext { call: Pick<Call, 'name' | 'description' | 'opensAt' | 'closesAt' | 'status'>; phases: Pick<CallPhase, 'name' | 'startsOn' | 'endsOn'>[]; fields: Pick<FormField, 'id'>[]; eligibilityRules?: number; evalCriteria?: number; issues: ReadinessIssue[]; teamMembers: number }
+export interface StepContext { call: Pick<Call, 'name' | 'description' | 'opensAt' | 'closesAt' | 'status'>; phases: Pick<CallPhase, 'name' | 'startsOn' | 'endsOn'>[]; fields: Pick<FormField, 'id'>[]; eligibilityRules?: number; evalCriteria?: number; /** Prompt 925: the version of the selection rules (0 = none yet). */ selectionRules?: number; issues: ReadinessIssue[]; teamMembers: number }
 
 const untitled = (name: string) => name.trim() === '' || name.trim() === 'Untitled call';
 
@@ -143,6 +144,8 @@ export function stepStates(c: StepContext): Record<StepKey, StepState> {
     team: c.teamMembers > 1 ? complete() : notStarted(),
     // Prompt 922 (I1): optional like the eligibility rules — not started without criteria, ⚠ while the weights do not add up, ✓ once they do.
     grid: (() => { const n = issuesOf('grid').length; return n > 0 ? attention(n) : (c.evalCriteria ?? 0) > 0 ? complete() : notStarted(); })(),
+    // Prompt 925: optional like the grid and the eligibility rules — nothing is required to open a call; ✓ once rules were written.
+    selection: (c.selectionRules ?? 0) > 0 ? complete() : notStarted(),
     review,
   };
 }

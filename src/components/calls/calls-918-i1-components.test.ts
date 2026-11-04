@@ -50,12 +50,12 @@ describe('the steps of Setup', () => {
     expect(h).toContain('the step');
   });
 
-  it('wide screen: the list is on the side and sticks; narrower: one button — "Steps" on a tablet, "Step 3 of 7: Form" on a phone', () => {
+  it('wide screen: the list is on the side and sticks; narrower: one button — "Steps" on a tablet, "Step 3 of 8: Form" on a phone', () => {
     const h = html('form');
     expect(h).toMatch(/<nav[^>]*class="[^"]*hidden[^"]*lg:block[^"]*"[^>]*data-testid="steps-side"/);
     expect(h).toMatch(/lg:sticky/);
     expect(h).toMatch(/<div[^>]*class="[^"]*lg:hidden"[^>]*data-testid="steps-fold"/);
-    expect(h).toContain('Step 3 of 7: Form');
+    expect(h).toContain('Step 3 of 8: Form');
     expect(h).toMatch(/<span class="hidden md:inline">Steps<\/span>/);
     expect(h).toContain('aria-expanded="false"');
   });
