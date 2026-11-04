@@ -100,6 +100,9 @@ async function createInvoiceXpressReceipt(
   periodEnd: string | null,
 ): Promise<void> {
   if (!invoicexpressConfigured() || amountPaidCents <= 0) return;
+  const { data: existing } = await admin.from('billing_invoices')
+    .select('invoicexpress_document_id').eq('stripe_invoice_id', stripeInvoiceId).maybeSingle();
+  if (existing?.invoicexpress_document_id) return;
   const client = await orgFiscalDetails(admin, orgId);
   if (!client) return;
   const accountName = invoicexpressAccountName()!;
@@ -127,7 +130,7 @@ async function createInvoiceXpressReceipt(
       invoicexpress_permalink: result.document.permalink ?? null,
       invoicexpress_error: null,
     }).eq('stripe_invoice_id', stripeInvoiceId);
-  } else if (!result.duplicate) {
+  } else {
     console.error(`InvoiceXpress: could not create invoice-receipt for stripe invoice=${stripeInvoiceId}:`, result.error);
     await admin.from('billing_invoices').update({ invoicexpress_error: result.error ?? 'unknown error' }).eq('stripe_invoice_id', stripeInvoiceId);
   }
@@ -282,7 +285,7 @@ export async function POST(req: Request) {
           quantity: 1,
         }],
       });
-      if (!result.ok && !result.duplicate) {
+      if (!result.ok) {
         console.error(`InvoiceXpress: could not create credit note for charge=${refundEffect.chargeId}:`, result.error);
       }
     }

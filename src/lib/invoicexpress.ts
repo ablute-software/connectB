@@ -8,9 +8,9 @@
 // param (no Bearer/OAuth), base URL is per-account
 // (https://ACCOUNT.app.invoicexpress.com), and POST /invoice_receipts.json /
 // POST /credit_notes.json share the same {"invoice": {...}} body shape.
-// `proprietary_uid` makes creation idempotent -- a concurrent/replayed
-// request with the same uid 409s instead of creating a duplicate, which is
-// exactly the Stripe-webhook-replay case this is built for.
+// `proprietary_uid` makes creation idempotent -- a replayed request with the
+// same uid gets the original document back (201) instead of creating a
+// duplicate, which is exactly the Stripe-webhook-replay case this is built for.
 export interface FiscalDetails {
   /** Org/company display name -- always required by InvoiceXpress. */
   name: string;
@@ -82,7 +82,7 @@ export function buildDocumentPayload(opts: BuildDocumentOptions): { proprietary_
     })),
   };
   if (opts.observations) invoice.observations = opts.observations;
-  if (opts.ownerInvoiceId) invoice.owner_invoice_id = opts.ownerInvoiceId;
+  if (opts.ownerInvoiceId) invoice.owner_invoice_id = Number(opts.ownerInvoiceId); // an integer in the API
   return { proprietary_uid: opts.proprietaryUid, invoice };
 }
 
@@ -97,39 +97,60 @@ export interface InvoiceXpressDocument {
 export interface InvoiceXpressResult {
   ok: boolean;
   document?: InvoiceXpressDocument;
-  /** 409 -- the same proprietary_uid already created a document; not an
-   *  error, the caller should treat this the same as a fresh success and
-   *  just skip (it has no id to report back, so the caller keeps whatever
-   *  it already stored). */
-  duplicate?: boolean;
   error?: string;
 }
 
-async function postDocument(
-  accountName: string,
-  apiKey: string,
-  documentType: 'invoice_receipts' | 'credit_notes',
-  body: { proprietary_uid: string; invoice: Record<string, unknown> },
-): Promise<InvoiceXpressResult> {
-  const url = `https://${accountName}.app.invoicexpress.com/${documentType}.json?api_key=${encodeURIComponent(apiKey)}`;
+type DocumentType = 'invoice_receipts' | 'credit_notes';
+// The response's wrapper key is the singular of the path (docs.invoicexpress.com/v2,
+// "Response wrapper key"), never a fixed `invoice`. The REQUEST body of a create
+// or a change-state, on the other hand, is `invoice` for every type.
+const RESPONSE_KEY: Record<DocumentType, string> = { invoice_receipts: 'invoice_receipt', credit_notes: 'credit_note' };
+
+async function callApi(url: string, method: 'POST' | 'PUT', body: unknown, documentType: DocumentType): Promise<InvoiceXpressResult> {
   let res: Response;
   try {
     res = await fetch(url, {
-      method: 'POST',
+      method,
       headers: { 'Content-Type': 'application/json; charset=utf-8', Accept: 'application/json' },
       body: JSON.stringify(body),
     });
   } catch (e) {
     return { ok: false, error: `InvoiceXpress request failed: ${e instanceof Error ? e.message : String(e)}` };
   }
-  if (res.status === 409) return { ok: false, duplicate: true, error: 'Already created (duplicate proprietary_uid).' };
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     return { ok: false, error: `InvoiceXpress ${res.status}: ${text.slice(0, 300)}` };
   }
-  const json = await res.json().catch(() => null) as { invoice?: InvoiceXpressDocument } | null;
-  if (!json?.invoice) return { ok: false, error: 'InvoiceXpress: unexpected response shape.' };
-  return { ok: true, document: json.invoice };
+  const json = await res.json().catch(() => null) as Record<string, InvoiceXpressDocument> | null;
+  const document = json?.[RESPONSE_KEY[documentType]];
+  if (!document) return { ok: false, error: 'InvoiceXpress: unexpected response shape.' };
+  return { ok: true, document };
+}
+
+// A created document is a DRAFT: it has no fiscal number, no ATCUD and is not
+// communicated to the AT until it is finalized (docs: draft -> settled for an
+// invoice_receipt, draft -> final for a credit_note, both with state
+// "finalized"). So creating is two calls, and "ok" means both landed.
+//
+// Replays are safe at both steps: the same proprietary_uid answers 201 with
+// the ORIGINAL document (not a 409), and a document that is already past draft
+// is not finalized again (that would be a 422). A finalize that failed leaves
+// a draft in InvoiceXpress and ok:false here; the next replay finds that same
+// draft through the uid and finalizes it.
+async function postDocument(
+  accountName: string,
+  apiKey: string,
+  documentType: DocumentType,
+  body: { proprietary_uid: string; invoice: Record<string, unknown> },
+): Promise<InvoiceXpressResult> {
+  const base = `https://${accountName}.app.invoicexpress.com/${documentType}`;
+  const key = `api_key=${encodeURIComponent(apiKey)}`;
+  const created = await callApi(`${base}.json?${key}`, 'POST', body, documentType);
+  if (!created.ok || !created.document) return created;
+  if (created.document.status && created.document.status !== 'draft') return created;
+  const finalized = await callApi(`${base}/${created.document.id}/change-state.json?${key}`, 'PUT', { invoice: { state: 'finalized' } }, documentType);
+  if (!finalized.ok) return { ok: false, error: `Created draft ${created.document.id} but could not finalize it: ${finalized.error}` };
+  return finalized;
 }
 
 export function createInvoiceReceipt(accountName: string, apiKey: string, opts: BuildDocumentOptions) {

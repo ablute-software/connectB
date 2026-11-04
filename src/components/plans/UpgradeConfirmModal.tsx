@@ -79,7 +79,7 @@ export function UpgradeConfirmModal({
 
   async function handleConfirm() {
     if (!collectFiscalDetails) { onConfirm(); return; }
-    if (missingNif && !skipNif) { setFiscalErr('Indica o NIF, ou confirma que queres avançar sem ele.'); return; }
+    if (missingNif && !skipNif) { setFiscalErr('Enter the tax number, or confirm you want to continue without it.'); return; }
     setSavingFiscal(true);
     setFiscalErr('');
     try {
@@ -95,10 +95,10 @@ export function UpgradeConfirmModal({
         }),
       });
       const body = await res.json();
-      if (!body.ok) { setFiscalErr(body.error ?? 'Não foi possível guardar os dados de faturação.'); return; }
+      if (!body.ok) { setFiscalErr(body.error ?? 'Could not save the billing details.'); return; }
       onConfirm();
     } catch {
-      setFiscalErr('Não foi possível guardar os dados de faturação.');
+      setFiscalErr('Could not save the billing details.');
     } finally {
       setSavingFiscal(false);
     }
