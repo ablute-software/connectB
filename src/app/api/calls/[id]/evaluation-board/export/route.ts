@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server';
 import { authCall } from '@/lib/calls/access';
 import { boardCsv, boardTable, safeCell } from '@/lib/calls/eval-board';
 import { loadBoard } from '@/lib/calls/eval-board-store';
+import { exportColumns } from '@/lib/calls/selection-store';
 import { NOT_READY_BODY, evaluationReady } from '@/lib/calls/eval-grid-store';
 
 export const dynamic = 'force-dynamic';
@@ -18,10 +19,11 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   if (!(await evaluationReady(auth.admin))) return NextResponse.json(NOT_READY_BODY, { status: 503 });
   const format = new URL(req.url).searchParams.get('format') === 'xlsx' ? 'xlsx' : 'csv';
   const board = await loadBoard(auth.admin, auth.call);
+  const selection = await exportColumns(auth.admin, auth.call.id);                       // Prompt 925: the proposal and its explanation, when there is one
   await auth.admin.from('call_events').insert({ call_id: auth.call.id, application_id: null, event: 'eval_exported', actor_user_id: auth.userId, detail: { format, rows: board.rows.length } });
   const headers = { 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff' };
-  if (format === 'csv') return new Response(boardCsv(board.rows, board.criteria, board.scoring), { status: 200, headers: { ...headers, 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="${fileName(auth.call.name, 'csv')}"` } });
-  const { header, body } = boardTable(board.rows, board.criteria, board.scoring);
+  if (format === 'csv') return new Response(boardCsv(board.rows, board.criteria, board.scoring, selection), { status: 200, headers: { ...headers, 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="${fileName(auth.call.name, 'csv')}"` } });
+  const { header, body } = boardTable(board.rows, board.criteria, board.scoring, selection);
   const ws = XLSX.utils.aoa_to_sheet([header, ...body.map((r) => r.map((c) => (typeof c === 'string' ? safeCell(c) : c)))]);
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Evaluation');
   const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;

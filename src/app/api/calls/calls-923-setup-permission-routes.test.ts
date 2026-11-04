@@ -143,6 +143,7 @@ describe('every write route of a call asks for a permission before it does anyth
   const ROOT = path.join(process.cwd(), 'src/app/api/calls/[id]');
   const EXCEPTIONS: Record<string, string> = {
     'evaluation-board/route.ts#POST': 'decides, closes: "Final decision", checked inside',
+    'selection/run/route.ts#POST': 'proposes, applies and decides ties (Prompt 925): "Final decision", checked inside',
     'evaluations/[applicationId]/conflict/route.ts#POST': 'the evaluator declares a conflict: "Evaluate assigned applications", checked inside',
     'evaluations/[applicationId]/route.ts#PUT': 'the evaluator saves a draft: "Evaluate assigned applications", checked inside',
     'evaluations/[applicationId]/submit/route.ts#POST': 'the evaluator submits: "Evaluate assigned applications", checked inside',

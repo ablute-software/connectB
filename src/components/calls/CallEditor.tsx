@@ -19,6 +19,7 @@ import { PhasesTab, type PhaseDraft } from './PhasesTab';
 import { FormTab } from './FormTab';
 import { EligibilityStep } from './EligibilityStep';
 import { EvalGridStep } from './EvalGridStep';
+import { SelectionRulesStep } from './SelectionRulesStep';
 import { PreviewTab, type LifecycleAction } from './PreviewTab';
 import { SaveStatus, type SaveState } from './SaveStatus';
 import { StatusBadge } from './StatusBadge';
@@ -165,6 +166,7 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
 
   // How many rules / criteria a step holds: only a CHANGE is news. (A new state object on every report made the editor re-render, and a step that reloads on every render never settled.)
   const setRulesCount = useCallback((n: number) => setServer((s) => (s && s.eligibilityRules !== n ? { ...s, eligibilityRules: n } : s)), []);
+  const setSelectionVersion = useCallback((n: number) => setServer((s) => (s && s.selectionRules !== n ? { ...s, selectionRules: n } : s)), []);
   const setCriteriaCount = useCallback((n: number) => setServer((s) => (s && s.evalCriteria !== n ? { ...s, evalCriteria: n } : s)), []);
   const goTab = (main: MainTab) => {
     if (main === 'setup' && !server?.canManage) return;                // the tab is not shown to them; nothing else may open it either
@@ -312,7 +314,7 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
 
       {nav.main === 'setup' && server.canManage && (
         <SetupShell step={nav.step} onStep={(s) => goStep(s)}
-          states={stepStates({ call, phases: server.phases, fields, issues: server.issues, teamMembers: server.teamMembers ?? 0, eligibilityRules: server.eligibilityRules ?? 0, evalCriteria: server.evalCriteria ?? 0 })}>
+          states={stepStates({ call, phases: server.phases, fields, issues: server.issues, teamMembers: server.teamMembers ?? 0, eligibilityRules: server.eligibilityRules ?? 0, evalCriteria: server.evalCriteria ?? 0, selectionRules: server.selectionRules ?? 0 })}>
           {nav.step === 'general' && (
             <>
               <GeneralTab call={call} promoterName={server.promoterName} disabled={readOnly} presentationDisabled={!server.canManage || call.status === 'archived'} branding={server.branding}
@@ -334,6 +336,7 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
               <DistributionPanel callId={callId} canManage={server.canManage} />
             </div>
           )}
+          {nav.step === 'selection' && <SelectionRulesStep callId={callId} canManage={server.canManage} onVersion={setSelectionVersion} />}
           {nav.step === 'grid' && <EvalGridStep callId={callId} canManage={server.canManage} onCriteriaChanged={setCriteriaCount} />}
           {nav.step === 'review' && (
             <PreviewTab

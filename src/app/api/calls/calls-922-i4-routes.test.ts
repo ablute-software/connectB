@@ -127,7 +127,7 @@ describe('the final decision', () => {
   it('Advance, Reject or Waitlist with an optional note; the board shows it; changing it keeps the earlier one as history; the same decision again changes nothing; clearing removes it', async () => {
     const a = await act('decider', { action: 'decide', applicationId: A.a, decision: 'advance', note: 'Strong despite the divergence.' });
     expect(a.status, JSON.stringify(a.body)).toBe(200);
-    expect(a.body.rows.find((x: { reference: string }) => x.reference === 'REF-001').decision).toEqual({ decision: 'advance', note: 'Strong despite the divergence.' });
+    expect(a.body.rows.find((x: { reference: string }) => x.reference === 'REF-001').decision).toEqual({ decision: 'advance', note: 'Strong despite the divergence.', origin: 'manual' });
     expect(a.body.progress.decided).toBe(1);
     expect(events('eval_decision')).toHaveLength(1);
     await act('decider', { action: 'decide', applicationId: A.a, decision: 'advance', note: 'Strong despite the divergence.' });

@@ -6,9 +6,9 @@ import type { Call, CallPhase, FormField } from './types';
 import { newField } from './form-builder';
 
 describe('the structure', () => {
-  it('four tabs, in this order; seven steps, in this order', () => {
+  it('four tabs, in this order; eight steps, in this order', () => {
     expect(MAIN_TABS.map((t) => t.label)).toEqual(['Setup', 'Applications', 'Evaluation', 'Results']);
-    expect(STEPS.map((s) => s.label)).toEqual(['General', 'Phases', 'Form', 'Eligibility rules', 'Team & distribution', 'Evaluation grid', 'Review & publish']);
+    expect(STEPS.map((s) => s.label)).toEqual(['General', 'Phases', 'Form', 'Eligibility rules', 'Team & distribution', 'Evaluation grid', 'Selection rules', 'Review & publish']);
   });
   it('previous and next stop at the ends', () => {
     expect(neighbourStep('general', -1)).toBeNull();
