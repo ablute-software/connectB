@@ -194,7 +194,12 @@ export const POST = withoutViewer(async function POST(req: Request) {
   form.set('subscription_data[metadata][tier]', tier);
   form.set('subscription_data[metadata][period]', pd);
   const existingCustomer = org?.stripe_customer_id as string | undefined;
-  if (existingCustomer) form.set('customer', existingCustomer);
+  if (existingCustomer) {
+    form.set('customer', existingCustomer);
+    // Stripe refuses tax_id_collection and automatic_tax on an existing customer unless Checkout may save what it collects.
+    form.set('customer_update[name]', 'auto');
+    form.set('customer_update[address]', 'auto');
+  }
   else if (user.email) form.set('customer_email', user.email);
 
   const res = await fetch('https://api.stripe.com/v1/checkout/sessions', {

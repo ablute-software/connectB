@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   priceIdFor, tierForPriceId, planForSubscription, billingEffectFromEvent, invoiceEffectFromEvent,
-  parseStripeSigHeader,
+  parseStripeSigHeader, invoiceTaxFromObject, chargeRefundedEffectFromEvent,
   type StripePriceMap,
 } from './billing';
 
@@ -134,6 +134,7 @@ describe('invoiceEffectFromEvent (Prompt 874 — invoice mirror, founder side)',
       lastPaymentStatus: 'paid',
       taxAmountCents: 0,
       customerTaxExempt: 'none',
+      customerTaxId: null,
     });
   });
 
@@ -193,5 +194,30 @@ describe('parseStripeSigHeader', () => {
 
   it('tolerates other scheme keys (e.g. v0) and whitespace', () => {
     expect(parseStripeSigHeader('t=123, v1=sig, v0=other')).toEqual({ timestamp: '123', v1: ['sig'] });
+  });
+});
+
+describe('invoiceTaxFromObject and the refund effect (InvoiceXpress, 04/11/2026)', () => {
+  it('reads the tax on old and new API versions alike', () => {
+    expect(invoiceTaxFromObject({ tax: 1955 }).taxAmountCents).toBe(1955);
+    expect(invoiceTaxFromObject({ total: 10455, total_excluding_tax: 8500 }).taxAmountCents).toBe(1955);
+  });
+
+  it('a validated VAT id leaves customer_tax_exempt at none: the reason on the tax line decides', () => {
+    const r = invoiceTaxFromObject({ total: 8500, total_excluding_tax: 8500, customer_tax_exempt: 'none', total_taxes: [{ taxability_reason: 'reverse_charge' }], customer_tax_ids: [{ value: 'DE123' }] });
+    expect(r).toEqual({ taxAmountCents: 0, customerTaxExempt: 'reverse', customerTaxId: 'DE123' });
+  });
+
+  it('not_collecting is an export outside the EU, and stays unresolved inside it', () => {
+    const base = { total: 8500, total_excluding_tax: 8500, total_tax_amounts: [{ taxability_reason: 'not_collecting' }] };
+    expect(invoiceTaxFromObject({ ...base, customer_address: { country: 'US' } }).customerTaxExempt).toBe('exempt');
+    expect(invoiceTaxFromObject({ ...base, customer_address: { country: 'DE' } }).customerTaxExempt).toBe('none');
+  });
+
+  it('a second partial refund is only what it returned', () => {
+    const e = chargeRefundedEffectFromEvent({ type: 'charge.refunded', data: { object: { id: 'ch_1', amount_refunded: 3000, payment_intent: 'pi_1' }, previous_attributes: { amount_refunded: 1000 } } });
+    expect(e?.refundDeltaCents).toBe(2000);
+    expect(e?.amountRefundedCents).toBe(3000);
+    expect(e?.paymentIntentId).toBe('pi_1');
   });
 });

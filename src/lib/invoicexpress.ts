@@ -41,8 +41,12 @@ function ddmmyyyy(d: Date): string {
 }
 
 function clientPayload(client: FiscalDetails): Record<string, unknown> {
+  // No NIF is what the checkout step warned about: the document goes to
+  // Consumidor Final, not to a named company without a number. Name only, since
+  // InvoiceXpress keys clients by name and this one is shared by every such document.
+  if (!client.fiscalId) return { name: 'Consumidor final' };
   const out: Record<string, unknown> = { name: client.name };
-  if (client.fiscalId) out.fiscal_id = client.fiscalId;
+  out.fiscal_id = client.fiscalId;
   if (client.email) out.email = client.email;
   if (client.address) out.address = client.address;
   if (client.postalCode) out.postal_code = client.postalCode;
@@ -106,32 +110,32 @@ export function taxExemptionCodeFor(customerTaxExempt: 'none' | 'exempt' | 'reve
   return undefined;
 }
 
-// Splits a Stripe-charged gross amount into the InvoiceXpress-ready pieces:
-// the tax-EXCLUSIVE unit price (what the API's `unit_price` + `tax` fields
-// jointly express; InvoiceXpress itself adds the tax back on for display),
-// and which tax name (or exemption) to send for it. amountPaidCents/
-// taxAmountCents/customerTaxExempt come straight off the Stripe invoice
-// (billing.ts's InvoiceFields) -- this never assumes a fixed rate.
+// The rates this mirror may name. InvoiceXpress applies the account's DEFAULT
+// tax to a name it does not find, or to an item with no tax at all, without any
+// error: a 0% document would come out at 23% and the total would no longer be
+// what was charged. So every name sent must exist in the account (Configurações
+// > Impostos e AT > Taxas de IVA, IVA0 included), and a rate not listed here is
+// refused. Add a rate here once it exists there (another EU country under OSS).
+const SUPPORTED_IVA_PERCENT = new Set([23, 22, 16]);
+
+// Splits a Stripe-charged gross amount into the InvoiceXpress-ready pieces: the
+// tax-EXCLUSIVE unit price and the tax name. amountPaidCents/taxAmountCents/
+// customerTaxExempt come straight off the Stripe invoice (billing.ts's
+// invoiceTaxFromObject) -- this never assumes a fixed rate. Null means no
+// document can be issued truthfully (no tax and no stated reason, or a rate the
+// account does not have): the caller records that for a person to resolve. A
+// fiscal document missing is visible and fixable; a wrong one has to be annulled.
 export function netAmountAndTaxFor(
   amountPaidCents: number,
   taxAmountCents: number,
   customerTaxExempt: 'none' | 'exempt' | 'reverse',
-): { netAmount: number; taxName?: string } {
-  if (customerTaxExempt !== 'none') {
-    // Reverse-charge/export: the full charged amount IS the net amount --
-    // Stripe charged no tax on top of it in either case.
-    return { netAmount: amountPaidCents / 100 };
-  }
+): { netAmount: number; taxName: string } | null {
+  // Reverse-charge/export: the full charged amount IS the net amount.
+  if (customerTaxExempt !== 'none') return { netAmount: amountPaidCents / 100, taxName: 'IVA0' };
   const netCents = amountPaidCents - taxAmountCents;
-  if (netCents <= 0 || taxAmountCents <= 0) {
-    // No tax was charged but Stripe didn't mark the customer exempt either
-    // -- most likely Stripe Tax hasn't resolved a rate yet (e.g. address not
-    // collected). Don't guess a rate: fall back to the account's own default
-    // tax (tax name omitted), same as before this change, rather than
-    // issuing a document that's silently wrong either way.
-    return { netAmount: amountPaidCents / 100 };
-  }
+  if (netCents <= 0 || taxAmountCents <= 0) return null;
   const percent = Math.round((taxAmountCents / netCents) * 100);
+  if (!SUPPORTED_IVA_PERCENT.has(percent)) return null;
   return { netAmount: netCents / 100, taxName: invoiceXpressTaxNameForPercent(percent) };
 }
 

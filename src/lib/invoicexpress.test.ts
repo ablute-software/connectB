@@ -66,13 +66,19 @@ describe('IVA (Nuno, 04/11/2026): gross-to-net split and exemption codes', () =>
     expect(netAmountAndTaxFor(9280, 1280, 'none')).toEqual({ netAmount: 80, taxName: 'IVA16' });
   });
 
-  it('falls back to the account default (no taxName) when Stripe charged no tax and did not mark the customer exempt', () => {
-    expect(netAmountAndTaxFor(8500, 0, 'none')).toEqual({ netAmount: 85 });
+  it('refuses, rather than letting the account default apply, when no rate can be stated', () => {
+    expect(netAmountAndTaxFor(8500, 0, 'none')).toBeNull();
+    expect(netAmountAndTaxFor(10115, 1615, 'none')).toBeNull(); // 19%: a rate this account does not list
   });
 
-  it('an EU B2B reverse-charge or a non-EU export charge is already the net amount, with no tax on top', () => {
-    expect(netAmountAndTaxFor(8500, 0, 'reverse')).toEqual({ netAmount: 85 });
-    expect(netAmountAndTaxFor(8500, 0, 'exempt')).toEqual({ netAmount: 85 });
+  it('an EU B2B reverse-charge or a non-EU export names IVA0: with no tax name InvoiceXpress would add its default', () => {
+    expect(netAmountAndTaxFor(8500, 0, 'reverse')).toEqual({ netAmount: 85, taxName: 'IVA0' });
+    expect(netAmountAndTaxFor(8500, 0, 'exempt')).toEqual({ netAmount: 85, taxName: 'IVA0' });
+  });
+
+  it('with no NIF the client is Consumidor final, as the checkout step says', () => {
+    const b = buildDocumentPayload({ ...opts, client: { name: 'Acme', fiscalId: null, address: 'x' } });
+    expect(b.invoice.client).toEqual({ name: 'Consumidor final' });
   });
 
   it('picks the AT exemption code per Stripe\'s own classification, and none for a normally-taxed charge', () => {

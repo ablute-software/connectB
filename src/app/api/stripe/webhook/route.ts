@@ -13,7 +13,7 @@ import {
 } from '@/lib/stripe-env';
 import {
   billingEffectFromEvent, chargeRefundedEffectFromEvent, investorBillingEffectFromEvent,
-  invoiceEffectFromEvent, investorInvoiceEffectFromEvent, parseStripeSigHeader,
+  invoiceEffectFromEvent, investorInvoiceEffectFromEvent, invoiceTaxFromObject, parseStripeSigHeader,
 } from '@/lib/billing';
 import { applyPlanChangeSideEffects } from '@/lib/plan-sync';
 import { applyInvestorTierToFirm } from '@/lib/investor-plan-apply';
@@ -125,6 +125,7 @@ async function createInvoiceXpressReceipt(
   // for why this mirror never assumes a fixed rate.
   taxAmountCents: number,
   customerTaxExempt: 'none' | 'exempt' | 'reverse',
+  customerTaxId: string | null,
 ): Promise<void> {
   if (!invoicexpressConfigured() || amountPaidCents <= 0) return;
   const { data: existing } = await admin.from('billing_invoices')
@@ -132,13 +133,21 @@ async function createInvoiceXpressReceipt(
   if (existing?.invoicexpress_document_id) return;
   const client = await fiscalDetailsFor(admin, subject);
   if (!client) return;
+  if (!client.fiscalId && customerTaxId) client.fiscalId = customerTaxId;
   const accountName = invoicexpressAccountName()!;
   const apiKey = invoicexpressApiKey()!;
   const sequenceId = invoicexpressInvoiceReceiptSequenceId()!;
   const periodLabel = periodStart && periodEnd
     ? `${periodStart.slice(0, 10)} a ${periodEnd.slice(0, 10)}`
     : new Date().toISOString().slice(0, 10);
-  const { netAmount, taxName } = netAmountAndTaxFor(amountPaidCents, taxAmountCents, customerTaxExempt);
+  const split = netAmountAndTaxFor(amountPaidCents, taxAmountCents, customerTaxExempt);
+  if (!split) {
+    const reason = `No document issued: tax ${taxAmountCents} on ${amountPaidCents} cents has no rate this account can state. Issue it by hand.`;
+    console.error(`InvoiceXpress: stripe invoice=${stripeInvoiceId}: ${reason}`);
+    await admin.from('billing_invoices').update({ invoicexpress_error: reason }).eq('stripe_invoice_id', stripeInvoiceId);
+    return;
+  }
+  const { netAmount, taxName } = split;
   const result = await createInvoiceReceipt(accountName, apiKey, {
     date: new Date(),
     client,
@@ -237,7 +246,7 @@ export async function POST(req: Request) {
           await createInvoiceXpressReceipt(
             admin, { kind: 'investor_entity', id: catalogEntityId }, invoiceInvestorEffect.stripeInvoiceId,
             invoiceInvestorEffect.amountPaidCents, invoiceInvestorEffect.periodStart, invoiceInvestorEffect.periodEnd,
-            invoiceInvestorEffect.taxAmountCents, invoiceInvestorEffect.customerTaxExempt,
+            invoiceInvestorEffect.taxAmountCents, invoiceInvestorEffect.customerTaxExempt, invoiceInvestorEffect.customerTaxId,
           );
         }
       }
@@ -279,7 +288,7 @@ export async function POST(req: Request) {
           await createInvoiceXpressReceipt(
             admin, { kind: 'org', id: orgId }, invoiceOrgEffect.stripeInvoiceId, invoiceOrgEffect.amountPaidCents,
             invoiceOrgEffect.periodStart, invoiceOrgEffect.periodEnd,
-            invoiceOrgEffect.taxAmountCents, invoiceOrgEffect.customerTaxExempt,
+            invoiceOrgEffect.taxAmountCents, invoiceOrgEffect.customerTaxExempt, invoiceOrgEffect.customerTaxId,
           );
         }
       }
@@ -299,58 +308,74 @@ export async function POST(req: Request) {
   if (refundEffect && url && service) {
     const admin = createClient(url, service, { auth: { persistSession: false } });
     if (!invoicexpressConfigured()) return NextResponse.json({ received: true });
+    // Newer Stripe API versions took `invoice` off the Charge; the link is then
+    // the invoice_payments list, by payment intent. That endpoint only exists
+    // from basil on, hence the explicit version on this one request.
+    let refundInvoiceId = refundEffect.stripeInvoiceId;
+    const secret = stripeSecret();
+    if (!refundInvoiceId && refundEffect.paymentIntentId && secret) {
+      try {
+        const q = new URLSearchParams({ 'payment[type]': 'payment_intent', 'payment[payment_intent]': refundEffect.paymentIntentId, limit: '1' });
+        const r = await fetch(`https://api.stripe.com/v1/invoice_payments?${q}`, {
+          headers: { Authorization: `Bearer ${secret}`, 'Stripe-Version': '2025-03-31.basil' },
+        });
+        if (r.ok) {
+          const found = await r.json() as { data?: { invoice?: string }[] };
+          refundInvoiceId = found.data?.[0]?.invoice ?? null;
+        } else console.error(`Stripe refund webhook: invoice_payments lookup failed for charge=${refundEffect.chargeId} (status ${r.status})`);
+      } catch (e) {
+        console.error(`Stripe refund webhook: invoice_payments lookup failed for charge=${refundEffect.chargeId}:`, e instanceof Error ? e.message : String(e));
+      }
+    }
     const { data: invoiceRow } = await admin.from('billing_invoices')
       .select('org_id, catalog_entity_id, stripe_invoice_id, invoicexpress_document_id')
-      .eq('stripe_invoice_id', refundEffect.stripeInvoiceId ?? '__none__')
+      .eq('stripe_invoice_id', refundInvoiceId ?? '__none__')
       .maybeSingle();
     const refundSubject: FiscalSubject | null = invoiceRow?.org_id
       ? { kind: 'org', id: invoiceRow.org_id as string }
       : invoiceRow?.catalog_entity_id ? { kind: 'investor_entity', id: invoiceRow.catalog_entity_id as string } : null;
     if (!refundSubject || !invoiceRow?.invoicexpress_document_id) {
-      console.error(`Stripe refund webhook: no InvoiceXpress document on file for invoice=${refundEffect.stripeInvoiceId} (charge=${refundEffect.chargeId}) — cannot issue a Nota de Crédito automatically.`);
+      console.error(`Stripe refund webhook: no InvoiceXpress document on file for invoice=${refundInvoiceId} (charge=${refundEffect.chargeId}) — cannot issue a Nota de Crédito automatically.`);
       return NextResponse.json({ received: true });
     }
     const client = await fiscalDetailsFor(admin, refundSubject);
-    if (client && refundEffect.amountRefundedCents > 0) {
-      // IVA (Nuno, 04/11/2026): a credit note must carry the SAME rate/
-      // exemption as the invoice it credits -- not a fresh guess -- so this
-      // re-reads that original Stripe invoice's tax/customer_tax_exempt
-      // (the webhook event for a refund is a Charge, which carries neither)
-      // and applies the refund proportionally to it. Best-effort: if the
-      // read fails, fall back to the account's own default tax rather than
-      // blocking the credit note outright.
-      let taxAmountCents = 0;
+    if (client && refundEffect.refundDeltaCents > 0) {
+      // IVA (Nuno, 04/11/2026): a credit note must carry the SAME rate/exemption
+      // as the invoice it credits, so this re-reads that Stripe invoice (a refund
+      // event is a Charge, which carries neither) and applies this refund
+      // proportionally. If the read fails or the rate cannot be stated there is
+      // no note: recorded on the row, for a person, never a guess.
+      const refundDelta = refundEffect.refundDeltaCents;
+      let split: ReturnType<typeof netAmountAndTaxFor> = null;
       let customerTaxExempt: 'none' | 'exempt' | 'reverse' = 'none';
-      const secret = stripeSecret();
-      if (secret && refundEffect.stripeInvoiceId) {
-        try {
-          const invRes = await fetch(`https://api.stripe.com/v1/invoices/${refundEffect.stripeInvoiceId}`, {
-            headers: { Authorization: `Bearer ${secret}` },
-          });
-          if (invRes.ok) {
-            const inv = await invRes.json() as { tax?: number | null; amount_paid?: number; customer_tax_exempt?: string };
-            const originalTaxCents = typeof inv.tax === 'number' ? inv.tax : 0;
-            const originalGrossCents = typeof inv.amount_paid === 'number' ? inv.amount_paid : 0;
-            customerTaxExempt = inv.customer_tax_exempt === 'exempt' || inv.customer_tax_exempt === 'reverse'
-              ? inv.customer_tax_exempt : 'none';
-            // Proportional split: this refund is some fraction of the
-            // original invoice -- apply that same fraction of its tax.
-            taxAmountCents = originalGrossCents > 0
-              ? Math.round(originalTaxCents * (refundEffect.amountRefundedCents / originalGrossCents))
-              : 0;
-          } else {
-            console.error(`InvoiceXpress: could not read original Stripe invoice ${refundEffect.stripeInvoiceId} for refund tax treatment (status ${invRes.status}) -- falling back to the account's default tax.`);
-          }
-        } catch (e) {
-          console.error(`InvoiceXpress: error reading original Stripe invoice ${refundEffect.stripeInvoiceId} for refund tax treatment:`, e instanceof Error ? e.message : String(e));
+      try {
+        const invRes = await fetch(`https://api.stripe.com/v1/invoices/${refundInvoiceId}`, {
+          headers: { Authorization: `Bearer ${secret}` },
+        });
+        if (invRes.ok) {
+          const inv = await invRes.json() as Record<string, unknown>;
+          const tax = invoiceTaxFromObject(inv);
+          const gross = typeof inv.amount_paid === 'number' ? inv.amount_paid : 0;
+          customerTaxExempt = tax.customerTaxExempt;
+          if (!client.fiscalId && tax.customerTaxId) client.fiscalId = tax.customerTaxId;
+          split = netAmountAndTaxFor(refundDelta, gross > 0 ? Math.round(tax.taxAmountCents * (refundDelta / gross)) : 0, customerTaxExempt);
+        } else {
+          console.error(`InvoiceXpress: could not read Stripe invoice ${refundInvoiceId} for a refund (status ${invRes.status})`);
         }
+      } catch (e) {
+        console.error(`InvoiceXpress: error reading Stripe invoice ${refundInvoiceId} for a refund:`, e instanceof Error ? e.message : String(e));
       }
-      const { netAmount, taxName } = netAmountAndTaxFor(refundEffect.amountRefundedCents, taxAmountCents, customerTaxExempt);
+      if (!split) {
+        await admin.from('billing_invoices').update({ invoicexpress_error: `No credit note issued for charge ${refundEffect.chargeId}: the tax of the original could not be stated. Issue it by hand.` }).eq('stripe_invoice_id', refundInvoiceId as string);
+        return NextResponse.json({ received: true });
+      }
+      const { netAmount, taxName } = split;
       const result = await createCreditNote(invoicexpressAccountName()!, invoicexpressApiKey()!, {
         date: new Date(),
         client,
         sequenceId: invoicexpressCreditNoteSequenceId()!,
-        proprietaryUid: `stripe-refund-${refundEffect.chargeId}`,
+        // The cumulative makes each partial refund of a charge its own document, and a replay of one the same document.
+        proprietaryUid: `stripe-refund-${refundEffect.chargeId}-${refundEffect.amountRefundedCents}`,
         ownerInvoiceId: invoiceRow.invoicexpress_document_id as string,
         observations: `Sherlock Deal — reembolso (charge Stripe ${refundEffect.chargeId})`,
         taxExemptionCode: taxExemptionCodeFor(customerTaxExempt),
@@ -364,6 +389,7 @@ export async function POST(req: Request) {
       });
       if (!result.ok) {
         console.error(`InvoiceXpress: could not create credit note for charge=${refundEffect.chargeId}:`, result.error);
+        await admin.from('billing_invoices').update({ invoicexpress_error: result.error ?? 'unknown error' }).eq('stripe_invoice_id', refundInvoiceId as string);
       }
     }
     return NextResponse.json({ received: true });

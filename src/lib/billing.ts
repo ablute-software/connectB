@@ -69,7 +69,7 @@ export interface BillingEffect {
 
 interface StripeEventLike {
   type?: string;
-  data?: { object?: Record<string, unknown> };
+  data?: { object?: Record<string, unknown>; previous_attributes?: Record<string, unknown> };
 }
 
 export function billingEffectFromEvent(event: StripeEventLike, prices: StripePriceMap): BillingEffect | null {
@@ -200,6 +200,38 @@ interface InvoiceFields {
   // so and charge 0%, not just omit tax).
   taxAmountCents: number;
   customerTaxExempt: 'none' | 'exempt' | 'reverse';
+  /** The VAT id Checkout collected (tax_id_collection), when there is one. */
+  customerTaxId: string | null;
+}
+
+const EU_COUNTRIES = new Set(['AT', 'BE', 'BG', 'CY', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI', 'FR', 'GR', 'HR', 'HU', 'IE', 'IT', 'LT', 'LU', 'LV', 'MT', 'NL', 'PL', 'PT', 'RO', 'SE', 'SI', 'SK']);
+
+// What a Stripe invoice says about its tax, from whichever API version sent it.
+// `invoice.tax` and `total_tax_amounts` do not exist on the newest versions
+// (2025-03-31 "basil" replaced them with `total_taxes`), so the amount is
+// total - total_excluding_tax, present on old and new alike.
+//
+// `customer_tax_exempt` alone is not enough: it is a MANUAL setting on the
+// customer. With Stripe Tax a validated EU VAT id leaves it at 'none', charges
+// 0 and states the reason per tax line (`taxability_reason`), so that reason
+// decides here too. 'not_collecting' outside the EU is an export; inside the
+// EU it means a rate we are not registered for, which stays 'none' with no tax
+// and is refused downstream rather than guessed (netAmountAndTaxFor).
+export function invoiceTaxFromObject(obj: Record<string, unknown>): Pick<InvoiceFields, 'taxAmountCents' | 'customerTaxExempt' | 'customerTaxId'> {
+  const taxAmountCents = typeof obj.total === 'number' && typeof obj.total_excluding_tax === 'number'
+    ? obj.total - obj.total_excluding_tax
+    : typeof obj.tax === 'number' ? obj.tax : 0;
+  const lines = (Array.isArray(obj.total_taxes) ? obj.total_taxes : Array.isArray(obj.total_tax_amounts) ? obj.total_tax_amounts : []) as { taxability_reason?: string }[];
+  const reason = lines.find((l) => l?.taxability_reason)?.taxability_reason;
+  const country = (obj.customer_address as { country?: string } | null | undefined)?.country;
+  let customerTaxExempt: InvoiceFields['customerTaxExempt'] = obj.customer_tax_exempt === 'exempt' || obj.customer_tax_exempt === 'reverse' ? obj.customer_tax_exempt : 'none';
+  if (customerTaxExempt === 'none' && taxAmountCents === 0) {
+    if (reason === 'reverse_charge') customerTaxExempt = 'reverse';
+    else if (reason === 'customer_exempt' || reason === 'not_subject_to_tax') customerTaxExempt = 'exempt';
+    else if (reason === 'not_collecting' && country && !EU_COUNTRIES.has(country)) customerTaxExempt = 'exempt';
+  }
+  const taxIds = Array.isArray(obj.customer_tax_ids) ? obj.customer_tax_ids as { value?: string }[] : [];
+  return { taxAmountCents, customerTaxExempt, customerTaxId: taxIds.find((t) => t?.value)?.value ?? null };
 }
 
 // Shared by both sides — the invoice payload shape and field semantics are
@@ -229,10 +261,7 @@ function extractInvoiceFields(type: string | undefined, obj: Record<string, unkn
     hostedInvoiceUrl: typeof obj.hosted_invoice_url === 'string' ? obj.hosted_invoice_url : null,
     nextPaymentDueAt: lastPaymentStatus === 'paid' ? periodEndIso : null,
     lastPaymentStatus,
-    taxAmountCents: typeof obj.tax === 'number' ? obj.tax : 0,
-    customerTaxExempt: obj.customer_tax_exempt === 'exempt' || obj.customer_tax_exempt === 'reverse'
-      ? obj.customer_tax_exempt
-      : 'none',
+    ...invoiceTaxFromObject(obj),
   };
 }
 
@@ -284,7 +313,12 @@ export interface ChargeRefundedEffect {
   chargeId: string;
   stripeInvoiceId: string | null;
   stripeCustomerId: string | undefined;
+  /** Cumulative on the charge: Stripe's own `amount_refunded`. */
   amountRefundedCents: number;
+  /** What THIS refund returned: the cumulative minus what the event says it was before. */
+  refundDeltaCents: number;
+  /** For finding the invoice on API versions whose Charge has no `invoice`. */
+  paymentIntentId: string | null;
   currency: string;
   refunded: boolean;
 }
@@ -293,11 +327,15 @@ export function chargeRefundedEffectFromEvent(event: StripeEventLike): ChargeRef
   if (event.type !== 'charge.refunded') return null;
   const obj = (event.data?.object ?? {}) as Record<string, unknown>;
   if (typeof obj.id !== 'string') return null;
+  const amountRefundedCents = typeof obj.amount_refunded === 'number' ? obj.amount_refunded : 0;
+  const before = event.data?.previous_attributes?.amount_refunded;
   return {
     chargeId: obj.id,
     stripeInvoiceId: typeof obj.invoice === 'string' ? obj.invoice : null,
     stripeCustomerId: typeof obj.customer === 'string' ? obj.customer : undefined,
-    amountRefundedCents: typeof obj.amount_refunded === 'number' ? obj.amount_refunded : 0,
+    amountRefundedCents,
+    refundDeltaCents: amountRefundedCents - (typeof before === 'number' ? before : 0),
+    paymentIntentId: typeof obj.payment_intent === 'string' ? obj.payment_intent : null,
     currency: typeof obj.currency === 'string' ? obj.currency : 'eur',
     refunded: obj.refunded === true,
   };

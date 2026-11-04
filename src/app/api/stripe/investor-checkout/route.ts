@@ -98,7 +98,12 @@ export async function POST(req: Request) {
   form.set('subscription_data[metadata][catalog_entity_id]', firmId);
   form.set('subscription_data[metadata][tier]', tier);
   form.set('subscription_data[metadata][period]', pd);
-  if (existing?.stripe_customer_id) form.set('customer', existing.stripe_customer_id as string);
+  if (existing?.stripe_customer_id) {
+    form.set('customer', existing.stripe_customer_id as string);
+    // Mesma exigência do Stripe que do lado founder: tax_id_collection e automatic_tax num cliente existente.
+    form.set('customer_update[name]', 'auto');
+    form.set('customer_update[address]', 'auto');
+  }
   else if (user.email) form.set('customer_email', user.email);
 
   const res = await fetch('https://api.stripe.com/v1/checkout/sessions', {
