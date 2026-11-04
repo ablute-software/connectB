@@ -81,6 +81,8 @@ Sem `NEXT_PUBLIC_APP_URL` os links dos emails (convites, Stripe, "Open your work
 
 Sem as três variáveis, `invoicexpressConfigured()` fica falso e o webhook do Stripe nunca tenta criar documentos — fica tudo como está hoje (nenhuma fatura fiscal automática), sem quebrar nada.
 
+As mesmas três variáveis servem os dois lados. Fundador: NIF e morada em `orgs`. Investidor: em `investor_billing` (migração `20261104130000`), **nunca em `catalog_entities`**, que qualquer pessoa sem sessão consegue ler nas linhas verificadas (a mesma razão de `0287`). O documento fica em `billing_invoices` para os dois.
+
 ### 1.4 IA
 
 | Nome | Valor | Estado | Quem decidiu e quando | Fonte |
@@ -283,5 +285,7 @@ Supabase sobre SMTP, rate limits, OTP e template ficaram `feito` (confirmado pel
    e pôr as três variáveis em Vercel → connect-b → Settings → Environment Variables: `INVOICEXPRESS_ACCOUNT_NAME=exotictargetlda`,
    `INVOICEXPRESS_API_KEY=<a chave gerada>`, `INVOICEXPRESS_SEQUENCE_ID=<o id da série>`. Depois, redeploy. Também é preciso
    aplicar a migração `20261104120000_org_fiscal_details_and_ix_mirror.sql` (colunas de NIF/morada em `orgs` e de espelho
-   do InvoiceXpress em `billing_invoices`) antes do deploy, senão as rotas que as leem/escrevem falham.
+   do InvoiceXpress em `billing_invoices`) antes do deploy, senão as rotas que as leem/escrevem falham. Em produção estas colunas de `orgs` já existem (visto a 04/11/2026). Falta também aplicar
+   `20261104130000_investor_fiscal_details.sql` (NIF e morada da firma em `investor_billing`) antes de fazer merge. Por decidir antes de ligar as variáveis: o valor cobrado no Stripe é tratado como
+   líquido pelo InvoiceXpress (`unit_price` sem IVA), por isso a taxa aplicada pela conta soma-se ao valor do documento, que pode não bater com o que foi cobrado.
 8. ~~**Resend + Gmail — ligar `hello@sherlockdeal.com` como remetente**~~ — **feito pelo Nuno** (a, b e c a 21/10/2026; d, o envio, a 30/10/2026: «está configurado envia e recebe»). Passos seguidos (§3.1, linhas «Chave de API do Resend só para o Gmail» e «Gmail → … Enviar correio como»), por ordem: (a) enviar um email de outra caixa a `hello@sherlockdeal.com` e ver se chega à caixa de `sherlockdeal.com@gmail.com` (se não, falta a regra no Cloudflare → Email → Email Routing); (b) **Resend** (conta de `sherlockdeal.com@gmail.com`) → API Keys → Create API Key: Name `gmail-send-as2` (o `gmail-send-as` já existia), Permission **Sending access**, Domain **`sherlockdeal.com`**, e guardar o valor no gestor de palavras-passe; (c) **Gmail** → Contas e importação → «Adicionar outro endereço de email»: `hello@sherlockdeal.com`, servidor `smtp.resend.com`, porta **465**, utilizador **`resend`**, palavra-passe = a chave, opção **SSL**, «Tratar como um alias» marcada; (d) colar o código de confirmação e enviar um teste a uma caixa de fora (SPF, DKIM e DMARC = PASS em «Mostrar original»). As linhas de §3.1 passaram a `feito` (a autenticação, a 30/10/2026, pelo teste a `nunomarujo@gmail.com`); a chave de `support@` e de `nunomarujo@` é a `gmail-send-as` (provado a 30/10/2026 por um teste de envio de cada um); falta só `alexandrameira@`, que nunca foi testado (linha de `gmail-send-as`).

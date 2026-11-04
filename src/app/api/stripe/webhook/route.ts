@@ -65,15 +65,37 @@ async function resolveSubjectIdByCustomer(
   return row[idColumn] ?? null;
 }
 
-// Sherlock Deal -> InvoiceXpress (04/11/2026). Pulls the org's billing-detail
-// columns (migration 20261104120000) into the shape invoicexpress.ts wants.
-// `name` falls back to the org's display name when legal_name is unset -- an
-// org that never filled in the new fiscal-details step still gets a usable
-// document instead of a blank client name.
-async function orgFiscalDetails(admin: SupabaseClient, orgId: string): Promise<FiscalDetails | null> {
+// Who a fiscal document is issued to: the two sides of billing_invoices.kind.
+type FiscalSubject = { kind: 'org'; id: string } | { kind: 'investor_entity'; id: string };
+
+// Sherlock Deal -> InvoiceXpress (04/11/2026). Pulls the subject's billing-detail
+// columns (orgs: migration 20261104120000; firms: investor_billing, migration
+// 20261104130000) into the shape invoicexpress.ts wants. `name` falls back to
+// the org's display name when legal_name is unset -- an org that never filled in
+// the fiscal-details step still gets a usable document instead of a blank client
+// name. A firm's name is the catalogue's, and it may have no investor_billing
+// fiscal columns filled in at all (issued without a NIF, as on the founder side).
+async function fiscalDetailsFor(admin: SupabaseClient, subject: FiscalSubject): Promise<FiscalDetails | null> {
+  if (subject.kind === 'investor_entity') {
+    const [{ data: firm }, { data: billing }] = await Promise.all([
+      admin.from('catalog_entities').select('name').eq('id', subject.id).maybeSingle(),
+      admin.from('investor_billing')
+        .select('fiscal_id, billing_address, billing_postal_code, billing_city, billing_country')
+        .eq('catalog_entity_id', subject.id).maybeSingle(),
+    ]);
+    if (!firm) return null;
+    return {
+      name: (firm.name as string) || 'Sherlock Deal customer',
+      fiscalId: (billing?.fiscal_id as string | null) ?? null,
+      address: (billing?.billing_address as string | null) ?? null,
+      postalCode: (billing?.billing_postal_code as string | null) ?? null,
+      city: (billing?.billing_city as string | null) ?? null,
+      country: (billing?.billing_country as string | null) || 'PT',
+    };
+  }
   const { data } = await admin.from('orgs')
     .select('legal_name, name, fiscal_id, billing_address, billing_postal_code, billing_city, billing_country')
-    .eq('id', orgId).maybeSingle();
+    .eq('id', subject.id).maybeSingle();
   if (!data) return null;
   return {
     name: (data.legal_name as string | null) || (data.name as string) || 'Sherlock Deal customer',
@@ -93,7 +115,7 @@ async function orgFiscalDetails(admin: SupabaseClient, orgId: string): Promise<F
 // already has a document id is never re-submitted (checked by the caller).
 async function createInvoiceXpressReceipt(
   admin: SupabaseClient,
-  orgId: string,
+  subject: FiscalSubject,
   stripeInvoiceId: string,
   amountPaidCents: number,
   periodStart: string | null,
@@ -103,7 +125,7 @@ async function createInvoiceXpressReceipt(
   const { data: existing } = await admin.from('billing_invoices')
     .select('invoicexpress_document_id').eq('stripe_invoice_id', stripeInvoiceId).maybeSingle();
   if (existing?.invoicexpress_document_id) return;
-  const client = await orgFiscalDetails(admin, orgId);
+  const client = await fiscalDetailsFor(admin, subject);
   if (!client) return;
   const accountName = invoicexpressAccountName()!;
   const apiKey = invoicexpressApiKey()!;
@@ -202,6 +224,13 @@ export async function POST(req: Request) {
         if (invoiceInvestorEffect.nextPaymentDueAt) patch.next_payment_due_at = invoiceInvestorEffect.nextPaymentDueAt;
         const { error: colErr } = await admin.from('investor_billing').update(patch).eq('catalog_entity_id', catalogEntityId);
         if (colErr) console.error('Stripe invoice webhook: investor_billing denorm update failed:', colErr.message);
+
+        if (invoiceInvestorEffect.lastPaymentStatus === 'paid') {
+          await createInvoiceXpressReceipt(
+            admin, { kind: 'investor_entity', id: catalogEntityId }, invoiceInvestorEffect.stripeInvoiceId,
+            invoiceInvestorEffect.amountPaidCents, invoiceInvestorEffect.periodStart, invoiceInvestorEffect.periodEnd,
+          );
+        }
       }
     }
 
@@ -239,7 +268,7 @@ export async function POST(req: Request) {
 
         if (invoiceOrgEffect.lastPaymentStatus === 'paid') {
           await createInvoiceXpressReceipt(
-            admin, orgId, invoiceOrgEffect.stripeInvoiceId, invoiceOrgEffect.amountPaidCents,
+            admin, { kind: 'org', id: orgId }, invoiceOrgEffect.stripeInvoiceId, invoiceOrgEffect.amountPaidCents,
             invoiceOrgEffect.periodStart, invoiceOrgEffect.periodEnd,
           );
         }
@@ -251,25 +280,27 @@ export async function POST(req: Request) {
 
   // Sherlock Deal -> InvoiceXpress: a refund on a charge becomes a Nota de
   // Crédito against whichever InvoiceXpress document the invoice mirror
-  // above already created for that charge's invoice. A charge carries no
-  // org_id of its own, so the org is resolved the same two ways the invoice
-  // mirror above uses: metadata is never on a charge, so this is really just
-  // the stripe_customer_id fallback, via the billing_invoices row the
-  // invoice.paid handler already wrote (which is also where the
-  // invoicexpress_document_id to credit comes from).
+  // above already created for that charge's invoice. A charge carries neither
+  // org_id nor catalog_entity_id of its own, so the subject comes from the
+  // billing_invoices row the invoice.paid handler already wrote: exactly one of
+  // the two is set on it (the table's own check constraint), and it is also
+  // where the invoicexpress_document_id to credit comes from.
   const refundEffect = chargeRefundedEffectFromEvent(event as Record<string, unknown>);
   if (refundEffect && url && service) {
     const admin = createClient(url, service, { auth: { persistSession: false } });
     if (!invoicexpressConfigured()) return NextResponse.json({ received: true });
     const { data: invoiceRow } = await admin.from('billing_invoices')
-      .select('org_id, stripe_invoice_id, invoicexpress_document_id')
+      .select('org_id, catalog_entity_id, stripe_invoice_id, invoicexpress_document_id')
       .eq('stripe_invoice_id', refundEffect.stripeInvoiceId ?? '__none__')
       .maybeSingle();
-    if (!invoiceRow?.org_id || !invoiceRow.invoicexpress_document_id) {
+    const refundSubject: FiscalSubject | null = invoiceRow?.org_id
+      ? { kind: 'org', id: invoiceRow.org_id as string }
+      : invoiceRow?.catalog_entity_id ? { kind: 'investor_entity', id: invoiceRow.catalog_entity_id as string } : null;
+    if (!refundSubject || !invoiceRow?.invoicexpress_document_id) {
       console.error(`Stripe refund webhook: no InvoiceXpress document on file for invoice=${refundEffect.stripeInvoiceId} (charge=${refundEffect.chargeId}) — cannot issue a Nota de Crédito automatically.`);
       return NextResponse.json({ received: true });
     }
-    const client = await orgFiscalDetails(admin, invoiceRow.org_id as string);
+    const client = await fiscalDetailsFor(admin, refundSubject);
     if (client && refundEffect.amountRefundedCents > 0) {
       const result = await createCreditNote(invoicexpressAccountName()!, invoicexpressApiKey()!, {
         date: new Date(),

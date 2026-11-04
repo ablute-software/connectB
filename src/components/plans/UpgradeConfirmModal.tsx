@@ -9,7 +9,13 @@
 // will end up on the fiscal invoice InvoiceXpress issues once the payment
 // clears. A blank NIF is allowed, but only after the founder explicitly
 // acknowledges — "Consumidor Final" otherwise — never silently.
+//
+// The investor side uses the same step through `catalogEntityId`: the details
+// are then the firm's, not the org's (see /api/billing/fiscal-details). Portalled
+// because the investor workspace's own ancestors are not ours to rely on (the
+// project's rule for every full-viewport overlay).
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { PlanCardData } from './types';
 import { newItemsSince } from './types';
 
@@ -30,6 +36,7 @@ export function UpgradeConfirmModal({
   busy,
   confirmLabel,
   collectFiscalDetails,
+  catalogEntityId,
 }: {
   fromPlan: PlanCardData | undefined;
   toPlan: PlanCardData;
@@ -40,6 +47,8 @@ export function UpgradeConfirmModal({
   /** True on the real-checkout path only — the manual-request flow has no
    *  invoice to put a NIF on. */
   collectFiscalDetails?: boolean;
+  /** Investor checkout: whose fiscal details these are. Absent = the caller's org. */
+  catalogEntityId?: string;
 }) {
   const gained = [...newItemsSince(toPlan, fromPlan)];
 
@@ -52,7 +61,8 @@ export function UpgradeConfirmModal({
   useEffect(() => {
     if (!collectFiscalDetails) return;
     setLoadingFiscal(true);
-    fetch('/api/billing/fiscal-details', { cache: 'no-store' })
+    const query = catalogEntityId ? `?catalog_entity_id=${encodeURIComponent(catalogEntityId)}` : '';
+    fetch(`/api/billing/fiscal-details${query}`, { cache: 'no-store' })
       .then((r) => r.json())
       .then((body) => {
         if (body.ok) {
@@ -87,6 +97,7 @@ export function UpgradeConfirmModal({
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
+          ...(catalogEntityId ? { catalogEntityId } : {}),
           fiscalId: fiscal?.fiscalId ?? '',
           address: fiscal?.address ?? '',
           postalCode: fiscal?.postalCode ?? '',
@@ -106,7 +117,8 @@ export function UpgradeConfirmModal({
 
   const working = !!busy || savingFiscal;
 
-  return (
+  if (typeof document === 'undefined') return null;
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onCancel}>
       <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-2">
@@ -139,7 +151,7 @@ export function UpgradeConfirmModal({
           <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
             <p className="text-xs font-semibold text-gray-700">Billing/invoice details</p>
             <p className="mt-0.5 text-[11px] text-gray-500">
-              Used to issue your fiscal invoice. Pre-filled from your organisation — edit if needed.
+              Used to issue your fiscal invoice. Pre-filled from your {catalogEntityId ? 'firm' : 'organisation'} — edit if needed.
             </p>
             {loadingFiscal ? (
               <p className="mt-2 text-xs text-gray-400">Loading…</p>
@@ -182,6 +194,7 @@ export function UpgradeConfirmModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

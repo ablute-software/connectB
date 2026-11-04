@@ -21,9 +21,23 @@ import { INVESTOR_PLANS, INVESTOR_PLAN_FOOTNOTES, MATCHDEAL_TIER_TO_INVESTOR_PLA
 import { InvestorPlanGrid } from '@/components/investor-workspace/InvestorPlanGrid';
 import { SECURE_PAYMENT_COPY } from '@/lib/billing';
 import { RemovedFromFirmNotice } from './RemovedFromFirmNotice';
+import { UpgradeConfirmModal } from '@/components/plans/UpgradeConfirmModal';
+import type { PlanCardData } from '@/components/plans/types';
+import { priceFor } from '@/lib/investor-plan-pricing';
 
 interface Profile { plan_tier?: string | null; plan_tier_requested?: string | null }
-interface BillingState { configured: boolean; hasSubscription: boolean; blocked?: boolean; lastPaidTier?: string | null }
+// The one adapter from this side's plan rows to what the shared modal renders.
+// The enforcedBy here declares nothing: the modal only reads the text of each line.
+function investorPlanCard(p: typeof INVESTOR_PLANS[number], billing: 'monthly' | 'annual'): PlanCardData {
+  return {
+    id: p.tier, name: p.name,
+    priceLabel: `€${priceFor(p, billing)}/mo`,
+    priceSubLabel: billing === 'annual' ? `€${p.annualEur}/year` : 'billed monthly',
+    sections: p.bullets.map((title) => ({ title, enforcedBy: 'NOT_ENFORCED' as const, items: [] })),
+  };
+}
+
+interface BillingState { catalogEntityId?: string; configured: boolean; hasSubscription: boolean; blocked?: boolean; lastPaidTier?: string | null }
 
 export function InvestorPlansPanel() {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -36,6 +50,10 @@ export function InvestorPlansPanel() {
   // real annualEur/annualPerMonthEur values (all three confirmed by the
   // founder — Prompt 501 removed the last `annualPending` placeholders).
   const [billing, setBilling] = useState<'monthly' | 'annual'>('monthly');
+  // The plan waiting on the NIF/address step (InvoiceXpress, 04/11/2026): with
+  // billing on, "Choose" opens this step and only its confirmation opens Stripe,
+  // exactly as on the founder side.
+  const [confirmTier, setConfirmTier] = useState<InvestorPlanTier | null>(null);
   // Prompt 904 Part C (C5) — not linked to any firm. `removedFrom` names the one that took the seat away.
   const [unlinked, setUnlinked] = useState<{ removedFrom: string | null } | null>(null);
 
@@ -101,6 +119,7 @@ export function InvestorPlansPanel() {
       // entretanto). Aprende com a resposta em vez de insistir — o botão
       // passa a "Manage subscription" sem precisar de recarregar a página.
       if (body.hasSubscription) setBillingState((b) => ({ ...b, hasSubscription: true }));
+      setConfirmTier(null);
       setErr(body.error ?? 'Could not start checkout.');
     } finally { setBusy((b) => (b === tier ? null : b)); }
   }
@@ -116,7 +135,7 @@ export function InvestorPlansPanel() {
   }
 
   // O único sítio que decide entre os dois modos.
-  const choosePlan = (tier: InvestorPlanTier) => (billingState.configured ? checkout(tier) : requestTier(tier));
+  const choosePlan = (tier: InvestorPlanTier) => (billingState.configured ? setConfirmTier(tier) : requestTier(tier));
 
   const currentRow = INVESTOR_PLANS.find((p) => p.tier === current)!;
   // Prompt 506 — o último plano pago vem de investor_billing.plan_tier (não
@@ -215,6 +234,23 @@ export function InvestorPlansPanel() {
           )
         )}
       />
+
+      {confirmTier && (() => {
+        const to = INVESTOR_PLANS.find((p) => p.tier === confirmTier);
+        const from = INVESTOR_PLANS.find((p) => p.tier === current);
+        return to ? (
+          <UpgradeConfirmModal
+            fromPlan={from ? investorPlanCard(from, billing) : undefined}
+            toPlan={investorPlanCard(to, billing)}
+            busy={busy === confirmTier}
+            confirmLabel="Continue to secure payment"
+            collectFiscalDetails={!!billingState.catalogEntityId}
+            catalogEntityId={billingState.catalogEntityId}
+            onCancel={() => setConfirmTier(null)}
+            onConfirm={() => checkout(confirmTier)}
+          />
+        ) : null;
+      })()}
 
       {billingState.configured ? (
         <p className="text-[11px] text-gray-400">🔒 {SECURE_PAYMENT_COPY}. Cancel anytime.</p>

@@ -52,6 +52,7 @@ const ORG_MEMBERS_EXCEPTIONS: Record<string, string> = {
   'team/members': 'the roster IS the membership table; WHICH org it lists is resolveActingOrg\'s answer (read-only)',
   'team/members/[userId]': 'role changes / removals of a member — withoutViewer',
   'promo/redeem': 'billing of the caller\'s own org — withoutViewer',
+  'billing/fiscal-details': 'the NIF and address of the caller\'s own org, for a real fiscal document — withoutViewer',
   'promo/referrals': 'billing of the caller\'s own org — withoutViewer',
   'promo/status': 'billing of the caller\'s own org — withoutViewer',
   'stripe/checkout': 'billing of the caller\'s own org — withoutViewer',

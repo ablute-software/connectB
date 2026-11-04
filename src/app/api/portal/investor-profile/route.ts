@@ -152,6 +152,8 @@ export async function GET(req: Request) {
     linked: true, entityName: entity?.name ?? null, profile, completeness: completeness(profile ?? {}),
     billing: {
       configured: investorBillingConfigured(),
+      // The firm the fiscal-details step of the checkout reads and writes.
+      catalogEntityId: member.catalog_entity_id,
       hasSubscription: !!firmBilling?.stripe_subscription_id,
       blocked: firmAccess.blocked,
       lastPaidTier: firmAccess.lastPaidTier,
