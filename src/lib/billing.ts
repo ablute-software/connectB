@@ -187,6 +187,19 @@ interface InvoiceFields {
   /** Set only on invoice.paid; null on invoice.payment_failed (column stays untouched). */
   nextPaymentDueAt: string | null;
   lastPaymentStatus: 'paid' | 'failed';
+  // IVA/tax (Nuno, 04/11/2026) -- amountPaidCents is the GROSS amount actually
+  // charged (tax included, once Stripe Tax is on); these are what the
+  // InvoiceXpress mirror needs to issue a document with the real net amount
+  // and the real rate, instead of assuming amountPaidCents IS the net amount
+  // at a hardcoded 23%. Both are plain Invoice fields Stripe always returns
+  // (no `expand` needed) -- taxAmountCents is `invoice.tax` (null -> 0
+  // pre-Stripe-Tax or on an invoice with nothing taxable); customerTaxExempt
+  // is `invoice.customer_tax_exempt`, Stripe's own classification of why
+  // ('none' = taxed normally, 'exempt' = non-EU / export, 'reverse' = EU B2B
+  // reverse-charge -- the "autoliquidação" case, where the document must say
+  // so and charge 0%, not just omit tax).
+  taxAmountCents: number;
+  customerTaxExempt: 'none' | 'exempt' | 'reverse';
 }
 
 // Shared by both sides — the invoice payload shape and field semantics are
@@ -216,6 +229,10 @@ function extractInvoiceFields(type: string | undefined, obj: Record<string, unkn
     hostedInvoiceUrl: typeof obj.hosted_invoice_url === 'string' ? obj.hosted_invoice_url : null,
     nextPaymentDueAt: lastPaymentStatus === 'paid' ? periodEndIso : null,
     lastPaymentStatus,
+    taxAmountCents: typeof obj.tax === 'number' ? obj.tax : 0,
+    customerTaxExempt: obj.customer_tax_exempt === 'exempt' || obj.customer_tax_exempt === 'reverse'
+      ? obj.customer_tax_exempt
+      : 'none',
   };
 }
 

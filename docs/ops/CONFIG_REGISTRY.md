@@ -73,15 +73,20 @@ Sem `NEXT_PUBLIC_APP_URL` os links dos emails (convites, Stripe, "Open your work
 
 ### 1.3b Faturação fiscal (InvoiceXpress) — Prompt Sherlock Deal / InvoiceXpress, 04/11/2026
 
+Correção 04/11/2026: a InvoiceXpress não tem um id numérico único por série — cada série tem um id diferente por tipo de documento (`current_invoice_receipt_sequence_id`, `current_credit_note_sequence_id`, etc; ver `GET /sequences.json`). Por isso não existe uma única `INVOICEXPRESS_SEQUENCE_ID` — são duas variáveis, uma por tipo de documento usado aqui.
+
 | Nome | Valor | Estado | Quem decidiu e quando | Fonte |
 |---|---|---|---|---|
-| `INVOICEXPRESS_ACCOUNT_NAME` | `exotictargetlda` (subdomínio da conta `exotictargetlda.app.invoicexpress.com`) | pendente — falta pôr no Vercel | Nuno, 03–04/11/2026 (série SHLK26 criada e registada na AT) | `src/lib/invoicexpress-env.ts` |
-| `INVOICEXPRESS_API_KEY` | por gerar em `https://www.app.invoicexpress.com/users/api` | pendente | — | `src/lib/invoicexpress-env.ts` |
-| `INVOICEXPRESS_SEQUENCE_ID` | id numérico da série SHLK26 (InvoiceXpress → Configurações → Séries/ATCUD → SHLK26 → Personalizar Série → id na URL) | pendente | — | `src/lib/invoicexpress-env.ts` |
+| `INVOICEXPRESS_ACCOUNT_NAME` | `exotictargetlda` (subdomínio da conta `exotictargetlda.app.invoicexpress.com`) | feito — posto no Vercel (produção) | Nuno, 03–04/11/2026 (série SHLK26 criada e registada na AT); confirmado e aplicado por Claude, 04/11/2026 | `src/lib/invoicexpress-env.ts` |
+| `INVOICEXPRESS_API_KEY` | gerada em `Configurações → Dados e Integrações → API` na InvoiceXpress | pendente — só o Nuno pode colar esta no Vercel (é uma credencial) | — | `src/lib/invoicexpress-env.ts` |
+| `INVOICEXPRESS_INVOICE_RECEIPT_SEQUENCE_ID` | `6615696` (`current_invoice_receipt_sequence_id` da série SHLK26, id de série 6615694) | feito — posto no Vercel (produção) | Nuno confirmou SHLK26 serve fundador e investidor (WLNS26 é do projeto ablute_), 04/11/2026; valor lido da API e aplicado por Claude, 04/11/2026 | `src/lib/invoicexpress-env.ts` |
+| `INVOICEXPRESS_CREDIT_NOTE_SEQUENCE_ID` | `6615701` (`current_credit_note_sequence_id` da série SHLK26, id de série 6615694) | feito — posto no Vercel (produção) | idem | `src/lib/invoicexpress-env.ts` |
 
-Sem as três variáveis, `invoicexpressConfigured()` fica falso e o webhook do Stripe nunca tenta criar documentos — fica tudo como está hoje (nenhuma fatura fiscal automática), sem quebrar nada.
+Sem as quatro variáveis, `invoicexpressConfigured()` fica falso e o webhook do Stripe nunca tenta criar documentos — fica tudo como está hoje (nenhuma fatura fiscal automática), sem quebrar nada. Falta só a `INVOICEXPRESS_API_KEY` para a funcionalidade ligar.
 
-As mesmas três variáveis servem os dois lados. Fundador: NIF e morada em `orgs`. Investidor: em `investor_billing` (migração `20261104130000`), **nunca em `catalog_entities`**, que qualquer pessoa sem sessão consegue ler nas linhas verificadas (a mesma razão de `0287`). O documento fica em `billing_invoices` para os dois.
+As mesmas quatro variáveis servem os dois lados. Fundador: NIF e morada em `orgs`. Investidor: em `investor_billing` (migração `20261104130000`), **nunca em `catalog_entities`**, que qualquer pessoa sem sessão consegue ler nas linhas verificadas (a mesma razão de `0287`). O documento fica em `billing_invoices` para os dois.
+
+**IVA — decisão do Nuno, 04/11/2026 (estava por decidir, ver versão anterior deste registo):** os valores em €85/€149/etc. (`plans.ts`) são **sem IVA**, e a taxa certa depende de onde o cliente está (continente 23%, Açores 16%, Madeira 22%) e se é empresa ou particular (B2B na UE com NIF válido → autoliquidação 0%; B2C noutro país da UE → taxa desse país, regra OSS; fora da UE → isento). Em vez de calcular isto no código, liguei o **Stripe Tax** nos dois checkouts (`automatic_tax`, `tax_id_collection`, `billing_address_collection=required` em `src/app/api/stripe/checkout/route.ts` e `investor-checkout/route.ts`) — o Stripe calcula a taxa real pela morada (+ NIF da UE) recolhida no checkout, e o webhook (`billing.ts`, `invoicexpress.ts`) lê o valor e a taxa reais da fatura paga, em vez de assumir uma taxa fixa. **Falta confirmar com o contabilista** o código de isenção fiscal usado nas duas situações sem IVA (hoje M19 para exportação fora da UE, M40 para autoliquidação B2B na UE — ver o comentário em `taxExemptionCodeFor()` em `src/lib/invoicexpress.ts`) antes de ligar as variáveis em produção. Também por confirmar, antes de haver vendas fora de Portugal continental: as taxas de IVA (Açores 16%, Madeira 22%, ou a taxa de outro país da UE) têm de estar criadas em `Configurações → Impostos e AT → Taxas de IVA` na conta InvoiceXpress, com o nome `IVA<percentagem>` (ex. `IVA16`), senão o documento é recusado para esse cliente — isto não é um problema de código, é um passo de configuração na conta.
 
 ### 1.4 IA
 
@@ -280,12 +285,12 @@ Supabase sobre SMTP, rate limits, OTP e template ficaram `feito` (confirmado pel
    colá-la em Vercel → connect-b → Settings → Environment Variables → `PAGESPEED_API_KEY` (Production + Preview) e fazer redeploy. Só depois da migração
    `20261016140000_website_health.sql` estar aplicada (o cartão fica invisível até lá). Depois: correr a análise na ablute_ em produção e ver o resultado
    no Backoffice → Ficha do cliente → «Website health» (diz se a chave está posta).
-8. **InvoiceXpress + Vercel** (§1.3b, 04/11/2026): gerar a API key em `https://www.app.invoicexpress.com/users/api`
-   (conta `exotictargetlda`), encontrar o id da série SHLK26 (Séries/ATCUD → SHLK26 → Personalizar Série → id na URL),
-   e pôr as três variáveis em Vercel → connect-b → Settings → Environment Variables: `INVOICEXPRESS_ACCOUNT_NAME=exotictargetlda`,
-   `INVOICEXPRESS_API_KEY=<a chave gerada>`, `INVOICEXPRESS_SEQUENCE_ID=<o id da série>`. Depois, redeploy. Também é preciso
-   aplicar a migração `20261104120000_org_fiscal_details_and_ix_mirror.sql` (colunas de NIF/morada em `orgs` e de espelho
-   do InvoiceXpress em `billing_invoices`) antes do deploy, senão as rotas que as leem/escrevem falham. Em produção estas colunas de `orgs` já existem (visto a 04/11/2026). Falta também aplicar
-   `20261104130000_investor_fiscal_details.sql` (NIF e morada da firma em `investor_billing`) antes de fazer merge. Por decidir antes de ligar as variáveis: o valor cobrado no Stripe é tratado como
-   líquido pelo InvoiceXpress (`unit_price` sem IVA), por isso a taxa aplicada pela conta soma-se ao valor do documento, que pode não bater com o que foi cobrado.
+8. **InvoiceXpress + Vercel** (§1.3b, 04/11/2026) — **só falta isto:** ir a `Configurações → Dados e Integrações → API`
+   na InvoiceXpress (conta `exotictargetlda`), copiar a chave que já lá está (não é preciso gerar nada), e colá-la em
+   Vercel → connect-b → Settings → Environment Variables → `INVOICEXPRESS_API_KEY` (Production). As outras três variáveis
+   (`INVOICEXPRESS_ACCOUNT_NAME`, `INVOICEXPRESS_INVOICE_RECEIPT_SEQUENCE_ID`, `INVOICEXPRESS_CREDIT_NOTE_SEQUENCE_ID`) já
+   estão postas. Depois, redeploy. ~~As migrações `20261104120000_org_fiscal_details_and_ix_mirror.sql` e
+   `20261104130000_investor_fiscal_details.sql`~~ — **já aplicadas** (04/11/2026). Antes do redeploy, confirmar com o
+   contabilista o código de isenção fiscal (M19/M40, ver §1.3b) e, se já houver clientes fora de Portugal continental,
+   criar as taxas de IVA que faltarem na conta InvoiceXpress (Configurações → Impostos e AT → Taxas de IVA).
 8. ~~**Resend + Gmail — ligar `hello@sherlockdeal.com` como remetente**~~ — **feito pelo Nuno** (a, b e c a 21/10/2026; d, o envio, a 30/10/2026: «está configurado envia e recebe»). Passos seguidos (§3.1, linhas «Chave de API do Resend só para o Gmail» e «Gmail → … Enviar correio como»), por ordem: (a) enviar um email de outra caixa a `hello@sherlockdeal.com` e ver se chega à caixa de `sherlockdeal.com@gmail.com` (se não, falta a regra no Cloudflare → Email → Email Routing); (b) **Resend** (conta de `sherlockdeal.com@gmail.com`) → API Keys → Create API Key: Name `gmail-send-as2` (o `gmail-send-as` já existia), Permission **Sending access**, Domain **`sherlockdeal.com`**, e guardar o valor no gestor de palavras-passe; (c) **Gmail** → Contas e importação → «Adicionar outro endereço de email»: `hello@sherlockdeal.com`, servidor `smtp.resend.com`, porta **465**, utilizador **`resend`**, palavra-passe = a chave, opção **SSL**, «Tratar como um alias» marcada; (d) colar o código de confirmação e enviar um teste a uma caixa de fora (SPF, DKIM e DMARC = PASS em «Mostrar original»). As linhas de §3.1 passaram a `feito` (a autenticação, a 30/10/2026, pelo teste a `nunomarujo@gmail.com`); a chave de `support@` e de `nunomarujo@` é a `gmail-send-as` (provado a 30/10/2026 por um teste de envio de cada um); falta só `alexandrameira@`, que nunca foi testado (linha de `gmail-send-as`).

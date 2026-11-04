@@ -132,6 +132,8 @@ describe('invoiceEffectFromEvent (Prompt 874 — invoice mirror, founder side)',
       hostedInvoiceUrl: 'https://invoice.stripe.com/i/x',
       nextPaymentDueAt: new Date(1738368000 * 1000).toISOString(),
       lastPaymentStatus: 'paid',
+      taxAmountCents: 0,
+      customerTaxExempt: 'none',
     });
   });
 

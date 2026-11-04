@@ -62,6 +62,77 @@ export interface BuildDocumentOptions {
   observations?: string;
   /** Credit notes only -- the InvoiceXpress id of the invoice being credited. */
   ownerInvoiceId?: string;
+  /** Portuguese IVA exemption code (AT "Código de motivo de isenção" --
+   *  M01/M10/M19/M30.../M40... etc). Required by the AT whenever any item
+   *  on the document has no IVA (0%) -- export outside the EU, or EU B2B
+   *  reverse-charge. See taxExemptionCodeFor() below for which code this
+   *  mirror picks and why; the exact code should be confirmed against the
+   *  account's own AT setup before this goes live. */
+  taxExemptionCode?: string;
+}
+
+// IVA (Nuno, 04/11/2026): the €-tier prices are tax-EXCLUSIVE and Stripe Tax
+// (enabled in /api/stripe/checkout and /api/stripe/investor-checkout) works
+// out the real rate per customer; this picks the matching InvoiceXpress tax
+// NAME for a computed percentage. InvoiceXpress tax names are configured
+// per-account (Configurações > Impostos e AT > Taxas de IVA) -- "IVA23" is
+// only guaranteed to exist because the PT mainland rate is the default on
+// every account; a name for any other rate actually sold (Açores 16%,
+// Madeira 22%, or another EU country's OSS rate) must exist in THIS
+// account's tax list or InvoiceXpress will reject the document. This isn't
+// a code problem to fix here -- it's a one-time setup step (confirm/create
+// the needed rates under Taxas de IVA) before the feature can safely cover
+// customers outside PT mainland.
+export function invoiceXpressTaxNameForPercent(percent: number): string {
+  return `IVA${Math.round(percent)}`;
+}
+
+// The AT exemption code Portuguese accounts must send whenever a document
+// has 0% IVA. Stripe's `customer_tax_exempt` only tells us WHY Stripe
+// charged no tax, not which AT code that maps to -- these are the two cases
+// this mirror can reach (a subscription sold at 0%), picked as the closest
+// documented fit; **both need sign-off from Nuno's accountant before this
+// ever issues a real document**, exactly like the IVA/tax decision itself:
+//   - 'exempt' (Stripe: no EU nexus, e.g. a non-EU customer) -> M19 "Outras
+//     isenções", referencing export of services outside the EU (Artigo
+//     6.º, n.º 6 do CIVA, a contrario).
+//   - 'reverse' (Stripe: EU B2B reverse-charge, a validated foreign VAT id)
+//     -> M40, the general B2B reverse-charge code for a cross-border
+//     service; the M30-33/M41-43 family covers more specific cases
+//     (goods, specific services) this subscription doesn't need.
+export function taxExemptionCodeFor(customerTaxExempt: 'none' | 'exempt' | 'reverse'): string | undefined {
+  if (customerTaxExempt === 'exempt') return 'M19';
+  if (customerTaxExempt === 'reverse') return 'M40';
+  return undefined;
+}
+
+// Splits a Stripe-charged gross amount into the InvoiceXpress-ready pieces:
+// the tax-EXCLUSIVE unit price (what the API's `unit_price` + `tax` fields
+// jointly express; InvoiceXpress itself adds the tax back on for display),
+// and which tax name (or exemption) to send for it. amountPaidCents/
+// taxAmountCents/customerTaxExempt come straight off the Stripe invoice
+// (billing.ts's InvoiceFields) -- this never assumes a fixed rate.
+export function netAmountAndTaxFor(
+  amountPaidCents: number,
+  taxAmountCents: number,
+  customerTaxExempt: 'none' | 'exempt' | 'reverse',
+): { netAmount: number; taxName?: string } {
+  if (customerTaxExempt !== 'none') {
+    // Reverse-charge/export: the full charged amount IS the net amount --
+    // Stripe charged no tax on top of it in either case.
+    return { netAmount: amountPaidCents / 100 };
+  }
+  const netCents = amountPaidCents - taxAmountCents;
+  if (netCents <= 0 || taxAmountCents <= 0) {
+    // No tax was charged but Stripe didn't mark the customer exempt either
+    // -- most likely Stripe Tax hasn't resolved a rate yet (e.g. address not
+    // collected). Don't guess a rate: fall back to the account's own default
+    // tax (tax name omitted), same as before this change, rather than
+    // issuing a document that's silently wrong either way.
+    return { netAmount: amountPaidCents / 100 };
+  }
+  const percent = Math.round((taxAmountCents / netCents) * 100);
+  return { netAmount: netCents / 100, taxName: invoiceXpressTaxNameForPercent(percent) };
 }
 
 // Shared by both document types -- an invoice-receipt and a credit note send
@@ -83,6 +154,9 @@ export function buildDocumentPayload(opts: BuildDocumentOptions): { proprietary_
   };
   if (opts.observations) invoice.observations = opts.observations;
   if (opts.ownerInvoiceId) invoice.owner_invoice_id = Number(opts.ownerInvoiceId); // an integer in the API
+  // Required by the AT whenever any item above has no tax (0%) -- see
+  // taxExemptionCodeFor()'s comment for which code and why.
+  if (opts.taxExemptionCode) invoice.tax_exemption = opts.taxExemptionCode;
   return { proprietary_uid: opts.proprietaryUid, invoice };
 }
 

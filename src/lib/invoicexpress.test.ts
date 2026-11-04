@@ -1,6 +1,6 @@
 // The shapes below are the ones in docs.invoicexpress.com/v2 (read 04/11/2026): no live InvoiceXpress call has been made yet.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildDocumentPayload, createCreditNote, createInvoiceReceipt } from './invoicexpress';
+import { buildDocumentPayload, createCreditNote, createInvoiceReceipt, netAmountAndTaxFor, taxExemptionCodeFor, invoiceXpressTaxNameForPercent } from './invoicexpress';
 
 const opts = {
   date: new Date(2026, 10, 4), client: { name: 'Acme', fiscalId: '500000000' }, sequenceId: '42', proprietaryUid: 'stripe-invoice-in_1',
@@ -54,5 +54,35 @@ describe('InvoiceXpress documents', () => {
     expect(b.proprietary_uid).toBe('stripe-invoice-in_1');
     expect(b.invoice.sequence_id).toBe('42');
     expect(b.invoice.date).toBe('04/11/2026');
+  });
+});
+
+
+describe('IVA (Nuno, 04/11/2026): gross-to-net split and exemption codes', () => {
+  it('a normal (non-exempt) charge splits into the net amount and the matching IVA name', () => {
+    // 8000 net + 1840 tax (23% of 8000) = 9840 gross -> PT mainland rate.
+    expect(netAmountAndTaxFor(9840, 1840, 'none')).toEqual({ netAmount: 80, taxName: 'IVA23' });
+    // 8000 net + 1280 tax (16% of 8000) = 9280 gross -> Açores rate.
+    expect(netAmountAndTaxFor(9280, 1280, 'none')).toEqual({ netAmount: 80, taxName: 'IVA16' });
+  });
+
+  it('falls back to the account default (no taxName) when Stripe charged no tax and did not mark the customer exempt', () => {
+    expect(netAmountAndTaxFor(8500, 0, 'none')).toEqual({ netAmount: 85 });
+  });
+
+  it('an EU B2B reverse-charge or a non-EU export charge is already the net amount, with no tax on top', () => {
+    expect(netAmountAndTaxFor(8500, 0, 'reverse')).toEqual({ netAmount: 85 });
+    expect(netAmountAndTaxFor(8500, 0, 'exempt')).toEqual({ netAmount: 85 });
+  });
+
+  it('picks the AT exemption code per Stripe\'s own classification, and none for a normally-taxed charge', () => {
+    expect(taxExemptionCodeFor('none')).toBeUndefined();
+    expect(taxExemptionCodeFor('exempt')).toBe('M19');
+    expect(taxExemptionCodeFor('reverse')).toBe('M40');
+  });
+
+  it('names a tax by its rounded percentage', () => {
+    expect(invoiceXpressTaxNameForPercent(23)).toBe('IVA23');
+    expect(invoiceXpressTaxNameForPercent(22.6)).toBe('IVA23');
   });
 });

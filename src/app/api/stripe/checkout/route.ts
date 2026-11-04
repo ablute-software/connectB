@@ -4,9 +4,15 @@
 // request-to-back-office fallback. Raw fetch (no SDK). No card data ever
 // touches this code — Checkout collects it on Stripe's hosted page.
 //
-// IVA/tax: automatic_tax is intentionally NOT enabled — enabling Stripe Tax
-// (and how EU B2B reverse-charge / VAT IDs are handled) is a founder decision,
-// flagged in DECISIONS.md, not guessed here.
+// IVA/tax (decided by Nuno, 04/11/2026 -- was previously flagged in
+// DECISIONS.md as undecided, now resolved): the €-tier prices in plans.ts are
+// tax-EXCLUSIVE, and the correct rate depends on where the customer is (PT
+// mainland 23%, Açores 16%, Madeira 22%; EU B2B -> reverse charge 0%; EU B2C
+// -> the customer-country rate under the OSS digital-services rule; non-EU ->
+// exempt). That determination is NOT hand-coded here -- Stripe Tax computes
+// it from the billing address (+ VAT id for B2B) collected at Checkout, and
+// the webhook (billing.ts / invoicexpress.ts) reads the actual tax Stripe
+// charged off the paid invoice instead of assuming a flat rate.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
@@ -156,6 +162,12 @@ export const POST = withoutViewer(async function POST(req: Request) {
   form.set('mode', 'subscription');
   form.set('line_items[0][price]', priceId);
   form.set('line_items[0][quantity]', '1');
+  // Stripe Tax: compute the real VAT (or EU B2B reverse-charge / non-EU
+  // exemption) from the billing address + VAT id Checkout collects below --
+  // see the IVA/tax comment at the top of this file.
+  form.set('automatic_tax[enabled]', 'true');
+  form.set('tax_id_collection[enabled]', 'true');
+  form.set('billing_address_collection', 'required');
   if (couponId) {
     // Stripe rejects discounts[] and allow_promotion_codes on the same
     // request — when the app promo applies, it wins and the manual

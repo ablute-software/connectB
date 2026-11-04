@@ -7,9 +7,9 @@
 //      esta rota recusa e o painel mostra "Manage subscription" em vez de
 //      "Subscribe".
 //
-// Iguais ao founder por decisão explícita do prompt: automatic_tax fica
-// DESLIGADO (ligar o Stripe Tax e decidir o reverse-charge B2B da UE é uma
-// decisão do founder, registada em DECISIONS.md, não adivinhada aqui). Sem
+// Igual ao founder (decisão do Nuno, 04/11/2026): automatic_tax +
+// tax_id_collection + billing_address_collection ligados, pelo mesmo motivo
+// -- ver o comentário IVA/tax em src/app/api/stripe/checkout/route.ts. Sem
 // cupões: ensureStripeCoupon do lado founder depende de promo_redemptions,
 // que é uma tabela por ORG e não tem equivalente do lado investidor — não é
 // reuso directo, portanto fica de fora, como o prompt permite.
@@ -78,6 +78,9 @@ export async function POST(req: Request) {
   form.set('line_items[0][price]', priceId);
   form.set('line_items[0][quantity]', '1');
   form.set('allow_promotion_codes', 'true');
+  form.set('automatic_tax[enabled]', 'true');
+  form.set('tax_id_collection[enabled]', 'true');
+  form.set('billing_address_collection', 'required');
   // O workspace do investidor vive em /portal com a tab por query param
   // (portal/page.tsx lê ?tab=) — não há rota /portal/plans. Confirmado antes
   // de escrever isto; um success_url para uma rota inexistente mandaria o
