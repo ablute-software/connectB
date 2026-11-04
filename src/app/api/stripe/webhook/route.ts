@@ -12,12 +12,14 @@ import {
   stripeConfigured, stripePriceMap, stripeWebhookSecret,
 } from '@/lib/stripe-env';
 import {
-  billingEffectFromEvent, investorBillingEffectFromEvent, invoiceEffectFromEvent,
-  investorInvoiceEffectFromEvent, parseStripeSigHeader,
+  billingEffectFromEvent, chargeRefundedEffectFromEvent, investorBillingEffectFromEvent,
+  invoiceEffectFromEvent, investorInvoiceEffectFromEvent, parseStripeSigHeader,
 } from '@/lib/billing';
 import { applyPlanChangeSideEffects } from '@/lib/plan-sync';
 import { applyInvestorTierToFirm } from '@/lib/investor-plan-apply';
 import { INVESTOR_PLAN_TO_MATCHDEAL_TIER } from '@/lib/plans';
+import { invoicexpressAccountName, invoicexpressApiKey, invoicexpressConfigured, invoicexpressSequenceId } from '@/lib/invoicexpress-env';
+import { createCreditNote, createInvoiceReceipt, type FiscalDetails } from '@/lib/invoicexpress';
 import { accessStateForSubscription } from '@/lib/investor-billing-access';
 
 const TOLERANCE_SECONDS = 5 * 60;
@@ -61,6 +63,74 @@ async function resolveSubjectIdByCustomer(
   if (error || !data || data.length === 0) return null;
   const row = data[0] as Record<string, string>;
   return row[idColumn] ?? null;
+}
+
+// Sherlock Deal -> InvoiceXpress (04/11/2026). Pulls the org's billing-detail
+// columns (migration 20261104120000) into the shape invoicexpress.ts wants.
+// `name` falls back to the org's display name when legal_name is unset -- an
+// org that never filled in the new fiscal-details step still gets a usable
+// document instead of a blank client name.
+async function orgFiscalDetails(admin: SupabaseClient, orgId: string): Promise<FiscalDetails | null> {
+  const { data } = await admin.from('orgs')
+    .select('legal_name, name, fiscal_id, billing_address, billing_postal_code, billing_city, billing_country')
+    .eq('id', orgId).maybeSingle();
+  if (!data) return null;
+  return {
+    name: (data.legal_name as string | null) || (data.name as string) || 'Sherlock Deal customer',
+    fiscalId: data.fiscal_id as string | null,
+    address: data.billing_address as string | null,
+    postalCode: data.billing_postal_code as string | null,
+    city: data.billing_city as string | null,
+    country: (data.billing_country as string | null) || 'PT',
+  };
+}
+
+// Creates the Fatura-Recibo for a just-paid invoice, on the SHLK26 series,
+// and stamps the result (or the error) onto its billing_invoices row so a
+// replayed invoice.paid never creates a second document -- the
+// proprietary_uid below is the belt, this stamped id is the braces: even if
+// InvoiceXpress's own idempotency check were ever bypassed, a row that
+// already has a document id is never re-submitted (checked by the caller).
+async function createInvoiceXpressReceipt(
+  admin: SupabaseClient,
+  orgId: string,
+  stripeInvoiceId: string,
+  amountPaidCents: number,
+  periodStart: string | null,
+  periodEnd: string | null,
+): Promise<void> {
+  if (!invoicexpressConfigured() || amountPaidCents <= 0) return;
+  const client = await orgFiscalDetails(admin, orgId);
+  if (!client) return;
+  const accountName = invoicexpressAccountName()!;
+  const apiKey = invoicexpressApiKey()!;
+  const sequenceId = invoicexpressSequenceId()!;
+  const periodLabel = periodStart && periodEnd
+    ? `${periodStart.slice(0, 10)} a ${periodEnd.slice(0, 10)}`
+    : new Date().toISOString().slice(0, 10);
+  const result = await createInvoiceReceipt(accountName, apiKey, {
+    date: new Date(),
+    client,
+    sequenceId,
+    proprietaryUid: `stripe-invoice-${stripeInvoiceId}`,
+    observations: `Sherlock Deal — subscrição (fatura Stripe ${stripeInvoiceId})`,
+    items: [{
+      name: 'Subscrição Sherlock Deal',
+      description: `Período: ${periodLabel}`,
+      unitPrice: amountPaidCents / 100,
+      quantity: 1,
+    }],
+  });
+  if (result.ok && result.document) {
+    await admin.from('billing_invoices').update({
+      invoicexpress_document_id: String(result.document.id),
+      invoicexpress_permalink: result.document.permalink ?? null,
+      invoicexpress_error: null,
+    }).eq('stripe_invoice_id', stripeInvoiceId);
+  } else if (!result.duplicate) {
+    console.error(`InvoiceXpress: could not create invoice-receipt for stripe invoice=${stripeInvoiceId}:`, result.error);
+    await admin.from('billing_invoices').update({ invoicexpress_error: result.error ?? 'unknown error' }).eq('stripe_invoice_id', stripeInvoiceId);
+  }
 }
 
 export async function POST(req: Request) {
@@ -163,9 +233,59 @@ export async function POST(req: Request) {
         if (invoiceOrgEffect.nextPaymentDueAt) patch.next_payment_due_at = invoiceOrgEffect.nextPaymentDueAt;
         const { error: colErr } = await admin.from('orgs').update(patch).eq('id', orgId);
         if (colErr) console.error('Stripe invoice webhook: orgs denorm update failed:', colErr.message);
+
+        if (invoiceOrgEffect.lastPaymentStatus === 'paid') {
+          await createInvoiceXpressReceipt(
+            admin, orgId, invoiceOrgEffect.stripeInvoiceId, invoiceOrgEffect.amountPaidCents,
+            invoiceOrgEffect.periodStart, invoiceOrgEffect.periodEnd,
+          );
+        }
       }
     }
 
+    return NextResponse.json({ received: true });
+  }
+
+  // Sherlock Deal -> InvoiceXpress: a refund on a charge becomes a Nota de
+  // Crédito against whichever InvoiceXpress document the invoice mirror
+  // above already created for that charge's invoice. A charge carries no
+  // org_id of its own, so the org is resolved the same two ways the invoice
+  // mirror above uses: metadata is never on a charge, so this is really just
+  // the stripe_customer_id fallback, via the billing_invoices row the
+  // invoice.paid handler already wrote (which is also where the
+  // invoicexpress_document_id to credit comes from).
+  const refundEffect = chargeRefundedEffectFromEvent(event as Record<string, unknown>);
+  if (refundEffect && url && service) {
+    const admin = createClient(url, service, { auth: { persistSession: false } });
+    if (!invoicexpressConfigured()) return NextResponse.json({ received: true });
+    const { data: invoiceRow } = await admin.from('billing_invoices')
+      .select('org_id, stripe_invoice_id, invoicexpress_document_id')
+      .eq('stripe_invoice_id', refundEffect.stripeInvoiceId ?? '__none__')
+      .maybeSingle();
+    if (!invoiceRow?.org_id || !invoiceRow.invoicexpress_document_id) {
+      console.error(`Stripe refund webhook: no InvoiceXpress document on file for invoice=${refundEffect.stripeInvoiceId} (charge=${refundEffect.chargeId}) — cannot issue a Nota de Crédito automatically.`);
+      return NextResponse.json({ received: true });
+    }
+    const client = await orgFiscalDetails(admin, invoiceRow.org_id as string);
+    if (client && refundEffect.amountRefundedCents > 0) {
+      const result = await createCreditNote(invoicexpressAccountName()!, invoicexpressApiKey()!, {
+        date: new Date(),
+        client,
+        sequenceId: invoicexpressSequenceId()!,
+        proprietaryUid: `stripe-refund-${refundEffect.chargeId}`,
+        ownerInvoiceId: invoiceRow.invoicexpress_document_id as string,
+        observations: `Sherlock Deal — reembolso (charge Stripe ${refundEffect.chargeId})`,
+        items: [{
+          name: 'Reembolso — Subscrição Sherlock Deal',
+          description: 'Nota de crédito referente ao reembolso processado no Stripe',
+          unitPrice: refundEffect.amountRefundedCents / 100,
+          quantity: 1,
+        }],
+      });
+      if (!result.ok && !result.duplicate) {
+        console.error(`InvoiceXpress: could not create credit note for charge=${refundEffect.chargeId}:`, result.error);
+      }
+    }
     return NextResponse.json({ received: true });
   }
 

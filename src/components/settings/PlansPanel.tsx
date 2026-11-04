@@ -499,6 +499,7 @@ export function PlansPanel() {
           toPlan={confirmToPlan}
           busy={busy === confirmTier}
           confirmLabel={billing ? 'Continue to secure payment' : 'Send request'}
+          collectFiscalDetails={billing && confirmTier !== 'idea'}
           onCancel={() => setConfirmTier(null)}
           onConfirm={() => confirmTier && commitPlan(confirmTier)}
         />

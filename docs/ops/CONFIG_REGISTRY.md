@@ -71,6 +71,16 @@ Sem `NEXT_PUBLIC_APP_URL` os links dos emails (convites, Stripe, "Open your work
 | `STRIPE_WEBHOOK_SECRET` | por confirmar | desconhecido | — | `src/app/api/stripe/webhook` |
 | `STRIPE_PRICE_{GARAGE,MOTHERFUNDING,PRO_SCOUT,ACE_SPOTTER,LEGENDARY_SLEUTH}_{MONTHLY,ANNUAL}` (10 variáveis) | IDs de preço do Stripe; por confirmar um a um | desconhecido | — | `.env.example`; `src/lib/billing.ts`. Nenhuma firma de investimento tem cliente Stripe (0 linhas), por isso os preços de investidor nunca foram exercitados em produção |
 
+### 1.3b Faturação fiscal (InvoiceXpress) — Prompt Sherlock Deal / InvoiceXpress, 04/11/2026
+
+| Nome | Valor | Estado | Quem decidiu e quando | Fonte |
+|---|---|---|---|---|
+| `INVOICEXPRESS_ACCOUNT_NAME` | `exotictargetlda` (subdomínio da conta `exotictargetlda.app.invoicexpress.com`) | pendente — falta pôr no Vercel | Nuno, 03–04/11/2026 (série SHLK26 criada e registada na AT) | `src/lib/invoicexpress-env.ts` |
+| `INVOICEXPRESS_API_KEY` | por gerar em `https://www.app.invoicexpress.com/users/api` | pendente | — | `src/lib/invoicexpress-env.ts` |
+| `INVOICEXPRESS_SEQUENCE_ID` | id numérico da série SHLK26 (InvoiceXpress → Configurações → Séries/ATCUD → SHLK26 → Personalizar Série → id na URL) | pendente | — | `src/lib/invoicexpress-env.ts` |
+
+Sem as três variáveis, `invoicexpressConfigured()` fica falso e o webhook do Stripe nunca tenta criar documentos — fica tudo como está hoje (nenhuma fatura fiscal automática), sem quebrar nada.
+
 ### 1.4 IA
 
 | Nome | Valor | Estado | Quem decidiu e quando | Fonte |
@@ -268,4 +278,10 @@ Supabase sobre SMTP, rate limits, OTP e template ficaram `feito` (confirmado pel
    colá-la em Vercel → connect-b → Settings → Environment Variables → `PAGESPEED_API_KEY` (Production + Preview) e fazer redeploy. Só depois da migração
    `20261016140000_website_health.sql` estar aplicada (o cartão fica invisível até lá). Depois: correr a análise na ablute_ em produção e ver o resultado
    no Backoffice → Ficha do cliente → «Website health» (diz se a chave está posta).
+8. **InvoiceXpress + Vercel** (§1.3b, 04/11/2026): gerar a API key em `https://www.app.invoicexpress.com/users/api`
+   (conta `exotictargetlda`), encontrar o id da série SHLK26 (Séries/ATCUD → SHLK26 → Personalizar Série → id na URL),
+   e pôr as três variáveis em Vercel → connect-b → Settings → Environment Variables: `INVOICEXPRESS_ACCOUNT_NAME=exotictargetlda`,
+   `INVOICEXPRESS_API_KEY=<a chave gerada>`, `INVOICEXPRESS_SEQUENCE_ID=<o id da série>`. Depois, redeploy. Também é preciso
+   aplicar a migração `20261104120000_org_fiscal_details_and_ix_mirror.sql` (colunas de NIF/morada em `orgs` e de espelho
+   do InvoiceXpress em `billing_invoices`) antes do deploy, senão as rotas que as leem/escrevem falham.
 8. ~~**Resend + Gmail — ligar `hello@sherlockdeal.com` como remetente**~~ — **feito pelo Nuno** (a, b e c a 21/10/2026; d, o envio, a 30/10/2026: «está configurado envia e recebe»). Passos seguidos (§3.1, linhas «Chave de API do Resend só para o Gmail» e «Gmail → … Enviar correio como»), por ordem: (a) enviar um email de outra caixa a `hello@sherlockdeal.com` e ver se chega à caixa de `sherlockdeal.com@gmail.com` (se não, falta a regra no Cloudflare → Email → Email Routing); (b) **Resend** (conta de `sherlockdeal.com@gmail.com`) → API Keys → Create API Key: Name `gmail-send-as2` (o `gmail-send-as` já existia), Permission **Sending access**, Domain **`sherlockdeal.com`**, e guardar o valor no gestor de palavras-passe; (c) **Gmail** → Contas e importação → «Adicionar outro endereço de email»: `hello@sherlockdeal.com`, servidor `smtp.resend.com`, porta **465**, utilizador **`resend`**, palavra-passe = a chave, opção **SSL**, «Tratar como um alias» marcada; (d) colar o código de confirmação e enviar um teste a uma caixa de fora (SPF, DKIM e DMARC = PASS em «Mostrar original»). As linhas de §3.1 passaram a `feito` (a autenticação, a 30/10/2026, pelo teste a `nunomarujo@gmail.com`); a chave de `support@` e de `nunomarujo@` é a `gmail-send-as` (provado a 30/10/2026 por um teste de envio de cada um); falta só `alexandrameira@`, que nunca foi testado (linha de `gmail-send-as`).

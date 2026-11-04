@@ -254,6 +254,38 @@ export function parseStripeSigHeader(header: string): { timestamp: string | null
   return { timestamp, v1 };
 }
 
+// ===== Refund mirror (Sherlock Deal -> InvoiceXpress, 04/11/2026) =====
+// A Stripe refund on a charge. Unlike the invoice mirror above, a charge
+// carries no org_id/catalog_entity_id metadata of its own (metadata is set
+// at checkout/subscription time, never copied onto the charge), so this
+// returns only what the event itself carries; the caller (the webhook
+// route, which can do I/O) resolves the org/firm by the refunded charge's
+// `invoice` id against the billing_invoices row the invoice mirror already
+// wrote -- that row is also where the InvoiceXpress document id to credit
+// lives.
+export interface ChargeRefundedEffect {
+  chargeId: string;
+  stripeInvoiceId: string | null;
+  stripeCustomerId: string | undefined;
+  amountRefundedCents: number;
+  currency: string;
+  refunded: boolean;
+}
+
+export function chargeRefundedEffectFromEvent(event: StripeEventLike): ChargeRefundedEffect | null {
+  if (event.type !== 'charge.refunded') return null;
+  const obj = (event.data?.object ?? {}) as Record<string, unknown>;
+  if (typeof obj.id !== 'string') return null;
+  return {
+    chargeId: obj.id,
+    stripeInvoiceId: typeof obj.invoice === 'string' ? obj.invoice : null,
+    stripeCustomerId: typeof obj.customer === 'string' ? obj.customer : undefined,
+    amountRefundedCents: typeof obj.amount_refunded === 'number' ? obj.amount_refunded : 0,
+    currency: typeof obj.currency === 'string' ? obj.currency : 'eur',
+    refunded: obj.refunded === true,
+  };
+}
+
 // ===== Investor billing (Prompt 501) =====
 // O lado investidor, deliberadamente em funções PRÓPRIAS e não alargando as de
 // cima. São dois domínios distintos, e forçá-los ao mesmo tipo seria mentira:
