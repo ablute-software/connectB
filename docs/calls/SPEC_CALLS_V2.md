@@ -933,6 +933,10 @@ Indicar:
 
 Uma candidatura **submetida** a uma call de uma firma investidora faz a startup aparecer na Pipeline de quem administra a call («Configure call») e, só das candidaturas atribuídas e nunca numa call às cegas, dos avaliadores, com a etiqueta «From call · C1» e o filtro «From calls». Calcula-se ao ler a pipeline (uma fonte de relação, fora das ondas de descoberta); só as pessoas da organização que corre a call veem a etiqueta. O formulário do candidato mostra «Your startup's profile will be added to «Entity»'s deal flow on Sherlock Deal.» antes de submeter, e nada vai para uma pipeline sem o aviso mostrado (`call_applications.pipeline_notice_at`). As candidaturas anteriores entram por «Add applicants to my pipeline» (`call_pipeline_backfills`). Uma call de incubadora não tem pipeline de investidor.
 
+### 27.3 O limite total de candidaturas (Prompt 929, parte A — 04/11/2026)
+
+Uma call pode ter um **máximo de candidaturas submetidas** (rascunhos não contam), editável até com a call aberta. Ao atingi-lo a call mostra **«Full»** (não «Closed»), ninguém novo começa nem submete (também pela API), quem tinha rascunho é avisado **uma vez** pela entidade, e quem chega depois recebe a mensagem no ecrã e um email da Sherlock Deal (uma vez, se a conta não recusou as dicas). A verificação e a submissão fazem-se numa só transação com um bloqueio da call, por isso dois candidatos ao último lugar nunca o ocupam os dois. Subir ou tirar o limite reabre a call (dentro do prazo) e avisa os rascunhos. A equipa vê «182 / 200 applications».
+
 ## 28. Piloto: Portugal Ventures
 
 - **10 seats** (plano custom, pré-atribuído).

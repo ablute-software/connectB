@@ -19,14 +19,16 @@ import { rowToCall } from '../mappers';
 import { brandingOf } from '../branding';
 import { promoterName } from '../store';
 import { cancelledNoticeText, restoredNoticeText } from '../deletion';
+import { fullDraftText, fullLateText, reopenedDraftText } from './full';
+import { hasOptedOut, preferenceToken } from '@/lib/email-preferences';
 import type { Call } from '../types';
 import type { ApplicationRow } from './store';
 
 /** What an applicant is told. */
 export type ApplicantNoticeKind = 'submission_received' | 'draft_reminder' | 'deadline_extended';
 /** Every kind of notice in call_notices: the applicant's three, and (Prompt 909, Adenda 2b) the two that tell the team an import has ended. */
-export type NoticeKind = ApplicantNoticeKind | 'call_cancelled' | 'call_restored' | 'form_changed' | 'import_ready' | 'import_failed' | 'eval_assigned' | 'eval_reminder' | 'result_published' | 'contestation_received' | 'contestation_answered';
-export const APPLICANT_NOTICE_KINDS: NoticeKind[] = ['submission_received', 'draft_reminder', 'deadline_extended', 'call_cancelled', 'call_restored', 'form_changed', 'result_published', 'contestation_answered'];
+export type NoticeKind = ApplicantNoticeKind | 'call_cancelled' | 'call_restored' | 'form_changed' | 'import_ready' | 'import_failed' | 'eval_assigned' | 'eval_reminder' | 'result_published' | 'contestation_received' | 'contestation_answered' | 'call_full' | 'call_reopened' | 'call_full_late';
+export const APPLICANT_NOTICE_KINDS: NoticeKind[] = ['submission_received', 'draft_reminder', 'deadline_extended', 'call_cancelled', 'call_restored', 'form_changed', 'result_published', 'contestation_answered', 'call_full', 'call_reopened', 'call_full_late'];
 export const IMPORT_NOTICE_KINDS: NoticeKind[] = ['import_ready', 'import_failed'];
 /** Prompt 922 (I2): what an EVALUATOR is told — applications assigned to them, and the reminders before the deadline of the evaluation. Never shown to an applicant. */
 export const EVALUATOR_NOTICE_KINDS: NoticeKind[] = ['eval_assigned', 'eval_reminder'];
@@ -270,4 +272,75 @@ export async function notifyCallRestored(admin: SupabaseClient, call: Call, enti
   // The cancellation no longer stands: put its notices away.
   if (told.size > 0) await admin.from('call_notices').update({ seen_at: new Date().toISOString() }).eq('call_id', call.id).eq('kind', 'call_cancelled').is('seen_at', null);
   return n;
+}
+
+// --- Prompt 929 (A): a call with a maximum number of applications ----------------------------------------------------------------------------------------------------------------------------
+
+async function draftHolders(admin: SupabaseClient, callId: string): Promise<Map<string, string>> {
+  const { data } = await admin.from('call_applications').select('id, applicant_user_id').eq('call_id', callId).eq('status', 'draft');
+  const out = new Map<string, string>();
+  for (const r of (data ?? []) as Row[]) if (!out.has(r.applicant_user_id as string)) out.set(r.applicant_user_id as string, r.id as string);
+  return out;
+}
+
+/** The call just filled up: whoever had a DRAFT is told, once, BY THE ENTITY (in the app and by email), that the draft can no longer be submitted. `marker` is what makes this fill "once" (the moment it filled). Returns how many were told. */
+export async function notifyCallFull(admin: SupabaseClient, call: Call, entityName: string, marker: string): Promise<number> {
+  const text = fullDraftText(entityName, call.name);
+  const content: NoticeContent = { title: text.title, body: text.body, ctaLabel: 'View my applications' };
+  const url = `${emailLinkFor({ linkToken: null })}/calls`;
+  let n = 0;
+  for (const [userId, applicationId] of await draftHolders(admin, call.id)) {
+    const { created, id } = await createNotice(admin, { userId, callId: call.id, applicationId, kind: 'call_full', dedupeKey: `full:${call.id}:${marker}:${userId}`, content, linkPath: '/calls' });
+    if (!created) continue;
+    n++;
+    const to = await emailOf(admin, userId);
+    if (to) await emailNotice(admin, id, to, call, content, { url });
+  }
+  return n;
+}
+
+/** The limit was raised (or removed) and the call accepts again: the drafts are told. `marker` = the moment it had filled, so each fill is followed by at most one "again". */
+export async function notifyCallReopened(admin: SupabaseClient, call: Call, entityName: string, marker: string): Promise<number> {
+  const text = reopenedDraftText(entityName, call.name);
+  const content: NoticeContent = { title: text.title, body: text.body, ctaLabel: 'Continue my application' };
+  let n = 0;
+  for (const [userId, applicationId] of await draftHolders(admin, call.id)) {
+    const { created, id } = await createNotice(admin, { userId, callId: call.id, applicationId, kind: 'call_reopened', dedupeKey: `reopened:${call.id}:${marker}:${userId}`, content, linkPath: call.linkToken ? `/call/${call.linkToken}` : '/calls' });
+    if (!created) continue;
+    n++;
+    const to = await emailOf(admin, userId);
+    if (to) await emailNotice(admin, id, to, call, content);
+  }
+  return n;
+}
+
+/**
+ * Somebody tried to start or submit AFTER the call was full. They see the message on the screen (always). Sherlock Deal — not the entity — also sends them one email, once per call, inviting them to complete their startup
+ * profile; it goes only if the account has not refused tips (Prompt 929, B5) and carries the link that turns them off. A failed email never changes the answer the person gets. Returns whether the email went out.
+ */
+export async function notifyArrivedLate(admin: SupabaseClient, call: Call, entityName: string, userId: string): Promise<boolean> {
+  try {
+    const text = fullLateText(entityName, call.name);
+    const content: NoticeContent = { title: text.title, body: text.body, ctaLabel: 'Complete your startup profile' };
+    const { created, id } = await createNotice(admin, { userId, callId: call.id, applicationId: null, kind: 'call_full_late', dedupeKey: `full-late:${call.id}:${userId}`, content, linkPath: '/settings' });
+    if (!created) return false;
+    if (await hasOptedOut(admin, userId, 'tips_opt_out')) return false;
+    const to = await emailOf(admin, userId);
+    if (!to) return false;
+    const origin = emailLinkFor({ linkToken: null });
+    const token = preferenceToken(userId, 'tips_opt_out');
+    const stop = token ? `${origin}/api/email/unsubscribe?t=${encodeURIComponent(token)}` : null;
+    const footer = stop ? `<a href="${esc(stop)}" style="color: #6B7280;">Unsubscribe from Sherlock Deal tips</a> · The replies of the organisations you apply to are not affected.` : undefined;
+    const res = await sendTransactionalEmail({
+      to, subject: content.title,
+      html: transactionalTemplate({ heading: esc(content.title), body: esc(content.body), ctaLabel: content.ctaLabel, ctaUrl: `${origin}/settings`, ...(footer ? { footer } : {}) }),
+      text: `${content.title}\n\n${content.body}\n\n${content.ctaLabel}: ${origin}/settings${stop ? `\n\nUnsubscribe from Sherlock Deal tips: ${stop}` : ''}`,
+      context: { kind: 'other' },
+    });
+    if (id) await admin.from('call_notices').update(res.sent ? { email_sent_at: new Date().toISOString() } : { email_error: String(res.providerError ?? res.error ?? 'not sent').slice(0, 300) }).eq('id', id);
+    return res.sent === true;
+  } catch (e) {
+    console.error('[calls] the "call is full" email failed:', (e as Error).message);
+    return false;
+  }
 }

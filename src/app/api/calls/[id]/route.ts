@@ -2,7 +2,8 @@
 import { NextResponse } from 'next/server';
 import { authCall } from '@/lib/calls/access';
 import { parseGeneralPatch } from '@/lib/calls/mappers';
-import { bumpConfig, loadPromoterNames, setCallDescription } from '@/lib/calls/store';
+import { bumpConfig, loadPromoterNames, promoterName, setCallDescription } from '@/lib/calls/store';
+import { setCallLimit } from '@/lib/calls/call-limit';
 import { nameClashBody } from '@/lib/calls/call-names';
 import { buildCallState } from '@/lib/calls/state';
 
@@ -26,6 +27,19 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       if (!only.ok) return NextResponse.json({ ok: false, error: only.error }, { status: 400 });
       const updated = await setCallDescription(auth.admin, auth.call, only.patch.description ?? null);
       if (!updated) return NextResponse.json({ ok: false, error: 'We could not save the description. Please try again.' }, { status: 500 });
+      return NextResponse.json(await buildCallState(auth.admin, updated, auth.promoter));
+    }
+    // Prompt 929 (A): the maximum number of applications and "show places left" stay editable once the call is open (raising the limit reopens a full call that is still within its dates).
+    if (keys.length > 0 && keys.every((k) => k === 'description' || k === 'maxApplications' || k === 'showPlacesLeft') && auth.call.status !== 'archived') {
+      const only = parseGeneralPatch(Object.fromEntries(keys.map((k) => [k, body[k]])), auth.call);
+      if (!only.ok) return NextResponse.json({ ok: false, error: only.error }, { status: 400 });
+      let updated = auth.call;
+      if ('description' in only.patch) updated = (await setCallDescription(auth.admin, updated, only.patch.description ?? null)) ?? updated;
+      if ('max_applications' in only.patch || 'show_places_left' in only.patch) {
+        const limited = await setCallLimit(auth.admin, updated, { ...('max_applications' in only.patch ? { max_applications: only.patch.max_applications } : {}), ...('show_places_left' in only.patch ? { show_places_left: only.patch.show_places_left } : {}) }, await promoterName(auth.admin, auth.call.promoterKind, auth.call.promoterId));
+        if (!limited) return NextResponse.json({ ok: false, error: 'We could not save it. Please try again.' }, { status: 500 });
+        updated = limited;
+      }
       return NextResponse.json(await buildCallState(auth.admin, updated, auth.promoter));
     }
     return NextResponse.json({ ok: false, code: 'locked', error: 'This call is validated. Use “Edit configuration” to change it.' }, { status: 409 });

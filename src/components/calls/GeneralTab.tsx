@@ -17,7 +17,7 @@ const HINT = 'mt-1 text-[11px] text-gray-400';
 /** What the server answers when another call of the organisation already has the name (Prompt 927, F). */
 export interface NameClashView { error: string; existing: { id: string; name: string; deleted: boolean }; suggestions: string[] }
 
-export type GeneralPatch = Partial<Pick<Call, 'name' | 'description' | 'opensAt' | 'closesAt' | 'timezone' | 'visibility' | 'limitUnit' | 'allowMultiple' | 'contentLanguage' | 'currency'>>;
+export type GeneralPatch = Partial<Pick<Call, 'name' | 'description' | 'opensAt' | 'closesAt' | 'timezone' | 'visibility' | 'limitUnit' | 'allowMultiple' | 'contentLanguage' | 'currency' | 'maxApplications' | 'showPlacesLeft'>>;
 
 export function GeneralTab({ call, promoterName, disabled, presentationDisabled, branding, onState, onChange, nameClash }: {
   call: Call; promoterName: string; disabled: boolean; onChange: (patch: GeneralPatch) => void;
@@ -29,6 +29,8 @@ export function GeneralTab({ call, promoterName, disabled, presentationDisabled,
   onState?: (s: CallState) => void;
 }) {
   const presentationLocked = presentationDisabled ?? disabled;
+  // The limit is not part of the configuration the applicants answer: it may change after the call is open (whoever may configure it).
+  const limitDisabled = presentationDisabled ?? disabled;
   const zones = useMemo(() => timeZoneOptions(), []);
 
   // The wall-clock time shown in the chosen zone. Changing the zone keeps what was TYPED (the wall time) and
@@ -153,6 +155,19 @@ export function GeneralTab({ call, promoterName, disabled, presentationDisabled,
         </div>
         <p className={HINT}>With more than one, each application keeps its own form, documents, status, evaluations and result. Projects without an incorporated company can apply: no company data is required unless you ask for it.</p>
       </fieldset>
+
+      {/* Prompt 929 (A): the maximum number of applications. It stays editable once the call is open (raising it reopens a full call). Drafts never count. */}
+      <div className="space-y-2" data-testid="max-applications">
+        <label className={LABEL} htmlFor="call-max">Maximum number of applications (optional)</label>
+        <input id="call-max" data-testid="call-max" inputMode="numeric" autoComplete="off" className={`${FIELD} max-w-[12rem]`} value={call.maxApplications ?? ''} disabled={limitDisabled} placeholder="No limit"
+          onChange={(e) => { const v = e.target.value.replace(/\D/g, '').slice(0, 7); onChange({ maxApplications: v === '' ? null : Number(v) }); }} />
+        <p className={HINT}>Leave it empty for no limit. Only submitted applications count, never drafts. When the limit is reached the call stops accepting submissions and shows “Full”; raising or removing the limit opens it again (if it is still within its dates).</p>
+        <fieldset className="flex flex-wrap gap-x-5 gap-y-1 text-sm" disabled={limitDisabled || !call.maxApplications}>
+          <legend className="text-xs text-gray-600">Places left on the call page</legend>
+          <label className="flex items-center gap-2"><input type="radio" name="places-left" checked={!call.showPlacesLeft} onChange={() => onChange({ showPlacesLeft: false })} /> Hidden</label>
+          <label className="flex items-center gap-2"><input type="radio" name="places-left" data-testid="show-places-left" checked={call.showPlacesLeft === true} onChange={() => onChange({ showPlacesLeft: true })} /> Show “37 places left”</label>
+        </fieldset>
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div>

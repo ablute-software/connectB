@@ -13,7 +13,9 @@ import { fileReadable, findSubmissionByKey, freezeFile, loadFiles } from '@/lib/
 import { sanitizeAnswers } from '@/lib/calls/applicant/answers';
 import { processApplicationNow } from '@/lib/calls/eligibility-engine';
 import { filesInSubmission, formSnapshot, frozenPath, planSubmission, unreadableFileIssues } from '@/lib/calls/applicant/submit';
-import { notifySubmissionReceived } from '@/lib/calls/applicant/notices';
+import { notifyArrivedLate, notifyCallFull, notifySubmissionReceived } from '@/lib/calls/applicant/notices';
+import { FULL_MESSAGE } from '@/lib/calls/applicant/full';
+import { promoterName } from '@/lib/calls/store';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -64,22 +66,27 @@ export const POST = withActingOrg(async function POST(req: Request, { params }: 
   const { data, error } = await a.admin.rpc('call_submit_application', {
     p_application: a.app.id, p_user: a.userId, p_key: key, p_answers: result.plan.answers, p_documents: frozen, p_form_snapshot: formSnapshot(a.call, a.fields),
   });
-  const res = data as { ok?: boolean; reason?: string; already?: boolean; submitted_at?: string } | null;
+  const res = data as { ok?: boolean; reason?: string; already?: boolean; submitted_at?: string; became_full?: boolean } | null;
   if (error || !res) return NextResponse.json({ ok: false, error: 'We could not submit. Please try again: nothing was lost.' }, { status: 500 });
   if (!res.ok) {
     const map: Record<string, [number, string, string]> = {
+      full: [409, 'full', FULL_MESSAGE],
       not_accepting: [409, 'closed', 'This call is no longer accepting applications, so this draft can no longer be submitted.'],
       already_submitted: [409, 'already_submitted', 'This application was already submitted.'],
       unit_limit: [409, 'unit_limit', a.call.limitUnit === 'legal_entity' ? 'An application from your company was already submitted, and only one per company is accepted.' : 'Your startup already submitted an application, and only one per startup is accepted.'],
       not_found: [404, 'not_found', 'Application not found.'],
     };
     const [status, code, error2] = map[res.reason ?? ''] ?? [500, 'error', 'We could not submit. Please try again.'];
+    // Prompt 929 (A): the call filled up before this submission: the person sees the message and Sherlock Deal sends its own email once (if the account has not refused tips).
+    if (res.reason === 'full') await notifyArrivedLate(a.admin, a.call, await promoterName(a.admin, a.call.promoterKind, a.call.promoterId), a.userId);
     return NextResponse.json({ ok: false, code, error: error2 }, { status });
   }
   // Prompt 927 (A): the applicant was SHOWN that the startup joins the entity's deal flow as they submitted: that is recorded, and only then may the application reach a pipeline (never before, never for a draft).
   if (res.already !== true && body.pipelineNotice === true && a.call.promoterKind === 'catalog_entity') {
     await a.admin.from('call_applications').update({ pipeline_notice_at: new Date().toISOString() }).eq('id', a.app.id);
   }
+  // Prompt 929 (A): this submission took the LAST place: whoever still has a draft is told, once, by the entity.
+  if (res.already !== true && res.became_full === true) await notifyCallFull(a.admin, a.call, await promoterName(a.admin, a.call.promoterKind, a.call.promoterId), res.submitted_at ?? 'full').catch((e) => console.error('[calls] the draft notices (call full) failed:', (e as Error).message));
   // The receipt (email and in-app notice) goes out once, only for a submission that was just created, never for a repeat of the same request.
   if (res.already !== true) await notifySubmissionReceived(a.admin, a.call, a.app, a.userId).catch((e) => console.error('[calls] submission notice failed:', (e as Error).message));
   // Prompt 918 (I3): the task was written with the submission (a trigger); give it a first, bounded go so the result is usually there when the entity looks. A failure never touches the submission.

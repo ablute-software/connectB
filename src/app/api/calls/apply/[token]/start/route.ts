@@ -8,6 +8,8 @@ import { authApplicantByToken } from '@/lib/calls/applicant/auth';
 import { buildApplicationState, openApplication, recordLinkAccess, resumePage } from '@/lib/calls/applicant/store';
 import { phaseSentence } from '@/lib/calls/applicant/phase';
 import { promoterName } from '@/lib/calls/store';
+import { FULL_MESSAGE } from '@/lib/calls/applicant/full';
+import { notifyArrivedLate } from '@/lib/calls/applicant/notices';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +23,11 @@ export const POST = withActingOrg(async function POST(req: Request, { params }: 
   if (!r.ok) {
     if (r.reason === 'not_accepting') {
       return NextResponse.json({ ok: false, code: 'closed', error: phaseSentence(a.call) ?? 'This call is not accepting applications.' }, { status: 409 });
+    }
+    if (r.reason === 'full') {
+      // Prompt 929 (A): the call reached its maximum number of applications. The person sees the message; Sherlock Deal (not the entity) also sends one email, once, if the account has not refused tips.
+      await notifyArrivedLate(a.admin, a.call, await promoterName(a.admin, a.call.promoterKind, a.call.promoterId), a.userId);
+      return NextResponse.json({ ok: false, code: 'full', error: FULL_MESSAGE }, { status: 409 });
     }
     if (r.reason === 'unit_limit') {
       return NextResponse.json({ ok: false, code: 'unit_limit', error: a.call.limitUnit === 'legal_entity'

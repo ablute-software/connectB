@@ -183,7 +183,7 @@ export function CallsList({ kind, onOpen }: { kind: PromoterKind; onOpen: (id: s
                 {(() => { const l = closingLine(c, c.effectiveStatus === 'closed' || c.effectiveStatus === 'archived', formatInZone); return <><dt className="text-gray-400">{l.label}</dt><dd className="text-gray-700" data-testid="card-closing">{l.value}</dd></>; })()}
               </dl>
               <p className="mt-3 text-xs text-gray-500">
-                <b className="text-gray-800">{c.applications}</b> application{c.applications === 1 ? '' : 's'} · {c.fields} field{c.fields === 1 ? '' : 's'} · {c.phases} phase{c.phases === 1 ? '' : 's'}
+                <b className="text-gray-800" data-testid="card-applications">{c.maxApplications ? `${c.applications} / ${c.maxApplications}` : c.applications}</b> application{c.applications === 1 && !c.maxApplications ? '' : 's'}{c.fullAt ? <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900" data-testid="card-full">Full</span> : null} · {c.fields} field{c.fields === 1 ? '' : 's'} · {c.phases} phase{c.phases === 1 ? '' : 's'}
               </p>
               <div className="mt-4 flex items-center gap-3 border-t border-gray-100 pt-3 text-xs">
                 <button type="button" onClick={() => onOpen(c.id)} className="font-semibold text-[#0E7490] hover:underline" data-testid="card-manage">{canManage ? 'Manage' : 'View'}</button>

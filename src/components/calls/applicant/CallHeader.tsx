@@ -10,6 +10,7 @@ import { formatInZone } from '@/lib/calls/tz';
 import { RichText } from '@/components/RichText';
 import { CoverBand, EntityLogo, LogoTile } from './Pictures';
 import { TeamNotice } from './TeamNotice';
+import { placesLeftText } from '@/lib/calls/applicant/full';
 
 export { EntityLogo };
 
@@ -17,6 +18,8 @@ export interface PublicCallInfo {
   name: string; description: string | null; promoter: string;
   opensAt: string | null; closesAt: string | null; timezone: string;
   phase: 'open' | 'scheduled' | 'closed'; message: string | null;
+  /** Prompt 929 (A): the call reached its maximum number of applications (open in time, no new submissions) and, when the team chose to show it, how many places are left. */
+  full?: boolean; placesLeft?: number | null;
   eligibility: string[]; regulation: { fileName: string; url: string } | null;
   /** The cover image and the entity's logo (Prompt 918, Adenda 1 C): addresses on this platform, or — for a profile logo — an https address. Null when there is none. */
   coverUrl?: string | null; logoUrl?: string | null;
@@ -57,6 +60,7 @@ export function CallHeader({ call, showPromoter = true }: { call: PublicCallInfo
       {call.message && (
         <p className="mt-5 rounded-lg bg-[#E8F4F8] px-4 py-3 text-sm font-medium text-[#0E7490]" data-testid="call-message">{call.message}</p>
       )}
+      {call.placesLeft !== null && call.placesLeft !== undefined && !call.full && <p className="mt-3 text-sm text-gray-600" data-testid="places-left">{placesLeftText(call.placesLeft)}</p>}
     </header>
   );
 }
@@ -113,4 +117,9 @@ export function ctaLabel(phase: PublicCallInfo['phase'], application: { status: 
   if (application?.status === 'submitted') return 'View your application';
   if (application?.status === 'draft') return 'Continue your application';
   return phase === 'open' ? 'Start application' : null;
+}
+
+/** The same, for a call that may be FULL: nobody new can start, but whoever already has an application keeps their way in. */
+export function ctaLabelFor(call: Pick<PublicCallInfo, 'phase' | 'full'>, application: { status: 'draft' | 'submitted' } | null | undefined): string | null {
+  return ctaLabel(call.full && !application ? 'closed' : call.phase, application);
 }

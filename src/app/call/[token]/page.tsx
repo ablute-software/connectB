@@ -12,7 +12,8 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { LogoLockup } from '@/components/Logo';
 import { EmailCodeSignup } from '@/components/auth/EmailCodeSignup';
-import { CallIntro, CallMiniHeader, ctaLabel, type PublicCallInfo } from '@/components/calls/applicant/CallHeader';
+import { CallIntro, CallMiniHeader, ctaLabelFor, type PublicCallInfo } from '@/components/calls/applicant/CallHeader';
+import { placesLeftText } from '@/lib/calls/applicant/full';
 import { ApplicationArea, type CallSession } from '@/components/calls/applicant/ApplicationArea';
 import { TeamNotice } from '@/components/calls/applicant/TeamNotice';
 import { GONE_MESSAGE } from '@/lib/calls/deletion';
@@ -45,7 +46,7 @@ export default function CallLinkPage() {
   }, [token, loadSession]);
 
   const here = `/call/${token}`;
-  const open = call?.phase === 'open';
+  const open = call?.phase === 'open' && call?.full !== true;                 // Prompt 929 (A): a FULL call takes nobody new
 
   const intro = call && stage === 'intro';
 
@@ -54,7 +55,7 @@ export default function CallLinkPage() {
       <div className={`w-full max-w-xl bg-white shadow-xl ${intro ? 'min-h-screen sm:min-h-0 sm:rounded-2xl' : 'rounded-2xl p-6 sm:p-8'}`}>
         {intro ? (
           <>
-            <CallIntro call={call} cta={session?.onTeam ? null : ctaLabel(call.phase, session?.application ?? null)} teamNotice={session?.onTeam === true} onStart={() => setStage('apply')} />
+            <CallIntro call={call} cta={session?.onTeam ? null : ctaLabelFor(call, session?.application ?? null)} teamNotice={session?.onTeam === true} onStart={() => setStage('apply')} />
             <div className="px-5 pb-5 pt-2 text-[#0E7490] sm:px-8"><LogoLockup size={18} accentClassName="text-[#2a7f8e]" /></div>
             <div className="px-5 pb-5 sm:px-8"><ReportProblem token={token} page={`/call/${token}`} signedIn={session?.authenticated === true} /></div>
           </>
@@ -77,6 +78,7 @@ export default function CallLinkPage() {
           <>
             <CallMiniHeader call={call} onAbout={() => setStage('intro')} />
             {call.message && <p className="mt-4 rounded-lg bg-[#E8F4F8] px-4 py-3 text-sm font-medium text-[#0E7490]" data-testid="call-message">{call.message}</p>}
+            {call.placesLeft !== null && call.placesLeft !== undefined && !call.full && <p className="mt-2 text-sm text-gray-600" data-testid="places-left">{placesLeftText(call.placesLeft)}</p>}
             <div className="mt-6">
               {session === undefined ? (
                 <p className="text-sm text-gray-400">Loading…</p>
