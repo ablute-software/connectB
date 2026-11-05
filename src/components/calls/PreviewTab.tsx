@@ -13,6 +13,7 @@ import { stepLabel, stepOfIssue, type StepKey } from '@/lib/calls/editor-nav';
 import { FormPreview } from './FormPreview';
 import { FormTest } from './FormTest';
 import { CallLanguageProvider } from './CallLanguage';
+import { applicationsText } from '@/lib/calls/applicant/full';
 import { StatusBadge } from './StatusBadge';
 import type { CallStatus } from '@/lib/calls/types';
 import { closeReasonSentence, closingLine, type CloseReason } from '@/lib/calls/closing';
@@ -24,7 +25,9 @@ export type LifecycleAction = 'confirm' | 'edit' | 'publish' | 'extend' | 'reope
 // so existing imports keep working.
 export { callLink };
 
-export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summary, actions, canManage, busy, error, notice = '', closedReason = null, origin, onJump, onAction }: {
+export function PreviewTab({ submitted = 0, call, effectiveStatus, phases, fields, issues, summary, actions, canManage, busy, error, notice = '', closedReason = null, origin, onJump, onAction }: {
+  /** Prompt 929 (A): how many applications are SUBMITTED (the Summary says "182 / 200 applications" when the call has a maximum). */
+  submitted?: number;
   /** What just worked, said where the person is looking ("The call is open again until …"). */
   notice?: string;
   /** Why the call is closed (by its deadline, early, or deleted and restored): the "Reopen and extend" box says it. */
@@ -107,6 +110,7 @@ export function PreviewTab({ call, effectiveStatus, phases, fields, issues, summ
             {row('Opens', formatInZone(call.opensAt, call.timezone))}
             {row(closing.label, closing.value)}
             {row('Listing', call.visibility === 'listed' ? 'Listed in Open calls' : 'Closed — link only')}
+            {row('Applications', `${applicationsText(call, submitted)}${call.fullAt ? ' · Full' : ''}`)}
             {row('Limit', `${call.limitUnit === 'legal_entity' ? 'Per legal entity' : 'Per project'}${call.allowMultiple ? ', several allowed' : ', one only'}`)}
             {row('Language', `${lang} · ${call.currency}`)}
             {row('Phases', summary.phases)}

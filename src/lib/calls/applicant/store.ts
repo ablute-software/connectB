@@ -45,7 +45,7 @@ export async function recordLinkAccess(admin: SupabaseClient, callId: string, or
 
 export type OpenResult =
   | { ok: true; application: ApplicationRow; created: boolean }
-  | { ok: false; reason: 'not_accepting' | 'unit_limit' | 'not_found' | 'error' };
+  | { ok: false; reason: 'not_accepting' | 'unit_limit' | 'not_found' | 'full' | 'error' };
 
 /**
  * Open (or resume) the startup's application on this call. The SQL function serialises per (call, unit), checks the per-unit limit and
@@ -66,7 +66,7 @@ export async function openApplication(
     if (error) { if (error.code === '23505') continue; return { ok: false, reason: 'error' }; }
     const res = data as { ok?: boolean; reason?: string; application_id?: string; created?: boolean } | null;
     if (!res?.ok || !res.application_id) {
-      const reason = res?.reason === 'unit_limit' || res?.reason === 'not_accepting' || res?.reason === 'not_found' ? res.reason : 'error';
+      const reason = res?.reason === 'unit_limit' || res?.reason === 'not_accepting' || res?.reason === 'not_found' || res?.reason === 'full' ? res.reason : 'error';
       return { ok: false, reason };
     }
     let app = await loadApplication(admin, res.application_id);

@@ -212,6 +212,8 @@ export interface Call {
   allowMultiple: boolean;
   contentLanguage: string;
   currency: string;
+  /** Prompt 929 (A): the maximum number of SUBMITTED applications (null = no limit), whether the entry page shows how many places are left, and when the call became full (null while it has room). */
+  maxApplications?: number | null; showPlacesLeft?: boolean; fullAt?: string | null;
   status: CallStatus;
   linkToken: string | null;
   configVersion: number;

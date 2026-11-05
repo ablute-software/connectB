@@ -340,7 +340,7 @@ export function CallEditor({ callId, onBack, startImport = false, startRunId = n
           {nav.step === 'grid' && <EvalGridStep callId={callId} canManage={server.canManage} onCriteriaChanged={setCriteriaCount} />}
           {nav.step === 'review' && (
             <PreviewTab
-              call={call} effectiveStatus={server.effectiveStatus} phases={server.phases} fields={fields} issues={server.issues} summary={server.summary}
+              submitted={server.applications?.submitted ?? 0} call={call} effectiveStatus={server.effectiveStatus} phases={server.phases} fields={fields} issues={server.issues} summary={server.summary}
               actions={server.actions} canManage={server.canManage} busy={busy} error={actionError} notice={actionNotice} closedReason={server.closedReason ?? null}
               origin={typeof window !== 'undefined' ? window.location.origin : ''}
               onJump={goStep} onAction={(a, extra) => void act(a, extra)}

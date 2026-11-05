@@ -19,7 +19,7 @@ export function rowToCall(r: Row): Call {
     name: (r.name as string) ?? '', description: s(r.description), opensAt: s(r.opens_at), closesAt: s(r.closes_at),
     timezone: s(r.timezone) ?? 'Europe/Lisbon', visibility: (r.visibility === 'unlisted' ? 'unlisted' : 'listed') as CallVisibility,
     limitUnit: (r.limit_unit === 'legal_entity' ? 'legal_entity' : 'project') as LimitUnit, allowMultiple: r.allow_multiple === true,
-    contentLanguage: s(r.content_language) ?? 'en', currency: s(r.currency) ?? 'EUR', status, linkToken: s(r.link_token),
+    contentLanguage: s(r.content_language) ?? 'en', currency: s(r.currency) ?? 'EUR', maxApplications: r.max_applications === null || r.max_applications === undefined ? null : Number(r.max_applications), showPlacesLeft: r.show_places_left === true, fullAt: s(r.full_at), status, linkToken: s(r.link_token),
     configVersion: Number(r.config_version ?? 1), validatedAt: s(r.validated_at), publishedAt: s(r.published_at), closedAt: s(r.closed_at), archivedAt: s(r.archived_at),
     contactEmail: s(r.contact_email),
     coverPath: s(r.cover_path), coverUpdatedAt: s(r.cover_updated_at), logoPath: s(r.logo_path), logoUpdatedAt: s(r.logo_updated_at),
@@ -57,7 +57,7 @@ export const fieldToRow = (callId: string, f: FormField): Row => ({
 
 export interface GeneralPatch {
   name?: string; description?: string | null; opens_at?: string | null; closes_at?: string | null; timezone?: string;
-  visibility?: CallVisibility; limit_unit?: LimitUnit; allow_multiple?: boolean; content_language?: string; currency?: string;
+  visibility?: CallVisibility; limit_unit?: LimitUnit; allow_multiple?: boolean; content_language?: string; currency?: string; max_applications?: number | null; show_places_left?: boolean;
 }
 
 export type ParsedGeneral = { ok: true; patch: GeneralPatch } | { ok: false; error: string };
@@ -110,6 +110,18 @@ export function parseGeneralPatch(input: unknown, current: Pick<Call, 'opensAt' 
     if (!(CURRENCIES as readonly string[]).includes(b.currency as string)) return { ok: false, error: 'Unsupported currency.' };
     patch.currency = b.currency as string;
   }
+
+  // Prompt 929 (A): the maximum number of applications (empty = no limit) and whether the entry page says how many places are left.
+  if ('maxApplications' in b) {
+    const raw = b.maxApplications;
+    if (raw === null || raw === undefined || raw === '') patch.max_applications = null;
+    else {
+      const n = typeof raw === 'number' ? raw : Number(raw);
+      if (!Number.isInteger(n) || n < 1 || n > 1_000_000) return { ok: false, error: 'The maximum number of applications must be a whole number of at least 1 (leave it empty for no limit).' };
+      patch.max_applications = n;
+    }
+  }
+  if ('showPlacesLeft' in b) patch.show_places_left = b.showPlacesLeft === true;
 
   const opens = 'opens_at' in patch ? patch.opens_at : current.opensAt;
   const closes = 'closes_at' in patch ? patch.closes_at : current.closesAt;

@@ -30,6 +30,11 @@ import { DELETE as fileDelete } from './apply/applications/[id]/files/[fileId]/r
 import { POST as refreshPost } from './apply/applications/[id]/files/[fileId]/refresh/route';
 import { GET as vaultGet } from './apply/applications/[id]/vault/route';
 import { POST as submitPost } from './apply/applications/[id]/submit/route';
+import { GET as publicGet } from './public/[token]/route';
+import { GET as unsubscribeGet } from '../email/unsubscribe/route';
+import { setCallLimit } from '@/lib/calls/call-limit';
+import { preferenceToken } from '@/lib/email-preferences';
+import { FULL_MESSAGE } from '@/lib/calls/applicant/full';
 
 const FIRM = '11111111-1111-4111-8111-111111111111';
 const CALL = '22222222-2222-4222-8222-222222222222';
@@ -531,5 +536,147 @@ describe('I3 — submitting', () => {
     const b = await completeDraft();
     await submit(b.id, 'key-0013-bbbb', b.revision);
     expect(sent[0].replyTo).toBe('programme@fund.example');
+  });
+});
+
+// --- Prompt 929 (A): a maximum number of applications -------------------------------------------------------------------------------------------------------------------------------------------
+const ORG_C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+/** A complete application for ANOTHER startup (founder-b of ORG_B, say), not submitted. */
+async function completeAs(user: string, org: string, name: string) {
+  as(user);
+  const d = await draftOf(); const id = d.state.application.id;
+  const attached = await attachDeck(id, putObject(org, 'deck.pdf'));
+  expect(attached.status).toBe(200);
+  const saved = await put(id, { [F.name]: name, [F.inc]: 'no', [F.amount]: '1', [F.note]: 'hi', [F.deck]: attached.body.answer }, d.state.application.revision, 3);
+  expect(saved.status).toBe(200);
+  return { id, revision: saved.body.revision as number };
+}
+const notices = (kind: string, user?: string) => db.tables.call_notices.filter((n) => n.kind === kind && (!user || n.user_id === user));
+const emailsTo = (user: string) => sent.filter((m) => m.to === `${user}@example.com`);
+function newcomer() {
+  db.tables.orgs.push({ id: ORG_C, name: 'Late Co', legal_name: 'Late Co SA', country: 'Portugal', sector: null, stage: 'seed', website: null });
+  db.tables.org_members.push({ org_id: ORG_C, user_id: 'founder-c', role: 'owner', full_name: 'Carla Late', title: 'CEO' });
+  db.users.set('founder-c', { id: 'founder-c', email: 'founder-c@example.com' });
+}
+const TOKEN_USER = '11111111-2222-4333-8444-555555555555';
+
+describe('929 A — the maximum number of applications', () => {
+  it('only SUBMITTED applications count: drafts never fill a call; the last submission makes it Full (and says when)', async () => {
+    call().max_applications = 1;
+    const a = await completeAs('founder-a', ORG_A, 'Acme');
+    const b = await completeAs('founder-b', ORG_B, 'Other');                                   // two drafts on a call of one place: fine
+    expect(apps().filter((x) => x.status === 'draft')).toHaveLength(2);
+    expect(call().full_at ?? null).toBeNull();
+    as('founder-a');
+    expect((await submit(a.id, 'key-929-a-0001', a.revision)).status).toBe(200);
+    expect(call().full_at).toBeTruthy();                                                       // it became full with this submission
+    as('founder-b');
+    const late = await submit(b.id, 'key-929-b-0001', b.revision);
+    expect(late).toMatchObject({ status: 409, body: { ok: false, code: 'full', error: FULL_MESSAGE } });
+    expect(apps().find((x) => x.id === b.id)!.status).toBe('draft');                           // the draft is kept, just not submittable
+  });
+
+  it('the race: two applicants submit at the same time for the LAST place — exactly one gets it, the other is told Full', async () => {
+    call().max_applications = 1;
+    const a = await completeAs('founder-a', ORG_A, 'Acme'); const b = await completeAs('founder-b', ORG_B, 'Other');
+    // Both submissions reach the database at the same moment (the SQL takes a lock of the call, counts and decides in ONE transaction; the fake models that as a single step).
+    const admin = fakeCallsAdmin(db, storage);
+    const go = (id: string, user: string, key: string) => admin.rpc('call_submit_application', { p_application: id, p_user: user, p_key: key, p_answers: {}, p_documents: [], p_form_snapshot: {} });
+    const [r1, r2] = await Promise.all([go(a.id, 'founder-a', 'key-929-race-a'), go(b.id, 'founder-b', 'key-929-race-b')]);
+    const out = [r1.data as { ok: boolean; reason?: string; became_full?: boolean }, r2.data as { ok: boolean; reason?: string; became_full?: boolean }];
+    expect(out.map((r) => r.ok).sort()).toEqual([false, true]);
+    expect(out.find((r) => !r.ok)!.reason).toBe('full');                                       // the 2nd gets "Full", even if it pressed at the same time
+    expect(out.find((r) => r.ok)!.became_full).toBe(true);
+    expect(apps().filter((x) => x.status === 'submitted')).toHaveLength(1);
+  });
+
+  it('Full blocks STARTING too, also through the API: nothing is created, the message is the one of the page, and Sherlock Deal (not the entity) sends one email, once, with the way to stop tips', async () => {
+    call().max_applications = 1;
+    const a = await completeAs('founder-a', ORG_A, 'Acme'); as('founder-a'); await submit(a.id, 'key-929-a-0002', a.revision);
+    newcomer(); as('founder-c');
+    const before = apps().length;
+    const r = await start();
+    expect(r).toMatchObject({ status: 409, body: { ok: false, code: 'full', error: FULL_MESSAGE } });
+    expect(apps()).toHaveLength(before);
+    expect(notices('call_full_late', 'founder-c')).toHaveLength(1);
+    const mails = emailsTo('founder-c');
+    expect(mails).toHaveLength(1);
+    expect(mails[0].subject).toBe('«Seed Call 2027» is full');
+    expect(mails[0].text).toContain('«Seed Call 2027» by «');
+    expect(mails[0].text).toContain('has reached its maximum number of applications, so your application could not be submitted. You can keep using Sherlock Deal: complete your startup profile to be found by investors that match your stage and sector, and to hear about new opportunities.');
+    expect(mails[0].html).toContain('Unsubscribe from Sherlock Deal tips');
+    expect(mails[0].text).toMatch(/\/api\/email\/unsubscribe\?t=/);
+    expect(mails[0].replyTo).toBeUndefined();                                                  // it is Sherlock Deal's, not the entity's
+    await start(); await start();                                                              // trying again changes nothing: still one email
+    expect(emailsTo('founder-c')).toHaveLength(1);
+  });
+
+  it('the email goes only to whoever has not refused tips; the message on the screen is the same either way', async () => {
+    call().max_applications = 1;
+    const a = await completeAs('founder-a', ORG_A, 'Acme'); as('founder-a'); await submit(a.id, 'key-929-a-0003', a.revision);
+    newcomer(); db.tables.user_email_preferences.push({ user_id: 'founder-c', tips_opt_out: true, announcements_opt_out: false });
+    as('founder-c');
+    expect((await start()).body.error).toBe(FULL_MESSAGE);
+    expect(emailsTo('founder-c')).toHaveLength(0);
+    expect(notices('call_full_late', 'founder-c')).toHaveLength(1);                            // the in-app notice is not an email: it stays
+  });
+
+  it('whoever had a draft is told once, BY THE ENTITY, when the call fills up — not the one who filled it', async () => {
+    call().max_applications = 1;
+    const a = await completeAs('founder-a', ORG_A, 'Acme'); await completeAs('founder-b', ORG_B, 'Other');
+    as('founder-a'); await submit(a.id, 'key-929-a-0004', a.revision);
+    expect(notices('call_full', 'founder-b')).toHaveLength(1);
+    expect(notices('call_full', 'founder-a')).toHaveLength(0);
+    expect(notices('call_full', 'founder-b')[0].title).toBe('«Seed Call 2027» has reached its maximum number of applications');
+    expect(emailsTo('founder-b').filter((m) => m.subject.includes('maximum number'))).toHaveLength(1);
+  });
+
+  it('raising or removing the limit opens the call again and tells the drafts once; the second place fills it again', async () => {
+    call().max_applications = 1;
+    const a = await completeAs('founder-a', ORG_A, 'Acme'); const b = await completeAs('founder-b', ORG_B, 'Other');
+    as('founder-a'); await submit(a.id, 'key-929-a-0005', a.revision);
+    expect(call().full_at).toBeTruthy();
+    const { rowToCall } = await import('@/lib/calls/mappers');
+    const raised = await setCallLimit(fakeCallsAdmin(db, storage), rowToCall(call()), { max_applications: 2 }, 'zz-test-firm');
+    expect(raised!.fullAt ?? null).toBeNull();
+    expect(call().full_at ?? null).toBeNull();
+    expect(notices('call_reopened', 'founder-b')).toHaveLength(1);
+    expect(notices('call_reopened', 'founder-b')[0].title).toBe('«Seed Call 2027» is accepting applications again');
+    as('founder-b');
+    expect((await submit(b.id, 'key-929-b-0005', b.revision)).status).toBe(200);              // it can be submitted now
+    expect(call().full_at).toBeTruthy();                                                        // and the second place filled it again
+    await setCallLimit(fakeCallsAdmin(db, storage), rowToCall(call()), { max_applications: null }, 'zz-test-firm');   // removing the limit
+    expect(call().full_at ?? null).toBeNull();
+  });
+
+  it('the entry page says "Full" (never "Closed"), shows the places left only when the team chose to, and the maximum is a whole number of at least 1', async () => {
+    call().max_applications = 3; call().show_places_left = false;
+    const a = await completeAs('founder-a', ORG_A, 'Acme'); as('founder-a'); await submit(a.id, 'key-929-a-0006', a.revision);
+    const page = async () => (await read(await publicGet(req('GET'), { params: { token: TOKEN } }))).body;
+    expect(await page()).toMatchObject({ ok: true, phase: 'open', full: false, placesLeft: null, message: null });
+    call().show_places_left = true;
+    expect((await page()).placesLeft).toBe(2);
+    call().max_applications = 1;
+    expect(await page()).toMatchObject({ phase: 'open', full: true, message: FULL_MESSAGE, placesLeft: 0 });
+    const { parseGeneralPatch } = await import('@/lib/calls/mappers');
+    for (const bad of [0, -3, 1.5, 'ten', 2_000_000]) expect(parseGeneralPatch({ maxApplications: bad }, { opensAt: null, closesAt: null }), String(bad)).toMatchObject({ ok: false });
+    expect(parseGeneralPatch({ maxApplications: '' }, { opensAt: null, closesAt: null })).toMatchObject({ ok: true, patch: { max_applications: null } });
+    expect(parseGeneralPatch({ maxApplications: 200 }, { opensAt: null, closesAt: null })).toMatchObject({ ok: true, patch: { max_applications: 200 } });
+  });
+
+  it('the link in the email turns the choice off for that account, is recorded, and cannot be forged; "undo" turns it back on', async () => {
+    const link = (token: string | null, extra = '') => unsubscribeGet(new Request(`http://localhost/api/email/unsubscribe?t=${token ?? ''}${extra}`));
+    const token = preferenceToken(TOKEN_USER, 'tips_opt_out')!;
+    const ok = await link(token);
+    expect(ok.status).toBe(200);
+    expect(await ok.text()).toContain('You will no longer receive tips from Sherlock Deal');
+    expect(db.tables.user_email_preferences.find((p) => p.user_id === TOKEN_USER)).toMatchObject({ tips_opt_out: true });
+    expect(db.tables.user_email_preference_changes).toMatchObject([{ preference: 'tips_opt_out', value: true, via: 'link in an email' }]);
+    await link(token);                                                                          // following it again changes nothing
+    expect(db.tables.user_email_preference_changes).toHaveLength(1);
+    await link(token, '&undo=1');
+    expect(db.tables.user_email_preferences.find((p) => p.user_id === TOKEN_USER)).toMatchObject({ tips_opt_out: false });
+    expect(db.tables.user_email_preference_changes).toHaveLength(2);
+    for (const forged of [null, 'abc', `${token}x`, token.replace(/\.[0-9a-f]{4}/, '.0000')]) expect((await link(forged)).status, String(forged)).toBe(400);
   });
 });

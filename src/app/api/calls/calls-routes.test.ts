@@ -546,3 +546,30 @@ describe('call names are unique inside an organisation', () => {
     expect([first.body.call.name, second.body.call.name]).toEqual(['INNOV-ID (copy)', 'INNOV-ID (copy 2)']);
   });
 });
+
+// --- Prompt 929 (A): the maximum number of applications is changed through the call's own PATCH ------------------------------------------------------------------------------------------
+describe('the maximum number of applications (Setup → General)', () => {
+  it('is saved with the rest while the call is a draft, stays editable once it is validated (nothing else does), refuses what is not a whole number, and is recorded', async () => {
+    const call = await newCall();
+    const version0 = await readyCall(call.id);
+    const saved = await read(await onePatch(json('PATCH', { baseVersion: version0, maxApplications: 200, showPlacesLeft: true }), params(call.id)));
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    expect(saved.body.call).toMatchObject({ maxApplications: 200, showPlacesLeft: true, fullAt: null });
+    const bad = await read(await onePatch(json('PATCH', { baseVersion: saved.body.call.configVersion, maxApplications: 0 }), params(call.id)));
+    expect(bad.status).toBe(400);
+    const confirmed = await act(call.id, 'confirm');
+    expect(confirmed.status).toBe(200);
+    // validated: everything else is locked ...
+    expect((await read(await onePatch(json('PATCH', { baseVersion: confirmed.body.call.configVersion, name: 'sneaky' }), params(call.id)))).body.code).toBe('locked');
+    // ... but the limit is not part of what applicants answer, so it can change, with no new version of the configuration
+    const changed = await read(await onePatch(json('PATCH', { baseVersion: confirmed.body.call.configVersion, maxApplications: 150 }), params(call.id)));
+    expect(changed.status, JSON.stringify(changed.body)).toBe(200);
+    expect(changed.body.call.maxApplications).toBe(150);
+    expect(changed.body.call.configVersion).toBe(confirmed.body.call.configVersion);
+    expect(db.tables.call_events.filter((e) => e.event === 'call_limit_changed')).toHaveLength(1);
+    const removed = await read(await onePatch(json('PATCH', { baseVersion: confirmed.body.call.configVersion, maxApplications: null }), params(call.id)));
+    expect(removed.body.call.maxApplications).toBeNull();
+    // the same message for something that is not the limit mixed with it
+    expect((await read(await onePatch(json('PATCH', { baseVersion: confirmed.body.call.configVersion, maxApplications: 10, name: 'sneaky' }), params(call.id)))).body.code).toBe('locked');
+  });
+});

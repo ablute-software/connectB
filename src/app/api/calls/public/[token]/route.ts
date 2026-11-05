@@ -11,6 +11,8 @@ import { resolvePublicCall, serviceClient } from '@/lib/calls/applicant/link';
 import { applicantPhase, phaseSentence } from '@/lib/calls/applicant/phase';
 import { formatDayInZone } from '@/lib/calls/tz';
 import { loadSettings } from '@/lib/calls/results-store';
+import { countApplications } from '@/lib/calls/store';
+import { FULL_MESSAGE, isFullFor, placesLeftFor } from '@/lib/calls/applicant/full';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +33,10 @@ export async function GET(_req: Request, { params }: { params: { token: string }
     .order('created_at', { ascending: true }).limit(1).maybeSingle();
 
   const phase = applicantPhase(call);
+  // Prompt 929 (A): the maximum number of applications. A FULL call is open in time but takes no new submission: the entry page says so ("Full", not "Closed"), and shows the places left only if the team chose to.
+  const submitted = call.maxApplications ? (await countApplications(admin, call.id)).submitted : 0;
+  const full = phase === 'open' && isFullFor(call, submitted);
+  const left = phase === 'open' && call.showPlacesLeft ? placesLeftFor(call, submitted) : null;
   const branding = (await brandingOf(admin, [call], 'public')).get(call.id)!;
   return NextResponse.json({
     ok: true,
@@ -38,7 +44,8 @@ export async function GET(_req: Request, { params }: { params: { token: string }
     opensAt: call.opensAt, closesAt: call.closesAt, timezone: call.timezone, status: phase, retentionMonths: (await loadSettings(admin, call.id)).retentionMonths,
     phase,
     // The sentence under the header while applications cannot be made ("Opens on …", "Applications closed on …"); null while they can.
-    message: phaseSentence(call),
+    message: full ? FULL_MESSAGE : phaseSentence(call),
+    full, placesLeft: left,
     opensDay: formatDayInZone(call.opensAt, call.timezone),
     closesDay: formatDayInZone(call.closesAt, call.timezone),
     // When it really closed, if that was before its deadline (Prompt 918, Adenda 3): the entry page shows it instead of a deadline still to come.

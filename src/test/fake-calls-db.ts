@@ -38,7 +38,7 @@ export function callsDb(): CallsDb {
     // Prompt 924 (I3)
     'call_contestations', 'call_data_summaries',
     // Prompt 927 (A)
-    'call_pipeline_backfills',
+    'call_pipeline_backfills', 'user_email_preferences', 'user_email_preference_changes',
     // Prompt 925
     'call_selection_rules', 'call_selection_runs', 'call_selection_items',
   ];
@@ -309,6 +309,12 @@ function callAccepting(db: CallsDb, callId: string): boolean {
   return !c.closes_at || Date.parse(c.closes_at as string) > nowOf(db);
 }
 
+/** The number of SUBMITTED applications reached the maximum (migration 20261104100000, call_is_full). */
+function isFull(db: CallsDb, callId: string): boolean {
+  const c = db.tables.calls.find((r) => r.id === callId);
+  return !!c && c.max_applications !== null && c.max_applications !== undefined && db.tables.call_applications.filter((r) => r.call_id === callId && r.status === 'submitted').length >= Number(c.max_applications);
+}
+
 /** call_open_application(), modelled: create-or-resume under the per-unit limit. (The advisory lock is the single thread here.) */
 function openApplication(db: CallsDb, a: Record<string, unknown>) {
   const callId = a.p_call as string; const org = a.p_org as string; const unit = a.p_unit_key as string;
@@ -326,6 +332,7 @@ function openApplication(db: CallsDb, a: Record<string, unknown>) {
     if (draft) return { ok: true, application_id: draft.id, created: false, status: draft.status };
   }
   if (!callAccepting(db, callId)) return { ok: false, reason: 'not_accepting' };
+  if (isFull(db, callId)) return { ok: false, reason: 'full' };                                     // Prompt 929 (A)
   if (a.p_reference && apps.some((r) => r.reference === a.p_reference)) throw new Violation('call_applications_reference_uidx', '23505');
   const row: Row = { ...(DEFAULTS.call_applications(db)), id: uuid(db), call_id: callId, startup_org_id: org, applicant_user_id: a.p_user, status: 'draft', unit_key: unit, reference: a.p_reference, created_at: tick(db), updated_at: new Date(nowOf(db)).toISOString() };
   apps.push(row);
@@ -343,6 +350,7 @@ function submitApplication(db: CallsDb, a: Record<string, unknown>) {
   if (app.status !== 'draft') return { ok: false, reason: 'already_submitted' };
   const call = db.tables.calls.find((r) => r.id === app.call_id)!;
   if (!callAccepting(db, call.id as string)) return { ok: false, reason: 'not_accepting' };
+  if (isFull(db, call.id as string)) return { ok: false, reason: 'full' };                          // Prompt 929 (A): counted and decided in one step (the fake is single-threaded, the SQL takes a lock)
   if (!call.allow_multiple && db.tables.call_applications.some((o) => o.call_id === app.call_id && o.unit_key === app.unit_key && o.id !== app.id && o.status === 'submitted')) return { ok: false, reason: 'unit_limit' };
   const at = new Date(nowOf(db)).toISOString();
   const s: Row = { id: uuid(db), application_id: app.id, version: 1, answers: a.p_answers, documents: a.p_documents ?? [], form_snapshot: a.p_form_snapshot, submitted_by: a.p_user, submitted_at: at, idempotency_key: a.p_key };
@@ -351,7 +359,9 @@ function submitApplication(db: CallsDb, a: Record<string, unknown>) {
   db.tables.call_processing_tasks.push({ ...(DEFAULTS.call_processing_tasks(db)), id: uuid(db), call_id: app.call_id, application_id: app.id, submission_id: s.id, kind: 'eligibility', rules_version: call.eligibility_version ?? 1, created_at: new Date(nowOf(db)).toISOString() });
   Object.assign(app, { status: 'submitted', current_submission_id: s.id, submitted_at: at, updated_at: at });
   db.tables.call_events.push({ id: ++db.seq, call_id: app.call_id, application_id: app.id, event: 'application_submitted', actor_user_id: a.p_user, detail: { reference: app.reference, version: 1 }, created_at: tick(db) });
-  return { ok: true, already: false, submission_id: s.id, version: 1, submitted_at: at };
+  let becameFull = false;
+  if (call.max_applications !== null && call.max_applications !== undefined && db.tables.call_applications.filter((r) => r.call_id === call.id && r.status === 'submitted').length >= Number(call.max_applications) && !call.full_at) { call.full_at = at; becameFull = true; }
+  return { ok: true, already: false, submission_id: s.id, version: 1, submitted_at: at, became_full: becameFull };
 }
 
 /** claim_call_tasks(), modelled: queued tasks whose time has come, and those stuck in Processing for longer than p_stale_minutes, oldest first; they become Processing and count an attempt. */
