@@ -44,7 +44,8 @@ describe('middleware — Developer Viewer is read-only for the whole API', () =>
   });
 
   it('a route nobody wrapped is refused all the same', async () => {
-    const res = await middleware(call('POST', '/api/a-route-added-next-month'));
+    // a new route inside an existing zone (a brand-new top-level /api folder has to be classified in src/lib/route-zones.ts first, which route-zones.test.ts enforces)
+    const res = await middleware(call('POST', '/api/market-thesis/added-next-month'));
     expect(res.status).toBe(403);
   });
 

@@ -207,7 +207,8 @@ describe('the pages\' own stylesheet', () => {
     const css = readFileSync(path.join(ROOT, 'src/components/site/site-page.module.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/@media[^{]*\{/g, '');
     const selectors = [...css.matchAll(/(?:^|\})\s*([^{}@]+)\{/g)].map((m) => m[1].trim()).filter(Boolean);
     expect(selectors.length).toBeGreaterThan(20);
-    for (const sel of selectors) for (const part of sel.split(',')) expect(part.trim().startsWith('.site '), part.trim()).toBe(true);
+    // `.site .x` (a descendant) or `.site.mod` (a modifier on the wrapper itself — Prompt 933's `.site.fill`): both are two classes deep, which is what beats the reset
+    for (const sel of selectors) for (const part of sel.split(',')) expect(/^\.site(\s|\.[A-Za-z_][\w-]*(\s|$))/.test(part.trim()), part.trim()).toBe(true);
   });
 
   it('is applied by the layout (the .site class is on the wrapper)', () => {

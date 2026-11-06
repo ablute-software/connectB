@@ -50,7 +50,9 @@ describe('the banner', () => {
   });
   it('is mounted once, at the root, so every page has it — and /api/version is reachable without a session (the login page too)', () => {
     expect(fs.readFileSync(`${process.cwd()}/src/app/layout.tsx`, 'utf8')).toContain('<NewVersionBanner />');
-    expect(fs.readFileSync(`${process.cwd()}/src/middleware.ts`, 'utf8')).toMatch(/const PUBLIC = \[[^\]]*'\/api\/version'/);
+    // the public list lives in src/lib/route-zones.ts since Prompt 933, and the middleware reads it from there
+    expect(fs.readFileSync(`${process.cwd()}/src/lib/route-zones.ts`, 'utf8')).toMatch(/export const PUBLIC_PATHS: readonly string\[\] = \[[^\]]*'\/api\/version'/);
+    expect(fs.readFileSync(`${process.cwd()}/src/middleware.ts`, 'utf8')).toContain("import { isApiPath, isPublicPath, isUnknownPath } from '@/lib/route-zones';");
   });
 });
 

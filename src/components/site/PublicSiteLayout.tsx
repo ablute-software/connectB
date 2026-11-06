@@ -60,9 +60,11 @@ export const FOOTER_COLUMNS: { title: string; links: { label: string; href: stri
   },
 ];
 
-export function PublicSiteLayout({ children, active = null }: { children: ReactNode; active?: 'startup' | 'investor' | null }) {
+// Prompt 933 — two options for the 404 page (NotFoundFrame): `signedIn` swaps the two account buttons for one that opens the workspace, and `fill` makes the page at least one screen high, the footer at the
+// bottom and the content centred in what is left. Neither changes a page that does not pass them.
+export function PublicSiteLayout({ children, active = null, signedIn = false, fill = false }: { children: ReactNode; active?: 'startup' | 'investor' | null; signedIn?: boolean; fill?: boolean }) {
   return (
-    <div className={`${fraunces.variable} ${inter.variable} ${s.landing} ${p.site}`} style={SITE_TOKENS}>
+    <div className={`${fraunces.variable} ${inter.variable} ${s.landing} ${p.site}${fill ? ` ${p.fill}` : ''}`} style={SITE_TOKENS}>
       <nav className={s.nav} data-scrolled="true" aria-label="Main">
         <div className={`${s.wrap} ${p.navWrap}`}>
           <Link className={s.logo} href="/">
@@ -73,8 +75,15 @@ export function PublicSiteLayout({ children, active = null }: { children: ReactN
             <Link className={s.link} href="/#how">How it works</Link>
             <Link className={s.link} href="/#pricing">Pricing</Link>
             <AudienceToggle active={active} />
-            <Link className={`${s.btn} ${s.btnGhost} ${s.btnSm} ${p.navSignIn}`} href="/login">Sign in</Link>
-            <Link className={`${s.btn} ${s.btnPrimary} ${s.btnSm} ${p.navCreate}`} href="/signup">Create account</Link>
+            {signedIn ? (
+              // /go is a route handler that picks the destination from the session: nothing to prefetch (it only redirects), and a prefetch would run that lookup for every view of the page
+              <Link className={`${s.btn} ${s.btnPrimary} ${s.btnSm} ${p.navCreate}`} href="/go" prefetch={false}>Open workspace</Link>
+            ) : (
+              <>
+                <Link className={`${s.btn} ${s.btnGhost} ${s.btnSm} ${p.navSignIn}`} href="/login">Sign in</Link>
+                <Link className={`${s.btn} ${s.btnPrimary} ${s.btnSm} ${p.navCreate}`} href="/signup">Create account</Link>
+              </>
+            )}
           </div>
         </div>
       </nav>

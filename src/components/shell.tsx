@@ -1,7 +1,8 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import dynamic from 'next/dynamic';
+import { usePathname, useSelectedLayoutSegment } from 'next/navigation';
 import { useStore } from '@/lib/store';
 import { outboundCounts } from '@/lib/rules';
 import { Tooltip } from '@/components/ui';
@@ -33,6 +34,10 @@ import { LogoutButton } from '@/components/workspace-shell/LogoutButton';
 import { LampButton } from '@/components/onboarding/LampButton';
 import { SherlockNextButton } from '@/components/SherlockNextButton';
 import type { WorkspaceNavItem } from '@/components/workspace-shell/types';
+
+// Prompt 933 — the public header and footer around the page of an address that matches no route. Loaded only when that page is drawn: they bring the landing's stylesheet and two font families, which the
+// screens of the app must not pay for.
+const NotFoundFrame = dynamic(() => import('@/components/site/NotFoundFrame').then((m) => m.NotFoundFrame));
 
 // Prompt 141 — pathname -> this page's tour key(s), for the header lamp.
 // Deliberately NOT useSearchParams-based for tab-scoped pages (/tasks,
@@ -101,6 +106,10 @@ type Me = {
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
+  // Prompt 933 — Next draws src/app/not-found.tsx for an address that matches no route as the page of the segment '/_not-found' under the root layout, and this is the one place a layout can ask. It is decided by
+  // the segment and not by the path because the HTML of that page is made once, at build time, and served for every such address: a rule on the path would give the server's copy one answer and the browser
+  // another (/pipeline/x sits under the founder app's zone, /faq/x under a public page's), and the page would not hydrate.
+  const isNotFoundRoute = useSelectedLayoutSegment() === '/_not-found';
   const { db } = useStore();
   const caps = outboundCounts(db);
   const pendingRuns = db.runs.filter((r) => r.status === 'pending_review').length;
@@ -178,6 +187,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
     // (/ecosystem since I-01c; /incubator redirects there).
     || path === '/incubator' || !!path?.startsWith('/incubator/')
     || path === '/ecosystem' || !!path?.startsWith('/ecosystem/')
+    // Prompt 933 — the page of an unknown address brings its own header and footer too (returned just below).
+    || isNotFoundRoute
     // Prompt 920 — the public marketing pages (/for-startups, /about, /faq) bring their own nav and footer; wrapped in this Shell an
     // anonymous visitor would get the founder app's sidebar around them. The list is shared with the middleware and the sitemap.
     || isPublicSitePage(path);
@@ -231,6 +242,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // (wrong title, ghost nav links that 401/redirect for someone with no
   // org membership yet) when wrapped. Flagged separately from the /guest
   // fix above rather than folded in silently; fixed here.
+  if (isNotFoundRoute) return <NotFoundFrame signedIn={me?.authEnabled === true && !!me.user}>{children}</NotFoundFrame>;
   if (isBareShellRoute) return <>{children}</>;
 
   // Prompt 152 — an authenticated session that resolves to role==='none'

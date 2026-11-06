@@ -1,0 +1,35 @@
+/* Prompt 933 — the card of the page for an address that matches nothing (NotFoundCard). The colours and the display face are the landing's own variables, set on .landing by the public frame that
+   draws this card (NotFoundFrame); the fallbacks are the same values, for the one case where the card is drawn without that frame (a notFound() raised inside a page of its own).
+
+   Every rule is two classes deep: the frame's wrapper resets margin and padding on `.landing *` (specificity 0,1,0), and a single-class rule would win or lose against it depending on the order the two stylesheets
+   reach the page — the first version of this file had `.nf { margin: 0 auto; padding: 0 24px }` and drew the card against the left edge, with no margin on a phone. `.nf .x` (0,2,0) wins in either order, and also
+   against `.landing a { color: inherit }` (0,1,1), which would otherwise take the colour of the buttons. The card's own box is `.nf.root`: two classes on ONE element. */
+
+.nf.root { width: 100%; max-width: 640px; margin: 0 auto; padding: 0 24px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+
+/* The mark of the logo, bigger: the lens over the shoulder of the S is the idea of the page (no leads), and nothing new is drawn. */
+.nf .mark { display: block; margin-bottom: 26px; }
+
+.nf .title { font-family: var(--font-fraunces), Georgia, serif; font-size: clamp(2.3rem, 7vw, 3.5rem); line-height: 1.08; font-weight: 600; letter-spacing: -.01em; color: var(--ink, #0c272e); margin: 0 0 16px; }
+/* The gold full stop. A disc rather than the glyph: the landing's amber (#d9a441) on this page's background is 2.1:1, enough for a dot that carries no meaning, not for text. It is the landing's own .dot. */
+.nf .stop { display: inline-block; width: .15em; height: .15em; margin-left: .08em; border-radius: 50%; background: var(--amber, #d9a441); }
+
+.nf .lead { font-size: 1.14rem; line-height: 1.65; color: var(--ink-2, #123a44); max-width: 30em; margin: 0 0 30px; }
+
+.nf .actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 14px 26px; }
+
+.nf .primary { display: inline-flex; align-items: center; justify-content: center; padding: 12px 24px; border-radius: 999px; background: var(--amber, #d9a441); color: var(--ink, #0c272e); font-weight: 600; font-size: .95rem; transition: transform .2s, box-shadow .2s; }
+.nf .primary:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(217, 164, 65, .35); }
+
+.nf .secondary { color: var(--teal-strong, #1e5d68); font-weight: 600; font-size: .95rem; text-decoration: underline; text-underline-offset: 3px; }
+.nf .secondary:hover { color: var(--teal, #2a7f8e); }
+
+.nf .primary:focus-visible, .nf .secondary:focus-visible { outline: 2px solid var(--teal, #2a7f8e); outline-offset: 3px; }
+
+/* "404" and "not found" are for whoever needs them (a support message, a search of the logs); they come last, small and quiet. */
+.nf .code { margin-top: 38px; font-size: .82rem; letter-spacing: .02em; color: var(--muted, #5b7077); }
+
+@media (prefers-reduced-motion: reduce) {
+  .nf .primary { transition: none; }
+  .nf .primary:hover { transform: none; }
+}
