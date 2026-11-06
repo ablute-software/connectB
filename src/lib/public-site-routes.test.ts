@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { PUBLIC_SITE_FILES, PUBLIC_SITE_PAGES, PUBLIC_SITE_PATHS, isPublicSitePage } from './public-site-routes';
+import { isPublicPath, isUnknownPath } from './route-zones';
 import { SITEMAP_PAGES } from '@/content/site/pages';
 
 // An unauthenticated caller is the case under test.
@@ -61,9 +62,12 @@ describe('the public site is open to a visitor with no session', () => {
     // (the middleware matches a path or anything UNDER it — `/faq/x` would pass and 404, nothing exists there; what must never pass is a
     // sibling that only shares a prefix of letters)
     for (const p of ['/for-startups-evil', '/about-us', '/faq2', '/robots.txt.bak', '/sitemap.xml.gz', '/fortune']) {
+      expect(isPublicPath(p), p).toBe(false);
+      // Prompt 933: nothing lives there either, so it is no longer sent to the login — it goes on to Next, which answers 404 (route-zones.test.ts drives that)
+      expect(isUnknownPath(p), p).toBe(true);
       const res = await middleware(get(p));
-      expect(res.status, p).toBe(307);
-      expect(res.headers.get('location'), p).toContain('/login');
+      expect(res.status, p).not.toBe(307);
+      expect(res.headers.get('location'), p).toBeNull();
     }
   });
 

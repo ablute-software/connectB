@@ -23,7 +23,7 @@
 // what follows here is display truth, never enforcement.
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSelectedLayoutSegment } from 'next/navigation';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { useBottomNavHeight } from '@/lib/bottom-nav-context';
 import { areaFromPath } from '@/lib/support-area';
@@ -51,6 +51,10 @@ type Mode = 'choose' | 'problem' | 'suggestion';
 // 30/10/2026 — not drawn on the landing pages (Nuno): the wrapper decides BEFORE the form's state, listeners and fetches exist, so a visitor of the landing runs none of them.
 export function ReportProblemWidget() {
   const pathname = usePathname();
+  // Prompt 933 — the page of an address that matches no route has its own way to report (its "Report a problem" link) and is drawn like a public page, so no floating button. Decided by the segment, not the path
+  // (see the Shell): the HTML of that page is made once and served for every unknown address, and a rule on the path would give the server's copy and the browser's different answers on /faq/x.
+  const notFound = useSelectedLayoutSegment() === '/_not-found';
+  if (notFound) return null;
   if (!showsReportProblemWidget(pathname)) return null;
   return <ReportProblemWidgetInner />;
 }

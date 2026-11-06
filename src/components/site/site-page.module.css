@@ -64,3 +64,8 @@
 @media (max-width: 460px) {
   .site .footerCols { grid-template-columns: 1fr; }
 }
+
+/* Prompt 933 — a page that is at least one screen high (the 404): the footer stays at the bottom and the content sits in the middle of what is left. `.site.fill` is two classes on ONE element (0,2,0), so it
+   wins against .landing's own min-height without depending on the order the stylesheets arrive in; it sets no padding, so every rule above still decides the spacing. */
+.site.fill { display: flex; flex-direction: column; min-height: 100vh; min-height: 100svh; }
+.site.fill .main { flex: 1; display: flex; flex-direction: column; justify-content: center; }

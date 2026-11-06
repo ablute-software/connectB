@@ -12,7 +12,8 @@
     "verify:migrations": "node --experimental-strip-types scripts/verify-migrations.ts",
     "verify:migration-order": "node scripts/check-migration-order.mjs",
     "verify:no-signed-url-leak": "node scripts/check-no-signed-url-leak.mjs",
-    "verify:landing-logos": "node scripts/check-landing-logos.mjs"
+    "verify:landing-logos": "node scripts/check-landing-logos.mjs",
+    "verify:not-found": "node scripts/check-not-found.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",

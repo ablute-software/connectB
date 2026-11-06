@@ -53,6 +53,7 @@ describe('the set of files that touch website health is closed', () => {
       'src/lib/audit-log-format.ts',
       'src/lib/dossier-fetch.ts',
       'src/lib/investor-interest-level.ts',
+      'src/lib/route-zones.ts', // names the folder as an API zone for the auth middleware (Prompt 933); it reads nothing
       'src/lib/website-health-capability.ts',
       'src/lib/website-health-psi.ts',
       'src/lib/website-health-run.ts',

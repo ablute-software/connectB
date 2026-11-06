@@ -74,11 +74,22 @@ describe('middleware — unauthenticated API access', () => {
   });
 
   it('still redirects any other unauthenticated API POST to /login', async () => {
-    const res = await middleware(post('/api/anything-else'));
+    // a real route of a protected zone: an /api path that no zone owns is a 404 now (next test)
+    const res = await middleware(post('/api/market-thesis'));
     expect(res.status).toBe(307);
     const location = res.headers.get('location');
     expect(location).toContain('/login');
-    expect(location).toContain('next=%2Fapi%2Fanything-else');
+    expect(location).toContain('next=%2Fapi%2Fmarket-thesis');
+  });
+
+  // Prompt 933 — an /api path that no route answers is not a reason to ask for a login: it is a 404, as JSON, for every method (it used to be a 307 to an HTML page).
+  it('answers 404 JSON, not a redirect to an HTML page, for an API path nothing answers', async () => {
+    for (const make of [get, post]) {
+      const res = await middleware(make('/api/isto-nao-existe'));
+      expect(res.status).toBe(404);
+      expect(res.headers.get('location')).toBeNull();
+      expect(await res.json()).toMatchObject({ ok: false, error: 'not_found' });
+    }
   });
 
   it('does not open the rest of the app: an unauthenticated page still redirects', async () => {
@@ -98,9 +109,10 @@ describe('middleware — unauthenticated API access', () => {
   it('is an exact-path allowance, not a prefix that opens sibling routes', async () => {
     // Nothing lives under /api/provision-org today; this pins that adding
     // one later does not inherit the exemption by accident.
+    // Prompt 933: it is not let through as if it were the public route, and nothing answers it either, so it is a 404 (it used to be a redirect to /login).
     const res = await middleware(post('/api/provision-org-something-else'));
-    expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toContain('/login');
+    expect(res.status).toBe(404);
+    expect(res.headers.get('x-middleware-next')).toBeNull();
   });
 
   // Prompt 749/750 merge — found live in production, the same class of bug
