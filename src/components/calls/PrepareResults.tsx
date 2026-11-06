@@ -16,11 +16,11 @@ const DEBOUNCE_MS = 700;
 const TITLE: Record<ResultKey, string> = { advance: 'Advance', reject: 'Reject', waitlist: 'Waitlist' };
 
 interface Form {
-  labels: Record<ResultKey, string>; messages: Record<ResultKey, string>; eligibilityReasonMode: EligibilityReasonMode; feedbackEnabled: boolean; contestationsEnabled: boolean; shareGrade: boolean;
+  labels: Record<ResultKey, string>; messages: Record<ResultKey, string>; eligibilityReasonMode: EligibilityReasonMode; feedbackEnabled: boolean; contestationsEnabled: boolean; shareGrade: boolean; tipsEnabled: boolean;
   contestationDays: string; retentionMonths: string; nextStepsText: string; nextStepsDate: string;
 }
 const formOf = (v: PrepareView): Form => ({
-  labels: { ...v.labels }, messages: { ...v.messages }, eligibilityReasonMode: v.settings.eligibilityReasonMode, feedbackEnabled: v.settings.feedbackEnabled, contestationsEnabled: v.settings.contestationsEnabled, shareGrade: v.settings.shareGrade,
+  labels: { ...v.labels }, messages: { ...v.messages }, eligibilityReasonMode: v.settings.eligibilityReasonMode, feedbackEnabled: v.settings.feedbackEnabled, contestationsEnabled: v.settings.contestationsEnabled, shareGrade: v.settings.shareGrade, tipsEnabled: v.settings.tipsEnabled === true,
   contestationDays: String(v.settings.contestationDays), retentionMonths: String(v.settings.retentionMonths), nextStepsText: v.settings.nextStepsText, nextStepsDate: v.settings.nextStepsDate ?? '',
 });
 
@@ -28,6 +28,13 @@ export function PrepareResults({ callId, locked = false, lockedReason = null, on
   const [view, setView] = useState<PrepareView | null>(null);
   const [form, setForm] = useState<Form | null>(null);
   const [error, setError] = useState('');
+  const [tipsExample, setTipsExample] = useState<{ subject: string; text: string } | null>(null);
+  const showTipsExample = async () => {
+    if (tipsExample) { setTipsExample(null); return; }
+    const r = await fetch(`/api/calls/${callId}/results`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'tips_preview' }) }).catch(() => null);
+    const j = r && r.ok ? await r.json().catch(() => null) : null;
+    if (j?.subject) setTipsExample({ subject: j.subject, text: j.text }); else setError('The example could not be loaded.');
+  };
   const [save, setSave] = useState<{ state: SaveState; message?: string }>({ state: 'idle' });
   const pending = useRef<Record<string, unknown>>({});
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -122,6 +129,18 @@ export function PrepareResults({ callId, locked = false, lockedReason = null, on
                 <input id="opt-days" type="number" min={1} max={90} autoComplete="off" className={`${INPUT} !w-20`} disabled={off} value={form.contestationDays} data-testid="opt-contestation-days"
                   onChange={(e) => { set({ ...form, contestationDays: e.target.value }); if (e.target.value) change({ contestationDays: Number(e.target.value) }); }} />
                 <span className="text-xs text-gray-600">calendar days after the results are published.</span>
+              </div>
+            )}
+          </div>
+          <div>
+            <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" disabled={off} checked={form.tipsEnabled} data-testid="opt-tips"
+              onChange={(e) => { set({ ...form, tipsEnabled: e.target.checked }); change({ tipsEnabled: e.target.checked }); }} />
+              <span className="min-w-0">Let Sherlock Deal send unsuccessful applicants up to 3 general improvement tips based on the evaluation (no scores or comments are shared). Off by default.</span></label>
+            <p className="ml-6 mt-1 text-[11px] text-gray-500">It is a separate email from Sherlock Deal, sent after your own reply (and after the contestation period, if you offer one). Only applicants who were evaluated and not selected get it, and each can stop receiving it. It never shows a grade, a position, a criterion or a comment. <button type="button" className="underline" onClick={() => { void showTipsExample(); }} data-testid="tips-example-toggle">{tipsExample ? 'Hide the example' : 'See an example'}</button></p>
+            {tipsExample && (
+              <div className="ml-6 mt-2 min-w-0 rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700" data-testid="tips-example">
+                <p className="font-medium text-gray-900">{tipsExample.subject}</p>
+                <p className="mt-2 whitespace-pre-line break-words">{tipsExample.text}</p>
               </div>
             )}
           </div>

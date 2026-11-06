@@ -10,6 +10,7 @@
 // Nothing in here reaches an applicant: publishing is its own step.
 import { NextResponse } from 'next/server';
 import { authCall } from '@/lib/calls/access';
+import { exampleTipsEmail } from '@/lib/calls/tips-store';
 import { RESULTS_NOT_READY, loadPrepare, previewFor, resultsReady, saveSettings, setFeedback, setGrade } from '@/lib/calls/results-store';
 
 export const dynamic = 'force-dynamic';
@@ -36,6 +37,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (auth.error) return auth.error;
   if (!(await resultsReady(auth.admin))) return NextResponse.json(RESULTS_NOT_READY, { status: 503 });
   const body = await req.json().catch(() => ({})) as { action?: string; applicationId?: unknown; text?: unknown; grade?: unknown };
+  if (body.action === 'tips_preview') {
+    const e = exampleTipsEmail(auth.call);                                                    // an example from the model sentences: no applicant, no score, nothing of this call's evaluations
+    return NextResponse.json({ ok: true, subject: e.subject, text: e.text });
+  }
   if (typeof body.applicationId !== 'string') return NextResponse.json({ ok: false, error: 'Choose an application.' }, { status: 400 });
   if (body.action === 'preview') {
     const r = await previewFor(auth.admin, auth.call, body.applicationId);

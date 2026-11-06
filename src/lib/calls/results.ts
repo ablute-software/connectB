@@ -28,11 +28,13 @@ export interface ResultSettings {
   nextStepsDate: string | null;
   /** Nuno, 28/10/2026: an option per call, OFF by default. Only the grade an administrator VALIDATED is ever sent — never the average of the evaluations, never an evaluator's score. */
   shareGrade: boolean;
+  /** Prompt 929 (B): the ENTITY lets Sherlock Deal send unsuccessful applicants up to 3 general improvement tips based on the evaluation (no scores or comments are shared). OFF by default. */
+  tipsEnabled?: boolean;
 }
 
 /** The defaults Nuno decided (28/10/2026): no feedback, no contestations (10 calendar days once on), data kept 24 months after the call is completed. */
 export const DEFAULT_SETTINGS: ResultSettings = {
-  labels: {}, messages: {}, eligibilityReasonMode: 'none', feedbackEnabled: false, contestationsEnabled: false, contestationDays: 10, retentionMonths: 24, nextStepsText: '', nextStepsDate: null, shareGrade: false,
+  labels: {}, messages: {}, eligibilityReasonMode: 'none', feedbackEnabled: false, contestationsEnabled: false, contestationDays: 10, retentionMonths: 24, nextStepsText: '', nextStepsDate: null, shareGrade: false, tipsEnabled: false,
 };
 
 export const MAX_LABEL = 60;
@@ -321,7 +323,7 @@ export function parseSettingsPatch(raw: unknown): ParsedSettings {
     if (!ELIGIBILITY_REASON_MODES.includes(b.eligibilityReasonMode as EligibilityReasonMode)) return { ok: false, error: 'Choose how the eligibility reason is told: not at all, a general sentence, or the requirement that was not met.' };
     patch.eligibilityReasonMode = b.eligibilityReasonMode as EligibilityReasonMode;
   }
-  for (const k of ['feedbackEnabled', 'contestationsEnabled', 'shareGrade'] as const) {
+  for (const k of ['feedbackEnabled', 'contestationsEnabled', 'shareGrade', 'tipsEnabled'] as const) {
     if (b[k] === undefined) continue;
     if (typeof b[k] !== 'boolean') return { ok: false, error: 'Invalid setting.' };
     patch[k] = b[k] as boolean;

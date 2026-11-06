@@ -10,6 +10,7 @@ import { STAGE_LABELS, type CardAction, type Overview } from '@/lib/calls/applic
 import { CallNotices } from './CallNotices';
 import { EntityLogo } from './CallHeader';
 import { ScrollTabs } from '@/components/ScrollTabs';
+import { TipsPreference } from './TipsPreference';
 
 type Tab = 'open' | 'mine' | 'past';
 
@@ -131,6 +132,8 @@ export function ApplicantCalls() {
           )}
         </div>
       )}
+
+      <TipsPreference className="mt-8" />
     </div>
   );
 }

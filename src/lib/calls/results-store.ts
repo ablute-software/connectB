@@ -30,7 +30,7 @@ export async function loadSettings(admin: SupabaseClient, callId: string): Promi
     labels: (r.labels as ResultSettings['labels']) ?? {}, messages: (r.messages as ResultSettings['messages']) ?? {},
     eligibilityReasonMode: ((ELIGIBILITY_REASON_MODES as readonly string[]).includes(String(r.eligibility_reason_mode)) ? r.eligibility_reason_mode : 'none') as ResultSettings['eligibilityReasonMode'], feedbackEnabled: r.feedback_enabled === true, contestationsEnabled: r.contestations_enabled === true,
     contestationDays: Number(r.contestation_days ?? 10), retentionMonths: Number(r.retention_months ?? 24),
-    nextStepsText: String(r.next_steps_text ?? ''), nextStepsDate: (r.next_steps_date as string | null) ?? null, shareGrade: r.share_grade === true,
+    nextStepsText: String(r.next_steps_text ?? ''), nextStepsDate: (r.next_steps_date as string | null) ?? null, shareGrade: r.share_grade === true, tipsEnabled: r.tips_enabled === true,
   };
 }
 
@@ -39,13 +39,13 @@ export async function saveSettings(admin: SupabaseClient, call: Call, raw: unkno
   if (!parsed.ok) return { ok: false, status: 400, error: parsed.error };
   const state = await loadRoundState(admin, call);
   // What a publication goes out with is fixed once it is scheduled or done — the one exception is what comes AFTER the results (how long the data is kept, whether contestations are open: I3).
-  const afterResults = Object.keys(parsed.patch).every((k) => k === 'retentionMonths' || k === 'contestationsEnabled' || k === 'contestationDays');
+  const afterResults = Object.keys(parsed.patch).every((k) => k === 'retentionMonths' || k === 'contestationsEnabled' || k === 'contestationDays' || k === 'tipsEnabled');
   if (state.locked && !afterResults) return { ok: false, status: 409, error: state.lockedReason ?? 'This cannot be changed now.' };
   const next: ResultSettings = { ...(await loadSettings(admin, call.id)), ...parsed.patch };
   const res = await admin.from('call_result_settings').upsert({
     call_id: call.id, labels: next.labels, messages: next.messages, eligibility_reason_mode: next.eligibilityReasonMode, feedback_enabled: next.feedbackEnabled,
     contestations_enabled: next.contestationsEnabled, contestation_days: next.contestationDays, retention_months: next.retentionMonths, next_steps_text: next.nextStepsText,
-    next_steps_date: next.nextStepsDate, share_grade: next.shareGrade, updated_by: actor, updated_at: new Date().toISOString(),
+    next_steps_date: next.nextStepsDate, share_grade: next.shareGrade, tips_enabled: next.tipsEnabled === true, updated_by: actor, updated_at: new Date().toISOString(),
   }, { onConflict: 'call_id' });
   if (res.error) return { ok: false, status: 500, error: 'The settings could not be saved. Please try again.' };
   await admin.from('call_events').insert({ call_id: call.id, application_id: null, event: 'results_settings_changed', actor_user_id: actor, detail: { fields: Object.keys(parsed.patch) } });
