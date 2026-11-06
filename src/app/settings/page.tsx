@@ -19,6 +19,7 @@ import { AutomationsPanel } from '@/components/AutomationsPanel';
 import { PermissionsMatrixCard } from '@/components/PermissionsMatrixCard';
 import { ImportPanel } from '@/components/settings/ImportPanel';
 import { AccountSecurityCard } from '@/components/settings/AccountSecurityCard';
+import { TipsPreference } from '@/components/calls/applicant/TipsPreference';
 import { CloseAccountCard } from '@/components/settings/CloseAccountCard';
 import { ProgramsPanel } from '@/components/settings/ProgramsPanel';
 import { NeedsReviewPanel } from '@/components/queue/NeedsReviewPanel';
@@ -363,6 +364,7 @@ function TeamPanel() {
           {/* Prompt 602 — password & security (own password; the owner's
               admin-reset switch; an admin's owner-reset action). */}
           <AccountSecurityCard />
+          <TipsPreference />
           <PermissionsMatrixCard />
           <Suspense fallback={null}><GmailConnectionCard /></Suspense>
           {/* Prompt 602 §C — owner only; renders nothing for anyone else. */}
