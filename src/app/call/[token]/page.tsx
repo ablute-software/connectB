@@ -18,6 +18,7 @@ import { ApplicationArea, type CallSession } from '@/components/calls/applicant/
 import { TeamNotice } from '@/components/calls/applicant/TeamNotice';
 import { GONE_MESSAGE } from '@/lib/calls/deletion';
 import { ReportProblem } from '@/components/calls/applicant/ReportProblem';
+import { TipsPreference } from '@/components/calls/applicant/TipsPreference';
 
 export default function CallLinkPage() {
   const { token } = useParams<{ token: string }>();
@@ -110,6 +111,8 @@ export default function CallLinkPage() {
               ) : (
                 <ApplicationArea token={token} call={call} session={session} onChanged={() => void loadSession()} />
               )}
+              {/* Prompt 929 (B): the choice about Sherlock Deal's tips is offered to everyone who is signed in here — a new account at the startup step, an existing one as soon as it arrives. */}
+              {session?.authenticated && !session.onTeam && <TipsPreference className="mt-6" />}
             </div>
           </>
         )}
