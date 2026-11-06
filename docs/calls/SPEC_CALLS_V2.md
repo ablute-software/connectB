@@ -937,6 +937,10 @@ Uma candidatura **submetida** a uma call de uma firma investidora faz a startup 
 
 Uma call pode ter um **máximo de candidaturas submetidas** (rascunhos não contam), editável até com a call aberta. Ao atingi-lo a call mostra **«Full»** (não «Closed»), ninguém novo começa nem submete (também pela API), quem tinha rascunho é avisado **uma vez** pela entidade, e quem chega depois recebe a mensagem no ecrã e um email da Sherlock Deal (uma vez, se a conta não recusou as dicas). A verificação e a submissão fazem-se numa só transação com um bloqueio da call, por isso dois candidatos ao último lugar nunca o ocupam os dois. Subir ou tirar o limite reabre a call (dentro do prazo) e avisa os rascunhos. A equipa vê «182 / 200 applications».
 
+### 27.4 Dicas da Sherlock Deal a quem não foi selecionado (Prompt 929, parte B — 06/11/2026)
+
+Opção da entidade (Results → Options, desligada por omissão) para que a Sherlock Deal envie, num email separado, até 3 dicas gerais a candidatos avaliados e não selecionados. Motor interno sem IA; só categorias e frases-modelo; sem notas, critérios, comentários nem avaliadores. Passo diário 24 h depois de publicar (e depois da contestação). O candidato recusa na conta ou pelo link do email. Detalhe e frases: `docs/calls/PROMPT_929_B_DICAS.md`.
+
 ## 28. Piloto: Portugal Ventures
 
 - **10 seats** (plano custom, pré-atribuído).

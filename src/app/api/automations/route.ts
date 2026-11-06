@@ -37,6 +37,7 @@ import { sendDraftReminders } from '@/lib/calls/applicant/notices';
 import { sendEvaluationReminders } from '@/lib/calls/eval-reminders';
 import { purgeDeletedCalls, type PurgeResult } from '@/lib/calls/purge';
 import { processSends, runDueBatches } from '@/lib/calls/results-publish';
+import { processTips, type TipsRun } from '@/lib/calls/tips-store';
 import { purgeExpiredCallData, warnRetentions, type RetentionPurge } from '@/lib/calls/contestations-store';
 import {
   malwareScanAvailable, investorVerificationScanAvailable, ndaScanAvailable,
@@ -231,6 +232,13 @@ export async function GET() {
   } catch (e) {
     console.error('[automations] call results failed:', e);
   }
+  // Prompt 929 (B) — the tips from Sherlock Deal to applicants who were evaluated and not selected (only for calls whose entity allows it). Independent of the result emails above: its failure touches nothing else.
+  let callTips: TipsRun | null = null;
+  try {
+    callTips = await processTips(admin, { limit: 200, budgetMs: 40_000 });
+  } catch (e) {
+    console.error('[automations] call tips failed:', e);
+  }
   // Prompt 924 (I3) — the applicants' data of a completed call: the administrators are warned 30 days before it goes, and when the date passes the files leave Storage and the data is deleted (a summary without
   // personal data stays). Same daily tick, no extra cron.
   let callRetention: { warned: number; purge: RetentionPurge } | null = null;
@@ -341,6 +349,7 @@ export async function GET() {
     callEvalReminders,
     callPurge,
     callResults,
+    callTips,
     callRetention,
     eligibilityQueue,
     reconciliationSweep,

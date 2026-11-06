@@ -35,6 +35,8 @@ export function callsDb(): CallsDb {
     'call_eval_settings', 'call_eval_criteria', 'call_eval_templates', 'call_eval_import_runs', 'call_eval_assignments', 'call_eval_conflicts', 'call_evaluations', 'call_eval_scores', 'call_eval_reopenings', 'call_eval_decisions', 'call_eval_reminders', 'call_eval_distribution_configs',
     // Prompt 924 (Etapa 4)
     'call_result_settings', 'call_result_feedback', 'call_result_grades', 'call_result_batches', 'call_results', 'call_result_sends',
+    // Prompt 929 (B)
+    'call_tips',
     // Prompt 924 (I3)
     'call_contestations', 'call_data_summaries',
     // Prompt 927 (A)
@@ -88,6 +90,7 @@ const DEFAULTS: Record<string, (db: CallsDb) => Row> = {
   call_result_grades: () => ({ phase_id: null }),
   call_result_batches: () => ({ phase_id: null, scheduled_at: null, scheduled_by: null, published_at: null, published_by: null, total: 0, counts: {}, settings: {} }),
   call_results: () => ({ phase_id: null, batch_id: null, grade: null, moved_to_phase_id: null, is_current: true, supersedes_id: null, published_at: new Date().toISOString() }),
+  call_tips: () => ({ skip_reason: null, categories: [], sentences: [], attempts: 1, sent_at: null }),
   call_result_sends: () => ({ status: 'queued', attempts: 0, last_error: null, next_attempt_at: new Date().toISOString(), sent_at: null }),
   call_phases: () => ({ starts_on: null, ends_on: null }),
   call_form_fields: () => ({
